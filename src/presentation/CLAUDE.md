@@ -40,5 +40,5 @@ Do not create a viewmodel for simple components that only receive and display pr
 - Prefer small, single-responsibility components over large monolithic page components
 - A page component should mainly compose its sub-components and handle page-level state/data fetching
 - Keep presentational logic separated from business logic
-- Do not use directly React Aria components in the pages, create React-Aria based reusable components using Tailwind CSS, tailwind variant, and the Shadcn-style token system
+- Do not use directly React Aria components in the pages folder, instead create React-Aria based reusable components with native declarative props format, and using Tailwind CSS, tailwind variant, and the Shadcn-style token system.
 - Use Tailwind CSS with Shadcn-style token system for styling when you design new pages
