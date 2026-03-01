@@ -1,0 +1,36 @@
+import { useEffect, useState } from "react"
+import { useNavigate } from "@tanstack/react-router"
+import { handleCallbackUseCase } from "@/domain/usecases/handleCallback.usecase"
+import { useAppStore } from "@/store/store"
+import { getAuthPort } from "@/ioc/index"
+
+export function useCallbackPageViewModel() {
+    const [error, setError] = useState<string | null>(null)
+    const setSession = useAppStore((s) => s.setSession)
+    const navigate = useNavigate()
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search)
+
+        // Guard against React StrictMode double-invocation: if the code was
+        // already consumed and removed from the URL, skip silently.
+        if (!params.has("code")) return
+
+        // Remove the auth code from the URL immediately so a second run
+        // (StrictMode or back-navigation) finds nothing to exchange.
+        window.history.replaceState({}, "", window.location.pathname)
+
+        handleCallbackUseCase(params, getAuthPort())
+            .then(({ accessToken, user, idpUrl }) => {
+                setSession(accessToken, user, idpUrl)
+                void navigate({ to: "/home" })
+            })
+            .catch((err: unknown) => {
+                setError(err instanceof Error ? err.message : "Authentication failed")
+            })
+        // Run once on mount
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    return { error }
+}
