@@ -1,4 +1,4 @@
-import pinaiLogo from "@/assets/pinai-logo.svg"
+import pinaiLogo from "@/assets/pinai-logo-dark.svg"
 import { Tabs, type TabItem } from "@/presentation/molecules/Tabs/Tabs"
 import { useLoginPageViewModel, type LoginTab } from "./LoginPage.viewmodel"
 import { RegisterForm } from "./RegisterForm/RegisterForm"

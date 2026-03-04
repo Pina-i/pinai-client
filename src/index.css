@@ -58,6 +58,9 @@
     --shadow-2xl: 2px 2px 0px 2px hsl(22.7586 22.1374% 25.6863% / 2.5);
     --tracking-normal: 0em;
     --spacing: 0.25rem;
+    --online: hsl(142 72% 38%);
+    --idle: hsl(38 90% 52%);
+    --dnd: hsl(0 65% 52%);
 }
 
 .dark {
@@ -111,6 +114,9 @@
     --shadow-lg: 2px 2px 0px 2px hsl(22.7586 22.1374% 25.6863% / 1), 2px 4px 6px 1px hsl(22.7586 22.1374% 25.6863% / 1);
     --shadow-xl: 2px 2px 0px 2px hsl(22.7586 22.1374% 25.6863% / 1), 2px 8px 10px 1px hsl(22.7586 22.1374% 25.6863% / 1);
     --shadow-2xl: 2px 2px 0px 2px hsl(22.7586 22.1374% 25.6863% / 2.5);
+    --online: hsl(142 72% 38%);
+    --idle: hsl(38 90% 52%);
+    --dnd: hsl(0 65% 52%);
 }
 
 @theme inline {
@@ -146,6 +152,9 @@
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-ring: var(--sidebar-ring);
+    --color-online: var(--online);
+    --color-idle: var(--idle);
+    --color-dnd: var(--dnd);
 
     --font-sans: var(--font-sans);
     --font-mono: var(--font-mono);

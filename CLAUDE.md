@@ -42,33 +42,35 @@ The user configures their identity provider URL (e.g. `idp.alice.com`) and the c
 
 ## Project Structure
 
+This project follows a hexagonal architecture (Clean Architecture) with strict separation between layers:
+
 ```
 web-client/
 ├── public/
-├── src/
-│   ├── auth/               # OIDC flow, PKCE helpers, token storage
-│   ├── api/                # Typed API clients (idp + chat-server)
-│   ├── ws/                 # WebSocket client, reconnection logic
-│   ├── store/              # Zustand stores (auth, channels, DMs)
-│   ├── pages/              # Route-level page components
-│   │   ├── Login/
-│   │   ├── Callback/       # OIDC redirect callback handler
-│   │   ├── Home/
-│   │   ├── Channel/
-│   │   └── DMs/
-│   ├── components/         # Reusable UI components
-│   ├── hooks/              # Custom React hooks
-│   ├── types/              # Shared TypeScript types
-│   └── main.tsx
-├── docker/
-│   ├── Dockerfile          # Builds static files, serves via nginx
-│   └── docker-compose.yml  # Standalone deployment
-├── nginx.conf              # nginx config for serving the SPA
-├── index.html
-├── vite.config.ts
-├── tailwind.config.ts
-└── .env.example
+├── locales/              # Translation files
+src/
+├── domain/           # Business core (use cases, ports, models)
+│   ├── models/       # Business entities
+│   ├── ports/        # Interfaces for adapters
+│   └── usecases/     # Business logic
+├── adapters/         # Technical implementations (InMemory, API, etc.)
+├── presentation/     # UI layer (Atomic Design)
+│   ├── atoms/        # Basic building blocks (Button, Input, Label, etc.)
+│   ├── molecules/    # Combinations of atoms (FormField, SearchBar, etc.)
+│   ├── organisms/    # Complex UI sections (Header, Form, DataTable, etc.)
+│   ├── templates/    # Page layouts and structural components
+│   └── pages/        # Application pages
+├── store/            # UI state management (Zustand)
+├── ioc/              # Dependency injection configuration
+├── translation/      # Translation system
+└── config/           # Global configurations
 ```
+
+### Dependency principle
+
+- The **domain** depends on nothing (pure TypeScript)
+- The **adapters** depend on the domain (implement ports)
+- The **presentation** (pages) uses the domain via IoC
 
 ## Deployment
 
@@ -119,15 +121,18 @@ Note: no secrets belong in the frontend environment. All sensitive config is use
 
 ## Auth Store Shape (Zustand)
 
+Must use the slice design pattern. Must only store transversal UI state (not business logic).
+
 ```ts
-interface AuthStore {
-  accessToken: string | null       // in-memory only
-  idpUrl: string | null            // from localStorage
-  user: UserProfile | null
-  isAuthenticated: boolean
-  login: (idpUrl: string) => void  // triggers OIDC redirect
-  logout: () => void
-  refreshToken: () => Promise<void>
+interface AuthSlice {
+    /** Access token kept in memory only — never persisted to localStorage. */
+    accessToken: string | null
+    user: UserProfile | null
+    /** The IdP base URL persisted to localStorage so logout redirect survives page reload. */
+    idpUrl: string | null
+
+    setSession: (accessToken: string, user: UserProfile, idpUrl: string) => void
+    clearSession: () => void
 }
 ```
 
@@ -140,8 +145,51 @@ interface AuthStore {
 - Validate `nonce` in the ID token claims
 - Sanitize all user-generated content before rendering (use DOMPurify for any raw HTML)
 
-## Testing Strategy
+## File and folder naming
 
-- Unit tests for PKCE helpers, token parsing, state validation
-- Component tests with React Testing Library
-- E2E tests with Playwright covering the full OIDC login flow against a mock IdP
+#### Naming convention: kebab-case
+
+**All folders and files** must be created using **kebab-case**:
+
+```
+âœ… my-component/
+âœ… vehicle-list.tsx
+âœ… add-vehicle.usecase.ts
+```
+
+```
+âŒ MyComponent/
+âŒ vehicleList.tsx
+âŒ addVehicle.usecase.ts
+```
+
+#### Dot notation for file types
+
+You can use **dots** to specify file types (e.g., `.usecase`, `.adapter`, `.port`):
+
+- **Use cases**: `{action}.usecase.ts` (e.g., `add-vehicle.usecase.ts`)
+- **Interfaces**: `{action}.interface.ts` (e.g., `add-vehicle.interface.ts`)
+- **Ports**: `{entity}.port.ts` (e.g., `vehicle.port.ts`)
+- **Adapters**: `{entity}-{implementation}.adapter.ts` (e.g., `vehicle-in-memory.adapter.ts`)
+- **Models**: `{entity}.model.ts` (e.g., `vehicle.model.ts`)
+
+Examples with dot notation:
+
+```
+âœ… add-vehicle.usecase.ts
+âœ… vehicle-api.adapter.ts
+âœ… http-client.helper.ts
+âœ… user-profile.component.tsx
+```
+
+### 3. Use case organization
+
+Each use case follows this structure:
+
+```
+usecases/
+â””â”€â”€ vehicle/
+    â””â”€â”€ addVehicle/
+        â”œâ”€â”€ addVehicle.interface.ts    # Interface + IoC token
+        â””â”€â”€ addVehicle.usecase.ts      # Implementation
+```

@@ -1,5 +1,6 @@
 import type { StateCreator } from "zustand"
 import type { UserProfile } from "@/domain/models/auth"
+import type { AppStore } from "../store"
 
 export interface AuthSlice {
     /** Access token kept in memory only — never persisted to localStorage. */
@@ -12,12 +13,7 @@ export interface AuthSlice {
     clearSession: () => void
 }
 
-export const createAuthSlice: StateCreator<
-    AuthSlice,
-    [["zustand/devtools", never]],
-    [],
-    AuthSlice
-> = (set) => ({
+export const createAuthSlice: StateCreator<AppStore, [["zustand/devtools", never]], [], AuthSlice> = (set) => ({
     accessToken: null,
     user: null,
     idpUrl: localStorage.getItem("idp_url"),
