@@ -119,10 +119,11 @@ VITE_DEFAULT_IDP_URL=https://idp.example.com   # optional default, user can over
 
 Note: no secrets belong in the frontend environment. All sensitive config is user-provided at runtime.
 
-## Auth Store Shape (Zustand)
+## Zustand Store Shape
 
-Must use the slice design pattern. Must only store transversal UI state (not business logic).
+Must use the slice design pattern. Must only store transversal UI state or values (not business logic).
 
+For example the AuthSlice:
 ```ts
 interface AuthSlice {
     /** Access token kept in memory only — never persisted to localStorage. */
@@ -135,6 +136,8 @@ interface AuthSlice {
     clearSession: () => void
 }
 ```
+
+We could imaine in other slices, store values like : selectedChatServer, sidebarView, etc...
 
 ## Security Constraints
 
