@@ -7,27 +7,33 @@ import { cn } from "@/presentation/_libs/utils"
 import { UserPanel } from "./UserPanel"
 
 export function ChannelSidebar() {
-    const {
-        view,
-        servers,
-        activeServer,
-        channelsByServer,
-        activeChannel,
-        collapsedCategories,
-        selectChannel,
-        toggleCategory,
-        localDmConvos,
-        activeDm,
-        setActiveDm,
-        switchToDms,
-    } = useAppStore()
+    const view = useAppStore((s) => s.view)
+    const servers = useAppStore((s) => s.servers)
+    const activeServer = useAppStore((s) => s.activeServer)
+    const channelsByServer = useAppStore((s) => s.channelsByServer)
+    const activeChannel = useAppStore((s) => s.activeChannel)
+    const selectChannel = useAppStore((s) => s.selectChannel)
+    const localDmConvos = useAppStore((s) => s.localDmConvos)
+    const activeDm = useAppStore((s) => s.activeDm)
+    const setActiveDm = useAppStore((s) => s.setActiveDm)
+    const switchToDms = useAppStore((s) => s.switchToDms)
 
     const [showServerMenu, setShowServerMenu] = useState(false)
+    const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
     const serverMenuRef = useRef<HTMLDivElement>(null)
 
     const activeServerData = servers.find((s) => s.id === activeServer)
     const channels = channelsByServer[activeServer] ?? []
     const categories = [...new Set(channels.map((c) => c.category))]
+
+    function toggleCategory(cat: string) {
+        setCollapsedCategories((prev) => {
+            const next = new Set(prev)
+            if (next.has(cat)) next.delete(cat)
+            else next.add(cat)
+            return next
+        })
+    }
 
     useEffect(() => {
         function handleClick(e: MouseEvent) {

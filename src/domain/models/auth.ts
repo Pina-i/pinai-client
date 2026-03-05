@@ -2,6 +2,8 @@ export interface UserProfile {
     sub: string
     email: string
     preferred_username: string
+    handle: string
+    avatar_url?: string
 }
 
 export interface OidcConfig {

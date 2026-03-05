@@ -137,7 +137,9 @@ interface AuthSlice {
 }
 ```
 
-We could imaine in other slices, store values like : selectedChatServer, sidebarView, etc...
+We could imagine in other slices, store values like : selectedChatServer, sidebarView, etc...
+
+- Prefer local state in the React components, but when it becomes too tedious to give a value from a React component to another one, put it in the store in the appropriate slice.
 
 ## Security Constraints
 

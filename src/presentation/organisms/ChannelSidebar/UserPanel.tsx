@@ -1,4 +1,5 @@
 import { Headphones, HeadphoneOff, Mic, MicOff, Settings } from "lucide-react"
+import { useState } from "react"
 import { useAppStore } from "@/store/store"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
@@ -6,7 +7,11 @@ import { Tooltip } from "@/presentation/atoms/Tooltip/Tooltip"
 import { cn } from "@/presentation/_libs/utils"
 
 export function UserPanel() {
-    const { user, isMuted, isDeafened, toggleMute, toggleDeafen, setShowSettings } = useAppStore()
+    const user = useAppStore((s) => s.user)
+    const setShowSettings = useAppStore((s) => s.setShowSettings)
+
+    const [isMuted, setIsMuted] = useState(false)
+    const [isDeafened, setIsDeafened] = useState(false)
 
     if (!user) return null
 
@@ -23,7 +28,7 @@ export function UserPanel() {
             <div className="flex items-center gap-0.5">
                 <Tooltip content={isMuted ? "Unmute" : "Mute"} placement="top" delay={300}>
                     <IconButton
-                        onPress={toggleMute}
+                        onPress={() => setIsMuted((p) => !p)}
                         aria-label={isMuted ? "Unmute" : "Mute"}
                         className={cn(
                             "p-1.5",
@@ -37,7 +42,7 @@ export function UserPanel() {
                 </Tooltip>
                 <Tooltip content={isDeafened ? "Undeafen" : "Deafen"} placement="top" delay={300}>
                     <IconButton
-                        onPress={toggleDeafen}
+                        onPress={() => setIsDeafened((p) => !p)}
                         aria-label={isDeafened ? "Undeafen" : "Deafen"}
                         className={cn(
                             "p-1.5",
