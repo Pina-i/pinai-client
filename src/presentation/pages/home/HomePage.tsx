@@ -1,3 +1,5 @@
+import { AnimatedContent } from "@/presentation/atoms/animated-content/animated-content"
+import { PageTransition } from "@/presentation/atoms/page-transition/page-transition"
 import { HomeLayout } from "@/presentation/templates/HomeLayout/HomeLayout"
 import { X } from "lucide-react"
 import { FriendsPanel } from "./FriendsPanel/FriendsPanel"
@@ -10,10 +12,21 @@ export function HomePage() {
 
     if (!vm.user) return null
 
+    const contentKey = vm.view === "dms" && !vm.activeDm
+        ? "friends"
+        : `${vm.view}-${vm.activeDm ?? vm.activeChannel ?? ""}`
+
     return (
+        <PageTransition className="flex flex-1">
         <HomeLayout>
+            <AnimatedContent contentKey={contentKey} className="flex flex-1 flex-col">
             {vm.view === "dms" && !vm.activeDm ? (
-                <FriendsPanel friends={vm.friends} onStartDm={vm.openDmWith} />
+                <FriendsPanel
+                    friends={vm.friends}
+                    userHandle={vm.user.handle}
+                    onStartDm={vm.openDmWith}
+                    onSendFriendRequest={vm.sendFriendRequest}
+                />
             ) : (
                 <div className="flex flex-1 flex-col">
                     {vm.showPinned && vm.pinnedMessages.length > 0 && (
@@ -71,6 +84,8 @@ export function HomePage() {
                     <MessageInput placeholder={vm.messagePlaceholder} onSend={vm.sendMessage} />
                 </div>
             )}
+            </AnimatedContent>
         </HomeLayout>
+        </PageTransition>
     )
 }

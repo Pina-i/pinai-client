@@ -1,5 +1,6 @@
 import pinaiLogo from "@/assets/pinai-logo-dark.svg"
 import { Button } from "@/presentation/atoms/Button/Button"
+import { PageTransition } from "@/presentation/atoms/page-transition/page-transition"
 import { TextField } from "@/presentation/atoms/TextField/TextField"
 import { useLandingPageViewModel } from "./LandingPage.viewmodel"
 
@@ -8,7 +9,7 @@ export function LandingPage() {
 
     return (
         <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4">
-            <div className="w-full max-w-sm space-y-8">
+            <PageTransition className="w-full max-w-sm space-y-8">
                 {/* Logo / heading */}
                 <div className="flex items-start justify-center space-x-3">
                     <img
@@ -46,7 +47,7 @@ export function LandingPage() {
                 </div>
 
                 <p className="text-center text-xs text-muted-foreground">Self-hosted · Federated · Open source</p>
-            </div>
+            </PageTransition>
         </div>
     )
 }

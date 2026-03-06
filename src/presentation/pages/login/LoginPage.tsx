@@ -1,4 +1,6 @@
 import pinaiLogo from "@/assets/pinai-logo-dark.svg"
+import { AnimatedContent } from "@/presentation/atoms/animated-content/animated-content"
+import { PageTransition } from "@/presentation/atoms/page-transition/page-transition"
 import { Tabs, type TabItem } from "@/presentation/molecules/Tabs/Tabs"
 import { useLoginPageViewModel, type LoginTab } from "./LoginPage.viewmodel"
 import { RegisterForm } from "./RegisterForm/RegisterForm"
@@ -52,16 +54,19 @@ export function LoginPage() {
 
     return (
         <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4">
-            <div className="w-full max-w-sm space-y-8">
+            <PageTransition className="w-full max-w-sm space-y-8">
                 <div className="flex items-start justify-center space-x-3">
                     <img
                         src={pinaiLogo}
                         alt="Pīna'i logo"
                         className="h-16"
                     />
-                    <div className="text-center">
+
+                    <div className="text-left">
                         <h1 className="text-5xl font-bold tracking-tight text-foreground">Pīna&apos;i</h1>
-                        <p className="text-muted-foreground text-sm">{activeTab === "signin" ? "Sign in to continue" : "Create your account"}</p>
+                        <AnimatedContent contentKey={activeTab}>
+                            <p className="text-muted-foreground text-sm">{activeTab === "signin" ? "Sign in to continue" : "Create your account"}</p>
+                        </AnimatedContent>
                     </div>
                 </div>
 
@@ -78,7 +83,7 @@ export function LoginPage() {
                 </div>
 
                 <p className="text-center text-xs text-muted-foreground">Self-hosted · Federated · Open source</p>
-            </div>
+            </PageTransition>
         </div>
     )
 }
