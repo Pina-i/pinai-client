@@ -2,7 +2,7 @@ export interface UserProfile {
     sub: string
     email: string
     preferred_username: string
-    handle: string
+    address: string
     avatar_url?: string
 }
 

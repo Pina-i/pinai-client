@@ -13,12 +13,12 @@ type FriendTab = (typeof friendTabs)[number]
 
 interface FriendsPanelProps {
     friends: Friend[]
-    userHandle: string
+    userAddress: string
     onStartDm: (name: string) => void
-    onSendFriendRequest: (handle: string) => Promise<unknown>
+    onSendFriendRequest: (address: string) => Promise<unknown>
 }
 
-export function FriendsPanel({ friends, userHandle, onStartDm, onSendFriendRequest }: FriendsPanelProps) {
+export function FriendsPanel({ friends, userAddress, onStartDm, onSendFriendRequest }: FriendsPanelProps) {
     const [activeTab, setActiveTab] = useState<FriendTab>("All")
     const [showAddFriend, setShowAddFriend] = useState(false)
     const [friendInput, setFriendInput] = useState("")
@@ -26,8 +26,8 @@ export function FriendsPanel({ friends, userHandle, onStartDm, onSendFriendReque
     const [requestError, setRequestError] = useState("")
     const [copied, setCopied] = useState(false)
 
-    function copyHandle() {
-        navigator.clipboard.writeText(userHandle)
+    function copyAddress() {
+        navigator.clipboard.writeText(userAddress)
         setCopied(true)
         setTimeout(() => setCopied(false), 2000)
     }
@@ -87,15 +87,15 @@ export function FriendsPanel({ friends, userHandle, onStartDm, onSendFriendReque
                 <div className="border-b border-border bg-popover px-6 py-4">
                     <h3 className="mb-1 text-sm font-semibold uppercase text-foreground">Add Friend</h3>
                     <p className="mb-3 text-xs text-muted-foreground">
-                        You can add friends with their username. Yours is{" "}
-                        <button onClick={copyHandle} className="inline-flex items-center gap-1 font-mono font-semibold text-primary hover:underline">
-                            {userHandle}
+                        You can add friends with their address. Yours is{" "}
+                        <button onClick={copyAddress} className="inline-flex items-center gap-1 font-mono font-semibold text-primary hover:underline">
+                            {userAddress}
                             {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                         </button>
                     </p>
                     <div className="flex items-end gap-2">
                         <TextField
-                            placeholder="Enter a username#0000"
+                            placeholder="alice-A1B2@idp.example.com"
                             value={friendInput}
                             onChange={setFriendInput}
                             className="flex-1"

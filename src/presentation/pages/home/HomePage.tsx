@@ -23,7 +23,7 @@ export function HomePage() {
             {vm.view === "dms" && !vm.activeDm ? (
                 <FriendsPanel
                     friends={vm.friends}
-                    userHandle={vm.user.handle}
+                    userAddress={vm.user.address}
                     onStartDm={vm.openDmWith}
                     onSendFriendRequest={vm.sendFriendRequest}
                 />
