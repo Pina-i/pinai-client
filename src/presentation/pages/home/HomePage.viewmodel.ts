@@ -1,28 +1,9 @@
 import { useCallback, useRef, useState } from "react"
 import { useAppStore } from "@/store/store"
 import { sendFriendRequestUseCase } from "@/domain/usecases/social/send-friend-request.usecase"
-import { getSocialPort } from "@/ioc"
+import { sendDmWsUseCase } from "@/domain/usecases/ws/send-dm-ws.usecase"
+import { getSocialPort, getWsPort } from "@/ioc"
 import type { Message, Friend } from "@/lib/types"
-
-const initialFriends: Friend[] = [
-    { id: "f1", name: "Alice", status: "online", activity: "Playing Valorant" },
-    { id: "f2", name: "Bob", status: "idle", activity: "" },
-    { id: "f3", name: "Charlie", status: "online", activity: "Listening to Spotify" },
-    { id: "f4", name: "Diana", status: "offline", activity: "" },
-]
-
-const initialMessages: Record<string, Message[]> = {
-    c1: [
-        { id: "msg1", author: "Alice", avatar: "AL", content: "Welcome to the general channel!", timestamp: "Today at 10:00 AM", color: "#e879f9" },
-        { id: "msg2", author: "Bob", avatar: "BO", content: "Hey everyone!", timestamp: "Today at 10:05 AM", color: "#60a5fa", reactions: [{ emoji: "thumbsup", count: 2, reacted: false }] },
-    ],
-}
-
-const initialDmMessages: Record<string, Message[]> = {
-    dm1: [
-        { id: "dm-msg1", author: "Alice", avatar: "AL", content: "Hey there!", timestamp: "Today at 9:00 AM", color: "#e879f9" },
-    ],
-}
 
 export function useHomePageViewModel() {
     const view = useAppStore((s) => s.view)
@@ -39,9 +20,14 @@ export function useHomePageViewModel() {
     const accessToken = useAppStore((s) => s.accessToken)
     const idpUrl = useAppStore((s) => s.idpUrl)
 
-    const [messages, setMessages] = useState<Record<string, Message[]>>(initialMessages)
-    const [dmMessages, setDmMessages] = useState<Record<string, Message[]>>(initialDmMessages)
-    const [friends] = useState<Friend[]>(initialFriends)
+    // DM messages from the store (populated by WebSocket hook + local sends).
+    const dmMessages = useAppStore((s) => s.dmMessages)
+    const pushDmMessage = useAppStore((s) => s.pushDmMessage)
+    const updateDmConversation = useAppStore((s) => s.updateDmConversation)
+
+    // Channel messages remain local (separate chat-server WS in the future).
+    const [messages, setMessages] = useState<Record<string, Message[]>>({})
+    const [friends] = useState<Friend[]>([])
     const [pinnedMessages] = useState<Message[]>([])
 
     const currentChannel = (channelsByServer[activeServer] ?? []).find((c) => c.id === activeChannel)
@@ -77,13 +63,21 @@ export function useHomePageViewModel() {
                 color: "#a78bfa",
             }
             if (view === "dms" && activeDm) {
-                setDmMessages((prev) => ({ ...prev, [activeDm]: [...(prev[activeDm] ?? []), newMsg] }))
+                // Optimistic push to store.
+                pushDmMessage(activeDm, newMsg)
+                // Send via WebSocket.
+                try {
+                    const recipientAddress = activeDmData?.name ?? activeDm
+                    sendDmWsUseCase(recipientAddress, content, getWsPort())
+                } catch {
+                    // Silent — message already shown optimistically.
+                }
             } else {
                 setMessages((prev) => ({ ...prev, [activeChannel]: [...(prev[activeChannel] ?? []), newMsg] }))
             }
             setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50)
         },
-        [user, view, activeDm, activeChannel],
+        [user, view, activeDm, activeDmData, activeChannel, pushDmMessage],
     )
 
     const handleReaction = useCallback(
@@ -107,36 +101,36 @@ export function useHomePageViewModel() {
                 })
 
             if (view === "dms" && activeDm) {
-                setDmMessages((prev) => ({ ...prev, [activeDm]: update(prev[activeDm] ?? []) }))
+                updateDmConversation(activeDm, update)
             } else {
                 setMessages((prev) => ({ ...prev, [activeChannel]: update(prev[activeChannel] ?? []) }))
             }
         },
-        [view, activeDm, activeChannel],
+        [view, activeDm, activeChannel, updateDmConversation],
     )
 
     const handleDeleteMessage = useCallback(
         (messageId: string) => {
             const remove = (msgs: Message[]) => msgs.filter((m) => m.id !== messageId)
             if (view === "dms" && activeDm) {
-                setDmMessages((prev) => ({ ...prev, [activeDm]: remove(prev[activeDm] ?? []) }))
+                updateDmConversation(activeDm, remove)
             } else {
                 setMessages((prev) => ({ ...prev, [activeChannel]: remove(prev[activeChannel] ?? []) }))
             }
         },
-        [view, activeDm, activeChannel],
+        [view, activeDm, activeChannel, updateDmConversation],
     )
 
     const handleEditMessage = useCallback(
         (messageId: string, content: string) => {
             const edit = (msgs: Message[]) => msgs.map((m) => (m.id === messageId ? { ...m, content } : m))
             if (view === "dms" && activeDm) {
-                setDmMessages((prev) => ({ ...prev, [activeDm]: edit(prev[activeDm] ?? []) }))
+                updateDmConversation(activeDm, edit)
             } else {
                 setMessages((prev) => ({ ...prev, [activeChannel]: edit(prev[activeChannel] ?? []) }))
             }
         },
-        [view, activeDm, activeChannel],
+        [view, activeDm, activeChannel, updateDmConversation],
     )
 
     const handleUserClick = useCallback((_author: string) => {
@@ -144,9 +138,9 @@ export function useHomePageViewModel() {
     }, [])
 
     const sendFriendRequest = useCallback(
-        async (handle: string) => {
+        async (address: string) => {
             if (!accessToken || !idpUrl) throw new Error("Not authenticated")
-            return sendFriendRequestUseCase(idpUrl, accessToken, handle, getSocialPort())
+            return sendFriendRequestUseCase(idpUrl, accessToken, address, getSocialPort())
         },
         [accessToken, idpUrl],
     )

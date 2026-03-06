@@ -3,6 +3,12 @@ import { useAppStore } from "@/store/store"
 import { isTokenValid } from "@/adapters/auth/token"
 import { ensureAuthenticatedUseCase } from "@/domain/usecases/auth/ensureAuthenticated.usecase"
 import { getAuthPort } from "@/ioc/index"
+import { useIdpWebSocket } from "@/presentation/hooks/useIdpWebSocket"
+
+function AuthenticatedLayout() {
+    useIdpWebSocket()
+    return <Outlet />
+}
 
 export const Route = createFileRoute("/_authenticated")({
     beforeLoad: async () => {
@@ -13,5 +19,5 @@ export const Route = createFileRoute("/_authenticated")({
             throw redirect({ to: "/" })
         }
     },
-    component: () => <Outlet />,
+    component: AuthenticatedLayout,
 })

@@ -2,7 +2,7 @@ import type { FollowResponse } from "@/domain/models/social"
 import type { ISocialPort } from "@/domain/ports/social.port"
 
 export class SocialApiAdapter implements ISocialPort {
-    async sendFollowRequest(idpUrl: string, accessToken: string, handle: string): Promise<FollowResponse> {
+    async sendFollowRequest(idpUrl: string, accessToken: string, address: string): Promise<FollowResponse> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/follow`
         const res = await fetch(url, {
             method: "POST",
@@ -10,7 +10,7 @@ export class SocialApiAdapter implements ISocialPort {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${accessToken}`,
             },
-            body: JSON.stringify({ handle }),
+            body: JSON.stringify({ address }),
         })
 
         if (!res.ok) {
