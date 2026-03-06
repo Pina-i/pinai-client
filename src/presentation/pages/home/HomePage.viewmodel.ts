@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from "react"
 import { useAppStore } from "@/store/store"
+import { sendFriendRequestUseCase } from "@/domain/usecases/social/send-friend-request.usecase"
+import { getSocialPort } from "@/ioc"
 import type { Message, Friend } from "@/lib/types"
 
 const initialFriends: Friend[] = [
@@ -34,6 +36,8 @@ export function useHomePageViewModel() {
     const channelsByServer = useAppStore((s) => s.channelsByServer)
     const localDmConvos = useAppStore((s) => s.localDmConvos)
     const user = useAppStore((s) => s.user)
+    const accessToken = useAppStore((s) => s.accessToken)
+    const idpUrl = useAppStore((s) => s.idpUrl)
 
     const [messages, setMessages] = useState<Record<string, Message[]>>(initialMessages)
     const [dmMessages, setDmMessages] = useState<Record<string, Message[]>>(initialDmMessages)
@@ -139,6 +143,14 @@ export function useHomePageViewModel() {
         // Will open user profile when backend is connected
     }, [])
 
+    const sendFriendRequest = useCallback(
+        async (handle: string) => {
+            if (!accessToken || !idpUrl) throw new Error("Not authenticated")
+            return sendFriendRequestUseCase(idpUrl, accessToken, handle, getSocialPort())
+        },
+        [accessToken, idpUrl],
+    )
+
     return {
         view,
         activeDm,
@@ -157,5 +169,6 @@ export function useHomePageViewModel() {
         handleDeleteMessage,
         handleEditMessage,
         handleUserClick,
+        sendFriendRequest,
     }
 }

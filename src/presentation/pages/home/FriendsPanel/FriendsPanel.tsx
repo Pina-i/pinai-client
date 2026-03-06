@@ -1,4 +1,4 @@
-import { MessageSquare, MoreHorizontal } from "lucide-react"
+import { Copy, Check, MessageSquare, MoreHorizontal } from "lucide-react"
 import { useState } from "react"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { Button } from "@/presentation/atoms/Button/Button"
@@ -13,24 +13,42 @@ type FriendTab = (typeof friendTabs)[number]
 
 interface FriendsPanelProps {
     friends: Friend[]
+    userHandle: string
     onStartDm: (name: string) => void
+    onSendFriendRequest: (handle: string) => Promise<unknown>
 }
 
-export function FriendsPanel({ friends, onStartDm }: FriendsPanelProps) {
+export function FriendsPanel({ friends, userHandle, onStartDm, onSendFriendRequest }: FriendsPanelProps) {
     const [activeTab, setActiveTab] = useState<FriendTab>("All")
     const [showAddFriend, setShowAddFriend] = useState(false)
     const [friendInput, setFriendInput] = useState("")
-    const [requestSent, setRequestSent] = useState(false)
+    const [requestStatus, setRequestStatus] = useState<"idle" | "sending" | "sent" | "error">("idle")
+    const [requestError, setRequestError] = useState("")
+    const [copied, setCopied] = useState(false)
+
+    function copyHandle() {
+        navigator.clipboard.writeText(userHandle)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+    }
 
     const filteredFriends = friends.filter((f) => {
         if (activeTab === "Online") return f.status === "online"
         return true
     })
 
-    function sendFriendRequest() {
+    async function sendFriendRequest() {
         if (!friendInput.trim()) return
-        setRequestSent(true)
-        setFriendInput("")
+        setRequestStatus("sending")
+        setRequestError("")
+        try {
+            await onSendFriendRequest(friendInput.trim())
+            setRequestStatus("sent")
+            setFriendInput("")
+        } catch (e) {
+            setRequestStatus("error")
+            setRequestError(e instanceof Error ? e.message : "Failed to send request")
+        }
     }
 
     return (
@@ -55,7 +73,8 @@ export function FriendsPanel({ friends, onStartDm }: FriendsPanelProps) {
                     variant="primary"
                     onPress={() => {
                         setShowAddFriend(true)
-                        setRequestSent(false)
+                        setRequestStatus("idle")
+                        setRequestError("")
                     }}
                     className="ml-auto w-auto px-3 py-1 text-xs"
                 >
@@ -67,7 +86,13 @@ export function FriendsPanel({ friends, onStartDm }: FriendsPanelProps) {
             {showAddFriend && (
                 <div className="border-b border-border bg-popover px-6 py-4">
                     <h3 className="mb-1 text-sm font-semibold uppercase text-foreground">Add Friend</h3>
-                    <p className="mb-3 text-xs text-muted-foreground">You can add friends with their username.</p>
+                    <p className="mb-3 text-xs text-muted-foreground">
+                        You can add friends with their username. Yours is{" "}
+                        <button onClick={copyHandle} className="inline-flex items-center gap-1 font-mono font-semibold text-primary hover:underline">
+                            {userHandle}
+                            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                        </button>
+                    </p>
                     <div className="flex items-end gap-2">
                         <TextField
                             placeholder="Enter a username#0000"
@@ -78,13 +103,14 @@ export function FriendsPanel({ friends, onStartDm }: FriendsPanelProps) {
                         <Button
                             variant="primary"
                             onPress={sendFriendRequest}
-                            isDisabled={!friendInput.trim()}
+                            isDisabled={!friendInput.trim() || requestStatus === "sending"}
                             className="w-auto px-4 py-2"
                         >
-                            Send Request
+                            {requestStatus === "sending" ? "Sending…" : "Send Request"}
                         </Button>
                     </div>
-                    {requestSent && <p className="mt-2 text-xs text-online">Friend request sent successfully!</p>}
+                    {requestStatus === "sent" && <p className="mt-2 text-xs text-online">Friend request sent successfully!</p>}
+                    {requestStatus === "error" && <p className="mt-2 text-xs text-destructive">{requestError}</p>}
                 </div>
             )}
 
