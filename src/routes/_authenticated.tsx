@@ -4,9 +4,11 @@ import { isTokenValid } from "@/adapters/auth/token"
 import { ensureAuthenticatedUseCase } from "@/domain/usecases/auth/ensureAuthenticated.usecase"
 import { getAuthPort } from "@/ioc/index"
 import { useIdpWebSocket } from "@/presentation/hooks/useIdpWebSocket"
+import { useLoadPendingNotifications } from "@/presentation/hooks/useLoadPendingNotifications"
 
 function AuthenticatedLayout() {
     useIdpWebSocket()
+    useLoadPendingNotifications()
     return <Outlet />
 }
 

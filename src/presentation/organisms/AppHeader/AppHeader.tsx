@@ -1,15 +1,19 @@
-import { AtSign, Bell, Hash, HelpCircle, Pin, Search, Users, X } from "lucide-react"
+import { AtSign, Bell, Check, Hash, HelpCircle, Pin, Search, Users, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { useAppStore } from "@/store/store"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { Tooltip } from "@/presentation/atoms/Tooltip/Tooltip"
 import { cn } from "@/presentation/_libs/utils"
+import { getSocialPort } from "@/ioc"
+import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 
 const notificationLabel: Record<string, string> = {
-    follow_request: "sent you a friend request",
-    follow_accepted: "accepted your friend request",
-    follow_rejected: "declined your friend request",
-    follow_removed: "removed you as a friend",
+    friend_request: "sent you a friend request",
+    friend_request_accepted: "accepted your friend request",
+    friend_request_rejected: "declined your friend request",
+    friend_removed: "removed you as a friend",
 }
 
 export function AppHeader() {
@@ -28,8 +32,12 @@ export function AppHeader() {
         setSearchQuery,
         notifications,
         clearNotifications,
+        dismissNotification,
+        accessToken,
+        idpUrl,
     } = useAppStore()
 
+    const queryClient = useQueryClient()
     const [showNotifications, setShowNotifications] = useState(false)
     const [seenCount, setSeenCount] = useState(0)
     const panelRef = useRef<HTMLDivElement>(null)
@@ -47,6 +55,24 @@ export function AppHeader() {
         document.addEventListener("mousedown", onClickOutside)
         return () => document.removeEventListener("mousedown", onClickOutside)
     }, [showNotifications])
+
+    async function handleFriendRequestResponse(notificationId: string, friendRequestId: string, action: "accept" | "reject") {
+        if (!accessToken || !idpUrl) return
+        try {
+            if (action === "accept") {
+                await getSocialPort().acceptFriendRequest(idpUrl, accessToken, friendRequestId)
+                dismissNotification(notificationId)
+                toast.success("Friend request accepted")
+                queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
+            } else {
+                await getSocialPort().rejectFriendRequest(idpUrl, accessToken, friendRequestId)
+                dismissNotification(notificationId)
+                toast.success("Friend request declined")
+            }
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Something went wrong")
+        }
+    }
 
     function toggleNotifications() {
         setShowNotifications((prev) => {
@@ -174,7 +200,7 @@ export function AppHeader() {
                                     <p className="px-3 py-6 text-center text-sm text-muted-foreground">No notifications</p>
                                 ) : (
                                     notifications.map((n) => (
-                                        <div key={n.id} className="flex items-start gap-3 border-b border-border/50 px-3 py-2.5 last:border-0 hover:bg-accent/30">
+                                        <div key={n.id} className="flex items-center gap-3 border-b border-border/50 px-3 py-2.5 last:border-0 hover:bg-accent/30">
                                             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-semibold text-foreground">
                                                 {n.username.slice(0, 2).toUpperCase()}
                                             </div>
@@ -185,6 +211,28 @@ export function AppHeader() {
                                                 </p>
                                                 <p className="text-xs text-muted-foreground">{n.address}</p>
                                             </div>
+                                            {n.eventType === "friend_request" && n.friendRequestId && (
+                                                <div className="flex shrink-0 items-center gap-1">
+                                                    <Tooltip content="Accept" placement="bottom" delay={300}>
+                                                        <IconButton
+                                                            aria-label="Accept friend request"
+                                                            onPress={() => handleFriendRequestResponse(n.id, n.friendRequestId!, "accept")}
+                                                            className="rounded-full p-1.5 text-online hover:bg-online/20"
+                                                        >
+                                                            <Check className="h-4 w-4" />
+                                                        </IconButton>
+                                                    </Tooltip>
+                                                    <Tooltip content="Decline" placement="bottom" delay={300}>
+                                                        <IconButton
+                                                            aria-label="Decline friend request"
+                                                            onPress={() => handleFriendRequestResponse(n.id, n.friendRequestId!, "reject")}
+                                                            className="rounded-full p-1.5 text-destructive hover:bg-destructive/20"
+                                                        >
+                                                            <X className="h-4 w-4" />
+                                                        </IconButton>
+                                                    </Tooltip>
+                                                </div>
+                                            )}
                                         </div>
                                     ))
                                 )}

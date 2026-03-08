@@ -42,3 +42,4 @@ Do not create a viewmodel for simple components that only receive and display pr
 - Keep presentational logic separated from business logic
 - Do not use directly React Aria components in the pages folder, instead create React-Aria based reusable components with native declarative props format, and using Tailwind CSS, tailwind variant, and the Shadcn-style token system.
 - Use Tailwind CSS with Shadcn-style token system for styling when you design new pages
+- Use Tanstack query for data fetching and caching

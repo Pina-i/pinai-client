@@ -22,7 +22,6 @@ export function HomePage() {
             <AnimatedContent contentKey={contentKey} className="flex flex-1 flex-col">
             {vm.view === "dms" && !vm.activeDm ? (
                 <FriendsPanel
-                    friends={vm.friends}
                     userAddress={vm.user.address}
                     onStartDm={vm.openDmWith}
                     onSendFriendRequest={vm.sendFriendRequest}

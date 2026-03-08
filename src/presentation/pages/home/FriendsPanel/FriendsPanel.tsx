@@ -6,19 +6,19 @@ import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { TextField } from "@/presentation/atoms/TextField/TextField"
 import { cn } from "@/presentation/_libs/utils"
-import type { Friend } from "@/lib/types"
+import { useFriendsPanelViewModel } from "./FriendsPanel.viewmodel"
 
 const friendTabs = ["All", "Online", "Pending", "Blocked"] as const
 type FriendTab = (typeof friendTabs)[number]
 
 interface FriendsPanelProps {
-    friends: Friend[]
     userAddress: string
     onStartDm: (name: string) => void
     onSendFriendRequest: (address: string) => Promise<unknown>
 }
 
-export function FriendsPanel({ friends, userAddress, onStartDm, onSendFriendRequest }: FriendsPanelProps) {
+export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: FriendsPanelProps) {
+    const { friends, isLoading, error } = useFriendsPanelViewModel()
     const [activeTab, setActiveTab] = useState<FriendTab>("All")
     const [showAddFriend, setShowAddFriend] = useState(false)
     const [friendInput, setFriendInput] = useState("")
@@ -116,6 +116,8 @@ export function FriendsPanel({ friends, userAddress, onStartDm, onSendFriendRequ
 
             {/* Friends list */}
             <ScrollArea className="flex-1 px-4 py-4">
+                {isLoading && <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>}
+                {error && <p className="py-8 text-center text-sm text-destructive">{error}</p>}
                 <div className="flex flex-col gap-1">
                     {filteredFriends.map((friend) => {
                         const initials = friend.name

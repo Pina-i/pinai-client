@@ -10,6 +10,7 @@ export interface WsSlice {
 
     setWsStatus: (status: WsConnectionStatus) => void
     addNotification: (notification: WsNotification) => void
+    dismissNotification: (id: string) => void
     clearNotifications: () => void
     pushDmMessage: (conversationKey: string, message: Message) => void
     updateDmConversation: (conversationKey: string, updater: (msgs: Message[]) => Message[]) => void
@@ -24,9 +25,20 @@ export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]]
 
     addNotification: (notification) =>
         set(
-            (s) => ({ notifications: [notification, ...s.notifications] }),
+            (s) => ({
+                notifications: s.notifications.some((n) => n.id === notification.id)
+                    ? s.notifications
+                    : [notification, ...s.notifications],
+            }),
             false,
             "ws/addNotification",
+        ),
+
+    dismissNotification: (id) =>
+        set(
+            (s) => ({ notifications: s.notifications.filter((n) => n.id !== id) }),
+            false,
+            "ws/dismissNotification",
         ),
 
     clearNotifications: () => set({ notifications: [] }, false, "ws/clearNotifications"),

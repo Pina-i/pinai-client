@@ -7,18 +7,18 @@ export interface DmEventPayload {
     created_at: string
 }
 
-export interface FollowEventPayload {
-    follow_id: string
+export interface FriendEventPayload {
+    friend_request_id: string
     address: string
     username: string
 }
 
 export type WsServerEvent =
     | { type: "new_dm"; data: DmEventPayload }
-    | { type: "follow_request"; data: FollowEventPayload }
-    | { type: "follow_accepted"; data: FollowEventPayload }
-    | { type: "follow_rejected"; data: FollowEventPayload }
-    | { type: "follow_removed"; data: FollowEventPayload }
+    | { type: "friend_request"; data: FriendEventPayload }
+    | { type: "friend_request_accepted"; data: FriendEventPayload }
+    | { type: "friend_request_rejected"; data: FriendEventPayload }
+    | { type: "friend_removed"; data: FriendEventPayload }
 
 // ── Client → Server messages ────────────────────────────────────────────────
 
@@ -39,4 +39,6 @@ export interface WsNotification {
     address: string
     username: string
     receivedAt: string
+    /** Only present for friend_request notifications. */
+    friendRequestId?: string
 }

@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
 import { getWsPort } from "@/ioc"
 import type { WsConnectionStatus, WsServerEvent } from "@/domain/models/ws"
+import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 
 /**
  * Manages the IdP WebSocket lifecycle.
@@ -14,6 +16,7 @@ export function useIdpWebSocket(): void {
     const setWsStatus = useAppStore((s) => s.setWsStatus)
     const pushDmMessage = useAppStore((s) => s.pushDmMessage)
     const addNotification = useAppStore((s) => s.addNotification)
+    const queryClient = useQueryClient()
 
     // Use refs for store actions to avoid stale closures in adapter callbacks.
     const actionsRef = useRef({ setWsStatus, pushDmMessage, addNotification })
@@ -44,17 +47,23 @@ export function useIdpWebSocket(): void {
                     })
                     break
                 }
-                case "follow_request":
-                case "follow_accepted":
-                case "follow_rejected":
-                case "follow_removed": {
+                case "friend_request":
+                case "friend_request_accepted":
+                case "friend_request_rejected":
+                case "friend_removed": {
                     actionsRef.current.addNotification({
-                        id: crypto.randomUUID(),
+                        // Stable composite id prevents duplicates with API-seeded notifications.
+                        id: `${event.type}:${event.data.friend_request_id}`,
                         eventType: event.type,
                         address: event.data.address,
                         username: event.data.username,
                         receivedAt: new Date().toISOString(),
+                        friendRequestId: event.data.friend_request_id,
                     })
+                    // When our friend request is accepted, refresh the friends list.
+                    if (event.type === "friend_request_accepted" && idpUrl) {
+                        queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
+                    }
                     break
                 }
             }

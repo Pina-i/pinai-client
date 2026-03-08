@@ -31,5 +31,9 @@ export async function startLoginUseCase(idpUrl: string, authPort: IAuthPort): Pr
         nonce,
     })
 
-    window.location.href = `${config.authorization_endpoint}?${params.toString()}`
+    // Use idpUrl directly rather than config.authorization_endpoint. The discovery
+    // doc returns URLs based on the server's DOMAIN (e.g. host.docker.internal:8080),
+    // which may differ from what the user configured (e.g. localhost:8080). Navigating
+    // to a different origin would orphan the session cookie, breaking silent refresh.
+    window.location.href = `${idpUrl.replace(/\/$/, "")}/authorize?${params.toString()}`
 }
