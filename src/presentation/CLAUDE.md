@@ -27,6 +27,13 @@ If a component is not specific to its page and could be reused elsewhere, do not
 
 Before creating a new reusable component, check if a similar one already exists in the Atomic Design folders.
 
+## Reusable components creation guidelines
+
+- Whenever it is possible, use React Aria components instead of custom implementations.
+- Use tv() function from tailwind-variants to define component variants.
+- Use Shadcn tokens for component styling.
+- Create custom declarative props to not coupling the reusable components to specific UI libraries (e.g. React Aria).
+
 ## ViewModel pattern
 
 When a component has non-trivial logic (state management, data transformation, side effects, computed values), extract it into a dedicated `ComponentName.viewmodel.ts` file alongside the component.
@@ -40,6 +47,6 @@ Do not create a viewmodel for simple components that only receive and display pr
 - Prefer small, single-responsibility components over large monolithic page components
 - A page component should mainly compose its sub-components and handle page-level state/data fetching
 - Keep presentational logic separated from business logic
-- Do not use directly React Aria components in the pages folder, instead create React-Aria based reusable components with native declarative props format, and using Tailwind CSS, tailwind variant, and the Shadcn-style token system.
 - Use Tailwind CSS with Shadcn-style token system for styling when you design new pages
 - Use Tanstack query for data fetching and caching
+- Do not use directly React Aria components in the pages folder. Create React Aria based reusable components instead.
