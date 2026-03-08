@@ -1,13 +1,14 @@
-import { AtSign, Bell, Check, Hash, HelpCircle, Pin, Search, Users, X } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
-import { useQueryClient } from "@tanstack/react-query"
-import { toast } from "sonner"
-import { useAppStore } from "@/store/store"
+import { getSocialPort } from "@/ioc"
+import { cn } from "@/presentation/_libs/utils"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { Tooltip } from "@/presentation/atoms/Tooltip/Tooltip"
-import { cn } from "@/presentation/_libs/utils"
-import { getSocialPort } from "@/ioc"
+import { ThemeSwitcher } from "@/presentation/molecules/ThemeSwitcher/ThemeSwitcher"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
+import { useAppStore } from "@/store/store"
+import { useQueryClient } from "@tanstack/react-query"
+import { AtSign, Bell, Check, Hash, HelpCircle, Pin, Users, X } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { toast } from "sonner"
 
 const notificationLabel: Record<string, string> = {
     friend_request: "sent you a friend request",
@@ -84,15 +85,9 @@ export function AppHeader() {
     const currentChannel = (channelsByServer[activeServer] ?? []).find((c) => c.id === activeChannel)
     const activeDmData = localDmConvos.find((d) => d.id === activeDm)
 
-    const title =
-        view === "dms" ? (activeDm ? (activeDmData?.name ?? "Direct Messages") : "Friends") : (currentChannel?.name ?? "")
+    const title = view === "dms" ? (activeDm ? (activeDmData?.name ?? "Direct Messages") : "Friends") : (currentChannel?.name ?? "")
 
-    const description =
-        view === "dms"
-            ? activeDm
-                ? activeDmData?.status
-                : "Manage your friends"
-            : currentChannel?.description
+    const description = view === "dms" ? (activeDm ? activeDmData?.status : "Manage your friends") : currentChannel?.description
 
     return (
         <header className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
@@ -116,26 +111,28 @@ export function AppHeader() {
             <div className="flex items-center gap-2">
                 {view === "server" && (
                     <>
-                        <Tooltip content="Pinned Messages" placement="bottom" delay={300}>
+                        <Tooltip
+                            content="Pinned Messages"
+                            placement="bottom"
+                            delay={300}
+                        >
                             <IconButton
                                 onPress={() => setShowPinned((p) => !p)}
                                 aria-label="Toggle pinned messages"
-                                className={cn(
-                                    "p-1",
-                                    showPinned ? "text-foreground" : "text-muted-foreground hover:text-foreground",
-                                )}
+                                className={cn("p-1", showPinned ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
                             >
                                 <Pin className="h-5 w-5" />
                             </IconButton>
                         </Tooltip>
-                        <Tooltip content="Member List" placement="bottom" delay={300}>
+                        <Tooltip
+                            content="Member List"
+                            placement="bottom"
+                            delay={300}
+                        >
                             <IconButton
                                 onPress={() => setShowMembers((p) => !p)}
                                 aria-label="Toggle member list"
-                                className={cn(
-                                    "p-1",
-                                    showMembers ? "text-foreground" : "text-muted-foreground hover:text-foreground",
-                                )}
+                                className={cn("p-1", showMembers ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
                             >
                                 <Users className="h-5 w-5" />
                             </IconButton>
@@ -144,7 +141,7 @@ export function AppHeader() {
                 )}
 
                 {/* Search */}
-                <div className="relative">
+                {/*<div className="relative">
                     <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <input
                         type="text"
@@ -161,17 +158,22 @@ export function AppHeader() {
                             <X className="h-3 w-3" />
                         </button>
                     )}
-                </div>
+                </div>*/}
+                <ThemeSwitcher />
 
-                <div className="relative" ref={panelRef}>
-                    <Tooltip content="Notifications" placement="bottom" delay={300}>
+                <div
+                    className="relative"
+                    ref={panelRef}
+                >
+                    <Tooltip
+                        content="Notifications"
+                        placement="bottom"
+                        delay={300}
+                    >
                         <IconButton
                             onPress={toggleNotifications}
                             aria-label="Notifications"
-                            className={cn(
-                                "p-1",
-                                showNotifications ? "text-foreground" : "text-muted-foreground hover:text-foreground",
-                            )}
+                            className={cn("p-1", showNotifications ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
                         >
                             <Bell className="h-5 w-5" />
                             {unreadCount > 0 && (
@@ -188,7 +190,10 @@ export function AppHeader() {
                                 <h3 className="text-sm font-semibold text-foreground">Notifications</h3>
                                 {notifications.length > 0 && (
                                     <button
-                                        onClick={() => { clearNotifications(); setSeenCount(0) }}
+                                        onClick={() => {
+                                            clearNotifications()
+                                            setSeenCount(0)
+                                        }}
                                         className="text-xs text-muted-foreground hover:text-foreground"
                                     >
                                         Clear all
@@ -200,7 +205,10 @@ export function AppHeader() {
                                     <p className="px-3 py-6 text-center text-sm text-muted-foreground">No notifications</p>
                                 ) : (
                                     notifications.map((n) => (
-                                        <div key={n.id} className="flex items-center gap-3 border-b border-border/50 px-3 py-2.5 last:border-0 hover:bg-accent/30">
+                                        <div
+                                            key={n.id}
+                                            className="flex items-center gap-3 border-b border-border/50 px-3 py-2.5 last:border-0 hover:bg-accent/30"
+                                        >
                                             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-semibold text-foreground">
                                                 {n.username.slice(0, 2).toUpperCase()}
                                             </div>
@@ -213,7 +221,11 @@ export function AppHeader() {
                                             </div>
                                             {n.eventType === "friend_request" && n.friendRequestId && (
                                                 <div className="flex shrink-0 items-center gap-1">
-                                                    <Tooltip content="Accept" placement="bottom" delay={300}>
+                                                    <Tooltip
+                                                        content="Accept"
+                                                        placement="bottom"
+                                                        delay={300}
+                                                    >
                                                         <IconButton
                                                             aria-label="Accept friend request"
                                                             onPress={() => handleFriendRequestResponse(n.id, n.friendRequestId!, "accept")}
@@ -222,7 +234,11 @@ export function AppHeader() {
                                                             <Check className="h-4 w-4" />
                                                         </IconButton>
                                                     </Tooltip>
-                                                    <Tooltip content="Decline" placement="bottom" delay={300}>
+                                                    <Tooltip
+                                                        content="Decline"
+                                                        placement="bottom"
+                                                        delay={300}
+                                                    >
                                                         <IconButton
                                                             aria-label="Decline friend request"
                                                             onPress={() => handleFriendRequestResponse(n.id, n.friendRequestId!, "reject")}
@@ -240,8 +256,15 @@ export function AppHeader() {
                         </div>
                     )}
                 </div>
-                <Tooltip content="Help" placement="bottom" delay={300}>
-                    <IconButton aria-label="Help" className="p-1 text-muted-foreground hover:text-foreground">
+                <Tooltip
+                    content="Help"
+                    placement="bottom"
+                    delay={300}
+                >
+                    <IconButton
+                        aria-label="Help"
+                        className="p-1 text-muted-foreground hover:text-foreground"
+                    >
                         <HelpCircle className="h-5 w-5" />
                     </IconButton>
                 </Tooltip>
