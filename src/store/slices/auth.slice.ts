@@ -1,5 +1,5 @@
-import type { StateCreator } from "zustand"
 import type { UserProfile } from "@/domain/models/auth"
+import type { StateCreator } from "zustand"
 import type { AppStore } from "../store"
 
 export interface AuthSlice {

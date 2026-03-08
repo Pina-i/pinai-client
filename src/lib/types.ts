@@ -47,6 +47,7 @@ export interface Member {
 export interface Friend {
     id: string
     name: string
+    avatarUrl: string | null
     status: UserStatus
     activity: string
 }

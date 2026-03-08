@@ -1,4 +1,4 @@
-import type { FollowResponse } from "@/domain/models/social"
+import type { FriendRequestResponse } from "@/domain/models/social"
 import type { ISocialPort } from "@/domain/ports/social.port"
 
 export async function sendFriendRequestUseCase(
@@ -6,9 +6,9 @@ export async function sendFriendRequestUseCase(
     accessToken: string,
     address: string,
     socialPort: ISocialPort,
-): Promise<FollowResponse> {
+): Promise<FriendRequestResponse> {
     const trimmed = address.trim()
     if (!trimmed) throw new Error("Address cannot be empty")
 
-    return socialPort.sendFollowRequest(idpUrl, accessToken, trimmed)
+    return socialPort.sendFriendRequest(idpUrl, accessToken, trimmed)
 }

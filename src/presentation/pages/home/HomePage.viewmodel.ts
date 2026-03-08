@@ -3,7 +3,7 @@ import { useAppStore } from "@/store/store"
 import { sendFriendRequestUseCase } from "@/domain/usecases/social/send-friend-request.usecase"
 import { sendDmWsUseCase } from "@/domain/usecases/ws/send-dm-ws.usecase"
 import { getSocialPort, getWsPort } from "@/ioc"
-import type { Message, Friend } from "@/lib/types"
+import type { Message } from "@/lib/types"
 
 export function useHomePageViewModel() {
     const view = useAppStore((s) => s.view)
@@ -27,7 +27,6 @@ export function useHomePageViewModel() {
 
     // Channel messages remain local (separate chat-server WS in the future).
     const [messages, setMessages] = useState<Record<string, Message[]>>({})
-    const [friends] = useState<Friend[]>([])
     const [pinnedMessages] = useState<Message[]>([])
 
     const currentChannel = (channelsByServer[activeServer] ?? []).find((c) => c.id === activeChannel)
@@ -152,7 +151,6 @@ export function useHomePageViewModel() {
         filteredMessages,
         messagePlaceholder,
         messagesEndRef,
-        friends,
         pinnedMessages,
         showPinned,
         setShowPinned,
