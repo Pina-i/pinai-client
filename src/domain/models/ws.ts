@@ -8,17 +8,24 @@ export interface DmEventPayload {
 }
 
 export interface FriendEventPayload {
-    friend_request_id: string
-    address: string
+    friendship_id: string
+    actor_uri: string
     username: string
+    display_name: string | null
+}
+
+export interface ProfileUpdatePayload {
+    actorUri: string
+    displayName: string | null
+    avatarUrl: string | null
 }
 
 export type WsServerEvent =
     | { type: "new_dm"; data: DmEventPayload }
     | { type: "friend_request"; data: FriendEventPayload }
-    | { type: "friend_request_accepted"; data: FriendEventPayload }
-    | { type: "friend_request_rejected"; data: FriendEventPayload }
+    | { type: "friend_accepted"; data: FriendEventPayload }
     | { type: "friend_removed"; data: FriendEventPayload }
+    | { type: "friend_profile_updated"; data: ProfileUpdatePayload }
 
 // ── Client → Server messages ────────────────────────────────────────────────
 
@@ -36,9 +43,9 @@ export type WsConnectionStatus = "disconnected" | "connecting" | "connected"
 export interface WsNotification {
     id: string
     eventType: WsServerEvent["type"]
-    address: string
-    username: string
+    actorUri: string
+    displayName: string
     receivedAt: string
     /** Only present for friend_request notifications. */
-    friendRequestId?: string
+    friendshipId?: string
 }

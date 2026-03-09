@@ -12,8 +12,7 @@ import { toast } from "sonner"
 
 const notificationLabel: Record<string, string> = {
     friend_request: "sent you a friend request",
-    friend_request_accepted: "accepted your friend request",
-    friend_request_rejected: "declined your friend request",
+    friend_accepted: "accepted your friend request",
     friend_removed: "removed you as a friend",
 }
 
@@ -57,16 +56,16 @@ export function AppHeader() {
         return () => document.removeEventListener("mousedown", onClickOutside)
     }, [showNotifications])
 
-    async function handleFriendRequestResponse(notificationId: string, friendRequestId: string, action: "accept" | "reject") {
+    async function handleFriendRequestResponse(notificationId: string, friendshipId: string, action: "accept" | "reject") {
         if (!accessToken || !idpUrl) return
         try {
             if (action === "accept") {
-                await getSocialPort().acceptFriendRequest(idpUrl, accessToken, friendRequestId)
+                await getSocialPort().acceptFriendRequest(idpUrl, accessToken, friendshipId)
                 dismissNotification(notificationId)
                 toast.success("Friend request accepted")
                 queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
             } else {
-                await getSocialPort().rejectFriendRequest(idpUrl, accessToken, friendRequestId)
+                await getSocialPort().rejectFriendRequest(idpUrl, accessToken, friendshipId)
                 dismissNotification(notificationId)
                 toast.success("Friend request declined")
             }
@@ -210,16 +209,16 @@ export function AppHeader() {
                                             className="flex items-center gap-3 border-b border-border/50 px-3 py-2.5 last:border-0 hover:bg-accent/30"
                                         >
                                             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-semibold text-foreground">
-                                                {n.username.slice(0, 2).toUpperCase()}
+                                                {n.displayName.slice(0, 2).toUpperCase()}
                                             </div>
                                             <div className="min-w-0 flex-1">
                                                 <p className="text-sm text-foreground">
-                                                    <span className="font-semibold">{n.username}</span>{" "}
+                                                    <span className="font-semibold">{n.displayName}</span>{" "}
                                                     {notificationLabel[n.eventType] ?? n.eventType}
                                                 </p>
-                                                <p className="text-xs text-muted-foreground">{n.address}</p>
+                                                <p className="text-xs text-muted-foreground">{n.actorUri}</p>
                                             </div>
-                                            {n.eventType === "friend_request" && n.friendRequestId && (
+                                            {n.eventType === "friend_request" && n.friendshipId && (
                                                 <div className="flex shrink-0 items-center gap-1">
                                                     <Tooltip
                                                         content="Accept"
@@ -228,7 +227,7 @@ export function AppHeader() {
                                                     >
                                                         <IconButton
                                                             aria-label="Accept friend request"
-                                                            onPress={() => handleFriendRequestResponse(n.id, n.friendRequestId!, "accept")}
+                                                            onPress={() => handleFriendRequestResponse(n.id, n.friendshipId!, "accept")}
                                                             className="rounded-full p-1.5 text-online hover:bg-online/20"
                                                         >
                                                             <Check className="h-4 w-4" />
@@ -241,7 +240,7 @@ export function AppHeader() {
                                                     >
                                                         <IconButton
                                                             aria-label="Decline friend request"
-                                                            onPress={() => handleFriendRequestResponse(n.id, n.friendRequestId!, "reject")}
+                                                            onPress={() => handleFriendRequestResponse(n.id, n.friendshipId!, "reject")}
                                                             className="rounded-full p-1.5 text-destructive hover:bg-destructive/20"
                                                         >
                                                             <X className="h-4 w-4" />

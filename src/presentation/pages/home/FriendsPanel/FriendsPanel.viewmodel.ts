@@ -13,13 +13,13 @@ export function useFriendsPanelViewModel() {
         queryKey: friendsQueryKey(idpUrl ?? ""),
         queryFn: () => getFriendsUseCase(idpUrl!, accessToken!, getSocialPort()),
         enabled: !!accessToken && !!idpUrl,
-        select: (users) =>
-            users.map((u) => ({
-                id: u.address,
-                name: u.username,
-                avatarUrl: u.avatar_url,
-                status: u.status ?? ("offline" as const),
-                activity: "",
+        select: (entries) =>
+            entries.map((e) => ({
+                id: e.friend_actor_uri,
+                name: e.display_name ?? e.username ?? "unknown",
+                avatarUrl: e.avatar_url,
+                status: "offline" as const,
+                activity: e.instance ?? "",
             })),
     })
 

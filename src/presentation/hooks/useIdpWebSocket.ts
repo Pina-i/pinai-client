@@ -48,20 +48,30 @@ export function useIdpWebSocket(): void {
                     break
                 }
                 case "friend_request":
-                case "friend_request_accepted":
-                case "friend_request_rejected":
+                case "friend_accepted":
                 case "friend_removed": {
                     actionsRef.current.addNotification({
                         // Stable composite id prevents duplicates with API-seeded notifications.
-                        id: `${event.type}:${event.data.friend_request_id}`,
+                        id: `${event.type}:${event.data.friendship_id}`,
                         eventType: event.type,
-                        address: event.data.address,
-                        username: event.data.username,
+                        actorUri: event.data.actor_uri,
+                        displayName: event.data.display_name ?? event.data.username,
                         receivedAt: new Date().toISOString(),
-                        friendRequestId: event.data.friend_request_id,
+                        friendshipId: event.data.friendship_id,
                     })
                     // When our friend request is accepted, refresh the friends list.
-                    if (event.type === "friend_request_accepted" && idpUrl) {
+                    if (event.type === "friend_accepted" && idpUrl) {
+                        queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
+                    }
+                    // When a friend is removed, also refresh.
+                    if (event.type === "friend_removed" && idpUrl) {
+                        queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
+                    }
+                    break
+                }
+                case "friend_profile_updated": {
+                    // A friend's profile was updated — refresh the friends list to show new data.
+                    if (idpUrl) {
                         queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
                     }
                     break

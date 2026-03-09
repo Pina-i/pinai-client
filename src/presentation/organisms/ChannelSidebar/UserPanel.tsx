@@ -15,14 +15,14 @@ export function UserPanel() {
 
     if (!user) return null
 
-    const username = user.preferred_username
-    const initials = username.slice(0, 2).toUpperCase()
+    const displayName = user.display_name ?? user.preferred_username
+    const initials = displayName.slice(0, 2).toUpperCase()
 
     return (
         <div className="flex items-center gap-2 border-t border-border bg-popover p-2">
             <Avatar initials={initials} size="sm" status="online" statusBorderClass="border-popover" />
             <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-foreground">{username}</p>
+                <p className="truncate text-sm font-semibold text-foreground">{displayName}</p>
                 <p className="truncate text-xs text-muted-foreground">Online</p>
             </div>
             <div className="flex items-center gap-0.5">

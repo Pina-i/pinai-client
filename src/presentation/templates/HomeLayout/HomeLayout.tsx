@@ -53,6 +53,7 @@ export function HomeLayout({ children }: HomeLayoutProps) {
             <SettingsModal
                 isOpen={showSettings}
                 onClose={() => setShowSettings(false)}
+                displayName={user.display_name ?? user.preferred_username}
                 username={user.preferred_username}
                 email={user.email}
                 onLogout={() => logoutUseCase(idpUrl!, clearSession)}
