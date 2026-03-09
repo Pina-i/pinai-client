@@ -55,8 +55,8 @@ export function useHomePageViewModel() {
             if (!user) return
             const newMsg: Message = {
                 id: crypto.randomUUID(),
-                author: user.preferred_username,
-                avatar: user.preferred_username.slice(0, 2).toUpperCase(),
+                author: user.display_name ?? user.preferred_username,
+                avatar: (user.display_name ?? user.preferred_username).slice(0, 2).toUpperCase(),
                 content,
                 timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
                 color: "#a78bfa",

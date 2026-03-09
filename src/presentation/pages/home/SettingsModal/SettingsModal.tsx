@@ -16,12 +16,13 @@ const tabs = [
 interface SettingsModalProps {
     isOpen: boolean
     onClose: () => void
+    displayName: string
     username: string
     email?: string
     onLogout: () => void
 }
 
-export function SettingsModal({ isOpen, onClose, username, email, onLogout }: SettingsModalProps) {
+export function SettingsModal({ isOpen, onClose, displayName, username, email, onLogout }: SettingsModalProps) {
     const [activeTab, setActiveTab] = useState("account")
 
     return (
@@ -66,15 +67,16 @@ export function SettingsModal({ isOpen, onClose, username, email, onLogout }: Se
                                 <div className="border border-border bg-card p-4" style={{ boxShadow: "var(--shadow)" }}>
                                     <div className="flex items-center gap-4">
                                         <div className="flex h-20 w-20 items-center justify-center bg-primary text-2xl font-bold text-primary-foreground">
-                                            {username.slice(0, 2).toUpperCase()}
+                                            {displayName.slice(0, 2).toUpperCase()}
                                         </div>
                                         <div>
-                                            <h3 className="text-lg font-semibold text-foreground">{username}</h3>
+                                            <h3 className="text-lg font-semibold text-foreground">{displayName}</h3>
                                             {email && <p className="text-sm text-muted-foreground">{email}</p>}
                                         </div>
                                     </div>
                                     <div className="mt-4 bg-sidebar p-4">
                                         {[
+                                            { label: "Display Name", value: displayName },
                                             { label: "Username", value: username },
                                             { label: "Email", value: email ?? "Not set" },
                                         ].map((item) => (

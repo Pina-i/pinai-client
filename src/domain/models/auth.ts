@@ -2,6 +2,7 @@ export interface UserProfile {
     sub: string
     email: string
     preferred_username: string
+    display_name: string | null
     address: string
     avatar_url?: string
 }

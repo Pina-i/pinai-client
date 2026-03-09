@@ -20,12 +20,12 @@ export function useLoadPendingNotifications(): void {
             .then((requests) => {
                 for (const req of requests) {
                     addNotification({
-                        id: `friend_request:${req.friend_request_id}`,
+                        id: `friend_request:${req.friendship_id}`,
                         eventType: "friend_request",
-                        address: req.requester_address,
-                        username: req.requester_username,
+                        actorUri: req.actor_uri,
+                        displayName: req.display_name ?? req.username,
                         receivedAt: new Date().toISOString(),
-                        friendRequestId: req.friend_request_id,
+                        friendshipId: req.friendship_id,
                     })
                 }
             })

@@ -1,19 +1,27 @@
 export interface FriendRequestResponse {
-    friend_request_id: string
-    state: string
+    friendship_id: string
+    status: string
 }
 
 export interface PendingFriendRequest {
-    friend_request_id: string
-    requester_address: string
-    requester_username: string
-    state: string
+    friendship_id: string
+    actor_uri: string
+    username: string
+    display_name: string | null
+    status: string
 }
 
 export interface UserSummary {
-    address: string
+    actor_uri: string
     username: string
+    display_name: string | null
+}
+
+/** Entry returned by GET /api/friends (joined across local users + remote actors). */
+export interface FriendListEntry {
+    username: string | null
+    display_name: string | null
     avatar_url: string | null
-    /** Presence state — not yet implemented server-side, always null for now. */
-    status: "online" | "idle" | "dnd" | "offline" | null
+    friend_actor_uri: string
+    instance: string | null
 }

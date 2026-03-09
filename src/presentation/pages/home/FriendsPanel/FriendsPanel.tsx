@@ -95,7 +95,7 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
                     </p>
                     <div className="flex items-end gap-2">
                         <TextField
-                            placeholder="alice-A1B2@idp.example.com"
+                            placeholder="@alice@idp.example.com"
                             value={friendInput}
                             onChange={setFriendInput}
                             className="flex-1"
