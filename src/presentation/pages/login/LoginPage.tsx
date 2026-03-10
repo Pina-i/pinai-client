@@ -1,13 +1,16 @@
-import pinaiLogo from "@/assets/pinai-logo-dark.svg"
+import pinaiLogoDark from "@/assets/pinai-logo-dark.svg"
+import pinaiLogo from "@/assets/pinai-logo.svg"
 import { AnimatedContent } from "@/presentation/atoms/animated-content/animated-content"
 import { PageTransition } from "@/presentation/atoms/page-transition/page-transition"
 import { Tabs, type TabItem } from "@/presentation/molecules/Tabs/Tabs"
+import { useTheme } from "next-themes"
 import { useLoginPageViewModel, type LoginTab } from "./LoginPage.viewmodel"
 import { RegisterForm } from "./RegisterForm/RegisterForm"
 import { SignInForm } from "./SignInForm/SignInForm"
 
 export function LoginPage() {
     const { idpUrl, oidcParams, activeTab, setActiveTab, error } = useLoginPageViewModel()
+    const { resolvedTheme } = useTheme()
 
     const tabs: TabItem[] = [
         {
@@ -57,13 +60,13 @@ export function LoginPage() {
             <PageTransition className="w-full max-w-sm space-y-8">
                 <div className="flex items-start justify-center space-x-3">
                     <img
-                        src={pinaiLogo}
+                        src={resolvedTheme === "dark" ? pinaiLogoDark : pinaiLogo}
                         alt="Pīna'i logo"
                         className="h-16"
                     />
 
                     <div className="text-left">
-                        <h1 className="text-5xl font-bold tracking-tight text-foreground">Pīna&apos;i</h1>
+                        <h1 className="title text-5xl font-bold tracking-tight text-foreground">Pīna&apos;i</h1>
                         <AnimatedContent contentKey={activeTab}>
                             <p className="text-muted-foreground text-sm">{activeTab === "signin" ? "Sign in to continue" : "Create your account"}</p>
                         </AnimatedContent>

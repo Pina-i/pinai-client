@@ -98,7 +98,7 @@ export function AppHeader() {
                 ) : (
                     <Hash className="h-5 w-5 text-muted-foreground" />
                 )}
-                <span className="font-semibold text-foreground">{title}</span>
+                <span className="font-bold font-serif text-foreground">{title}</span>
                 {description && (
                     <>
                         <div className="mx-2 h-6 w-px bg-border" />
