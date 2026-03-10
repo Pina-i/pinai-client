@@ -1,4 +1,4 @@
-import pinaiLogo from "@/assets/pinai-logo.svg"
+import pinaiLogo from "@/assets/pinai-variant.svg"
 import { cn } from "@/presentation/_libs/utils"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"

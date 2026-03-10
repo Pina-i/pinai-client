@@ -1,11 +1,14 @@
-import pinaiLogo from "@/assets/pinai-logo-dark.svg"
+import pinaiLogoDark from "@/assets/pinai-logo-dark.svg"
+import pinaiLogo from "@/assets/pinai-logo.svg"
 import { Button } from "@/presentation/atoms/Button/Button"
 import { PageTransition } from "@/presentation/atoms/page-transition/page-transition"
 import { TextField } from "@/presentation/atoms/TextField/TextField"
+import { useTheme } from "next-themes"
 import { useLandingPageViewModel } from "./LandingPage.viewmodel"
 
 export function LandingPage() {
     const { idpUrl, setIdpUrl, loading, error, handleLogin } = useLandingPageViewModel()
+    const { resolvedTheme } = useTheme()
 
     return (
         <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4">
@@ -13,12 +16,12 @@ export function LandingPage() {
                 {/* Logo / heading */}
                 <div className="flex items-start justify-center space-x-3">
                     <img
-                        src={pinaiLogo}
+                        src={resolvedTheme === "dark" ? pinaiLogoDark : pinaiLogo}
                         alt="Pīna'i logo"
                         className="h-16"
                     />
                     <div>
-                        <h1 className="text-5xl font-bold tracking-tight text-foreground">Pīna&apos;i</h1>
+                        <h1 className="title text-5xl font-bold tracking-tight text-foreground">Pīna&apos;i</h1>
                         <p className="text-muted-foreground text-sm">Your identity, your community.</p>
                     </div>
                 </div>
