@@ -1,7 +1,7 @@
 import { Button } from "@/presentation/atoms/Button/Button"
 import { TextField } from "@/presentation/atoms/TextField/TextField"
 import type { OidcParams } from "../LoginPage.viewmodel"
-import { LockKeyhole, User } from "lucide-react"
+import { LockKeyhole, Mail } from "lucide-react"
 
 function HiddenOidcFields({ params }: { params: OidcParams }) {
     return (
@@ -22,10 +22,11 @@ export function SignInForm({ idpUrl, params }: { idpUrl: string; params: OidcPar
         <form action={`${idpUrl}/login`} method="POST" className="space-y-4">
             <HiddenOidcFields params={params} />
             <TextField
-                name="username"
-                label="Username"
-                autoComplete="username"
-                icon={<User size={16} />}
+                name="email"
+                type="email"
+                label="Email"
+                autoComplete="email"
+                icon={<Mail size={16} />}
                 isRequired
             />
             <TextField
