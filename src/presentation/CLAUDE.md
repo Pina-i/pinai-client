@@ -42,6 +42,8 @@ The viewmodel exports a custom hook (e.g. `useDashboardHeaderViewModel`) that en
 
 Do not create a viewmodel for simple components that only receive and display props.
 
+When a page component has sub components, each sub component should have its own viewmodel if it has non-trivial logic.
+
 ## Guidelines
 
 - Prefer small, single-responsibility components over large monolithic page components
