@@ -6,7 +6,7 @@ import { ThemeSwitcher } from "@/presentation/molecules/ThemeSwitcher/ThemeSwitc
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import { useAppStore } from "@/store/store"
 import { useQueryClient } from "@tanstack/react-query"
-import { AtSign, Bell, Check, Hash, HelpCircle, Pin, Users, X } from "lucide-react"
+import { Bell, Check, Hash, HelpCircle, MessageSquare, Pin, Users, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
@@ -84,7 +84,7 @@ export function AppHeader() {
     const currentChannel = (channelsByServer[activeServer] ?? []).find((c) => c.id === activeChannel)
     const activeDmData = localDmConvos.find((d) => d.id === activeDm)
 
-    const title = view === "dms" ? (activeDm ? (activeDmData?.name ?? "Direct Messages") : "Friends") : (currentChannel?.name ?? "")
+    const title = view === "dms" ? (activeDm ? (activeDmData?.name ? `${activeDmData.name} - ${activeDm}` : activeDm) : "Friends") : (currentChannel?.name ?? "")
 
     const description = view === "dms" ? (activeDm ? activeDmData?.status : "Manage your friends") : currentChannel?.description
 
@@ -94,7 +94,7 @@ export function AppHeader() {
                 {view === "dms" && !activeDm ? (
                     <Users className="h-5 w-5 text-muted-foreground" />
                 ) : view === "dms" ? (
-                    <AtSign className="h-5 w-5 text-muted-foreground" />
+                    <MessageSquare className="h-5 w-5 text-muted-foreground" />
                 ) : (
                     <Hash className="h-5 w-5 text-muted-foreground" />
                 )}

@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, Hash, Search, Users, Volume2 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import { useNavigate } from "@tanstack/react-router"
 import { useAppStore } from "@/store/store"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
@@ -15,8 +16,8 @@ export function ChannelSidebar() {
     const selectChannel = useAppStore((s) => s.selectChannel)
     const localDmConvos = useAppStore((s) => s.localDmConvos)
     const activeDm = useAppStore((s) => s.activeDm)
-    const setActiveDm = useAppStore((s) => s.setActiveDm)
     const switchToDms = useAppStore((s) => s.switchToDms)
+    const navigate = useNavigate()
 
     const [showServerMenu, setShowServerMenu] = useState(false)
     const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
@@ -142,7 +143,10 @@ export function ChannelSidebar() {
                     <ScrollArea className="flex-1 px-2 py-2">
                         {/* Friends button */}
                         <button
-                            onClick={switchToDms}
+                            onClick={() => {
+                                switchToDms()
+                                navigate({ to: "/home" })
+                            }}
                             className={cn(
                                 "flex w-full items-center gap-2 px-2 py-2 text-sm font-medium transition-colors",
                                 activeDm === null
@@ -161,7 +165,7 @@ export function ChannelSidebar() {
                         {localDmConvos.map((dm) => (
                             <button
                                 key={dm.id}
-                                onClick={() => setActiveDm(dm.id)}
+                                onClick={() => navigate({ to: "/dm/$name", params: { name: dm.name } })}
                                 className={cn(
                                     "flex w-full items-center gap-2 px-2 py-1.5 transition-colors",
                                     activeDm === dm.id
