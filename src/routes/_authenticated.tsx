@@ -5,11 +5,16 @@ import { ensureAuthenticatedUseCase } from "@/domain/usecases/auth/ensureAuthent
 import { getAuthPort } from "@/ioc/index"
 import { useIdpWebSocket } from "@/presentation/hooks/useIdpWebSocket"
 import { useLoadPendingNotifications } from "@/presentation/hooks/useLoadPendingNotifications"
+import { HomeLayout } from "@/presentation/templates/HomeLayout/HomeLayout"
 
 function AuthenticatedLayout() {
     useIdpWebSocket()
     useLoadPendingNotifications()
-    return <Outlet />
+    return (
+        <HomeLayout>
+            <Outlet />
+        </HomeLayout>
+    )
 }
 
 export const Route = createFileRoute("/_authenticated")({
