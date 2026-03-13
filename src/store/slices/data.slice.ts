@@ -7,11 +7,15 @@ export interface DataSlice {
     channelsByServer: Record<string, Channel[]>
     localDmConvos: DmConversation[]
     members: Member[]
+
+    setDmConversations: (convos: DmConversation[]) => void
 }
 
-export const createDataSlice: StateCreator<AppStore, [["zustand/devtools", never]], [], DataSlice> = () => ({
+export const createDataSlice: StateCreator<AppStore, [["zustand/devtools", never]], [], DataSlice> = (set) => ({
     servers: [],
     channelsByServer: {},
     localDmConvos: [],
     members: [],
+
+    setDmConversations: (convos) => set({ localDmConvos: convos }, false, "data/setDmConversations"),
 })
