@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
 import { getWsPort } from "@/ioc"
 import type { WsConnectionStatus, WsServerEvent } from "@/domain/models/ws"
+import { actorUriToAddress } from "@/domain/models/dm"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 
 /**
@@ -34,9 +35,10 @@ export function useIdpWebSocket(): void {
         wsPort.onEvent((event: WsServerEvent) => {
             switch (event.type) {
                 case "new_dm": {
-                    actionsRef.current.pushDmMessage(event.data.sender_address, {
+                    const senderAddress = actorUriToAddress(event.data.sender_address)
+                    actionsRef.current.pushDmMessage(senderAddress, {
                         id: event.data.message_id,
-                        author: event.data.sender_address,
+                        author: senderAddress,
                         avatar: event.data.sender_address.slice(0, 2).toUpperCase(),
                         content: event.data.content,
                         timestamp: new Date(event.data.created_at).toLocaleTimeString([], {

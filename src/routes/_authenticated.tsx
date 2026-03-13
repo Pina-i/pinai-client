@@ -5,11 +5,13 @@ import { ensureAuthenticatedUseCase } from "@/domain/usecases/auth/ensureAuthent
 import { getAuthPort } from "@/ioc/index"
 import { useIdpWebSocket } from "@/presentation/hooks/useIdpWebSocket"
 import { useLoadPendingNotifications } from "@/presentation/hooks/useLoadPendingNotifications"
+import { useLoadDmConversations } from "@/presentation/hooks/useLoadDmConversations"
 import { HomeLayout } from "@/presentation/templates/HomeLayout/HomeLayout"
 
 function AuthenticatedLayout() {
     useIdpWebSocket()
     useLoadPendingNotifications()
+    useLoadDmConversations()
     return (
         <HomeLayout>
             <Outlet />

@@ -138,7 +138,7 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
                                 </div>
                                 <div className="flex items-center gap-1">
                                     <IconButton
-                                        onPress={() => onStartDm(friend.name)}
+                                        onPress={() => onStartDm(friend.address)}
                                         aria-label={`Message ${friend.name}`}
                                         className="rounded-full bg-accent p-2 text-muted-foreground hover:text-foreground"
                                     >

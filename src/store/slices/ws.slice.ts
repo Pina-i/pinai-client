@@ -14,6 +14,8 @@ export interface WsSlice {
     clearNotifications: () => void
     pushDmMessage: (conversationKey: string, message: Message) => void
     updateDmConversation: (conversationKey: string, updater: (msgs: Message[]) => Message[]) => void
+    /** Prepend historical messages (API-loaded) before any live WS messages, deduplicating by id. */
+    seedDmMessages: (conversationKey: string, messages: Message[]) => void
 }
 
 export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]], [], WsSlice> = (set) => ({
@@ -65,5 +67,22 @@ export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]]
             }),
             false,
             "ws/updateDmConversation",
+        ),
+
+    seedDmMessages: (conversationKey, messages) =>
+        set(
+            (s) => {
+                const existing = s.dmMessages[conversationKey] ?? []
+                const existingIds = new Set(existing.map((m) => m.id))
+                const historical = messages.filter((m) => !existingIds.has(m.id))
+                return {
+                    dmMessages: {
+                        ...s.dmMessages,
+                        [conversationKey]: [...historical, ...existing],
+                    },
+                }
+            },
+            false,
+            "ws/seedDmMessages",
         ),
 })
