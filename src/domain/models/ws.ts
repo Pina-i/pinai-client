@@ -3,6 +3,7 @@
 export interface DmEventPayload {
     message_id: string
     sender_address: string
+    sender_display_name: string | null
     content: string
     created_at: string
 }

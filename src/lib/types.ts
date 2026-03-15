@@ -27,7 +27,10 @@ export interface Channel {
 
 export interface DmConversation {
     id: string
+    /** Federation address used as routing key (e.g. alice@idp.alice.com). */
     name: string
+    /** Human-readable display name from the server. Falls back to the username part of name. */
+    displayName: string
     avatar: string
     color: string
     status: UserStatus

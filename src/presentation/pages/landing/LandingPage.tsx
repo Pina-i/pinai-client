@@ -42,6 +42,7 @@ export function LandingPage() {
                     />
 
                     <Button
+                        onKeyDown={(e) => (e.keyCode === 13 ? handleLogin : null)}
                         onPress={handleLogin}
                         isDisabled={loading || !idpUrl}
                     >

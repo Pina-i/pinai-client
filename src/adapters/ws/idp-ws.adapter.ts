@@ -13,9 +13,13 @@ export class IdpWsAdapter implements IWsPort {
     private currentUrl: string | null = null
 
     connect(wsUrl: string): void {
-        // Close any existing connection first.
+        // Close any existing connection and null its handlers so it cannot
+        // dispatch events after we hand off to the new connection.
         if (this.ws) {
             this.intentionalClose = true
+            this.ws.onmessage = null
+            this.ws.onclose = null
+            this.ws.onopen = null
             this.ws.close()
             this.ws = null
         }
@@ -63,6 +67,9 @@ export class IdpWsAdapter implements IWsPort {
         this.currentUrl = null
         this.clearReconnectTimer()
         if (this.ws) {
+            this.ws.onmessage = null
+            this.ws.onclose = null
+            this.ws.onopen = null
             this.ws.close()
             this.ws = null
         }

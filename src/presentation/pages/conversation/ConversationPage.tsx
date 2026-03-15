@@ -17,14 +17,17 @@ export function ConversationPage({ name }: ConversationPageProps) {
             <div className="flex flex-1 flex-col">
                 <MessageList
                     messages={vm.messages}
-                    currentUsername={vm.user.preferred_username}
+                    currentUsername={vm.user.display_name ?? vm.user.preferred_username}
                     onReaction={vm.handleReaction}
                     onDelete={vm.handleDeleteMessage}
                     onEdit={vm.handleEditMessage}
                     onUserClick={vm.handleUserClick}
                     messagesEndRef={vm.messagesEndRef}
                 />
-                <MessageInput placeholder={`Message @${vm.name}`} onSend={vm.sendMessage} />
+                <MessageInput
+                    placeholder={`Message @${vm.name}`}
+                    onSend={vm.sendMessage}
+                />
             </div>
         </PageTransition>
     )

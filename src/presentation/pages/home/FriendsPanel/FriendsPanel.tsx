@@ -1,8 +1,7 @@
-import { Copy, Check, MessageSquare, MoreHorizontal } from "lucide-react"
+import { Copy, Check, MoreHorizontal } from "lucide-react"
 import { useState } from "react"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { Button } from "@/presentation/atoms/Button/Button"
-import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { TextField } from "@/presentation/atoms/TextField/TextField"
 import { cn } from "@/presentation/_libs/utils"
@@ -125,7 +124,14 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
                             .map((n) => n[0])
                             .join("")
                         return (
-                            <div key={friend.id} className="flex items-center gap-3 px-3 py-2 hover:bg-accent/30">
+                            <div
+                                key={friend.id}
+                                onClick={() => onStartDm(friend.address)}
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(e) => e.key === "Enter" && onStartDm(friend.address)}
+                                className="flex cursor-pointer items-center gap-3 rounded px-3 py-2 hover:bg-accent/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
                                 <Avatar
                                     initials={initials}
                                     size="md"
@@ -136,21 +142,13 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
                                     <p className="text-sm font-semibold text-foreground">{friend.name}</p>
                                     <p className="text-xs text-muted-foreground">{friend.activity || friend.status}</p>
                                 </div>
-                                <div className="flex items-center gap-1">
-                                    <IconButton
-                                        onPress={() => onStartDm(friend.address)}
-                                        aria-label={`Message ${friend.name}`}
-                                        className="rounded-full bg-accent p-2 text-muted-foreground hover:text-foreground"
-                                    >
-                                        <MessageSquare className="h-4 w-4" />
-                                    </IconButton>
-                                    <IconButton
-                                        aria-label="More options"
-                                        className="rounded-full bg-accent p-2 text-muted-foreground hover:text-foreground"
-                                    >
-                                        <MoreHorizontal className="h-4 w-4" />
-                                    </IconButton>
-                                </div>
+                                <button
+                                    aria-label="More options"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="rounded-full bg-accent p-2 text-muted-foreground hover:text-foreground"
+                                >
+                                    <MoreHorizontal className="h-4 w-4" />
+                                </button>
                             </div>
                         )
                     })}

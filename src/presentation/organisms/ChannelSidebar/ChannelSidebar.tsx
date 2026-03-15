@@ -16,6 +16,7 @@ export function ChannelSidebar() {
     const selectChannel = useAppStore((s) => s.selectChannel)
     const localDmConvos = useAppStore((s) => s.localDmConvos)
     const activeDm = useAppStore((s) => s.activeDm)
+    const dmUnread = useAppStore((s) => s.dmUnread)
     const switchToDms = useAppStore((s) => s.switchToDms)
     const navigate = useNavigate()
 
@@ -180,10 +181,10 @@ export function ChannelSidebar() {
                                     status={dm.status}
                                     statusBorderClass="border-card"
                                 />
-                                <span className="flex-1 truncate text-left text-sm">{dm.name}</span>
-                                {dm.unread > 0 && (
+                                <span className="flex-1 truncate text-left text-sm">{dm.displayName}</span>
+                                {(dmUnread[dm.id] ?? 0) > 0 && (
                                     <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
-                                        {dm.unread}
+                                        {dmUnread[dm.id]}
                                     </span>
                                 )}
                             </button>

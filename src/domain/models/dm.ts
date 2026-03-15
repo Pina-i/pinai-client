@@ -2,6 +2,7 @@
 export interface DirectMessage {
     id: string
     sender_actor_uri: string
+    sender_display_name: string | null
     recipient_actor_uri: string
     content: string
     activity_uri: string
@@ -12,6 +13,8 @@ export interface DirectMessage {
 /** Raw API response: one entry from GET /api/dm (conversation list). */
 export interface DmConversationSummary {
     other_actor_uri: string
+    other_display_name: string | null
+    unread_count: number
     last_message_at: string
 }
 

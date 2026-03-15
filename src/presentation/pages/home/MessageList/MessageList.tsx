@@ -53,10 +53,17 @@ export function MessageList({
     return (
         <ScrollArea className="flex-1 px-4 py-4">
             <div className="flex flex-col gap-1">
-                {messages.map((msg) => (
+                {messages.map((msg) => {
+                    const isOwn = msg.author === currentUsername
+                    return (
                     <div
                         key={msg.id}
-                        className="group relative flex gap-4 px-2 py-1.5 hover:bg-accent/30"
+                        className={cn(
+                            "group relative flex gap-4 px-2 py-1.5",
+                            isOwn
+                                ? "border-l-2 border-primary/40 hover:bg-primary/5"
+                                : "hover:bg-accent/30",
+                        )}
                         onMouseLeave={() => {
                             setShowMessageActions(null)
                             setShowEmojiPicker(null)
@@ -204,7 +211,8 @@ export function MessageList({
                             </div>
                         )}
                     </div>
-                ))}
+                    )
+                })}
                 <div ref={messagesEndRef} />
             </div>
         </ScrollArea>

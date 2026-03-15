@@ -4,22 +4,29 @@ import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { Tooltip } from "@/presentation/atoms/Tooltip/Tooltip"
 import { useAppStore } from "@/store/store"
+import { useNavigate } from "@tanstack/react-router"
 import { Plus } from "lucide-react"
 
 export function ServerStrip() {
     const { servers, activeServer, view, switchToServer, switchToDms } = useAppStore()
+    const navigate = useNavigate()
+
+    function handleDmsPress() {
+        switchToDms()
+        navigate({ to: "/home" })
+    }
 
     return (
         <div className="flex w-[72px] shrink-0 flex-col items-center gap-2 bg-sidebar py-3">
             {/* DMs button */}
             <Tooltip
-                content="Direct Messages"
+                content="Friends"
                 placement="right"
                 delay={300}
             >
                 <IconButton
-                    onPress={switchToDms}
-                    aria-label="Direct Messages"
+                    onPress={handleDmsPress}
+                    aria-label="Friends"
                     className={cn(
                         "relative flex h-12 w-12 items-center justify-center",
                         view === "dms"

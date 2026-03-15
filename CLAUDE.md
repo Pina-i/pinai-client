@@ -141,6 +141,15 @@ We could imagine in other slices, store values like : selectedChatServer, sideba
 
 - Prefer local state in the React components, but when it becomes too tedious to give a value from a React component to another one, put it in the store in the appropriate slice.
 
+## Display Name Rule
+
+**Never display `username` or federation handles to users. Always use `display_name`.**
+
+- `username` (the part before `@` in a federated address) is an internal federation identifier. It must never appear in the UI.
+- Always render the human-readable `display_name` returned by the server.
+- If `display_name` is unavailable, fall back to the username part as a last resort — never as the primary path.
+- This applies everywhere: DM conversation lists, message authors, friend lists, headers, avatars.
+
 ## Security Constraints
 
 - Never store access tokens in `localStorage` or `sessionStorage`
