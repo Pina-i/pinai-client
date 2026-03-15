@@ -83,10 +83,15 @@ export function AppHeader() {
 
     const currentChannel = (channelsByServer[activeServer] ?? []).find((c) => c.id === activeChannel)
     const activeDmData = localDmConvos.find((d) => d.id === activeDm)
+    const activeDmAddress = activeDmData?.name ?? activeDm ?? ""
 
-    const title = view === "dms" ? (activeDm ? (activeDmData?.name ? `${activeDmData.name} - ${activeDm}` : activeDm) : "Friends") : (currentChannel?.name ?? "")
+    const title = view === "dms"
+        ? (activeDm ? (activeDmData?.displayName ?? activeDmAddress.split("@")[0] ?? activeDmAddress) : "Friends")
+        : (currentChannel?.name ?? "")
 
-    const description = view === "dms" ? (activeDm ? activeDmData?.status : "Manage your friends") : currentChannel?.description
+    const description = view === "dms"
+        ? (activeDm ? activeDmAddress : "Manage your friends")
+        : currentChannel?.description
 
     return (
         <header className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">

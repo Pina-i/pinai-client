@@ -13,7 +13,7 @@ function mapApiMessage(msg: DirectMessage, currentUser: UserProfile): Message {
     const isOwn = senderAddress === currentUser.address
     const displayName = isOwn
         ? (currentUser.display_name ?? currentUser.preferred_username)
-        : (senderAddress.split("@")[0] ?? senderAddress)
+        : (msg.sender_display_name ?? senderAddress.split("@")[0] ?? senderAddress)
     return {
         id: msg.id,
         author: displayName,
@@ -34,15 +34,17 @@ export function useConversationPageViewModel(name: string) {
     const updateDmConversation = useAppStore((s) => s.updateDmConversation)
     const seedDmMessages = useAppStore((s) => s.seedDmMessages)
     const setActiveDm = useAppStore((s) => s.setActiveDm)
+    const clearDmUnread = useAppStore((s) => s.clearDmUnread)
 
     const dmData = localDmConvos.find((d) => d.name === name)
     const conversationKey = dmData?.id ?? name
 
-    // Sync store so ChannelSidebar highlights the active DM
+    // Sync store so ChannelSidebar highlights the active DM and clear unread badge.
     useEffect(() => {
         setActiveDm(conversationKey)
+        clearDmUnread(conversationKey)
         return () => setActiveDm(null)
-    }, [conversationKey, setActiveDm])
+    }, [conversationKey, setActiveDm, clearDmUnread])
 
     // Load message history from REST API once per conversation mount
     const historyLoadedRef = useRef(false)

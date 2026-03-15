@@ -19,6 +19,8 @@ export function useLoadDmConversations(): void {
     const accessToken = useAppStore((s) => s.accessToken)
     const idpUrl = useAppStore((s) => s.idpUrl)
     const setDmConversations = useAppStore((s) => s.setDmConversations)
+    const seedDmUnread = useAppStore((s) => s.seedDmUnread)
+    const dmConversationsVersion = useAppStore((s) => s.dmConversationsVersion)
 
     useEffect(() => {
         if (!accessToken || !idpUrl) return
@@ -27,11 +29,12 @@ export function useLoadDmConversations(): void {
             .then((summaries) => {
                 const convos: DmConversation[] = summaries.map((summary) => {
                     const address = actorUriToAddress(summary.other_actor_uri)
-                    const display = address.split("@")[0] ?? address
+                    const displayName = summary.other_display_name ?? address.split("@")[0] ?? address
                     return {
                         id: address,
                         name: address,
-                        avatar: display.slice(0, 2).toUpperCase(),
+                        displayName,
+                        avatar: displayName.slice(0, 2).toUpperCase(),
                         color: colorFromString(address),
                         status: "offline" as const,
                         lastMessage: "",
@@ -39,9 +42,16 @@ export function useLoadDmConversations(): void {
                     }
                 })
                 setDmConversations(convos)
+                const unreadCounts: Record<string, number> = {}
+                summaries.forEach((summary) => {
+                    if (summary.unread_count > 0) {
+                        unreadCounts[actorUriToAddress(summary.other_actor_uri)] = summary.unread_count
+                    }
+                })
+                seedDmUnread(unreadCounts)
             })
             .catch(() => {
                 // Non-fatal: sidebar DM list will just be empty
             })
-    }, [accessToken, idpUrl, setDmConversations])
+    }, [accessToken, idpUrl, setDmConversations, dmConversationsVersion])
 }

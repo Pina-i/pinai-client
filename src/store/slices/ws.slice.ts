@@ -47,12 +47,16 @@ export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]]
 
     pushDmMessage: (conversationKey, message) =>
         set(
-            (s) => ({
-                dmMessages: {
-                    ...s.dmMessages,
-                    [conversationKey]: [...(s.dmMessages[conversationKey] ?? []), message],
-                },
-            }),
+            (s) => {
+                const existing = s.dmMessages[conversationKey] ?? []
+                if (existing.some((m) => m.id === message.id)) return s
+                return {
+                    dmMessages: {
+                        ...s.dmMessages,
+                        [conversationKey]: [...existing, message],
+                    },
+                }
+            },
             false,
             "ws/pushDmMessage",
         ),

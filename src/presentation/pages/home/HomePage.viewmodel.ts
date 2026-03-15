@@ -45,7 +45,7 @@ export function useHomePageViewModel() {
 
     const messagePlaceholder =
         view === "dms"
-            ? `Message @${activeDmData?.name ?? ""}`
+            ? `Message @${activeDmData?.displayName ?? activeDmData?.name ?? ""}`
             : `Message #${currentChannel?.name ?? ""}`
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
