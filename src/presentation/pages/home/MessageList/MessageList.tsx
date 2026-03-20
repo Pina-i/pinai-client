@@ -23,6 +23,7 @@ interface MessageListProps {
     messages: Message[]
     currentUsername: string
     onReaction: (messageId: string, emoji: string) => void
+    onReply: (messageId: string) => void
     onDelete: (messageId: string) => void
     onEdit: (messageId: string, content: string) => void
     onUserClick: (author: string) => void
@@ -33,6 +34,7 @@ export function MessageList({
     messages,
     currentUsername,
     onReaction,
+    onReply,
     onDelete,
     onEdit,
     onUserClick,
@@ -72,6 +74,13 @@ export function MessageList({
                         <Avatar initials={msg.avatar} color={msg.color} size="md" className="mt-0.5" />
 
                         <div className="min-w-0 flex-1">
+                            {msg.replyTo && (
+                                <div className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                                    <Reply className="h-3 w-3 shrink-0" />
+                                    <span className="font-medium" style={{ color: msg.color }}>{msg.replyTo.author}</span>
+                                    <span className="truncate">{msg.replyTo.content}</span>
+                                </div>
+                            )}
                             <div className="flex items-baseline gap-2">
                                 <button
                                     onClick={() => onUserClick(msg.author)}
@@ -168,7 +177,7 @@ export function MessageList({
                                     <button
                                         key={emoji}
                                         onClick={() => {
-                                            onReaction(msg.id, emoji)
+                                            onReaction(msg.id, emojiMap[emoji] ?? emoji)
                                             setShowEmojiPicker(null)
                                         }}
                                         className="p-1 text-base hover:bg-accent"
@@ -182,7 +191,13 @@ export function MessageList({
                         {/* Message context menu */}
                         {showMessageActions === msg.id && (
                             <div className="absolute right-2 top-5 z-50 w-44 border border-border bg-popover p-1 shadow-xl">
-                                <button className="flex w-full items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
+                                <button
+                                    onClick={() => {
+                                        onReply(msg.id)
+                                        setShowMessageActions(null)
+                                    }}
+                                    className="flex w-full items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+                                >
                                     <Reply className="h-4 w-4" /> Reply
                                 </button>
                                 <button

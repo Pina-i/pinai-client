@@ -8,6 +8,17 @@ export interface DirectMessage {
     activity_uri: string
     federation_status: "pending" | "delivered" | "failed"
     created_at: string
+    reply_to_id: string | null
+    reply_to_content: string | null
+    reply_to_sender: string | null
+    reactions: Array<{ emoji: string; count: number; reacted_by_me: boolean }>
+}
+
+/** Reaction group as returned by the API, per message. */
+export interface ApiReactionGroup {
+    emoji: string
+    count: number
+    reacted_by_me: boolean
 }
 
 /** Raw API response: one entry from GET /api/dm (conversation list). */

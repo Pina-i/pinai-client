@@ -16,6 +16,8 @@ export interface WsSlice {
     updateDmConversation: (conversationKey: string, updater: (msgs: Message[]) => Message[]) => void
     /** Prepend historical messages (API-loaded) before any live WS messages, deduplicating by id. */
     seedDmMessages: (conversationKey: string, messages: Message[]) => void
+    /** Update a single message by id across all conversations. */
+    updateMessageById: (messageId: string, updater: (msg: Message) => Message) => void
 }
 
 export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]], [], WsSlice> = (set) => ({
@@ -88,5 +90,25 @@ export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]]
             },
             false,
             "ws/seedDmMessages",
+        ),
+
+    updateMessageById: (messageId, updater) =>
+        set(
+            (s) => {
+                const dmMessages = { ...s.dmMessages }
+                for (const key of Object.keys(dmMessages)) {
+                    const msgs = dmMessages[key]
+                    const idx = msgs.findIndex((m) => m.id === messageId)
+                    if (idx !== -1) {
+                        const updated = [...msgs]
+                        updated[idx] = updater(updated[idx])
+                        dmMessages[key] = updated
+                        break
+                    }
+                }
+                return { dmMessages }
+            },
+            false,
+            "ws/updateMessageById",
         ),
 })

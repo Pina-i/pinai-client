@@ -19,6 +19,7 @@ export function ConversationPage({ name }: ConversationPageProps) {
                     messages={vm.messages}
                     currentUsername={vm.user.display_name ?? vm.user.preferred_username}
                     onReaction={vm.handleReaction}
+                    onReply={vm.handleReply}
                     onDelete={vm.handleDeleteMessage}
                     onEdit={vm.handleEditMessage}
                     onUserClick={vm.handleUserClick}
@@ -27,6 +28,8 @@ export function ConversationPage({ name }: ConversationPageProps) {
                 <MessageInput
                     placeholder={`Message @${vm.name}`}
                     onSend={vm.sendMessage}
+                    replyTo={vm.replyingTo}
+                    onCancelReply={vm.cancelReply}
                 />
             </div>
         </PageTransition>
