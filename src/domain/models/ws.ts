@@ -6,6 +6,15 @@ export interface DmEventPayload {
     sender_display_name: string | null
     content: string
     created_at: string
+    reply_to_id?: string | null
+    reply_to_content?: string | null
+    reply_to_sender?: string | null
+}
+
+export interface ReactionEventPayload {
+    messageId: string
+    reactorActorUri: string
+    emoji: string
 }
 
 export interface FriendEventPayload {
@@ -27,6 +36,8 @@ export type WsServerEvent =
     | { type: "friend_accepted"; data: FriendEventPayload }
     | { type: "friend_removed"; data: FriendEventPayload }
     | { type: "friend_profile_updated"; data: ProfileUpdatePayload }
+    | { type: "message_reaction_added"; data: ReactionEventPayload }
+    | { type: "message_reaction_removed"; data: ReactionEventPayload }
 
 // ── Client → Server messages ────────────────────────────────────────────────
 

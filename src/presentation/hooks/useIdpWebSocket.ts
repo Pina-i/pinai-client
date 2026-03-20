@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
 import { getWsPort } from "@/ioc"
 import type { WsConnectionStatus, WsServerEvent } from "@/domain/models/ws"
+import type { Message } from "@/lib/types"
 import { actorUriToAddress } from "@/domain/models/dm"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import { playDmNotificationSound } from "@/presentation/_libs/notification-sound"
@@ -15,17 +16,19 @@ import { playDmNotificationSound } from "@/presentation/_libs/notification-sound
 export function useIdpWebSocket(): void {
     const accessToken = useAppStore((s) => s.accessToken)
     const idpUrl = useAppStore((s) => s.idpUrl)
+    const user = useAppStore((s) => s.user)
     const setWsStatus = useAppStore((s) => s.setWsStatus)
     const pushDmMessage = useAppStore((s) => s.pushDmMessage)
     const addNotification = useAppStore((s) => s.addNotification)
     const bumpDmConversationsVersion = useAppStore((s) => s.bumpDmConversationsVersion)
     const incrementDmUnread = useAppStore((s) => s.incrementDmUnread)
+    const updateMessageById = useAppStore((s) => s.updateMessageById)
     const activeDm = useAppStore((s) => s.activeDm)
     const queryClient = useQueryClient()
 
     // Use refs for store actions to avoid stale closures in adapter callbacks.
-    const actionsRef = useRef({ setWsStatus, pushDmMessage, addNotification, bumpDmConversationsVersion, incrementDmUnread, activeDm })
-    actionsRef.current = { setWsStatus, pushDmMessage, addNotification, bumpDmConversationsVersion, incrementDmUnread, activeDm }
+    const actionsRef = useRef({ setWsStatus, pushDmMessage, addNotification, bumpDmConversationsVersion, incrementDmUnread, updateMessageById, activeDm, user })
+    actionsRef.current = { setWsStatus, pushDmMessage, addNotification, bumpDmConversationsVersion, incrementDmUnread, updateMessageById, activeDm, user }
 
     useEffect(() => {
         if (!accessToken || !idpUrl) return
@@ -42,7 +45,7 @@ export function useIdpWebSocket(): void {
                     const senderAddress = actorUriToAddress(event.data.sender_address)
                     const senderDisplayName =
                         event.data.sender_display_name ?? senderAddress.split("@")[0] ?? senderAddress
-                    actionsRef.current.pushDmMessage(senderAddress, {
+                    const msg: Message = {
                         id: event.data.message_id,
                         author: senderDisplayName,
                         avatar: senderDisplayName.slice(0, 2).toUpperCase(),
@@ -52,12 +55,52 @@ export function useIdpWebSocket(): void {
                             minute: "2-digit",
                         }),
                         color: "#a78bfa",
-                    })
+                    }
+                    if (event.data.reply_to_id && event.data.reply_to_content) {
+                        msg.replyTo = {
+                            id: event.data.reply_to_id,
+                            content: event.data.reply_to_content,
+                            author: event.data.reply_to_sender ?? "",
+                        }
+                    }
+                    actionsRef.current.pushDmMessage(senderAddress, msg)
                     // Notify if the user is not currently viewing this conversation.
                     if (actionsRef.current.activeDm !== senderAddress) {
                         actionsRef.current.incrementDmUnread(senderAddress)
                         playDmNotificationSound()
                     }
+                    break
+                }
+                case "message_reaction_added": {
+                    const { messageId, reactorActorUri, emoji } = event.data
+                    const reactorAddr = actorUriToAddress(reactorActorUri)
+                    const isOwn = reactorAddr === actionsRef.current.user?.address
+                    // Skip own reactions — already handled by optimistic update.
+                    if (isOwn) break
+                    actionsRef.current.updateMessageById(messageId, (m) => {
+                        const reactions = m.reactions ?? []
+                        const existing = reactions.find((r) => r.emoji === emoji)
+                        if (existing) {
+                            return { ...m, reactions: reactions.map((r) => (r.emoji === emoji ? { ...r, count: r.count + 1 } : r)) }
+                        }
+                        return { ...m, reactions: [...reactions, { emoji, count: 1, reacted: false }] }
+                    })
+                    break
+                }
+                case "message_reaction_removed": {
+                    const { messageId, reactorActorUri, emoji } = event.data
+                    const reactorAddr = actorUriToAddress(reactorActorUri)
+                    const isOwn = reactorAddr === actionsRef.current.user?.address
+                    if (isOwn) break
+                    actionsRef.current.updateMessageById(messageId, (m) => {
+                        const reactions = m.reactions ?? []
+                        return {
+                            ...m,
+                            reactions: reactions
+                                .map((r) => (r.emoji === emoji ? { ...r, count: r.count - 1 } : r))
+                                .filter((r) => r.count > 0),
+                        }
+                    })
                     break
                 }
                 case "friend_request":

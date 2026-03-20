@@ -8,6 +8,7 @@ export interface Message {
     timestamp: string
     color: string
     reactions?: Array<{ emoji: string; count: number; reacted: boolean }>
+    replyTo?: { id: string; content: string; author: string }
 }
 
 export interface Server {
