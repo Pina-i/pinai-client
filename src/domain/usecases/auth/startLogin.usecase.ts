@@ -13,6 +13,7 @@ export async function startLoginUseCase(idpUrl: string, authPort: IAuthPort): Pr
     const nonce = generateRandomString(16)
 
     // Persist across the redirect — sessionStorage is cleared when the tab closes
+    sessionStorage.setItem("post_login_redirect", window.location.pathname + window.location.search)
     sessionStorage.setItem("pkce_verifier", codeVerifier)
     sessionStorage.setItem("pkce_state", state)
     sessionStorage.setItem("pkce_nonce", nonce)

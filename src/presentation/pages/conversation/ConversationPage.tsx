@@ -1,6 +1,6 @@
 import { PageTransition } from "@/presentation/atoms/page-transition/page-transition"
-import { MessageInput } from "../home/MessageInput/MessageInput"
-import { MessageList } from "../home/MessageList/MessageList"
+import { MessageInput } from "@/presentation/molecules/MessageInput/MessageInput"
+import { MessageList } from "@/presentation/organisms/MessageList/MessageList"
 import { useConversationPageViewModel } from "./ConversationPage.viewmodel"
 
 interface ConversationPageProps {
@@ -17,12 +17,8 @@ export function ConversationPage({ name }: ConversationPageProps) {
             <div className="flex flex-1 flex-col">
                 <MessageList
                     messages={vm.messages}
-                    currentUsername={vm.user.display_name ?? vm.user.preferred_username}
-                    onReaction={vm.handleReaction}
+                    conversationKey={vm.conversationKey}
                     onReply={vm.handleReply}
-                    onDelete={vm.handleDeleteMessage}
-                    onEdit={vm.handleEditMessage}
-                    onUserClick={vm.handleUserClick}
                     messagesEndRef={vm.messagesEndRef}
                 />
                 <MessageInput

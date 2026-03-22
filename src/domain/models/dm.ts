@@ -8,6 +8,7 @@ export interface DirectMessage {
     activity_uri: string
     federation_status: "pending" | "delivered" | "failed"
     created_at: string
+    edited_at: string | null
     reply_to_id: string | null
     reply_to_content: string | null
     reply_to_sender: string | null

@@ -7,6 +7,7 @@ export interface Message {
     content: string
     timestamp: string
     color: string
+    edited?: boolean
     reactions?: Array<{ emoji: string; count: number; reacted: boolean }>
     replyTo?: { id: string; content: string; author: string }
 }

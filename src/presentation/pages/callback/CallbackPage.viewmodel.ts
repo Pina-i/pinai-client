@@ -23,7 +23,9 @@ export function useCallbackPageViewModel() {
         handleCallbackUseCase(params, getAuthPort())
             .then(({ accessToken, user, idpUrl }) => {
                 setSession(accessToken, user, idpUrl)
-                void navigate({ to: "/home" })
+                const redirect = sessionStorage.getItem("post_login_redirect")
+                sessionStorage.removeItem("post_login_redirect")
+                void navigate({ to: redirect ?? "/home" })
             })
             .catch((err: unknown) => {
                 setError(err instanceof Error ? err.message : "Authentication failed")

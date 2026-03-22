@@ -71,6 +71,15 @@ export function useIdpWebSocket(): void {
                     }
                     break
                 }
+                case "message_edited": {
+                    const { message_id, new_content } = event.data
+                    actionsRef.current.updateMessageById(message_id, (m) => ({
+                        ...m,
+                        content: new_content,
+                        edited: true,
+                    }))
+                    break
+                }
                 case "message_reaction_added": {
                     const { messageId, reactorActorUri, emoji } = event.data
                     const reactorAddr = actorUriToAddress(reactorActorUri)
