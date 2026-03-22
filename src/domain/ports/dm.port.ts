@@ -16,4 +16,6 @@ export interface IDmPort {
     addReaction(idpUrl: string, accessToken: string, messageId: string, emoji: string): Promise<void>
     /** DELETE /api/dm/{messageId}/reactions?emoji=... — remove a reaction. */
     removeReaction(idpUrl: string, accessToken: string, messageId: string, emoji: string): Promise<void>
+    /** PATCH /api/dm/{messageId}/edit — edit a message's content. */
+    editMessage(idpUrl: string, accessToken: string, messageId: string, content: string): Promise<void>
 }

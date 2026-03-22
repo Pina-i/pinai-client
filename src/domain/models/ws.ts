@@ -30,8 +30,15 @@ export interface ProfileUpdatePayload {
     avatarUrl: string | null
 }
 
+export interface MessageEditedPayload {
+    message_id: string
+    new_content: string
+    edited_at: string
+}
+
 export type WsServerEvent =
     | { type: "new_dm"; data: DmEventPayload }
+    | { type: "message_edited"; data: MessageEditedPayload }
     | { type: "friend_request"; data: FriendEventPayload }
     | { type: "friend_accepted"; data: FriendEventPayload }
     | { type: "friend_removed"; data: FriendEventPayload }

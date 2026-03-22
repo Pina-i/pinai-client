@@ -176,7 +176,6 @@ export function ChannelSidebar() {
                             >
                                 <Avatar
                                     initials={dm.avatar}
-                                    color={dm.color}
                                     size="sm"
                                     status={dm.status}
                                     statusBorderClass="border-card"

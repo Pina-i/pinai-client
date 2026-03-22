@@ -4,6 +4,8 @@ This directory contains all UI pages and their associated components.
 
 ## Component Organization
 
+For reusable components, we use the Atomic design folder architecture
+
 ### Page-specific components
 
 Each page component should be broken down into smaller, focused React components. When a UI section of a page can be isolated, extract it into its own component inside a subfolder of that page's directory.
@@ -31,7 +33,7 @@ Before creating a new reusable component, check if a similar one already exists 
 
 - Whenever it is possible, use React Aria components instead of custom implementations.
 - Use tv() function from tailwind-variants to define component variants.
-- Use Shadcn tokens for component styling.
+- Use Shadcn theme tokens architecture for component styling.
 - Create custom declarative props to not coupling the reusable components to specific UI libraries (e.g. React Aria).
 
 ## ViewModel pattern

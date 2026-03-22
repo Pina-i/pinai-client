@@ -21,6 +21,7 @@ function mapApiMessage(msg: DirectMessage, currentUser: UserProfile): Message {
         content: msg.content,
         timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         color: "#a78bfa",
+        edited: msg.edited_at != null,
         reactions: msg.reactions?.map((r) => ({ emoji: r.emoji, count: r.count, reacted: r.reacted_by_me })),
     }
     if (msg.reply_to_id && msg.reply_to_content) {
@@ -40,12 +41,9 @@ export function useConversationPageViewModel(name: string) {
     const localDmConvos = useAppStore((s) => s.localDmConvos)
     const dmMessages = useAppStore((s) => s.dmMessages)
     const pushDmMessage = useAppStore((s) => s.pushDmMessage)
-    const updateDmConversation = useAppStore((s) => s.updateDmConversation)
     const seedDmMessages = useAppStore((s) => s.seedDmMessages)
     const setActiveDm = useAppStore((s) => s.setActiveDm)
     const clearDmUnread = useAppStore((s) => s.clearDmUnread)
-
-    const updateMessageById = useAppStore((s) => s.updateMessageById)
 
     const dmData = localDmConvos.find((d) => d.name === name)
     const conversationKey = dmData?.id ?? name
@@ -59,7 +57,7 @@ export function useConversationPageViewModel(name: string) {
         return () => setActiveDm(null)
     }, [conversationKey, setActiveDm, clearDmUnread])
 
-    // Load message history from REST API once per conversation mount
+    // Load message history from REST API once per conversation mount.
     const historyLoadedRef = useRef(false)
     useEffect(() => {
         historyLoadedRef.current = false
@@ -71,12 +69,12 @@ export function useConversationPageViewModel(name: string) {
 
         getConversationHistoryUseCase(idpUrl, accessToken, name, getDmPort())
             .then((msgs) => {
-                // API returns newest-first → reverse to oldest-first for display
+                // API returns newest-first → reverse to oldest-first for display.
                 const mapped = msgs.reverse().map((m) => mapApiMessage(m, user))
                 seedDmMessages(conversationKey, mapped)
             })
             .catch(() => {
-                historyLoadedRef.current = false // allow retry on next render
+                historyLoadedRef.current = false
             })
     }, [accessToken, idpUrl, user, name, conversationKey, seedDmMessages])
 
@@ -120,77 +118,6 @@ export function useConversationPageViewModel(name: string) {
         [user, conversationKey, dmData, name, pushDmMessage, replyingTo, accessToken, idpUrl],
     )
 
-    const handleReaction = useCallback(
-        (messageId: string, emoji: string) => {
-            // Determine current reacted state before optimistic update.
-            const currentMsgs = dmMessages[conversationKey] ?? []
-            const targetMsg = currentMsgs.find((m) => m.id === messageId)
-            const wasReacted = targetMsg?.reactions?.find((r) => r.emoji === emoji)?.reacted ?? false
-
-            // Optimistic update.
-            updateDmConversation(conversationKey, (msgs) =>
-                msgs.map((m) => {
-                    if (m.id !== messageId) return m
-                    const reactions = m.reactions ?? []
-                    const existing = reactions.find((r) => r.emoji === emoji)
-                    if (existing) {
-                        return {
-                            ...m,
-                            reactions: existing.reacted
-                                ? reactions
-                                      .map((r) => (r.emoji === emoji ? { ...r, count: r.count - 1, reacted: false } : r))
-                                      .filter((r) => r.count > 0)
-                                : reactions.map((r) => (r.emoji === emoji ? { ...r, count: r.count + 1, reacted: true } : r)),
-                        }
-                    }
-                    return { ...m, reactions: [...reactions, { emoji, count: 1, reacted: true }] }
-                }),
-            )
-
-            // Fire API call; rollback on failure.
-            if (accessToken && idpUrl) {
-                const dmPort = getDmPort()
-                const apiCall = wasReacted
-                    ? dmPort.removeReaction(idpUrl, accessToken, messageId, emoji)
-                    : dmPort.addReaction(idpUrl, accessToken, messageId, emoji)
-                apiCall.catch(() => {
-                    // Rollback: reverse the optimistic change.
-                    updateMessageById(messageId, (m) => {
-                        const reactions = m.reactions ?? []
-                        if (wasReacted) {
-                            const existing = reactions.find((r) => r.emoji === emoji)
-                            if (existing) return { ...m, reactions: reactions.map((r) => (r.emoji === emoji ? { ...r, count: r.count + 1, reacted: true } : r)) }
-                            return { ...m, reactions: [...reactions, { emoji, count: 1, reacted: true }] }
-                        }
-                        return {
-                            ...m,
-                            reactions: reactions
-                                .map((r) => (r.emoji === emoji ? { ...r, count: r.count - 1, reacted: false } : r))
-                                .filter((r) => r.count > 0),
-                        }
-                    })
-                })
-            }
-        },
-        [conversationKey, dmMessages, updateDmConversation, updateMessageById, accessToken, idpUrl],
-    )
-
-    const handleDeleteMessage = useCallback(
-        (messageId: string) => {
-            updateDmConversation(conversationKey, (msgs) => msgs.filter((m) => m.id !== messageId))
-        },
-        [conversationKey, updateDmConversation],
-    )
-
-    const handleEditMessage = useCallback(
-        (messageId: string, content: string) => {
-            updateDmConversation(conversationKey, (msgs) =>
-                msgs.map((m) => (m.id === messageId ? { ...m, content } : m)),
-            )
-        },
-        [conversationKey, updateDmConversation],
-    )
-
     const handleReply = useCallback(
         (messageId: string) => {
             const msg = (dmMessages[conversationKey] ?? []).find((m) => m.id === messageId)
@@ -201,22 +128,15 @@ export function useConversationPageViewModel(name: string) {
 
     const cancelReply = useCallback(() => setReplyingTo(null), [])
 
-    const handleUserClick = useCallback((_author: string) => {
-        // Will open user profile when backend is connected
-    }, [])
-
     return {
         user,
         name,
+        conversationKey,
         messages,
         messagesEndRef,
         replyingTo,
         sendMessage,
-        handleReaction,
         handleReply,
         cancelReply,
-        handleDeleteMessage,
-        handleEditMessage,
-        handleUserClick,
     }
 }
