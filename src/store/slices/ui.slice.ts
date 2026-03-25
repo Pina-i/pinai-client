@@ -68,7 +68,7 @@ export const createUiSlice: StateCreator<AppStore, [["zustand/devtools", never]]
     setActiveDm: (dmId) => set({ activeDm: dmId }, false, "ui/setActiveDm"),
     openDmWith: (name) => {
         const { localDmConvos } = get()
-        const existing = localDmConvos.find((d) => d.name === name)
+        const existing = localDmConvos.find((d) => d.address === name)
         set({ view: "dms", activeDm: existing?.id ?? null }, false, "ui/openDmWith")
     },
 })

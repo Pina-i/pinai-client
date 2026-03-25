@@ -28,11 +28,16 @@ export interface Channel {
 }
 
 export interface DmConversation {
+    /** Stable conversation UUID from the server. */
     id: string
-    /** Federation address used as routing key (e.g. alice@idp.alice.com). */
-    name: string
-    /** Human-readable display name from the server. Falls back to the username part of name. */
+    /** 'dm' or 'group'. */
+    kind: "dm" | "group"
+    /** Group name (null for DMs). */
+    groupName: string | null
+    /** Human-readable display name: for DMs derived from the other member, for groups from `groupName`. */
     displayName: string
+    /** Federation address of the first other member (used for routing to /dm/$name). */
+    address: string
     avatar: string
     color: string
     status: UserStatus

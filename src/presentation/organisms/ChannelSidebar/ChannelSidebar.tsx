@@ -166,7 +166,7 @@ export function ChannelSidebar() {
                         {localDmConvos.map((dm) => (
                             <button
                                 key={dm.id}
-                                onClick={() => navigate({ to: "/dm/$name", params: { name: dm.name } })}
+                                onClick={() => navigate({ to: "/dm/$name", params: { name: dm.address } })}
                                 className={cn(
                                     "flex w-full items-center gap-2 px-2 py-1.5 transition-colors",
                                     activeDm === dm.id

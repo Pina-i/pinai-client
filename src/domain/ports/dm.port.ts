@@ -6,10 +6,10 @@ export interface DmCursor {
 }
 
 export interface IDmPort {
-    /** GET /api/dm — list all DM conversations, sorted by most recent first. */
+    /** GET /api/dm — list all conversations, sorted by most recent first. */
     listConversations(idpUrl: string, accessToken: string): Promise<DmConversationSummary[]>
-    /** GET /api/dm/{address} — paginated history (newest first). */
-    getConversation(idpUrl: string, accessToken: string, address: string, cursor?: DmCursor): Promise<DirectMessage[]>
+    /** GET /api/dm/{conversationId} — paginated history (newest first). */
+    getConversation(idpUrl: string, accessToken: string, conversationId: string, cursor?: DmCursor): Promise<DirectMessage[]>
     /** POST /api/dm — send a message (supports replies via replyToId). */
     sendMessage(idpUrl: string, accessToken: string, recipientAddress: string, content: string, replyToId?: string): Promise<DirectMessage>
     /** POST /api/dm/{messageId}/reactions — add a reaction. */

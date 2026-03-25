@@ -28,16 +28,22 @@ export function useLoadDmConversations(): void {
         getDmConversationsUseCase(idpUrl, accessToken, getDmPort())
             .then((summaries) => {
                 const convos: DmConversation[] = summaries.map((summary) => {
-                    const address = actorUriToAddress(summary.other_actor_uri)
-                    const displayName = summary.other_display_name ?? address.split("@")[0] ?? address
+                    // For DMs: title from members[0].displayName; for groups: from name
+                    const firstMember = summary.members[0]
+                    const address = firstMember ? actorUriToAddress(firstMember.actorUri) : summary.conversation_id
+                    const displayName = summary.kind === "dm"
+                        ? (firstMember?.displayName ?? address.split("@")[0] ?? address)
+                        : (summary.name ?? summary.members.map((m) => m.displayName ?? "?").join(", "))
                     return {
-                        id: address,
-                        name: address,
+                        id: summary.conversation_id,
+                        kind: summary.kind,
+                        groupName: summary.name,
                         displayName,
+                        address,
                         avatar: displayName.slice(0, 2).toUpperCase(),
                         color: colorFromString(address),
                         status: "offline" as const,
-                        lastMessage: "",
+                        lastMessage: summary.last_message_preview ?? "",
                         unread: 0,
                     }
                 })
@@ -45,7 +51,7 @@ export function useLoadDmConversations(): void {
                 const unreadCounts: Record<string, number> = {}
                 summaries.forEach((summary) => {
                     if (summary.unread_count > 0) {
-                        unreadCounts[actorUriToAddress(summary.other_actor_uri)] = summary.unread_count
+                        unreadCounts[summary.conversation_id] = summary.unread_count
                     }
                 })
                 seedDmUnread(unreadCounts)

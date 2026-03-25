@@ -1,9 +1,9 @@
 /** Raw API response: a single direct message. */
 export interface DirectMessage {
     id: string
+    conversation_id: string
     sender_actor_uri: string
     sender_display_name: string | null
-    recipient_actor_uri: string
     content: string
     activity_uri: string
     federation_status: "pending" | "delivered" | "failed"
@@ -22,12 +22,22 @@ export interface ApiReactionGroup {
     reacted_by_me: boolean
 }
 
+/** Member info in a conversation list entry. */
+export interface ConversationMemberInfo {
+    actorUri: string
+    displayName: string | null
+}
+
 /** Raw API response: one entry from GET /api/dm (conversation list). */
 export interface DmConversationSummary {
-    other_actor_uri: string
-    other_display_name: string | null
+    conversation_id: string
+    kind: "dm" | "group"
+    name: string | null
+    members: ConversationMemberInfo[]
+    last_message_preview: string | null
+    last_message_sender: string | null
     unread_count: number
-    last_message_at: string
+    last_message_at: string | null
 }
 
 /** Convert an ActivityPub actor URI to an address string (username@domain). */
