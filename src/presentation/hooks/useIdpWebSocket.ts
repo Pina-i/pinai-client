@@ -6,6 +6,7 @@ import type { WsConnectionStatus, WsServerEvent } from "@/domain/models/ws"
 import type { Message } from "@/lib/types"
 import { actorUriToAddress } from "@/domain/models/dm"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
+import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 import { playDmNotificationSound } from "@/presentation/_libs/notification-sound"
 
 /**
@@ -20,15 +21,14 @@ export function useIdpWebSocket(): void {
     const setWsStatus = useAppStore((s) => s.setWsStatus)
     const pushDmMessage = useAppStore((s) => s.pushDmMessage)
     const addNotification = useAppStore((s) => s.addNotification)
-    const bumpDmConversationsVersion = useAppStore((s) => s.bumpDmConversationsVersion)
     const incrementDmUnread = useAppStore((s) => s.incrementDmUnread)
     const updateMessageById = useAppStore((s) => s.updateMessageById)
     const activeDm = useAppStore((s) => s.activeDm)
     const queryClient = useQueryClient()
 
     // Use refs for store actions to avoid stale closures in adapter callbacks.
-    const actionsRef = useRef({ setWsStatus, pushDmMessage, addNotification, bumpDmConversationsVersion, incrementDmUnread, updateMessageById, activeDm, user })
-    actionsRef.current = { setWsStatus, pushDmMessage, addNotification, bumpDmConversationsVersion, incrementDmUnread, updateMessageById, activeDm, user }
+    const actionsRef = useRef({ setWsStatus, pushDmMessage, addNotification, incrementDmUnread, updateMessageById, activeDm, user })
+    actionsRef.current = { setWsStatus, pushDmMessage, addNotification, incrementDmUnread, updateMessageById, activeDm, user }
 
     useEffect(() => {
         if (!accessToken || !idpUrl) return
@@ -64,6 +64,8 @@ export function useIdpWebSocket(): void {
                         }
                     }
                     actionsRef.current.pushDmMessage(conversationId, msg)
+                    // Refresh the conversation list so new conversations appear in the sidebar.
+                    if (idpUrl) queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
                     // Notify if the user is not currently viewing this conversation.
                     if (actionsRef.current.activeDm !== conversationId) {
                         actionsRef.current.incrementDmUnread(conversationId)
@@ -138,8 +140,8 @@ export function useIdpWebSocket(): void {
                     // A friend's profile was updated — refresh friends list and DM conversation names.
                     if (idpUrl) {
                         queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
+                        queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
                     }
-                    actionsRef.current.bumpDmConversationsVersion()
                     break
                 }
             }

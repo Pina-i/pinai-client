@@ -7,12 +7,10 @@ export interface DataSlice {
     channelsByServer: Record<string, Channel[]>
     localDmConvos: DmConversation[]
     members: Member[]
-    dmConversationsVersion: number
     /** Unread counts keyed by conversation_id (UUID). */
     dmUnread: Record<string, number>
 
     setDmConversations: (convos: DmConversation[]) => void
-    bumpDmConversationsVersion: () => void
     /** Increment unread count for a conversation_id. */
     incrementDmUnread: (conversationId: string) => void
     /** Clear unread count for a conversation_id. */
@@ -25,12 +23,9 @@ export const createDataSlice: StateCreator<AppStore, [["zustand/devtools", never
     channelsByServer: {},
     localDmConvos: [],
     members: [],
-    dmConversationsVersion: 0,
     dmUnread: {},
 
     setDmConversations: (convos) => set({ localDmConvos: convos }, false, "data/setDmConversations"),
-    bumpDmConversationsVersion: () =>
-        set((s) => ({ dmConversationsVersion: s.dmConversationsVersion + 1 }), false, "data/bumpDmConversationsVersion"),
     incrementDmUnread: (address) =>
         set(
             (s) => ({ dmUnread: { ...s.dmUnread, [address]: (s.dmUnread[address] ?? 0) + 1 } }),
