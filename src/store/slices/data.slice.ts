@@ -8,12 +8,15 @@ export interface DataSlice {
     localDmConvos: DmConversation[]
     members: Member[]
     dmConversationsVersion: number
+    /** Unread counts keyed by conversation_id (UUID). */
     dmUnread: Record<string, number>
 
     setDmConversations: (convos: DmConversation[]) => void
     bumpDmConversationsVersion: () => void
-    incrementDmUnread: (address: string) => void
-    clearDmUnread: (address: string) => void
+    /** Increment unread count for a conversation_id. */
+    incrementDmUnread: (conversationId: string) => void
+    /** Clear unread count for a conversation_id. */
+    clearDmUnread: (conversationId: string) => void
     seedDmUnread: (counts: Record<string, number>) => void
 }
 

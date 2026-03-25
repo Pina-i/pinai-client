@@ -21,10 +21,10 @@ export class DmApiAdapter implements IDmPort {
     async getConversation(
         idpUrl: string,
         accessToken: string,
-        address: string,
+        conversationId: string,
         cursor?: DmCursor,
     ): Promise<DirectMessage[]> {
-        const base = `${idpUrl.replace(/\/$/, "")}/api/dm/${encodeURIComponent(address)}`
+        const base = `${idpUrl.replace(/\/$/, "")}/api/dm/${encodeURIComponent(conversationId)}`
         const searchParams = new URLSearchParams()
         if (cursor) {
             searchParams.set("cursor_created_at", cursor.created_at)

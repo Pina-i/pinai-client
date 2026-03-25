@@ -2,6 +2,8 @@
 
 export interface DmEventPayload {
     message_id: string
+    conversation_id: string
+    kind: "dm" | "group"
     sender_address: string
     sender_display_name: string | null
     content: string

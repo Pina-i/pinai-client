@@ -42,9 +42,9 @@ export function useIdpWebSocket(): void {
         wsPort.onEvent((event: WsServerEvent) => {
             switch (event.type) {
                 case "new_dm": {
-                    const senderAddress = actorUriToAddress(event.data.sender_address)
+                    const conversationId = event.data.conversation_id
                     const senderDisplayName =
-                        event.data.sender_display_name ?? senderAddress.split("@")[0] ?? senderAddress
+                        event.data.sender_display_name ?? actorUriToAddress(event.data.sender_address).split("@")[0] ?? "?"
                     const msg: Message = {
                         id: event.data.message_id,
                         author: senderDisplayName,
@@ -63,10 +63,10 @@ export function useIdpWebSocket(): void {
                             author: event.data.reply_to_sender ?? "",
                         }
                     }
-                    actionsRef.current.pushDmMessage(senderAddress, msg)
+                    actionsRef.current.pushDmMessage(conversationId, msg)
                     // Notify if the user is not currently viewing this conversation.
-                    if (actionsRef.current.activeDm !== senderAddress) {
-                        actionsRef.current.incrementDmUnread(senderAddress)
+                    if (actionsRef.current.activeDm !== conversationId) {
+                        actionsRef.current.incrementDmUnread(conversationId)
                         playDmNotificationSound()
                     }
                     break

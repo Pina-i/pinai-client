@@ -45,7 +45,9 @@ export function useConversationPageViewModel(name: string) {
     const setActiveDm = useAppStore((s) => s.setActiveDm)
     const clearDmUnread = useAppStore((s) => s.clearDmUnread)
 
-    const dmData = localDmConvos.find((d) => d.name === name)
+    // Look up the conversation by address (route param) — the DmConversation.address field
+    const dmData = localDmConvos.find((d) => d.address === name)
+    // The conversation key is the stable UUID (conversation_id)
     const conversationKey = dmData?.id ?? name
 
     const [replyingTo, setReplyingTo] = useState<{ id: string; content: string; author: string } | null>(null)
@@ -65,9 +67,11 @@ export function useConversationPageViewModel(name: string) {
 
     useEffect(() => {
         if (!accessToken || !idpUrl || !user || historyLoadedRef.current) return
+        // Need the conversation_id to load history. If we don't have the dmData yet, skip.
+        if (!dmData) return
         historyLoadedRef.current = true
 
-        getConversationHistoryUseCase(idpUrl, accessToken, name, getDmPort())
+        getConversationHistoryUseCase(idpUrl, accessToken, dmData.id, getDmPort())
             .then((msgs) => {
                 // API returns newest-first → reverse to oldest-first for display.
                 const mapped = msgs.reverse().map((m) => mapApiMessage(m, user))
@@ -76,7 +80,7 @@ export function useConversationPageViewModel(name: string) {
             .catch(() => {
                 historyLoadedRef.current = false
             })
-    }, [accessToken, idpUrl, user, name, conversationKey, seedDmMessages])
+    }, [accessToken, idpUrl, user, name, conversationKey, seedDmMessages, dmData])
 
     const messages = dmMessages[conversationKey] ?? []
     const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -84,7 +88,8 @@ export function useConversationPageViewModel(name: string) {
     const sendMessage = useCallback(
         async (content: string) => {
             if (!user) return
-            const recipientAddress = dmData?.name ?? name
+            // The recipient address is the federation address of the other member
+            const recipientAddress = dmData?.address ?? name
             const currentReply = replyingTo
             setReplyingTo(null)
 
