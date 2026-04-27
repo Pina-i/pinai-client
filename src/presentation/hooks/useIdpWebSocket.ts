@@ -5,6 +5,7 @@ import { getWsPort } from "@/ioc"
 import type { WsConnectionStatus, WsServerEvent } from "@/domain/models/ws"
 import type { Message } from "@/lib/types"
 import { actorUriToAddress } from "@/domain/models/dm"
+import { TYPING_INDICATOR_TTL_MS } from "@/store/slices/presence.slice"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 import { playDmNotificationSound } from "@/presentation/_libs/notification-sound"
@@ -24,11 +25,33 @@ export function useIdpWebSocket(): void {
     const incrementDmUnread = useAppStore((s) => s.incrementDmUnread)
     const updateMessageById = useAppStore((s) => s.updateMessageById)
     const activeDm = useAppStore((s) => s.activeDm)
+    const setPresence = useAppStore((s) => s.setPresence)
+    const addTyping = useAppStore((s) => s.addTyping)
     const queryClient = useQueryClient()
 
     // Use refs for store actions to avoid stale closures in adapter callbacks.
-    const actionsRef = useRef({ setWsStatus, pushDmMessage, addNotification, incrementDmUnread, updateMessageById, activeDm, user })
-    actionsRef.current = { setWsStatus, pushDmMessage, addNotification, incrementDmUnread, updateMessageById, activeDm, user }
+    const actionsRef = useRef({
+        setWsStatus,
+        pushDmMessage,
+        addNotification,
+        incrementDmUnread,
+        updateMessageById,
+        activeDm,
+        user,
+        setPresence,
+        addTyping,
+    })
+    actionsRef.current = {
+        setWsStatus,
+        pushDmMessage,
+        addNotification,
+        incrementDmUnread,
+        updateMessageById,
+        activeDm,
+        user,
+        setPresence,
+        addTyping,
+    }
 
     useEffect(() => {
         if (!accessToken || !idpUrl) return
@@ -40,6 +63,31 @@ export function useIdpWebSocket(): void {
         })
 
         wsPort.onEvent((event: WsServerEvent) => {
+            // Presence and typing events use an `event:` discriminator
+            // (see specs/04-presence.md). Route them before the `type:` switch.
+            if ("event" in event) {
+                if (event.event === "presence_update") {
+                    const address = actorUriToAddress(event.actorUri)
+                    actionsRef.current.setPresence(address, event.state)
+                    return
+                }
+                if (event.event === "typing") {
+                    // Server already excludes the sender, but guard anyway in case
+                    // the user opens two tabs.
+                    const senderAddress = actorUriToAddress(event.actorUri)
+                    if (senderAddress === actionsRef.current.user?.address) return
+                    actionsRef.current.addTyping(
+                        event.conversationId,
+                        event.actorUri,
+                        Date.now() + TYPING_INDICATOR_TTL_MS,
+                    )
+                    return
+                }
+            }
+
+            // heartbeat_ack is purely a keep-alive — no UI side effect.
+            if (event.type === "heartbeat_ack") return
+
             switch (event.type) {
                 case "new_dm": {
                     const conversationId = event.data.conversation_id

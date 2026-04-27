@@ -1,3 +1,5 @@
+import type { PresenceState } from "@/domain/models/presence"
+
 // ── Server → Client events ──────────────────────────────────────────────────
 
 export interface DmEventPayload {
@@ -47,13 +49,19 @@ export type WsServerEvent =
     | { type: "friend_profile_updated"; data: ProfileUpdatePayload }
     | { type: "message_reaction_added"; data: ReactionEventPayload }
     | { type: "message_reaction_removed"; data: ReactionEventPayload }
+    | { event: "presence_update"; actorUri: string; state: PresenceState; timestamp: string }
+    | { event: "typing"; actorUri: string; conversationId: string; timestamp: string }
+    | { type: "heartbeat_ack" }
 
 // ── Client → Server messages ────────────────────────────────────────────────
 
-export type WsClientMessage = {
-    type: "send_dm"
-    data: { recipient_address: string; content: string }
-}
+export type WsClientMessage =
+    | {
+          type: "send_dm"
+          data: { recipient_address: string; content: string }
+      }
+    | { type: "heartbeat" }
+    | { type: "typing_start"; conversationId: string }
 
 // ── Connection status ───────────────────────────────────────────────────────
 
@@ -61,9 +69,11 @@ export type WsConnectionStatus = "disconnected" | "connecting" | "connected"
 
 // ── Notification model ──────────────────────────────────────────────────────
 
+export type WsNotificationEventType = "friend_request" | "friend_accepted" | "friend_removed"
+
 export interface WsNotification {
     id: string
-    eventType: WsServerEvent["type"]
+    eventType: WsNotificationEventType
     actorUri: string
     displayName: string
     receivedAt: string

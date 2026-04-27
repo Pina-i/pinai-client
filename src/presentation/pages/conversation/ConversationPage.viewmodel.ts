@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useAppStore } from "@/store/store"
 import { sendDmWsUseCase } from "@/domain/usecases/ws/send-dm-ws.usecase"
+import { sendTypingStartUseCase } from "@/domain/usecases/presence/send-typing-start.usecase"
 import { getConversationHistoryUseCase } from "@/domain/usecases/dm/get-conversation-history.usecase"
 import { getDmPort, getWsPort } from "@/ioc"
 import { actorUriToAddress } from "@/domain/models/dm"
@@ -44,6 +45,7 @@ export function useConversationPageViewModel(name: string) {
     const seedDmMessages = useAppStore((s) => s.seedDmMessages)
     const setActiveDm = useAppStore((s) => s.setActiveDm)
     const clearDmUnread = useAppStore((s) => s.clearDmUnread)
+    const typingByConversation = useAppStore((s) => s.typingByConversation)
 
     // Look up the conversation by address (route param) — the DmConversation.address field
     const dmData = localDmConvos.find((d) => d.address === name)
@@ -133,6 +135,23 @@ export function useConversationPageViewModel(name: string) {
 
     const cancelReply = useCallback(() => setReplyingTo(null), [])
 
+    const handleType = useCallback(() => {
+        sendTypingStartUseCase(conversationKey, getWsPort())
+    }, [conversationKey])
+
+    // Build a "X is typing…" label, excluding the current user.
+    const typingLabel = useMemo(() => {
+        const entries = typingByConversation[conversationKey] ?? []
+        const ownAddress = user?.address
+        const others = entries.filter((t) => actorUriToAddress(t.actorUri) !== ownAddress)
+        if (others.length === 0) return null
+        const dmDisplayName = dmData?.kind === "dm" ? dmData.displayName : null
+        if (others.length === 1) {
+            return dmDisplayName ? `${dmDisplayName} is typing…` : "Someone is typing…"
+        }
+        return `${others.length} people are typing…`
+    }, [typingByConversation, conversationKey, user?.address, dmData])
+
     return {
         user,
         name,
@@ -142,6 +161,8 @@ export function useConversationPageViewModel(name: string) {
         replyingTo,
         sendMessage,
         handleReply,
+        handleType,
         cancelReply,
+        typingLabel,
     }
 }
