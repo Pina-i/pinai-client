@@ -30,6 +30,21 @@ Pure TypeScript — no framework dependencies.
 - Clears the local session via an injected `clearSession` callback
 - Redirects to the IdP `/logout` endpoint with a `post_logout_redirect_uri`
 
+### models/presence.ts
+- `PresenceState` (`online | away | offline`), `PresenceSnapshotEntry`,
+  `PresenceUpdatePayload`, `TypingEventPayload`
+- `presenceToUserStatus()` maps presence → UI `UserStatus` (away → idle)
+
+### ports/presence.port.ts
+- `IPresencePort.getPresence(idpUrl, token, addresses[])` —
+  `GET /api/presence?actors[]=...`
+
+### usecases/presence/
+- `get-presence-snapshot.usecase.ts` — initial state on page load
+- `send-heartbeat.usecase.ts` — pumps `{ type: "heartbeat" }` over WS every 30s
+- `send-typing-start.usecase.ts` — emits `{ type: "typing_start" }`,
+  rate-limited to 1/s per conversation
+
 ### usecases/auth/ensureAuthenticated.usecase.ts
 - Guards access to protected routes
 - Already authenticated → returns immediately

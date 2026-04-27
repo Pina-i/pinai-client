@@ -6,17 +6,24 @@ import { cn } from "@/presentation/_libs/utils"
 interface MessageInputProps {
     placeholder: string
     onSend: (content: string) => void
+    /** Fired on each keystroke; consumer is responsible for rate-limiting (e.g. typing indicator). */
+    onType?: () => void
     replyTo?: { id: string; content: string; author: string } | null
     onCancelReply?: () => void
 }
 
-export function MessageInput({ placeholder, onSend, replyTo, onCancelReply }: MessageInputProps) {
+export function MessageInput({ placeholder, onSend, onType, replyTo, onCancelReply }: MessageInputProps) {
     const [value, setValue] = useState("")
 
     function handleSend() {
         if (!value.trim()) return
         onSend(value.trim())
         setValue("")
+    }
+
+    function handleChange(next: string) {
+        setValue(next)
+        if (next.trim().length > 0) onType?.()
     }
 
     return (
@@ -39,7 +46,7 @@ export function MessageInput({ placeholder, onSend, replyTo, onCancelReply }: Me
                     type="text"
                     placeholder={placeholder}
                     value={value}
-                    onChange={(e) => setValue(e.target.value)}
+                    onChange={(e) => handleChange(e.target.value)}
                     onKeyDown={(e) => {
                         if (e.key === "Enter") handleSend()
                     }}

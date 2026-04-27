@@ -6,12 +6,18 @@ import { getAuthPort } from "@/ioc/index"
 import { useIdpWebSocket } from "@/presentation/hooks/useIdpWebSocket"
 import { useLoadPendingNotifications } from "@/presentation/hooks/useLoadPendingNotifications"
 import { useLoadDmConversations } from "@/presentation/hooks/useLoadDmConversations"
+import { useHeartbeat } from "@/presentation/hooks/useHeartbeat"
+import { useTypingPruner } from "@/presentation/hooks/useTypingPruner"
+import { useLoadPresence } from "@/presentation/hooks/useLoadPresence"
 import { HomeLayout } from "@/presentation/templates/HomeLayout/HomeLayout"
 
 function AuthenticatedLayout() {
     useIdpWebSocket()
+    useHeartbeat()
+    useTypingPruner()
     useLoadPendingNotifications()
     useLoadDmConversations()
+    useLoadPresence()
     return (
         <HomeLayout>
             <Outlet />

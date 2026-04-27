@@ -21,9 +21,15 @@ export function ConversationPage({ name }: ConversationPageProps) {
                     onReply={vm.handleReply}
                     messagesEndRef={vm.messagesEndRef}
                 />
+                {vm.typingLabel && (
+                    <div className="px-4 pb-1 text-xs italic text-muted-foreground" aria-live="polite">
+                        {vm.typingLabel}
+                    </div>
+                )}
                 <MessageInput
                     placeholder={`Message @${vm.name}`}
                     onSend={vm.sendMessage}
+                    onType={vm.handleType}
                     replyTo={vm.replyingTo}
                     onCancelReply={vm.cancelReply}
                 />

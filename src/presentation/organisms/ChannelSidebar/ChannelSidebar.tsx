@@ -5,6 +5,7 @@ import { useAppStore } from "@/store/store"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { cn } from "@/presentation/_libs/utils"
+import { presenceToUserStatus } from "@/domain/models/presence"
 import { UserPanel } from "./UserPanel"
 
 export function ChannelSidebar() {
@@ -17,6 +18,7 @@ export function ChannelSidebar() {
     const localDmConvos = useAppStore((s) => s.localDmConvos)
     const activeDm = useAppStore((s) => s.activeDm)
     const dmUnread = useAppStore((s) => s.dmUnread)
+    const presenceByAddress = useAppStore((s) => s.presenceByAddress)
     const switchToDms = useAppStore((s) => s.switchToDms)
     const navigate = useNavigate()
 
@@ -177,7 +179,11 @@ export function ChannelSidebar() {
                                 <Avatar
                                     initials={dm.avatar}
                                     size="sm"
-                                    status={dm.status}
+                                    status={
+                                        dm.kind === "dm"
+                                            ? presenceToUserStatus(presenceByAddress[dm.address])
+                                            : undefined
+                                    }
                                     statusBorderClass="border-card"
                                 />
                                 <span className="flex-1 truncate text-left text-sm">{dm.displayName}</span>
