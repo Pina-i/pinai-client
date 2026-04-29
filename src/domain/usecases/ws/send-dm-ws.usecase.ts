@@ -4,6 +4,7 @@ export function sendDmWsUseCase(
     recipientAddress: string,
     content: string,
     wsPort: IWsPort,
+    clientId?: string,
 ): void {
     const trimmed = content.trim()
     if (!trimmed) throw new Error("Message content cannot be empty")
@@ -11,6 +12,6 @@ export function sendDmWsUseCase(
 
     wsPort.send({
         type: "send_dm",
-        data: { recipient_address: recipientAddress, content: trimmed },
+        data: { recipient_address: recipientAddress, content: trimmed, client_id: clientId },
     })
 }

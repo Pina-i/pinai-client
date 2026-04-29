@@ -1,9 +1,11 @@
 import { getSocialPort } from "@/ioc"
 import { cn } from "@/presentation/_libs/utils"
+import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { Tooltip } from "@/presentation/atoms/Tooltip/Tooltip"
 import { ThemeSwitcher } from "@/presentation/molecules/ThemeSwitcher/ThemeSwitcher"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
+import { presenceToUserStatus } from "@/domain/models/presence"
 import { useAppStore } from "@/store/store"
 import { useQueryClient } from "@tanstack/react-query"
 import { Bell, Check, Hash, HelpCircle, MessageSquare, Pin, Users, X } from "lucide-react"
@@ -36,6 +38,8 @@ export function AppHeader() {
         accessToken,
         idpUrl,
     } = useAppStore()
+
+    const presenceByAddress = useAppStore((s) => s.presenceByAddress)
 
     const queryClient = useQueryClient()
     const [showNotifications, setShowNotifications] = useState(false)
@@ -93,11 +97,24 @@ export function AppHeader() {
         ? (activeDm ? activeDmAddress : "Manage your friends")
         : currentChannel?.description
 
+    const dmStatus =
+        view === "dms" && activeDmData?.kind === "dm"
+            ? presenceToUserStatus(presenceByAddress[activeDmData.address])
+            : undefined
+
     return (
         <header className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
             <div className="flex items-center gap-2">
                 {view === "dms" && !activeDm ? (
                     <Users className="h-5 w-5 text-muted-foreground" />
+                ) : view === "dms" && activeDmData ? (
+                    <Avatar
+                        initials={activeDmData.avatar}
+                        color={activeDmData.color}
+                        size="sm"
+                        status={dmStatus}
+                        statusBorderClass="border-background"
+                    />
                 ) : view === "dms" ? (
                     <MessageSquare className="h-5 w-5 text-muted-foreground" />
                 ) : (

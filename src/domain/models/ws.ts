@@ -13,6 +13,8 @@ export interface DmEventPayload {
     reply_to_id?: string | null
     reply_to_content?: string | null
     reply_to_sender?: string | null
+    /** Echoed back only on the sender's own optimistic WS sends. */
+    client_id?: string | null
 }
 
 export interface ReactionEventPayload {
@@ -40,6 +42,18 @@ export interface MessageEditedPayload {
     edited_at: string
 }
 
+export interface PresenceUpdateEventPayload {
+    actorUri: string
+    state: PresenceState
+    timestamp: string
+}
+
+export interface TypingEventDataPayload {
+    actorUri: string
+    conversationId: string
+    timestamp: string
+}
+
 export type WsServerEvent =
     | { type: "new_dm"; data: DmEventPayload }
     | { type: "message_edited"; data: MessageEditedPayload }
@@ -49,19 +63,21 @@ export type WsServerEvent =
     | { type: "friend_profile_updated"; data: ProfileUpdatePayload }
     | { type: "message_reaction_added"; data: ReactionEventPayload }
     | { type: "message_reaction_removed"; data: ReactionEventPayload }
-    | { event: "presence_update"; actorUri: string; state: PresenceState; timestamp: string }
-    | { event: "typing"; actorUri: string; conversationId: string; timestamp: string }
-    | { type: "heartbeat_ack" }
+    | { type: "presence_update"; data: PresenceUpdateEventPayload }
+    | { type: "typing"; data: TypingEventDataPayload }
+    | { type: "heartbeat_ack"; data?: Record<string, never> }
 
 // ── Client → Server messages ────────────────────────────────────────────────
 
 export type WsClientMessage =
     | {
           type: "send_dm"
-          data: { recipient_address: string; content: string }
+          data: { recipient_address: string; content: string; client_id?: string }
       }
     | { type: "heartbeat" }
-    | { type: "typing_start"; conversationId: string }
+    | { type: "typing_start"; data: { conversationId: string } }
+    | { type: "watch_conversation"; data: { conversationId: string } }
+    | { type: "unwatch_conversation"; data: { conversationId: string } }
 
 // ── Connection status ───────────────────────────────────────────────────────
 

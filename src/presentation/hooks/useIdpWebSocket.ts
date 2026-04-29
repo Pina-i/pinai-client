@@ -21,6 +21,7 @@ export function useIdpWebSocket(): void {
     const user = useAppStore((s) => s.user)
     const setWsStatus = useAppStore((s) => s.setWsStatus)
     const pushDmMessage = useAppStore((s) => s.pushDmMessage)
+    const reconcileDmMessage = useAppStore((s) => s.reconcileDmMessage)
     const addNotification = useAppStore((s) => s.addNotification)
     const incrementDmUnread = useAppStore((s) => s.incrementDmUnread)
     const updateMessageById = useAppStore((s) => s.updateMessageById)
@@ -33,6 +34,7 @@ export function useIdpWebSocket(): void {
     const actionsRef = useRef({
         setWsStatus,
         pushDmMessage,
+        reconcileDmMessage,
         addNotification,
         incrementDmUnread,
         updateMessageById,
@@ -44,6 +46,7 @@ export function useIdpWebSocket(): void {
     actionsRef.current = {
         setWsStatus,
         pushDmMessage,
+        reconcileDmMessage,
         addNotification,
         incrementDmUnread,
         updateMessageById,
@@ -63,32 +66,27 @@ export function useIdpWebSocket(): void {
         })
 
         wsPort.onEvent((event: WsServerEvent) => {
-            // Presence and typing events use an `event:` discriminator
-            // (see specs/04-presence.md). Route them before the `type:` switch.
-            if ("event" in event) {
-                if (event.event === "presence_update") {
-                    const address = actorUriToAddress(event.actorUri)
-                    actionsRef.current.setPresence(address, event.state)
-                    return
-                }
-                if (event.event === "typing") {
-                    // Server already excludes the sender, but guard anyway in case
-                    // the user opens two tabs.
-                    const senderAddress = actorUriToAddress(event.actorUri)
-                    if (senderAddress === actionsRef.current.user?.address) return
-                    actionsRef.current.addTyping(
-                        event.conversationId,
-                        event.actorUri,
-                        Date.now() + TYPING_INDICATOR_TTL_MS,
-                    )
-                    return
-                }
-            }
-
             // heartbeat_ack is purely a keep-alive — no UI side effect.
             if (event.type === "heartbeat_ack") return
 
             switch (event.type) {
+                case "presence_update": {
+                    const address = actorUriToAddress(event.data.actorUri)
+                    actionsRef.current.setPresence(address, event.data.state)
+                    break
+                }
+                case "typing": {
+                    // Server already excludes the sender, but guard anyway in case
+                    // the user has another tab open with the same identity.
+                    const senderAddress = actorUriToAddress(event.data.actorUri)
+                    if (senderAddress === actionsRef.current.user?.address) break
+                    actionsRef.current.addTyping(
+                        event.data.conversationId,
+                        event.data.actorUri,
+                        Date.now() + TYPING_INDICATOR_TTL_MS,
+                    )
+                    break
+                }
                 case "new_dm": {
                     const conversationId = event.data.conversation_id
                     const senderDisplayName =
@@ -111,7 +109,11 @@ export function useIdpWebSocket(): void {
                             author: event.data.reply_to_sender ?? "",
                         }
                     }
-                    actionsRef.current.pushDmMessage(conversationId, msg)
+                    if (event.data.client_id) {
+                        actionsRef.current.reconcileDmMessage(conversationId, event.data.client_id, msg)
+                    } else {
+                        actionsRef.current.pushDmMessage(conversationId, msg)
+                    }
                     // Refresh the conversation list so new conversations appear in the sidebar.
                     if (idpUrl) queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
                     // Notify if the user is not currently viewing this conversation.

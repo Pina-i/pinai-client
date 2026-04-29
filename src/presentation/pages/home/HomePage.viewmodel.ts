@@ -67,7 +67,7 @@ export function useHomePageViewModel() {
                 // Send via WebSocket.
                 try {
                     const recipientAddress = activeDmData?.name ?? activeDm
-                    sendDmWsUseCase(recipientAddress, content, getWsPort())
+                    sendDmWsUseCase(recipientAddress, content, getWsPort(), newMsg.id)
                 } catch {
                     // Silent — message already shown optimistically.
                 }

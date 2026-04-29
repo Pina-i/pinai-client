@@ -46,6 +46,7 @@ export function useConversationPageViewModel(name: string) {
     const setActiveDm = useAppStore((s) => s.setActiveDm)
     const clearDmUnread = useAppStore((s) => s.clearDmUnread)
     const typingByConversation = useAppStore((s) => s.typingByConversation)
+    const wsStatus = useAppStore((s) => s.wsStatus)
 
     // Look up the conversation by address (route param) — the DmConversation.address field
     const dmData = localDmConvos.find((d) => d.address === name)
@@ -60,6 +61,32 @@ export function useConversationPageViewModel(name: string) {
         clearDmUnread(conversationKey)
         return () => setActiveDm(null)
     }, [conversationKey, setActiveDm, clearDmUnread])
+
+    // Tell the IdP to open an outbound SSE for any remote domain involved in
+    // this conversation (so cross-instance presence + typing flow back to us).
+    // Skip if conversationKey isn't yet a UUID (fresh conversation, no DM sent).
+    // Re-emits whenever the WebSocket reaches `connected` so the watch survives
+    // a race where ConversationPage mounts before the socket finishes its
+    // handshake.
+    useEffect(() => {
+        const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        if (!UUID.test(conversationKey)) return
+        if (wsStatus !== "connected") return
+
+        const ws = getWsPort()
+        try {
+            ws.send({ type: "watch_conversation", data: { conversationId: conversationKey } })
+        } catch {
+            // Will retry on the next wsStatus transition to "connected".
+        }
+        return () => {
+            try {
+                ws.send({ type: "unwatch_conversation", data: { conversationId: conversationKey } })
+            } catch {
+                // Connection already dead; server will drop the watcher on disconnect.
+            }
+        }
+    }, [conversationKey, wsStatus])
 
     // Load message history from REST API once per conversation mount.
     const historyLoadedRef = useRef(false)
@@ -115,7 +142,7 @@ export function useConversationPageViewModel(name: string) {
                 }
                 pushDmMessage(conversationKey, newMsg)
                 try {
-                    sendDmWsUseCase(recipientAddress, content, getWsPort())
+                    sendDmWsUseCase(recipientAddress, content, getWsPort(), newMsg.id)
                 } catch {
                     // Silent — message already shown optimistically.
                 }
