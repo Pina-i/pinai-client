@@ -13,6 +13,12 @@ export interface WsSlice {
     dismissNotification: (id: string) => void
     clearNotifications: () => void
     pushDmMessage: (conversationKey: string, message: Message) => void
+    /**
+     * Replace an optimistic message (whose id equals `clientId`) with the
+     * server-persisted one, preserving its position in the list. If no
+     * optimistic match is found, fall back to push semantics (dedup by id).
+     */
+    reconcileDmMessage: (conversationKey: string, clientId: string, message: Message) => void
     updateDmConversation: (conversationKey: string, updater: (msgs: Message[]) => Message[]) => void
     /** Prepend historical messages (API-loaded) before any live WS messages, deduplicating by id. */
     seedDmMessages: (conversationKey: string, messages: Message[]) => void
@@ -61,6 +67,30 @@ export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]]
             },
             false,
             "ws/pushDmMessage",
+        ),
+
+    reconcileDmMessage: (conversationKey, clientId, message) =>
+        set(
+            (s) => {
+                const existing = s.dmMessages[conversationKey] ?? []
+                const idx = existing.findIndex((m) => m.id === clientId)
+                if (idx !== -1) {
+                    const updated = [...existing]
+                    updated[idx] = message
+                    return {
+                        dmMessages: { ...s.dmMessages, [conversationKey]: updated },
+                    }
+                }
+                if (existing.some((m) => m.id === message.id)) return s
+                return {
+                    dmMessages: {
+                        ...s.dmMessages,
+                        [conversationKey]: [...existing, message],
+                    },
+                }
+            },
+            false,
+            "ws/reconcileDmMessage",
         ),
 
     updateDmConversation: (conversationKey, updater) =>
