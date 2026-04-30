@@ -1,57 +1,77 @@
-import pinaiLogoDark from "@/assets/pinai-logo-dark.svg"
-import pinaiLogo from "@/assets/pinai-logo.svg"
 import { Button } from "@/presentation/atoms/Button/Button"
-import { PageTransition } from "@/presentation/atoms/page-transition/page-transition"
 import { TextField } from "@/presentation/atoms/TextField/TextField"
-import { useTheme } from "next-themes"
+import { AnimatedContent } from "@/presentation/atoms/animated-content/animated-content"
+import { AuthLoader } from "@/presentation/atoms/AuthLoader/AuthLoader"
+import { AuthShell } from "@/presentation/templates/AuthShell/AuthShell"
 import { useLandingPageViewModel } from "./LandingPage.viewmodel"
 
 export function LandingPage() {
-    const { idpUrl, setIdpUrl, loading, error, handleLogin } = useLandingPageViewModel()
-    const { resolvedTheme } = useTheme()
+    const { idpUrl, setIdpUrl, view, loading, error, handleLogin } = useLandingPageViewModel()
 
     return (
-        <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4">
-            <PageTransition className="w-full max-w-sm space-y-8">
-                {/* Logo / heading */}
-                <div className="flex items-start justify-center space-x-3">
-                    <img
-                        src={resolvedTheme === "dark" ? pinaiLogoDark : pinaiLogo}
-                        alt="Pīna'i logo"
-                        className="h-16"
-                    />
-                    <div>
-                        <h1 className="title text-5xl font-bold tracking-tight text-foreground">Pīna&apos;i</h1>
-                        <p className="text-muted-foreground text-sm">Your identity, your community.</p>
-                    </div>
-                </div>
+        <AuthShell>
+            <AnimatedContent contentKey={view}>
+                {view === "connecting" ? (
+                    <AuthLoader caption={`Connecting to ${prettyHost(idpUrl)}…`} />
+                ) : (
+                    <>
+                        <div className="mb-7">
+                            <p className="mono-eyebrow">— Welcome</p>
+                            <h2 className="title mt-2 text-[32px] font-normal leading-tight tracking-[-0.015em] text-foreground">
+                                Pick your home
+                            </h2>
+                            <p className="mt-3 text-sm leading-[1.55] text-muted-foreground">
+                                Pīna'i is federated. Tell us where your identity lives and
+                                we'll take you there.
+                            </p>
+                        </div>
 
-                {/* Login card */}
-                <div
-                    className="bg-card border border-border p-6 space-y-4"
-                    style={{ boxShadow: "var(--shadow)" }}
-                >
-                    <TextField
-                        label="Identity provider"
-                        type="url"
-                        value={idpUrl}
-                        onChange={setIdpUrl}
-                        placeholder="http://localhost:8080"
-                        isDisabled={loading}
-                        error={error ?? undefined}
-                    />
+                        <TextField
+                            label="Identity provider"
+                            type="url"
+                            value={idpUrl}
+                            onChange={setIdpUrl}
+                            placeholder="http://localhost:8080"
+                            isDisabled={loading}
+                            error={error ?? undefined}
+                        />
 
-                    <Button
-                        onKeyDown={(e) => (e.keyCode === 13 ? handleLogin : null)}
-                        onPress={handleLogin}
-                        isDisabled={loading || !idpUrl}
-                    >
-                        {loading ? "Connecting…" : "Sign in"}
-                    </Button>
-                </div>
+                        <Button
+                            variant="primary"
+                            onPress={handleLogin}
+                            isDisabled={loading || !idpUrl}
+                            className="mt-5"
+                        >
+                            Continue →
+                        </Button>
 
-                <p className="text-center text-xs text-muted-foreground">Self-hosted · Federated · Open source</p>
-            </PageTransition>
-        </div>
+                        <div className="mt-6 flex items-center gap-3 text-muted-foreground">
+                            <div className="h-px flex-1 bg-border" />
+                            <span className="font-mono text-[10.5px] uppercase tracking-[0.12em]">or</span>
+                            <div className="h-px flex-1 bg-border" />
+                        </div>
+
+                        <Button
+                            variant="secondary"
+                            onPress={() => undefined}
+                            isDisabled
+                            className="mt-5 gap-2.5"
+                        >
+                            <span className="h-1.5 w-1.5 rounded-full bg-voice" />
+                            Self-host a new instance
+                        </Button>
+                    </>
+                )}
+            </AnimatedContent>
+        </AuthShell>
     )
+}
+
+/** Strip protocol + trailing slashes for a cleaner caption. */
+function prettyHost(url: string): string {
+    try {
+        return new URL(url).host
+    } catch {
+        return url.replace(/^https?:\/\//, "").replace(/\/+$/, "")
+    }
 }

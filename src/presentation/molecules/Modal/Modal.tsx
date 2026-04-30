@@ -1,4 +1,5 @@
 import { Dialog, Modal as AriaModal, ModalOverlay } from "react-aria-components"
+import { motion } from "motion/react"
 import type { ReactNode } from "react"
 import { cn } from "@/presentation/_libs/utils"
 
@@ -41,7 +42,14 @@ export function Modal({
                 )}
             >
                 <Dialog className={cn("outline-none", isFullscreen && "flex flex-1")}>
-                    {children}
+                    <motion.div
+                        initial={isFullscreen ? { opacity: 0 } : { opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                        className={cn(isFullscreen && "flex flex-1")}
+                    >
+                        {children}
+                    </motion.div>
                 </Dialog>
             </AriaModal>
         </ModalOverlay>

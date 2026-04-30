@@ -1,12 +1,13 @@
-import { Copy, Check, MoreHorizontal } from "lucide-react"
+import { UserMinus } from "lucide-react"
 import { useState } from "react"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { Button } from "@/presentation/atoms/Button/Button"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
-import { TextField } from "@/presentation/atoms/TextField/TextField"
+import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { cn } from "@/presentation/_libs/utils"
 import { userStatusLabel } from "@/domain/models/presence"
 import { useFriendsPanelViewModel } from "./FriendsPanel.viewmodel"
+import { AddFriendPopover } from "./AddFriendPopover/AddFriendPopover"
 
 const friendTabs = ["All", "Online", "Pending", "Blocked"] as const
 type FriendTab = (typeof friendTabs)[number]
@@ -20,16 +21,11 @@ interface FriendsPanelProps {
 export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: FriendsPanelProps) {
     const { friends, isLoading, error } = useFriendsPanelViewModel()
     const [activeTab, setActiveTab] = useState<FriendTab>("All")
-    const [showAddFriend, setShowAddFriend] = useState(false)
-    const [friendInput, setFriendInput] = useState("")
-    const [requestStatus, setRequestStatus] = useState<"idle" | "sending" | "sent" | "error">("idle")
-    const [requestError, setRequestError] = useState("")
-    const [copied, setCopied] = useState(false)
+    const [friendToRemove, setFriendToRemove] = useState<{ id: string; name: string } | null>(null)
 
-    function copyAddress() {
-        navigator.clipboard.writeText(userAddress)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
+    function handleConfirmRemove() {
+        // TODO: call removeFriend once the social port/adapter exposes it.
+        setFriendToRemove(null)
     }
 
     const filteredFriends = friends.filter((f) => {
@@ -37,88 +33,45 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
         return true
     })
 
-    async function sendFriendRequest() {
-        if (!friendInput.trim()) return
-        setRequestStatus("sending")
-        setRequestError("")
-        try {
-            await onSendFriendRequest(friendInput.trim())
-            setRequestStatus("sent")
-            setFriendInput("")
-        } catch (e) {
-            setRequestStatus("error")
-            setRequestError(e instanceof Error ? e.message : "Failed to send request")
-        }
-    }
+    const onlineCount = friends.filter((f) => f.status === "online").length
 
     return (
         <div className="flex flex-1 flex-col">
-            {/* Sub-nav */}
-            <div className="flex items-center gap-4 border-b border-border px-4 py-2">
-                {friendTabs.map((tab) => (
-                    <button
-                        key={tab}
-                        onClick={() => setActiveTab(tab)}
-                        className={cn(
-                            "text-sm transition-colors",
-                            activeTab === tab
-                                ? "font-semibold text-foreground"
-                                : "text-muted-foreground hover:text-foreground",
-                        )}
-                    >
-                        {tab}
-                    </button>
-                ))}
-                <Button
-                    variant="primary"
-                    onPress={() => {
-                        setShowAddFriend(true)
-                        setRequestStatus("idle")
-                        setRequestError("")
-                    }}
-                    className="ml-auto w-auto px-3 py-1 text-xs"
-                >
-                    Add Friend
-                </Button>
+            {/* Filter row + Add Friend */}
+            <div className="flex items-center justify-between gap-4 px-8 pb-3 pt-5">
+                <div className="flex gap-1 rounded-md bg-muted p-[3px]">
+                    {friendTabs.map((tab) => (
+                        <button
+                            key={tab}
+                            onClick={() => setActiveTab(tab)}
+                            className={cn(
+                                "rounded px-3.5 py-1.5 text-xs transition-colors",
+                                activeTab === tab
+                                    ? "bg-card font-medium text-foreground shadow-sm"
+                                    : "text-muted-foreground hover:text-foreground",
+                            )}
+                        >
+                            {tab}
+                        </button>
+                    ))}
+                </div>
+                <AddFriendPopover
+                    userAddress={userAddress}
+                    onSendFriendRequest={onSendFriendRequest}
+                />
             </div>
 
-            {/* Add friend form */}
-            {showAddFriend && (
-                <div className="border-b border-border bg-popover px-6 py-4">
-                    <h3 className="mb-1 text-sm font-semibold uppercase text-foreground">Add Friend</h3>
-                    <p className="mb-3 text-xs text-muted-foreground">
-                        You can add friends with their address. Yours is{" "}
-                        <button onClick={copyAddress} className="inline-flex items-center gap-1 font-mono font-semibold text-primary hover:underline">
-                            {userAddress}
-                            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                        </button>
-                    </p>
-                    <div className="flex items-end gap-2">
-                        <TextField
-                            placeholder="@alice@idp.example.com"
-                            value={friendInput}
-                            onChange={setFriendInput}
-                            className="flex-1"
-                        />
-                        <Button
-                            variant="primary"
-                            onPress={sendFriendRequest}
-                            isDisabled={!friendInput.trim() || requestStatus === "sending"}
-                            className="w-auto px-4 py-2"
-                        >
-                            {requestStatus === "sending" ? "Sending…" : "Send Request"}
-                        </Button>
-                    </div>
-                    {requestStatus === "sent" && <p className="mt-2 text-xs text-online">Friend request sent successfully!</p>}
-                    {requestStatus === "error" && <p className="mt-2 text-xs text-destructive">{requestError}</p>}
-                </div>
-            )}
+            {/* Mono section eyebrow */}
+            <div className="flex items-center justify-between border-b border-border px-8 pb-2 pt-1 mono-eyebrow">
+                <span>Online — {onlineCount}</span>
+                <span>Showing {activeTab.toLowerCase()}</span>
+            </div>
 
             {/* Friends list */}
-            <ScrollArea className="flex-1 px-4 py-4">
+            <ScrollArea className="flex-1 px-4 py-2">
                 {isLoading && <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>}
                 {error && <p className="py-8 text-center text-sm text-destructive">{error}</p>}
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col">
                     {filteredFriends.map((friend) => {
                         const initials = friend.name
                             .split(" ")
@@ -131,7 +84,7 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
                                 role="button"
                                 tabIndex={0}
                                 onKeyDown={(e) => e.key === "Enter" && onStartDm(friend.address)}
-                                className="flex cursor-pointer items-center gap-3 rounded px-3 py-2 hover:bg-accent/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                className="group flex cursor-pointer items-center gap-4 rounded-md border-b border-border/40 px-4 py-3 transition-colors hover:bg-accent/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             >
                                 <Avatar
                                     initials={initials}
@@ -140,21 +93,62 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
                                     statusBorderClass="border-background"
                                 />
                                 <div className="min-w-0 flex-1">
-                                    <p className="text-sm font-semibold text-foreground">{friend.name}</p>
-                                    <p className="text-xs text-muted-foreground">{userStatusLabel(friend.status)}</p>
+                                    <div className="flex items-baseline gap-2">
+                                        <span className="title text-[15px] font-medium text-foreground">{friend.name}</span>
+                                        <span className="font-mono text-[11px] tracking-[0.02em] text-muted-foreground">
+                                            {friend.address}
+                                        </span>
+                                    </div>
+                                    <p className="mt-0.5 font-mono text-[11px] tracking-[0.04em] text-muted-foreground">
+                                        <span className={cn("mr-1", `text-${friend.status === "online" ? "success" : friend.status === "idle" ? "warning" : "muted-foreground"}`)}>●</span>
+                                        {userStatusLabel(friend.status)}
+                                    </p>
                                 </div>
                                 <button
-                                    aria-label="More options"
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="rounded-full bg-accent p-2 text-muted-foreground hover:text-foreground"
+                                    aria-label={`Remove ${friend.name}`}
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        setFriendToRemove({ id: friend.id, name: friend.name })
+                                    }}
+                                    className="rounded-md p-2 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
                                 >
-                                    <MoreHorizontal className="h-4 w-4" />
+                                    <UserMinus className="h-4 w-4" />
                                 </button>
                             </div>
                         )
                     })}
                 </div>
             </ScrollArea>
+
+            <Modal
+                isOpen={!!friendToRemove}
+                onClose={() => setFriendToRemove(null)}
+            >
+                <div className="w-[420px] rounded-[var(--radius-lg)] border border-border-strong bg-popover p-6 shadow-[0_24px_60px_-16px_rgba(0,0,0,0.55)]">
+                    <h3 className="title text-base font-medium text-foreground">Remove friend?</h3>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                        Are you sure you want to remove{" "}
+                        <span className="font-medium text-foreground">{friendToRemove?.name}</span>{" "}
+                        from your friends? This cannot be undone.
+                    </p>
+                    <div className="mt-6 flex justify-end gap-2">
+                        <Button
+                            variant="secondary"
+                            onPress={() => setFriendToRemove(null)}
+                            className="w-auto px-4"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onPress={handleConfirmRemove}
+                            className="w-auto px-4"
+                        >
+                            Remove
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
         </div>
     )
 }

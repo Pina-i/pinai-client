@@ -1,22 +1,12 @@
-import { getSocialPort } from "@/ioc"
 import { cn } from "@/presentation/_libs/utils"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { Tooltip } from "@/presentation/atoms/Tooltip/Tooltip"
 import { ThemeSwitcher } from "@/presentation/molecules/ThemeSwitcher/ThemeSwitcher"
-import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import { presenceToUserStatus } from "@/domain/models/presence"
 import { useAppStore } from "@/store/store"
-import { useQueryClient } from "@tanstack/react-query"
-import { Bell, Check, Hash, HelpCircle, MessageSquare, Pin, Users, X } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
-import { toast } from "sonner"
-
-const notificationLabel: Record<string, string> = {
-    friend_request: "sent you a friend request",
-    friend_accepted: "accepted your friend request",
-    friend_removed: "removed you as a friend",
-}
+import { Hash, HelpCircle, MessageSquare, Pin, Users } from "lucide-react"
+import { NotificationsPopover } from "./NotificationsPopover/NotificationsPopover"
 
 export function AppHeader() {
     const {
@@ -30,60 +20,9 @@ export function AppHeader() {
         setShowPinned,
         showMembers,
         setShowMembers,
-        searchQuery,
-        setSearchQuery,
-        notifications,
-        clearNotifications,
-        dismissNotification,
-        accessToken,
-        idpUrl,
     } = useAppStore()
 
     const presenceByAddress = useAppStore((s) => s.presenceByAddress)
-
-    const queryClient = useQueryClient()
-    const [showNotifications, setShowNotifications] = useState(false)
-    const [seenCount, setSeenCount] = useState(0)
-    const panelRef = useRef<HTMLDivElement>(null)
-
-    const unreadCount = notifications.length - seenCount
-
-    // Close panel on outside click.
-    useEffect(() => {
-        if (!showNotifications) return
-        function onClickOutside(e: MouseEvent) {
-            if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-                setShowNotifications(false)
-            }
-        }
-        document.addEventListener("mousedown", onClickOutside)
-        return () => document.removeEventListener("mousedown", onClickOutside)
-    }, [showNotifications])
-
-    async function handleFriendRequestResponse(notificationId: string, friendshipId: string, action: "accept" | "reject") {
-        if (!accessToken || !idpUrl) return
-        try {
-            if (action === "accept") {
-                await getSocialPort().acceptFriendRequest(idpUrl, accessToken, friendshipId)
-                dismissNotification(notificationId)
-                toast.success("Friend request accepted")
-                queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
-            } else {
-                await getSocialPort().rejectFriendRequest(idpUrl, accessToken, friendshipId)
-                dismissNotification(notificationId)
-                toast.success("Friend request declined")
-            }
-        } catch (e) {
-            toast.error(e instanceof Error ? e.message : "Something went wrong")
-        }
-    }
-
-    function toggleNotifications() {
-        setShowNotifications((prev) => {
-            if (!prev) setSeenCount(notifications.length)
-            return !prev
-        })
-    }
 
     const currentChannel = (channelsByServer[activeServer] ?? []).find((c) => c.id === activeChannel)
     const activeDmData = localDmConvos.find((d) => d.id === activeDm)
@@ -103,15 +42,15 @@ export function AppHeader() {
             : undefined
 
     return (
-        <header className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
-            <div className="flex items-center gap-2">
+        <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-5">
+            <div className="flex items-center gap-3">
                 {view === "dms" && !activeDm ? (
                     <Users className="h-5 w-5 text-muted-foreground" />
                 ) : view === "dms" && activeDmData ? (
                     <Avatar
                         initials={activeDmData.avatar}
                         color={activeDmData.color}
-                        size="sm"
+                        size="md"
                         status={dmStatus}
                         statusBorderClass="border-background"
                     />
@@ -120,13 +59,16 @@ export function AppHeader() {
                 ) : (
                     <Hash className="h-5 w-5 text-muted-foreground" />
                 )}
-                <span className="font-bold font-serif text-foreground">{title}</span>
-                {description && (
-                    <>
-                        <div className="mx-2 h-6 w-px bg-border" />
-                        <span className="text-sm text-muted-foreground">{description}</span>
-                    </>
-                )}
+                <div className="flex flex-col">
+                    <span className="title text-[17px] font-medium leading-tight text-foreground">
+                        {title}
+                    </span>
+                    {description && (
+                        <span className="mt-0.5 font-mono text-[11px] uppercase tracking-[0.04em] text-muted-foreground">
+                            {description}
+                        </span>
+                    )}
+                </div>
             </div>
 
             <div className="flex items-center gap-2">
@@ -161,122 +103,10 @@ export function AppHeader() {
                     </>
                 )}
 
-                {/* Search */}
-                {/*<div className="relative">
-                    <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <input
-                        type="text"
-                        placeholder="Search"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="h-7 w-40 bg-sidebar pl-8 pr-6 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-                    />
-                    {searchQuery && (
-                        <button
-                            onClick={() => setSearchQuery("")}
-                            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                        >
-                            <X className="h-3 w-3" />
-                        </button>
-                    )}
-                </div>*/}
                 <ThemeSwitcher />
 
-                <div
-                    className="relative"
-                    ref={panelRef}
-                >
-                    <Tooltip
-                        content="Notifications"
-                        placement="bottom"
-                        delay={300}
-                    >
-                        <IconButton
-                            onPress={toggleNotifications}
-                            aria-label="Notifications"
-                            className={cn("p-1", showNotifications ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
-                        >
-                            <Bell className="h-5 w-5" />
-                            {unreadCount > 0 && (
-                                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-white">
-                                    {unreadCount > 99 ? "99+" : unreadCount}
-                                </span>
-                            )}
-                        </IconButton>
-                    </Tooltip>
+                <NotificationsPopover />
 
-                    {showNotifications && (
-                        <div className="absolute right-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-md border border-border bg-popover shadow-lg">
-                            <div className="flex items-center justify-between border-b border-border px-3 py-2">
-                                <h3 className="text-sm font-semibold text-foreground">Notifications</h3>
-                                {notifications.length > 0 && (
-                                    <button
-                                        onClick={() => {
-                                            clearNotifications()
-                                            setSeenCount(0)
-                                        }}
-                                        className="text-xs text-muted-foreground hover:text-foreground"
-                                    >
-                                        Clear all
-                                    </button>
-                                )}
-                            </div>
-                            <div className="max-h-72 overflow-y-auto">
-                                {notifications.length === 0 ? (
-                                    <p className="px-3 py-6 text-center text-sm text-muted-foreground">No notifications</p>
-                                ) : (
-                                    notifications.map((n) => (
-                                        <div
-                                            key={n.id}
-                                            className="flex items-center gap-3 border-b border-border/50 px-3 py-2.5 last:border-0 hover:bg-accent/30"
-                                        >
-                                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-semibold text-foreground">
-                                                {n.displayName.slice(0, 2).toUpperCase()}
-                                            </div>
-                                            <div className="min-w-0 flex-1">
-                                                <p className="text-sm text-foreground">
-                                                    <span className="font-semibold">{n.displayName}</span>{" "}
-                                                    {notificationLabel[n.eventType] ?? n.eventType}
-                                                </p>
-                                                <p className="text-xs text-muted-foreground">{n.actorUri}</p>
-                                            </div>
-                                            {n.eventType === "friend_request" && n.friendshipId && (
-                                                <div className="flex shrink-0 items-center gap-1">
-                                                    <Tooltip
-                                                        content="Accept"
-                                                        placement="bottom"
-                                                        delay={300}
-                                                    >
-                                                        <IconButton
-                                                            aria-label="Accept friend request"
-                                                            onPress={() => handleFriendRequestResponse(n.id, n.friendshipId!, "accept")}
-                                                            className="rounded-full p-1.5 text-online hover:bg-online/20"
-                                                        >
-                                                            <Check className="h-4 w-4" />
-                                                        </IconButton>
-                                                    </Tooltip>
-                                                    <Tooltip
-                                                        content="Decline"
-                                                        placement="bottom"
-                                                        delay={300}
-                                                    >
-                                                        <IconButton
-                                                            aria-label="Decline friend request"
-                                                            onPress={() => handleFriendRequestResponse(n.id, n.friendshipId!, "reject")}
-                                                            className="rounded-full p-1.5 text-destructive hover:bg-destructive/20"
-                                                        >
-                                                            <X className="h-4 w-4" />
-                                                        </IconButton>
-                                                    </Tooltip>
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
-                    )}
-                </div>
                 <Tooltip
                     content="Help"
                     placement="bottom"

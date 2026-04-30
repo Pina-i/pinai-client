@@ -1,9 +1,13 @@
-import { ChevronDown, ChevronRight, Hash, Search, Users, Volume2 } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { ChevronDown, ChevronRight, Hash, Users, Volume2 } from "lucide-react"
+import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
+import { Button } from "react-aria-components"
 import { useAppStore } from "@/store/store"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
+import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
+import { SearchField } from "@/presentation/atoms/SearchField/SearchField"
+import { Menu, type MenuItemDescriptor } from "@/presentation/molecules/Menu/Menu"
 import { cn } from "@/presentation/_libs/utils"
 import { presenceToUserStatus, userStatusLabel } from "@/domain/models/presence"
 import { UserPanel } from "./UserPanel"
@@ -22,9 +26,7 @@ export function ChannelSidebar() {
     const switchToDms = useAppStore((s) => s.switchToDms)
     const navigate = useNavigate()
 
-    const [showServerMenu, setShowServerMenu] = useState(false)
     const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
-    const serverMenuRef = useRef<HTMLDivElement>(null)
 
     const activeServerData = servers.find((s) => s.id === activeServer)
     const channels = channelsByServer[activeServer] ?? []
@@ -39,47 +41,33 @@ export function ChannelSidebar() {
         })
     }
 
-    useEffect(() => {
-        function handleClick(e: MouseEvent) {
-            if (serverMenuRef.current && !serverMenuRef.current.contains(e.target as Node)) {
-                setShowServerMenu(false)
-            }
-        }
-        document.addEventListener("mousedown", handleClick)
-        return () => document.removeEventListener("mousedown", handleClick)
-    }, [])
-
-    const serverMenuItems = ["Invite People", "Server Settings", "Create Channel", "Notification Settings"]
+    const serverMenuItems: MenuItemDescriptor[] = [
+        { key: "invite", label: "Invite People" },
+        { key: "settings", label: "Server Settings" },
+        { key: "create", label: "Create Channel" },
+        { key: "notifications", label: "Notification Settings" },
+    ]
 
     return (
         <div className="flex w-60 shrink-0 flex-col border-r bg-card">
             {view === "server" ? (
                 <>
                     {/* Server name header with dropdown */}
-                    <div className="relative" ref={serverMenuRef}>
-                        <button
-                            onClick={() => setShowServerMenu((p) => !p)}
-                            className="flex h-12 w-full items-center justify-between border-b border-border px-4 font-semibold text-foreground shadow-sm transition-colors hover:bg-accent"
-                        >
-                            <span className="truncate">{activeServerData?.name}</span>
-                            <ChevronDown
-                                className={cn("h-4 w-4 shrink-0 transition-transform", showServerMenu && "rotate-180")}
-                            />
-                        </button>
-                        {showServerMenu && (
-                            <div className="absolute left-2 right-2 top-12 z-50 border border-border bg-popover p-1.5 shadow-xl">
-                                {serverMenuItems.map((label) => (
-                                    <button
-                                        key={label}
-                                        onClick={() => setShowServerMenu(false)}
-                                        className="flex w-full items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                                    >
-                                        {label}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
+                    <Menu
+                        trigger={
+                            <Button
+                                aria-label="Server menu"
+                                className="group flex h-12 w-full items-center justify-between border-b border-border px-4 font-semibold text-foreground shadow-sm outline-none transition-colors hover:bg-accent cursor-pointer"
+                            >
+                                <span className="truncate">{activeServerData?.name}</span>
+                                <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-aria-expanded:rotate-180" />
+                            </Button>
+                        }
+                        items={serverMenuItems}
+                        placement="bottom start"
+                        offset={0}
+                        popoverClassName="w-[calc(var(--trigger-width)-1rem)] ml-2"
+                    />
 
                     {/* Channels grouped by category */}
                     <ScrollArea className="flex-1 px-2 py-3">
@@ -88,9 +76,9 @@ export function ChannelSidebar() {
                             const catChannels = channels.filter((c) => c.category === cat)
                             return (
                                 <div key={cat} className="mb-2">
-                                    <button
-                                        onClick={() => toggleCategory(cat)}
-                                        className="flex w-full items-center gap-0.5 px-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+                                    <Button
+                                        onPress={() => toggleCategory(cat)}
+                                        className="flex w-full items-center gap-0.5 px-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground outline-none transition-colors hover:text-foreground cursor-pointer"
                                     >
                                         {isCollapsed ? (
                                             <ChevronRight className="h-3 w-3" />
@@ -98,14 +86,14 @@ export function ChannelSidebar() {
                                             <ChevronDown className="h-3 w-3" />
                                         )}
                                         {cat}
-                                    </button>
+                                    </Button>
                                     {!isCollapsed &&
                                         catChannels.map((channel) => (
-                                            <button
+                                            <Button
                                                 key={channel.id}
-                                                onClick={() => selectChannel(channel.id)}
+                                                onPress={() => selectChannel(channel.id)}
                                                 className={cn(
-                                                    "mt-0.5 flex w-full items-center gap-1.5 px-2 py-1.5 text-sm transition-colors",
+                                                    "mt-0.5 flex w-full items-center gap-1.5 px-2 py-1.5 text-sm outline-none transition-colors cursor-pointer",
                                                     activeChannel === channel.id
                                                         ? "bg-accent text-foreground"
                                                         : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -122,7 +110,7 @@ export function ChannelSidebar() {
                                                         {channel.unread}
                                                     </span>
                                                 )}
-                                            </button>
+                                            </Button>
                                         ))}
                                 </div>
                             )
@@ -132,52 +120,57 @@ export function ChannelSidebar() {
             ) : (
                 <>
                     {/* DM search header */}
-                    <div className="flex h-12 items-center border-b border-border px-3">
-                        <div className="relative flex-1">
-                            <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                            <input
-                                type="text"
-                                placeholder="Find or start a conversation"
-                                className="h-7 w-full bg-sidebar pl-8 pr-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-                            />
-                        </div>
+                    <div className="flex h-14 items-center border-b border-border px-3">
+                        <SearchField
+                            aria-label="Find or start a conversation"
+                            placeholder="Find or start a conversation"
+                            shortcutHint="⌘K"
+                            className="min-w-0 flex-1"
+                        />
                     </div>
 
                     <ScrollArea className="flex-1 px-2 py-2">
                         {/* Friends button */}
-                        <button
-                            onClick={() => {
+                        <Button
+                            onPress={() => {
                                 switchToDms()
                                 navigate({ to: "/home" })
                             }}
                             className={cn(
-                                "flex w-full items-center gap-2 px-2 py-2 text-sm font-medium transition-colors",
+                                "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm outline-none transition-colors cursor-pointer",
                                 activeDm === null
-                                    ? "bg-accent text-foreground"
+                                    ? "bg-chat/15 text-foreground"
                                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                             )}
                         >
-                            <Users className="h-5 w-5" />
+                            <Users className="h-4 w-4" />
                             Friends
-                        </button>
+                        </Button>
 
-                        <h3 className="mb-1 mt-4 px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                            Direct Messages
-                        </h3>
+                        <div className="mb-1 mt-4 flex items-center justify-between px-2 mono-eyebrow">
+                            <span>Direct Messages · {localDmConvos.length}</span>
+                            <IconButton
+                                aria-label="Start new direct message"
+                                className="text-muted-foreground/60 hover:text-foreground"
+                            >
+                                ＋
+                            </IconButton>
+                        </div>
 
                         {localDmConvos.map((dm) => (
-                            <button
+                            <Button
                                 key={dm.id}
-                                onClick={() => navigate({ to: "/dm/$name", params: { name: dm.address } })}
+                                onPress={() => navigate({ to: "/dm/$name", params: { name: dm.address } })}
                                 className={cn(
-                                    "flex w-full items-center gap-2 px-2 py-1.5 transition-colors",
+                                    "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 outline-none transition-colors cursor-pointer",
                                     activeDm === dm.id
-                                        ? "bg-accent text-foreground"
-                                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                                        ? "bg-chat/15 text-foreground"
+                                        : "hover:bg-accent/50",
                                 )}
                             >
                                 <Avatar
                                     initials={dm.avatar}
+                                    color={dm.color}
                                     size="sm"
                                     status={
                                         dm.kind === "dm"
@@ -187,19 +180,21 @@ export function ChannelSidebar() {
                                     statusBorderClass="border-card"
                                 />
                                 <div className="min-w-0 flex-1 text-left">
-                                    <p className="truncate text-sm">{dm.displayName}</p>
+                                    <p className="title truncate text-[13.5px] font-medium text-foreground">
+                                        {dm.displayName}
+                                    </p>
                                     {dm.kind === "dm" && (
-                                        <p className="truncate text-xs text-muted-foreground">
+                                        <p className="truncate font-mono text-[10.5px] tracking-[0.04em] text-muted-foreground">
                                             {userStatusLabel(presenceToUserStatus(presenceByAddress[dm.address]))}
                                         </p>
                                     )}
                                 </div>
                                 {(dmUnread[dm.id] ?? 0) > 0 && (
-                                    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-chat px-1.5 font-mono text-[10px] font-bold text-primary-foreground">
                                         {dmUnread[dm.id]}
                                     </span>
                                 )}
-                            </button>
+                            </Button>
                         ))}
                     </ScrollArea>
                 </>

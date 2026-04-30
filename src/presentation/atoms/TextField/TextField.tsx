@@ -20,33 +20,33 @@ export function TextField({ label, placeholder, error, icon, className, ...props
         <AriaTextField
             {...props}
             isInvalid={props.isInvalid ?? !!error}
-            className={cn("space-y-1 w-full", className)}
+            className={cn("group w-full", className)}
         >
             {label && (
-                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-widest">
+                <Label className="mono-eyebrow mb-1.5 block text-muted-foreground uppercase">
                     {label}
                 </Label>
             )}
-            <div className="relative">
+            <div
+                className={cn(
+                    "flex h-[42px] items-center gap-2.5 rounded-[var(--radius)] border border-border bg-input px-3 transition-colors",
+                    "group-focus-within:border-ring",
+                    "group-data-[invalid]:border-destructive",
+                    "group-data-[disabled]:cursor-not-allowed group-data-[disabled]:opacity-50",
+                )}
+            >
                 {icon && (
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
+                    <span className="shrink-0 text-muted-foreground pointer-events-none">
                         {icon}
-                    </div>
+                    </span>
                 )}
                 <Input
                     placeholder={placeholder}
-                    className={cn(
-                        "w-full bg-background border border-input text-foreground text-sm py-2",
-                        icon ? "pl-9 pr-3" : "px-3",
-                        "outline-none transition-colors",
-                        "focused:border-ring",
-                        "invalid:border-destructive",
-                        "disabled:opacity-50 disabled:cursor-not-allowed",
-                    )}
+                    className="min-w-0 flex-1 bg-transparent text-[13.5px] text-foreground placeholder:text-muted-foreground outline-none"
                 />
             </div>
             {error && (
-                <p className="text-destructive text-xs" role="alert">
+                <p className="mt-1.5 text-xs text-destructive" role="alert">
                     {error}
                 </p>
             )}
