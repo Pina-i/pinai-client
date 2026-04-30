@@ -5,7 +5,7 @@ import { useAppStore } from "@/store/store"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { cn } from "@/presentation/_libs/utils"
-import { presenceToUserStatus } from "@/domain/models/presence"
+import { presenceToUserStatus, userStatusLabel } from "@/domain/models/presence"
 import { UserPanel } from "./UserPanel"
 
 export function ChannelSidebar() {
@@ -186,7 +186,14 @@ export function ChannelSidebar() {
                                     }
                                     statusBorderClass="border-card"
                                 />
-                                <span className="flex-1 truncate text-left text-sm">{dm.displayName}</span>
+                                <div className="min-w-0 flex-1 text-left">
+                                    <p className="truncate text-sm">{dm.displayName}</p>
+                                    {dm.kind === "dm" && (
+                                        <p className="truncate text-xs text-muted-foreground">
+                                            {userStatusLabel(presenceToUserStatus(presenceByAddress[dm.address]))}
+                                        </p>
+                                    )}
+                                </div>
                                 {(dmUnread[dm.id] ?? 0) > 0 && (
                                     <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
                                         {dmUnread[dm.id]}

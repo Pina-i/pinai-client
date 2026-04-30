@@ -29,3 +29,21 @@ export function presenceToUserStatus(state: PresenceState | undefined): "online"
     if (state === "away") return "idle"
     return "offline"
 }
+
+/**
+ * Human-readable label for a UI `UserStatus`.
+ * Used wherever presence is shown as text (friend list subtitle, conversation
+ * header, etc.). Centralised so the wording stays consistent.
+ */
+export function userStatusLabel(status: "online" | "idle" | "dnd" | "offline"): string {
+    switch (status) {
+        case "online":
+            return "Online"
+        case "idle":
+            return "Away"
+        case "dnd":
+            return "Busy"
+        case "offline":
+            return "Offline"
+    }
+}

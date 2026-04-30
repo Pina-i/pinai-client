@@ -5,6 +5,7 @@ import { Button } from "@/presentation/atoms/Button/Button"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { TextField } from "@/presentation/atoms/TextField/TextField"
 import { cn } from "@/presentation/_libs/utils"
+import { userStatusLabel } from "@/domain/models/presence"
 import { useFriendsPanelViewModel } from "./FriendsPanel.viewmodel"
 
 const friendTabs = ["All", "Online", "Pending", "Blocked"] as const
@@ -140,7 +141,7 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
                                 />
                                 <div className="min-w-0 flex-1">
                                     <p className="text-sm font-semibold text-foreground">{friend.name}</p>
-                                    <p className="text-xs text-muted-foreground">{friend.activity || friend.status}</p>
+                                    <p className="text-xs text-muted-foreground">{userStatusLabel(friend.status)}</p>
                                 </div>
                                 <button
                                     aria-label="More options"

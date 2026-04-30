@@ -10,13 +10,13 @@ export class PresenceApiAdapter implements IPresencePort {
     async getPresence(
         idpUrl: string,
         accessToken: string,
-        addresses: string[],
+        actorUris: string[],
     ): Promise<PresenceSnapshotEntry[]> {
-        if (addresses.length === 0) return []
+        if (actorUris.length === 0) return []
 
         const url = `${idpUrl.replace(/\/$/, "")}/api/presence`
         const searchParams = new URLSearchParams()
-        for (const addr of addresses) searchParams.append("actors[]", addr)
+        for (const uri of actorUris) searchParams.append("actors[]", uri)
 
         try {
             const res = await ky

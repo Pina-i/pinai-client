@@ -38,6 +38,13 @@ export interface DmConversation {
     displayName: string
     /** Federation address of the first other member (used for routing to /dm/$name). */
     address: string
+    /**
+     * Canonical ActivityPub actor URI of the first other member.
+     * `null` for groups (no single "other member" applies).
+     * Used as the identity key when calling backend APIs that speak in URIs
+     * (e.g. presence lookups). The UI continues to display `address`.
+     */
+    actorUri: string | null
     avatar: string
     color: string
     status: UserStatus

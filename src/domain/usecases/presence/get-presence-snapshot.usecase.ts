@@ -4,8 +4,8 @@ import type { IPresencePort } from "@/domain/ports/presence.port"
 export async function getPresenceSnapshotUseCase(
     idpUrl: string,
     accessToken: string,
-    addresses: string[],
+    actorUris: string[],
     port: IPresencePort,
 ): Promise<PresenceSnapshotEntry[]> {
-    return port.getPresence(idpUrl, accessToken, addresses)
+    return port.getPresence(idpUrl, accessToken, actorUris)
 }

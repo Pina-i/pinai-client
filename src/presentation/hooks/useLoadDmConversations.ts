@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
 import { getDmConversationsUseCase } from "@/domain/usecases/dm/get-dm-conversations.usecase"
 import { getDmPort } from "@/ioc"
-import { actorUriToAddress } from "@/domain/models/dm"
+import { actorUriToAddress } from "@/domain/models/identity"
 import type { DmConversation } from "@/lib/types"
 import { useEffect } from "react"
 
@@ -37,6 +37,7 @@ export function useLoadDmConversations(): void {
         const convos: DmConversation[] = summaries.map((summary) => {
             const firstMember = summary.members[0]
             const address = firstMember ? actorUriToAddress(firstMember.actorUri) : summary.conversation_id
+            const actorUri = summary.kind === "dm" ? (firstMember?.actorUri ?? null) : null
             const displayName = summary.kind === "dm"
                 ? (firstMember?.displayName ?? address.split("@")[0] ?? address)
                 : (summary.name ?? summary.members.map((m) => m.displayName ?? "?").join(", "))
@@ -46,6 +47,7 @@ export function useLoadDmConversations(): void {
                 groupName: summary.name,
                 displayName,
                 address,
+                actorUri,
                 avatar: displayName.slice(0, 2).toUpperCase(),
                 color: colorFromString(address),
                 status: "offline" as const,

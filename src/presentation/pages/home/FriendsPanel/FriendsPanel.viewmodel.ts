@@ -3,7 +3,7 @@ import { useMemo } from "react"
 import { getFriendsUseCase } from "@/domain/usecases/social/get-friends.usecase"
 import { getSocialPort } from "@/ioc"
 import { useAppStore } from "@/store/store"
-import { actorUriToAddress } from "@/domain/models/dm"
+import { actorUriToAddress } from "@/domain/models/identity"
 import { presenceToUserStatus } from "@/domain/models/presence"
 
 export const friendsQueryKey = (idpUrl: string) => ["friends", idpUrl] as const
