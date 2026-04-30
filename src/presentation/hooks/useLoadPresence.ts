@@ -4,7 +4,7 @@ import { useAppStore } from "@/store/store"
 import { getPresencePort, getSocialPort } from "@/ioc"
 import { getPresenceSnapshotUseCase } from "@/domain/usecases/presence/get-presence-snapshot.usecase"
 import { getFriendsUseCase } from "@/domain/usecases/social/get-friends.usecase"
-import { actorUriToAddress } from "@/domain/models/dm"
+import { actorUriToAddress } from "@/domain/models/identity"
 import type { PresenceState } from "@/domain/models/presence"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 
@@ -28,24 +28,24 @@ export function useLoadPresence(): void {
         enabled: !!accessToken && !!idpUrl,
     })
 
-    const addresses = useMemo(() => {
+    const actorUris = useMemo(() => {
         const set = new Set<string>()
-        friends?.forEach((f) => set.add(actorUriToAddress(f.friend_actor_uri)))
+        friends?.forEach((f) => set.add(f.friend_actor_uri))
         localDmConvos.forEach((d) => {
             // DMs only — group conversations have many members and presence on
-            // the sidebar would be ambiguous.
-            if (d.kind === "dm") set.add(d.address)
+            // the sidebar would be ambiguous. `actorUri` is `null` for groups.
+            if (d.kind === "dm" && d.actorUri) set.add(d.actorUri)
         })
         return Array.from(set).sort()
     }, [friends, localDmConvos])
 
-    const addressesKey = addresses.join(",")
+    const actorUrisKey = actorUris.join(",")
 
     const { data: snapshot } = useQuery({
-        queryKey: ["presence-snapshot", idpUrl, addressesKey],
+        queryKey: ["presence-snapshot", idpUrl, actorUrisKey],
         queryFn: () =>
-            getPresenceSnapshotUseCase(idpUrl!, accessToken!, addresses, getPresencePort()),
-        enabled: !!accessToken && !!idpUrl && addresses.length > 0,
+            getPresenceSnapshotUseCase(idpUrl!, accessToken!, actorUris, getPresencePort()),
+        enabled: !!accessToken && !!idpUrl && actorUris.length > 0,
         refetchInterval: PRESENCE_REFRESH_MS,
     })
 

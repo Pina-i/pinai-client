@@ -30,14 +30,21 @@ Pure TypeScript — no framework dependencies.
 - Clears the local session via an injected `clearSession` callback
 - Redirects to the IdP `/logout` endpoint with a `post_logout_redirect_uri`
 
+### models/identity.ts
+- `actorUriToAddress(uri)` — only sanctioned converter between
+  `http(s)://<host>/users/<handle>` (canonical AP/backend form) and
+  `<handle>@<host>` (UI form). Always import from here; never hand-parse `@`
+  or `URL` elsewhere.
+
 ### models/presence.ts
 - `PresenceState` (`online | away | offline`), `PresenceSnapshotEntry`,
   `PresenceUpdatePayload`, `TypingEventPayload`
 - `presenceToUserStatus()` maps presence → UI `UserStatus` (away → idle)
 
 ### ports/presence.port.ts
-- `IPresencePort.getPresence(idpUrl, token, addresses[])` —
-  `GET /api/presence?actors[]=...`
+- `IPresencePort.getPresence(idpUrl, token, actorUris[])` —
+  `GET /api/presence?actors[]=...` (URIs only; backend rejects nothing but
+  takes only the canonical form)
 
 ### usecases/presence/
 - `get-presence-snapshot.usecase.ts` — initial state on page load

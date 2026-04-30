@@ -40,13 +40,3 @@ export interface DmConversationSummary {
     last_message_at: string | null
 }
 
-/** Convert an ActivityPub actor URI to an address string (username@domain). */
-export function actorUriToAddress(uri: string): string {
-    try {
-        const url = new URL(uri)
-        const username = url.pathname.split("/").filter(Boolean).at(-1) ?? uri
-        return `${username}@${url.host}`
-    } catch {
-        return uri
-    }
-}
