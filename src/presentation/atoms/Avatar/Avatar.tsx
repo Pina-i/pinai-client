@@ -44,11 +44,15 @@ export function Avatar({
         <div className={cn("relative shrink-0", className)}>
             <div
                 className={cn(
-                    "flex items-center justify-center font-semibold text-primary-foreground",
+                    // Serif initials + circle silhouette mirror the design canvas
+                    // (`design/screens/shell.jsx` Avatar). The deep-ink foreground
+                    // works against any of the saturated chat / voice / chart hues
+                    // we use as `color`.
+                    "title flex items-center justify-center rounded-full font-semibold",
                     sizeClasses[size],
-                    !color && "bg-primary",
+                    !color && "bg-primary text-primary-foreground",
                 )}
-                style={color ? { backgroundColor: color } : undefined}
+                style={color ? { backgroundColor: color, color: "oklch(0.18 0.008 60)" } : undefined}
             >
                 {initials}
             </div>

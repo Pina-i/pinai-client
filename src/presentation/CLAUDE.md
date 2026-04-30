@@ -23,10 +23,9 @@ pages/
       RecentActivityList.tsx
 ```
 
-### Reusable components
+### **IMPORTANT** Reusable components
 
 If a component is not specific to its page and could be reused elsewhere, do not keep it in the page's subfolder. Instead, move it to the appropriate level of the Atomic Design hierarchy as defined in the project root CLAUDE.md.
-
 Before creating a new reusable component, check if a similar one already exists in the Atomic Design folders.
 
 ## Reusable components creation guidelines
@@ -46,11 +45,12 @@ Do not create a viewmodel for simple components that only receive and display pr
 
 When a page component has sub components, each sub component should have its own viewmodel if it has non-trivial logic.
 
-## Guidelines
+## **IMPORTANT** Guidelines
 
 - Prefer small, single-responsibility components over large monolithic page components
 - A page component should mainly compose its sub-components and handle page-level state/data fetching
 - Keep presentational logic separated from business logic
 - Use Tailwind CSS with Shadcn-style token system for styling when you design new pages
 - Use Tanstack query for data fetching and caching
-- Do not use directly React Aria components in the pages folder. Create React Aria based reusable components instead.
+- Do not use directly React Aria components in the pages folder.
+- **Everytime you building UI**, check if a React Aria component could fit the need. If that's the case, create a reusable component based on it, respecting the Atomic design folder architecture.

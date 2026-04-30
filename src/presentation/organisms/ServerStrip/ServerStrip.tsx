@@ -1,6 +1,6 @@
-import pinaiLogo from "@/assets/pinai-variant.svg"
 import { cn } from "@/presentation/_libs/utils"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
+import { Logo } from "@/presentation/atoms/Logo/Logo"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { Tooltip } from "@/presentation/atoms/Tooltip/Tooltip"
 import { useAppStore } from "@/store/store"
@@ -16,75 +16,70 @@ export function ServerStrip() {
         navigate({ to: "/home" })
     }
 
+    const dmsActive = view === "dms"
+
     return (
-        <div className="flex w-[72px] shrink-0 flex-col items-center gap-2 bg-sidebar py-3">
-            {/* DMs button */}
-            <Tooltip
-                content="Friends"
-                placement="right"
-                delay={300}
-            >
+        <div className="flex w-16 shrink-0 flex-col items-center gap-2.5 border-r border-border bg-background py-3.5">
+            {/* DMs / Home — circle when idle, rounded square when active. */}
+            <Tooltip content="Friends" placement="right" delay={300}>
                 <IconButton
                     onPress={handleDmsPress}
                     aria-label="Friends"
                     className={cn(
-                        "relative flex h-12 w-12 items-center justify-center",
-                        view === "dms"
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-accent text-foreground hover:bg-primary hover:text-primary-foreground"
+                        "relative flex h-10 w-10 items-center justify-center bg-card text-foreground transition-all",
+                        dmsActive
+                            ? "rounded-md border border-border-strong"
+                            : "rounded-full hover:rounded-md",
                     )}
                 >
-                    {view === "dms" && <span className="absolute -left-3 top-1/2 h-10 w-1 -translate-y-1/2 rounded-r-full bg-foreground" />}
-                    <img
-                        src={pinaiLogo}
-                        alt="Pīna'i logo"
-                        className="h-6"
+                    <span
+                        className={cn(
+                            "absolute -left-3 top-1/2 w-[3px] -translate-y-1/2 rounded-r-full bg-foreground transition-[height]",
+                            dmsActive ? "h-5" : "h-0",
+                        )}
                     />
+                    <Logo className="h-5 w-5 text-foreground" />
                 </IconButton>
             </Tooltip>
 
-            <div className="mx-auto h-[2px] w-8 bg-border" />
+            <div className="my-1.5 h-px w-6 bg-border" />
 
             <ScrollArea className="w-full flex-1">
-                <div className="flex flex-col items-center gap-2 px-3">
-                    {servers.map((server) => (
-                        <Tooltip
-                            key={server.id}
-                            content={server.name}
-                            placement="right"
-                            delay={300}
-                        >
-                            <IconButton
-                                onPress={() => switchToServer(server.id)}
-                                aria-label={server.name}
-                                className={cn(
-                                    "relative flex h-12 w-12 items-center justify-center text-sm font-semibold",
-                                    view === "server" && activeServer === server.id
-                                        ? "bg-primary text-primary-foreground"
-                                        : "bg-accent text-foreground hover:bg-primary hover:text-primary-foreground"
-                                )}
-                            >
-                                {view === "server" && activeServer === server.id && (
-                                    <span className="absolute -left-3 top-1/2 h-10 w-1 -translate-y-1/2 rounded-r-full bg-foreground" />
-                                )}
-                                {server.initials}
-                            </IconButton>
-                        </Tooltip>
-                    ))}
+                <div className="flex flex-col items-center gap-2.5">
+                    {servers.map((server) => {
+                        const active = view === "server" && activeServer === server.id
+                        return (
+                            <Tooltip key={server.id} content={server.name} placement="right" delay={300}>
+                                <IconButton
+                                    onPress={() => switchToServer(server.id)}
+                                    aria-label={server.name}
+                                    className={cn(
+                                        "title relative flex h-10 w-10 items-center justify-center bg-muted text-sm font-medium text-foreground transition-all",
+                                        active
+                                            ? "rounded-md border border-border-strong"
+                                            : "rounded-full hover:rounded-md",
+                                    )}
+                                >
+                                    <span
+                                        className={cn(
+                                            "absolute -left-3 top-1/2 w-[3px] -translate-y-1/2 rounded-r-full bg-foreground transition-[height]",
+                                            active ? "h-5" : "h-0",
+                                        )}
+                                    />
+                                    {server.initials}
+                                </IconButton>
+                            </Tooltip>
+                        )
+                    })}
                 </div>
             </ScrollArea>
 
-            {/* Add server */}
-            <Tooltip
-                content="Add a Server"
-                placement="right"
-                delay={300}
-            >
+            <Tooltip content="Add a Server" placement="right" delay={300}>
                 <IconButton
                     aria-label="Add a Server"
-                    className="flex h-12 w-12 items-center justify-center bg-accent text-online hover:bg-online hover:text-primary-foreground"
+                    className="flex h-10 w-10 items-center justify-center rounded-md border border-dashed border-border-strong bg-transparent text-muted-foreground hover:text-foreground"
                 >
-                    <Plus className="h-6 w-6" />
+                    <Plus className="h-4 w-4" />
                 </IconButton>
             </Tooltip>
         </div>

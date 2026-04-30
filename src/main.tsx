@@ -21,8 +21,8 @@ createRoot(document.getElementById("root")!).render(
         <QueryClientProvider client={queryClient}>
             <ThemeProvider
                 attribute="class"
-                defaultTheme="system"
-                enableSystem
+                defaultTheme="dark"
+                enableSystem={false}
                 disableTransitionOnChange
             >
                 <RouterProvider router={router} />

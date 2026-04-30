@@ -1,3 +1,4 @@
+import { Button } from "react-aria-components"
 import { useAppStore } from "@/store/store"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
@@ -31,13 +32,13 @@ export function MembersSidebar() {
                                     .map((n) => n[0])
                                     .join("")
                                 return (
-                                    <button
+                                    <Button
                                         key={member.id}
-                                        onClick={() =>
+                                        onPress={() =>
                                             setShowUserProfile(showUserProfile?.id === member.id ? null : member)
                                         }
                                         className={cn(
-                                            "flex w-full items-center gap-2 px-2 py-1.5 transition-colors hover:bg-accent/50",
+                                            "flex w-full items-center gap-2 px-2 py-1.5 outline-none transition-colors hover:bg-accent/50 cursor-pointer",
                                             status === "offline" && "opacity-40 hover:opacity-60",
                                         )}
                                     >
@@ -54,7 +55,7 @@ export function MembersSidebar() {
                                                 <p className="text-xs text-muted-foreground">{member.role}</p>
                                             )}
                                         </div>
-                                    </button>
+                                    </Button>
                                 )
                             })}
                         </div>

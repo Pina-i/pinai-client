@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Pīna'i — Refined</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=Geist:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Spectral:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet"/>
+<style>
+  html,body{margin:0;padding:0;background:#0b0b0a;color:#eae7df;font-family:Geist,ui-sans-serif,system-ui,sans-serif}
+  *{box-sizing:border-box}
+  @keyframes pn-pulse{0%,100%{transform:scale(1);opacity:0.9}50%{transform:scale(1.06);opacity:0.4}}
+  @keyframes pn-blink{0%,50%{opacity:1}50.01%,100%{opacity:0}}
+  @keyframes pn-bounce{0%,100%{transform:translateY(0);opacity:0.4}50%{transform:translateY(-4px);opacity:1}}
+  @keyframes pn-glow{0%,100%{box-shadow:inset 0 0 0 2px var(--voice),0 0 20px -4px var(--voice)}50%{box-shadow:inset 0 0 0 2px var(--voice),0 0 40px -2px var(--voice)}}
+  @keyframes pn-wave{0%{transform:scaleY(0.3)}100%{transform:scaleY(1)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="app.jsx"></script>
+<script type="text/babel" src="screens/shell.jsx"></script>
+<script type="text/babel" src="screens/signin.jsx"></script>
+<script type="text/babel" src="screens/friends.jsx"></script>
+<script type="text/babel" src="screens/chat.jsx"></script>
+<script type="text/babel" src="screens/voice.jsx"></script>
+<script type="text/babel" src="screens/addfriend.jsx"></script>
+<script type="text/babel" src="screens/notifications.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+function App() {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [mode, setMode] = React.useState('dark');
+
+  // Apply tokens to :root so everything inherits
+  React.useEffect(() => {
+    const vars = tokens(t, mode);
+    const root = document.documentElement;
+    Object.entries(vars).forEach(([k,v]) => root.style.setProperty(k, v));
+    root.style.setProperty('--serif', t.serif);
+    root.style.colorScheme = mode;
+  }, [t, mode]);
+
+  return (
+    <>
+      <DesignCanvas>
+        <DCSection id="intro" title="Pīna'i · v2 proposal"
+          subtitle="Editorial dark · Fraunces + Geist · shadcn OKLCH tokens · sage for chat, amber for voice">
+          <DCArtboard id="signin" label="01 · Sign-in" width={1200} height={780}>
+            <SignInScreen/>
+          </DCArtboard>
+          <DCArtboard id="friends" label="02 · Friends" width={1200} height={780}>
+            <FriendsScreen/>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="conversation" title="Conversation"
+          subtitle="Sage/moss is the chat accent — calm, readable, original-voice.">
+          <DCArtboard id="chat" label="03 · Direct message" width={1200} height={780}>
+            <ChatScreen/>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="voice" title="Voice"
+          subtitle="Amber/honey is the voice accent — warmer, speaks “live signal”. Distinct from chat at a glance.">
+          <DCArtboard id="voice" label="04 · Voice room" width={1200} height={780}>
+            <VoiceScreen/>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="addfriend" title="Add Friend · Popover exploration"
+          subtitle="Anchored popovers — keep the Friends list visible behind. Three directions, picking refinement over disruption.">
+          <DCArtboard id="af-compact" label="A · Compact popover" width={1200} height={760}>
+            <AddFriendPopoverCompact/>
+          </DCArtboard>
+          <DCArtboard id="af-tabbed" label="B · Tabbed · address / link / QR" width={1200} height={760}>
+            <AddFriendPopoverTabbed/>
+          </DCArtboard>
+          <DCArtboard id="af-search" label="C · Searchable typeahead" width={1200} height={760}>
+            <AddFriendPopoverSearch/>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="notifications" title="Notifications · Bell popover exploration"
+          subtitle="Anchored to the bell in the topbar — three directions for hierarchy, density and interaction. The Friends list stays visible behind so context isn't lost.">
+          <DCArtboard id="notif-editorial" label="A · Editorial inbox" width={1200} height={760}>
+            <NotifPopoverEditorial/>
+          </DCArtboard>
+          <DCArtboard id="notif-categorized" label="B · Categorized · rail + feed" width={1200} height={760}>
+            <NotifPopoverCategorized/>
+          </DCArtboard>
+          <DCArtboard id="notif-activity" label="C · Activity stream" width={1200} height={760}>
+            <NotifPopoverActivity/>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="tokens" title="Tokens · shadcn OKLCH"
+          subtitle="Complete shadcn token architecture, dark + light. Hue sliders in Tweaks re-tune live.">
+          <DCArtboard id="tokens-dark" label="05 · Token sheet · Dark" width={1200} height={1480}>
+            <TokenSheet t={t} mode="dark"/>
+          </DCArtboard>
+          <DCArtboard id="tokens-light" label="06 · Token sheet · Light" width={1200} height={1480}>
+            <TokenSheet t={t} mode="light"/>
+          </DCArtboard>
+        </DCSection>
+      </DesignCanvas>
+
+      <TweaksPanel>
+        <TweakSection label="Accents"/>
+        <TweakSlider label="Chat hue" value={t.chatHue} min={0} max={360} unit="°"
+          onChange={v => setTweak('chatHue', v)}/>
+        <TweakSlider label="Voice hue" value={t.voiceHue} min={0} max={360} unit="°"
+          onChange={v => setTweak('voiceHue', v)}/>
+        <TweakSlider label="Chroma" value={t.accentChroma} min={0.02} max={0.14} step={0.005}
+          onChange={v => setTweak('accentChroma', v)}/>
+
+        <TweakSection label="Shape"/>
+        <TweakSlider label="Corner radius" value={t.radius} min={2} max={18} unit="px"
+          onChange={v => setTweak('radius', v)}/>
+        <TweakRadio label="Density" value={t.density}
+          options={['compact','cozy','airy']}
+          onChange={v => setTweak('density', v)}/>
+
+        <TweakSection label="Type"/>
+        <TweakSelect label="Serif" value={t.serif}
+          options={['Fraunces','Spectral','Instrument Serif']}
+          onChange={v => setTweak('serif', v)}/>
+      </TweaksPanel>
+    </>
+  );
+}
+
+function TokenSheet({ t, mode = 'dark' }) {
+  const vars = tokens(t, mode);
+  const isDark = mode === 'dark';
+  // Local-scope styling so this sheet renders in its own mode regardless of root.
+  const sheetStyle = {
+    width: 1200, height: 1480,
+    background: vars['--background'],
+    color: vars['--foreground'],
+    fontFamily: 'Geist, ui-sans-serif, system-ui, sans-serif',
+    padding: '40px 48px',
+    overflow: 'hidden',
+    position: 'relative',
+  };
+  const groups = [
+    ['Surfaces', [
+      ['--background','app canvas'],
+      ['--foreground','primary text'],
+      ['--card','elevated surface'],
+      ['--card-foreground','text on card'],
+      ['--popover','floating surface'],
+      ['--popover-foreground','text on popover'],
+    ]],
+    ['Semantic — primary', [
+      ['--primary','main accent'],
+      ['--primary-foreground','text on primary'],
+      ['--secondary','secondary surface'],
+      ['--secondary-foreground','text on secondary'],
+      ['--muted','muted surface'],
+      ['--muted-foreground','muted text'],
+      ['--accent','hover / focus surface'],
+      ['--accent-foreground','text on accent'],
+    ]],
+    ['Status', [
+      ['--destructive','danger'],
+      ['--destructive-foreground','text on danger'],
+      ['--success','success'],
+      ['--success-foreground','text on success'],
+      ['--warning','warning'],
+      ['--warning-foreground','text on warning'],
+    ]],
+    ['Structure', [
+      ['--border','default border'],
+      ['--border-strong','emphatic border'],
+      ['--input','input bg'],
+      ['--ring','focus ring'],
+    ]],
+    ['Chat (channel semantic)', [
+      ['--chat','chat accent · sage'],
+      ['--chat-foreground','text on chat'],
+      ['--chat-soft','chat tint surface'],
+      ['--chat-ink','chat deep ink'],
+    ]],
+    ['Voice (channel semantic)', [
+      ['--voice','voice accent · amber'],
+      ['--voice-foreground','text on voice'],
+      ['--voice-soft','voice tint surface'],
+      ['--voice-ink','voice deep ink'],
+    ]],
+    ['Charts', [
+      ['--chart-1','series 1 · chat'],
+      ['--chart-2','series 2 · voice'],
+      ['--chart-3','series 3 · cool'],
+      ['--chart-4','series 4 · rose'],
+      ['--chart-5','series 5 · clay'],
+    ]],
+    ['Sidebar', [
+      ['--sidebar','sidebar surface'],
+      ['--sidebar-foreground','sidebar text'],
+      ['--sidebar-primary','sidebar accent'],
+      ['--sidebar-primary-foreground','text on sidebar accent'],
+      ['--sidebar-accent','hover surface'],
+      ['--sidebar-accent-foreground','text on hover'],
+      ['--sidebar-border','sidebar border'],
+      ['--sidebar-ring','sidebar focus ring'],
+    ]],
+  ];
+
+  return (
+    <div style={sheetStyle}>
+      {/* header */}
+      <div style={{display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:28, gap:24}}>
+        <div style={{maxWidth:760}}>
+          <span style={{fontFamily:'JetBrains Mono, monospace', fontSize:10, letterSpacing:'0.12em',
+            color: vars['--muted-foreground'], textTransform:'uppercase'}}>
+            — Design tokens · {isDark ? 'dark' : 'light'} · OKLCH
+          </span>
+          <h2 style={{
+            fontFamily:'var(--serif, Fraunces), serif', fontSize:36, fontWeight:400,
+            margin:'8px 0 10px', letterSpacing:'-0.015em', lineHeight:1.05,
+          }}>
+            The complete <em style={{color:vars['--chat'], fontStyle:'italic'}}>chat</em> &amp; <em style={{color:vars['--voice'], fontStyle:'italic'}}>voice</em> token architecture.
+          </h2>
+          <p style={{margin:0, color: vars['--muted-foreground'], fontSize:13.5, lineHeight:1.55, maxWidth:680}}>
+            Drop-in shadcn-compatible CSS variables. Mode-aware (dark / light), perceptually even via OKLCH,
+            and extended with <code style={{fontFamily:'JetBrains Mono, monospace', fontSize:12}}>--chat-*</code> /
+            <code style={{fontFamily:'JetBrains Mono, monospace', fontSize:12}}> --voice-*</code> pairs that follow
+            the same accent + foreground architecture as <code style={{fontFamily:'JetBrains Mono, monospace', fontSize:12}}>--primary</code>.
+          </p>
+        </div>
+        <div style={{
+          display:'flex', alignItems:'center', gap:6, padding:4,
+          border:`1px solid ${vars['--border']}`, borderRadius: vars['--radius-sm'],
+          background: vars['--card'],
+        }}>
+          {['dark','light'].map(m => (
+            <span key={m} style={{
+              padding:'5px 12px', borderRadius:`calc(${vars['--radius-sm']} - 2px)`,
+              fontSize:11.5, fontFamily:'JetBrains Mono, monospace',
+              letterSpacing:'0.06em', textTransform:'uppercase',
+              background: m === mode ? vars['--accent'] : 'transparent',
+              color: m === mode ? vars['--foreground'] : vars['--muted-foreground'],
+            }}>{m}</span>
+          ))}
+        </div>
+      </div>
+
+      {/* grid of swatch groups */}
+      <div style={{
+        display:'grid',
+        gridTemplateColumns:'repeat(4, 1fr)',
+        gap:18,
+      }}>
+        {groups.map(([title, keys]) => (
+          <div key={title} style={{
+            padding:14,
+            background: vars['--card'],
+            border: `1px solid ${vars['--border']}`,
+            borderRadius: vars['--radius'],
+            display:'flex', flexDirection:'column', gap:8,
+          }}>
+            <div style={{
+              fontFamily:'JetBrains Mono, monospace', fontSize:10, letterSpacing:'0.12em',
+              color: vars['--muted-foreground'], textTransform:'uppercase',
+              paddingBottom:8, borderBottom:`1px solid ${vars['--border']}`,
+            }}>{title}</div>
+            {keys.map(([k, label]) => (
+              <FullSwatch key={k} name={k} value={vars[k]} label={label} vars={vars}/>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FullSwatch({ name, value, label, vars }) {
+  return (
+    <div style={{display:'flex', alignItems:'center', gap:10}}>
+      <div style={{
+        width:32, height:32, borderRadius: vars['--radius-sm'], flexShrink:0,
+        background: value,
+        border: `1px solid ${vars['--border-strong']}`,
+        boxShadow: 'inset 0 0 0 0.5px rgba(255,255,255,0.04)',
+      }}/>
+      <div style={{flex:1, minWidth:0}}>
+        <div style={{
+          fontFamily:'JetBrains Mono, monospace', fontSize:11, fontWeight:500,
+          color: vars['--foreground'], whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
+        }}>{name}</div>
+        <div style={{
+          fontSize:10.5, color: vars['--muted-foreground'],
+          fontStyle:'italic', fontFamily:'var(--serif, Fraunces), serif',
+          whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
+        }}>{label}</div>
+      </div>
+    </div>
+  );
+}
+
+function Swatch({ name, value }) {
+  return (
+    <div style={{display:'flex', alignItems:'center', gap:12, padding:'8px 10px',
+      border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', background:'var(--card)'}}>
+      <div style={{width:30, height:30, borderRadius:'var(--radius-sm)',
+        background:value, border:'1px solid var(--border-strong)', flexShrink:0}}/>
+      <div style={{flex:1, minWidth:0}}>
+        <Mono style={{fontSize:11.5, color:'var(--foreground)', fontWeight:500}}>{name}</Mono>
+        <Mono style={{fontSize:10.5, color:'var(--muted-foreground)', display:'block',
+          overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{value}</Mono>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
