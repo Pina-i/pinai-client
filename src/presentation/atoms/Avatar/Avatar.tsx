@@ -19,11 +19,14 @@ const statusColorClasses: Record<UserStatus, string> = {
     online: "bg-online",
     idle: "bg-idle",
     dnd: "bg-dnd",
+    invisible: "bg-muted-foreground",
     offline: "bg-muted-foreground",
 }
 
 interface AvatarProps {
     initials: string
+    /** When set, displays the image instead of initials. */
+    imageUrl?: string | null
     color?: string
     size?: keyof typeof sizeClasses
     status?: UserStatus
@@ -34,6 +37,7 @@ interface AvatarProps {
 
 export function Avatar({
     initials,
+    imageUrl,
     color,
     size = "sm",
     status,
@@ -42,20 +46,27 @@ export function Avatar({
 }: AvatarProps) {
     return (
         <div className={cn("relative shrink-0", className)}>
-            <div
-                className={cn(
-                    // Serif initials + circle silhouette mirror the design canvas
-                    // (`design/screens/shell.jsx` Avatar). The deep-ink foreground
-                    // works against any of the saturated chat / voice / chart hues
-                    // we use as `color`.
-                    "title flex items-center justify-center rounded-full font-semibold",
-                    sizeClasses[size],
-                    !color && "bg-primary text-primary-foreground",
-                )}
-                style={color ? { backgroundColor: color, color: "oklch(0.18 0.008 60)" } : undefined}
-            >
-                {initials}
-            </div>
+            {imageUrl ? (
+                <img
+                    src={imageUrl}
+                    alt={initials}
+                    className={cn(
+                        "rounded-full object-cover",
+                        sizeClasses[size],
+                    )}
+                />
+            ) : (
+                <div
+                    className={cn(
+                        "title flex items-center justify-center rounded-full font-semibold",
+                        sizeClasses[size],
+                        !color && "bg-primary text-primary-foreground",
+                    )}
+                    style={color ? { backgroundColor: color, color: "oklch(0.18 0.008 60)" } : undefined}
+                >
+                    {initials}
+                </div>
+            )}
             {status && (
                 <span
                     className={cn(

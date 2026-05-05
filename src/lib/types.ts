@@ -1,8 +1,12 @@
-export type UserStatus = "online" | "idle" | "dnd" | "offline"
+export type UserStatus = "online" | "idle" | "dnd" | "invisible" | "offline"
 
 export interface Message {
     id: string
     author: string
+    /** Federated address of the sender (`username@domain`). Used to resolve
+     *  the current avatar from `avatarsByAddress`. Optional only for legacy
+     *  callers; new construction sites should always populate it. */
+    authorAddress?: string
     avatar: string
     content: string
     timestamp: string

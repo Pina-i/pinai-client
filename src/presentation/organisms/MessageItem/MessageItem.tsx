@@ -6,6 +6,7 @@ import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { Menu, type MenuItemDescriptor } from "@/presentation/molecules/Menu/Menu"
 import { cn } from "@/presentation/_libs/utils"
 import type { Message } from "@/lib/types"
+import { useAppStore } from "@/store/store"
 import { useMessageItemViewModel } from "./MessageItem.viewmodel"
 
 const quickEmojis = ["thumbsup", "fire", "heart", "joy", "eyes", "rocket", "100", "clap"]
@@ -30,6 +31,10 @@ interface MessageItemProps {
 export function MessageItem({ message, conversationKey, onReply }: MessageItemProps) {
     const vm = useMessageItemViewModel(message, conversationKey, onReply)
 
+    const avatarUrl = useAppStore((s) =>
+        message.authorAddress ? s.avatarsByAddress[message.authorAddress] ?? null : null,
+    )
+
     const [copied, setCopied] = useState(false)
 
     const emojiMenuItems: MenuItemDescriptor[] = quickEmojis.map((key) => {
@@ -50,7 +55,7 @@ export function MessageItem({ message, conversationKey, onReply }: MessageItemPr
                     : "hover:bg-accent/30",
             )}
         >
-            <Avatar initials={message.avatar} size="md" className="mt-0.5" />
+            <Avatar initials={message.avatar} imageUrl={avatarUrl} size="md" className="mt-0.5" />
 
             <div className="min-w-0 flex-1">
                 {message.replyTo && (

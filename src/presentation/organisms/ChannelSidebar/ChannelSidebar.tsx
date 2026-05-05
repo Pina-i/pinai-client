@@ -23,6 +23,7 @@ export function ChannelSidebar() {
     const activeDm = useAppStore((s) => s.activeDm)
     const dmUnread = useAppStore((s) => s.dmUnread)
     const presenceByAddress = useAppStore((s) => s.presenceByAddress)
+    const avatarsByAddress = useAppStore((s) => s.avatarsByAddress)
     const switchToDms = useAppStore((s) => s.switchToDms)
     const navigate = useNavigate()
 
@@ -170,6 +171,7 @@ export function ChannelSidebar() {
                             >
                                 <Avatar
                                     initials={dm.avatar}
+                                    imageUrl={dm.kind === "dm" ? avatarsByAddress[dm.address] ?? null : null}
                                     color={dm.color}
                                     size="sm"
                                     status={

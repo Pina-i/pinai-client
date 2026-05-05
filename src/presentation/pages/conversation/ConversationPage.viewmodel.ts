@@ -18,6 +18,7 @@ function mapApiMessage(msg: DirectMessage, currentUser: UserProfile): Message {
     const mapped: Message = {
         id: msg.id,
         author: displayName,
+        authorAddress: senderAddress,
         avatar: displayName.slice(0, 2).toUpperCase(),
         content: msg.content,
         timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -135,6 +136,7 @@ export function useConversationPageViewModel(name: string) {
                 const newMsg: Message = {
                     id: crypto.randomUUID(),
                     author: user.display_name ?? user.preferred_username,
+                    authorAddress: user.address,
                     avatar: (user.display_name ?? user.preferred_username).slice(0, 2).toUpperCase(),
                     content,
                     timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),

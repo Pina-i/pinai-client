@@ -33,6 +33,8 @@
 <script type="text/babel" src="screens/voice.jsx"></script>
 <script type="text/babel" src="screens/addfriend.jsx"></script>
 <script type="text/babel" src="screens/notifications.jsx"></script>
+<script type="text/babel" src="screens/userstatus.jsx"></script>
+<script type="text/babel" src="screens/settings.jsx"></script>
 
 <script type="text/babel" data-presets="react">
 function App() {
@@ -98,6 +100,33 @@ function App() {
           </DCArtboard>
           <DCArtboard id="notif-activity" label="C · Activity stream" width={1200} height={760}>
             <NotifPopoverActivity/>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="userstatus" title="User status · UserBar popover exploration"
+          subtitle="Anchored to the user item in the bottom-left of the sidebar. Three directions for identity + presence swap.">
+          <DCArtboard id="us-identity" label="A · Identity card" width={1200} height={780}>
+            <UserStatusPopoverIdentity/>
+          </DCArtboard>
+          <DCArtboard id="us-dial" label="B · Status-first dial" width={1200} height={780}>
+            <UserStatusPopoverDial/>
+          </DCArtboard>
+          <DCArtboard id="us-activity" label="C · Identity + activity" width={1200} height={780}>
+            <UserStatusPopoverActivity/>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="settings" title="User settings · full-page rework"
+          subtitle="Three directions for the settings overlay — replacing the current cramped left rail + thin form."
+        >
+          <DCArtboard id="set-editorial" label="A · Editorial · live profile preview" width={1200} height={780}>
+            <SettingsEditorial/>
+          </DCArtboard>
+          <DCArtboard id="set-twopane" label="B · Two-pane editor · floating save bar" width={1200} height={780}>
+            <SettingsTwoPane/>
+          </DCArtboard>
+          <DCArtboard id="set-cards" label="C · Card grid + drill-in" width={1200} height={780}>
+            <SettingsCardGrid/>
           </DCArtboard>
         </DCSection>
 

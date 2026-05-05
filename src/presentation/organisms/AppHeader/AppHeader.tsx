@@ -23,10 +23,13 @@ export function AppHeader() {
     } = useAppStore()
 
     const presenceByAddress = useAppStore((s) => s.presenceByAddress)
+    const avatarsByAddress = useAppStore((s) => s.avatarsByAddress)
 
     const currentChannel = (channelsByServer[activeServer] ?? []).find((c) => c.id === activeChannel)
     const activeDmData = localDmConvos.find((d) => d.id === activeDm)
     const activeDmAddress = activeDmData?.name ?? activeDm ?? ""
+    const activeDmAvatarUrl =
+        activeDmData?.kind === "dm" ? avatarsByAddress[activeDmData.address] ?? null : null
 
     const title = view === "dms"
         ? (activeDm ? (activeDmData?.displayName ?? activeDmAddress.split("@")[0] ?? activeDmAddress) : "Friends")
@@ -49,6 +52,7 @@ export function AppHeader() {
                 ) : view === "dms" && activeDmData ? (
                     <Avatar
                         initials={activeDmData.avatar}
+                        imageUrl={activeDmAvatarUrl}
                         color={activeDmData.color}
                         size="md"
                         status={dmStatus}

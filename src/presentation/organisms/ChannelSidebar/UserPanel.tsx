@@ -1,13 +1,25 @@
 import { Headphones, HeadphoneOff, Mic, MicOff, Settings } from "lucide-react"
 import { useState } from "react"
+import { Button } from "react-aria-components"
 import { useAppStore } from "@/store/store"
+import { userStatusLabel } from "@/domain/models/presence"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { Tooltip } from "@/presentation/atoms/Tooltip/Tooltip"
 import { cn } from "@/presentation/_libs/utils"
+import { UserBarPopover } from "./UserBarPopover/UserBarPopover"
+
+const statusDotClass = {
+    online: "bg-online",
+    idle: "bg-idle",
+    dnd: "bg-dnd",
+    invisible: "bg-muted-foreground",
+    offline: "bg-muted-foreground",
+} as const
 
 export function UserPanel() {
     const user = useAppStore((s) => s.user)
+    const myStatus = useAppStore((s) => s.myStatus)
     const setShowSettings = useAppStore((s) => s.setShowSettings)
 
     const [isMuted, setIsMuted] = useState(false)
@@ -20,11 +32,29 @@ export function UserPanel() {
 
     return (
         <div className="flex items-center gap-2 border-t border-border bg-popover p-2">
-            <Avatar initials={initials} size="sm" status="online" statusBorderClass="border-popover" />
-            <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-foreground">{displayName}</p>
-                <p className="truncate text-xs text-muted-foreground">Online</p>
-            </div>
+            <UserBarPopover
+                trigger={
+                    <Button
+                        aria-label={`Open status menu for ${displayName}`}
+                        className="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-1 py-0.5 text-left outline-none transition-colors hover:bg-accent/40 cursor-pointer aria-expanded:bg-accent/60"
+                    >
+                        <Avatar
+                            initials={initials}
+                            imageUrl={user.avatar_url}
+                            size="sm"
+                            status={myStatus}
+                            statusBorderClass="border-popover"
+                        />
+                        <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-foreground">{displayName}</p>
+                            <p className="flex items-center gap-1 truncate font-mono text-[10.5px] tracking-[0.04em] text-muted-foreground">
+                                <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", statusDotClass[myStatus])} />
+                                <span className="truncate">{userStatusLabel(myStatus).toLowerCase()}</span>
+                            </p>
+                        </div>
+                    </Button>
+                }
+            />
             <div className="flex items-center gap-0.5">
                 <Tooltip content={isMuted ? "Unmute" : "Mute"} placement="top" delay={300}>
                     <IconButton

@@ -24,6 +24,7 @@ export function useLoadDmConversations(): void {
     const idpUrl = useAppStore((s) => s.idpUrl)
     const setDmConversations = useAppStore((s) => s.setDmConversations)
     const seedDmUnread = useAppStore((s) => s.seedDmUnread)
+    const seedAvatars = useAppStore((s) => s.seedAvatars)
 
     const { data: summaries } = useQuery({
         queryKey: dmConversationsQueryKey(idpUrl ?? ""),
@@ -57,6 +58,16 @@ export function useLoadDmConversations(): void {
         })
         setDmConversations(convos)
 
+        // Seed the avatar map from every member across every conversation,
+        // so author avatars in MessageItem and the sidebar resolve by address.
+        const avatarEntries = summaries.flatMap((summary) =>
+            summary.members.map((m) => ({
+                address: actorUriToAddress(m.actorUri),
+                url: m.avatarUrl ?? null,
+            })),
+        )
+        seedAvatars(avatarEntries)
+
         const unreadCounts: Record<string, number> = {}
         summaries.forEach((summary) => {
             if (summary.unread_count > 0) {
@@ -64,5 +75,5 @@ export function useLoadDmConversations(): void {
             }
         })
         seedDmUnread(unreadCounts)
-    }, [summaries, setDmConversations, seedDmUnread])
+    }, [summaries, setDmConversations, seedDmUnread, seedAvatars])
 }

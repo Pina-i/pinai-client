@@ -34,6 +34,9 @@ export function LandingPage() {
                             placeholder="http://localhost:8080"
                             isDisabled={loading}
                             error={error ?? undefined}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter" && idpUrl && !loading) handleLogin()
+                            }}
                         />
 
                         <Button
