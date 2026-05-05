@@ -28,6 +28,7 @@ export function useIdpWebSocket(): void {
     const activeDm = useAppStore((s) => s.activeDm)
     const setPresence = useAppStore((s) => s.setPresence)
     const addTyping = useAppStore((s) => s.addTyping)
+    const setAvatarFor = useAppStore((s) => s.setAvatarFor)
     const queryClient = useQueryClient()
 
     // Use refs for store actions to avoid stale closures in adapter callbacks.
@@ -42,6 +43,7 @@ export function useIdpWebSocket(): void {
         user,
         setPresence,
         addTyping,
+        setAvatarFor,
     })
     actionsRef.current = {
         setWsStatus,
@@ -54,6 +56,7 @@ export function useIdpWebSocket(): void {
         user,
         setPresence,
         addTyping,
+        setAvatarFor,
     }
 
     useEffect(() => {
@@ -89,11 +92,13 @@ export function useIdpWebSocket(): void {
                 }
                 case "new_dm": {
                     const conversationId = event.data.conversation_id
+                    const senderAddress = event.data.sender_address
                     const senderDisplayName =
-                        event.data.sender_display_name ?? actorUriToAddress(event.data.sender_address).split("@")[0] ?? "?"
+                        event.data.sender_display_name ?? senderAddress.split("@")[0] ?? "?"
                     const msg: Message = {
                         id: event.data.message_id,
                         author: senderDisplayName,
+                        authorAddress: senderAddress,
                         avatar: senderDisplayName.slice(0, 2).toUpperCase(),
                         content: event.data.content,
                         timestamp: new Date(event.data.created_at).toLocaleTimeString([], {
@@ -187,7 +192,12 @@ export function useIdpWebSocket(): void {
                     break
                 }
                 case "friend_profile_updated": {
-                    // A friend's profile was updated — refresh friends list and DM conversation names.
+                    // A friend's profile was updated — patch the central avatar map
+                    // so every Avatar callsite (DM list, message authors, header)
+                    // reflects the change live, and refresh queries that snapshot
+                    // display name / member metadata.
+                    const address = actorUriToAddress(event.data.actorUri)
+                    actionsRef.current.setAvatarFor(address, event.data.avatarUrl)
                     if (idpUrl) {
                         queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
                         queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Kilian\\\\www\\\\pinai\\\\web-client\" -Recurse -Filter \"*user*bar*\" -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(xargs ls *)",
+      "Bash(npx tsc *)",
+      "Bash(git stash *)"
+    ]
+  }
+}

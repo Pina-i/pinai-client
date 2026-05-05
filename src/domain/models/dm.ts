@@ -26,6 +26,7 @@ export interface ApiReactionGroup {
 export interface ConversationMemberInfo {
     actorUri: string
     displayName: string | null
+    avatarUrl: string | null
 }
 
 /** Raw API response: one entry from GET /api/dm (conversation list). */

@@ -5,8 +5,9 @@ import { createUiSlice, type UiSlice } from "./slices/ui.slice"
 import { createDataSlice, type DataSlice } from "./slices/data.slice"
 import { createWsSlice, type WsSlice } from "./slices/ws.slice"
 import { createPresenceSlice, type PresenceSlice } from "./slices/presence.slice"
+import { createAvatarsSlice, type AvatarsSlice } from "./slices/avatars.slice"
 
-export type AppStore = AuthSlice & UiSlice & DataSlice & WsSlice & PresenceSlice
+export type AppStore = AuthSlice & UiSlice & DataSlice & WsSlice & PresenceSlice & AvatarsSlice
 
 export const useAppStore = create<AppStore>()(
     devtools(
@@ -16,6 +17,7 @@ export const useAppStore = create<AppStore>()(
             ...createDataSlice(...a),
             ...createWsSlice(...a),
             ...createPresenceSlice(...a),
+            ...createAvatarsSlice(...a),
         }),
         { name: "AppStore" }
     )

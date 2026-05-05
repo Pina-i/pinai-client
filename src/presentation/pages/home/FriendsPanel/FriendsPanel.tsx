@@ -88,6 +88,7 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
                             >
                                 <Avatar
                                     initials={initials}
+                                    imageUrl={friend.avatarUrl}
                                     size="md"
                                     status={friend.status}
                                     statusBorderClass="border-background"

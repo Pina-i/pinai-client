@@ -43,9 +43,13 @@ export function Modal({
             >
                 <Dialog className={cn("outline-none", isFullscreen && "flex flex-1")}>
                     <motion.div
-                        initial={isFullscreen ? { opacity: 0 } : { opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                        initial={isFullscreen ? { opacity: 0, y: 12 } : { opacity: 0, scale: 0.95 }}
+                        animate={isFullscreen ? { opacity: 1, y: 0 } : { opacity: 1, scale: 1 }}
+                        transition={
+                            isFullscreen
+                                ? { duration: 0.3, ease: "easeOut" }
+                                : { duration: 0.18, ease: [0.16, 1, 0.3, 1] }
+                        }
                         className={cn(isFullscreen && "flex flex-1")}
                     >
                         {children}

@@ -35,7 +35,7 @@ export function presenceToUserStatus(state: PresenceState | undefined): "online"
  * Used wherever presence is shown as text (friend list subtitle, conversation
  * header, etc.). Centralised so the wording stays consistent.
  */
-export function userStatusLabel(status: "online" | "idle" | "dnd" | "offline"): string {
+export function userStatusLabel(status: "online" | "idle" | "dnd" | "invisible" | "offline"): string {
     switch (status) {
         case "online":
             return "Online"
@@ -43,6 +43,8 @@ export function userStatusLabel(status: "online" | "idle" | "dnd" | "offline"): 
             return "Away"
         case "dnd":
             return "Busy"
+        case "invisible":
+            return "Invisible"
         case "offline":
             return "Offline"
     }
