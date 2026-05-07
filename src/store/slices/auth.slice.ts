@@ -16,6 +16,8 @@ export interface AuthSlice {
     clearSession: () => void
     setMyStatus: (status: UserStatus) => void
     setAvatarUrl: (url: string | null) => void
+    /** Replace the user profile (after a successful PATCH /api/profile). */
+    setUser: (user: UserProfile) => void
 }
 
 export const createAuthSlice: StateCreator<AppStore, [["zustand/devtools", never]], [], AuthSlice> = (set) => ({
@@ -56,5 +58,18 @@ export const createAuthSlice: StateCreator<AppStore, [["zustand/devtools", never
             },
             false,
             "auth/setAvatarUrl",
+        ),
+
+    setUser: (user) =>
+        set(
+            (state) => ({
+                user,
+                avatarsByAddress: {
+                    ...state.avatarsByAddress,
+                    [user.address]: user.avatar_url ?? null,
+                },
+            }),
+            false,
+            "auth/setUser",
         ),
 })

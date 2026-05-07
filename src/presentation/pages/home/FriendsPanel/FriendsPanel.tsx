@@ -45,7 +45,7 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
                             key={tab}
                             onClick={() => setActiveTab(tab)}
                             className={cn(
-                                "rounded px-3.5 py-1.5 text-xs transition-colors",
+                                "cursor-pointer rounded px-3.5 py-1.5 text-xs transition-colors",
                                 activeTab === tab
                                     ? "bg-card font-medium text-foreground shadow-sm"
                                     : "text-muted-foreground hover:text-foreground",
@@ -111,7 +111,7 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
                                         e.stopPropagation()
                                         setFriendToRemove({ id: friend.id, name: friend.name })
                                     }}
-                                    className="rounded-md p-2 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                                    className="cursor-pointer rounded-md p-2 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
                                 >
                                     <UserMinus className="h-4 w-4" />
                                 </button>

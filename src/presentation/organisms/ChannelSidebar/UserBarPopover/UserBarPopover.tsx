@@ -1,7 +1,9 @@
 import { useState, type ReactNode } from "react"
-import { AtSign, Bell, Check, ChevronRight, Hash, LogOut, Moon, Pencil, Settings } from "lucide-react"
+import { AtSign, Bell, Check, ChevronRight, Hash, LogOut, Moon, Pencil, UserPen } from "lucide-react"
 import { useAppStore } from "@/store/store"
 import { logoutUseCase } from "@/domain/usecases/auth/logout.usecase"
+import { setPresenceUseCase } from "@/domain/usecases/presence/set-presence.usecase"
+import { getWsPort } from "@/ioc"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { Popover } from "@/presentation/molecules/Popover/Popover"
 import { cn } from "@/presentation/_libs/utils"
@@ -10,16 +12,17 @@ import type { UserStatus } from "@/lib/types"
 interface StatusMeta {
     id: UserStatus
     label: string
-    desc: string
+    /** Optional one-liner shown under the label. Only set where the
+     *  side-effect is non-obvious from the label alone. */
+    subtitle?: string
     dotClass: string
 }
 
 const STATUSES: StatusMeta[] = [
-    { id: "online", label: "Online", desc: "Available · friends can ping you.", dotClass: "bg-online" },
-    { id: "idle", label: "Idle", desc: "Away from keyboard.", dotClass: "bg-idle" },
-    { id: "dnd", label: "Do not disturb", desc: "Notifications muted.", dotClass: "bg-dnd" },
-    { id: "invisible", label: "Invisible", desc: "Appear offline; still receive.", dotClass: "bg-muted-foreground" },
-    { id: "offline", label: "Offline", desc: "Disconnected from voice & DMs.", dotClass: "bg-border-strong" },
+    { id: "online", label: "Online", dotClass: "bg-online" },
+    { id: "idle", label: "Idle", dotClass: "bg-idle" },
+    { id: "dnd", label: "Do not disturb", subtitle: "You will not receive any notifications.", dotClass: "bg-dnd" },
+    { id: "invisible", label: "Invisible", subtitle: "Your friends will see you offline.", dotClass: "bg-muted-foreground" },
 ]
 
 const STATUS_PILL: Record<UserStatus, { label: string; className: string }> = {
@@ -77,6 +80,13 @@ export function UserBarPopover({ trigger, isOpen, onOpenChange }: UserBarPopover
     const initials = displayName.slice(0, 2).toUpperCase()
     const pill = STATUS_PILL[myStatus]
     const activePresence = STATUSES.find((s) => s.id === myStatus) ?? STATUSES[0]
+    const pronounsLabel = user.pronouns
+        ? user.pronouns === "he"
+            ? "he / him"
+            : user.pronouns === "she"
+              ? "she / her"
+              : "non-binary"
+        : null
 
     const viewingChannel =
         view === "server" && activeChannel
@@ -109,7 +119,7 @@ export function UserBarPopover({ trigger, isOpen, onOpenChange }: UserBarPopover
             offset={12}
             isOpen={openResolved}
             onOpenChange={setOpen}
-            className="relative w-[460px] overflow-hidden rounded-[var(--radius-lg)] border border-border-strong bg-popover shadow-[0_24px_60px_-16px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.02)]"
+            className="relative w-[500px] overflow-hidden rounded-[var(--radius-lg)] border border-border-strong bg-popover shadow-[0_24px_60px_-16px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.02)]"
         >
             {/* Caret pointing down to the trigger (popover sits above the UserBar) */}
             <div className="pointer-events-none absolute -bottom-[7px] left-6 h-[14px] w-[14px] rotate-45 border-b border-r border-border-strong bg-popover" />
@@ -119,7 +129,7 @@ export function UserBarPopover({ trigger, isOpen, onOpenChange }: UserBarPopover
                 <button
                     type="button"
                     aria-label="Change avatar"
-                    className="group relative shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-chat focus-visible:ring-offset-2 focus-visible:ring-offset-popover"
+                    className="group relative shrink-0 cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-chat focus-visible:ring-offset-2 focus-visible:ring-offset-popover"
                 >
                     <Avatar initials={initials} imageUrl={user.avatar_url} color="var(--chat)" size="lg" />
                     {/* Hover overlay — soft scrim + edit icon */}
@@ -150,7 +160,17 @@ export function UserBarPopover({ trigger, isOpen, onOpenChange }: UserBarPopover
                             {pill.label}
                         </span>
                     </div>
-                    <p className="mt-0.5 truncate font-mono text-[10.5px] text-muted-foreground">{user.address}</p>
+                    <p className="mt-0.5 truncate font-mono text-[10.5px] text-muted-foreground">
+                        {user.address}
+                        {pronounsLabel && (
+                            <span className="ml-2 text-muted-foreground/80">· {pronounsLabel}</span>
+                        )}
+                    </p>
+                    {user.bio && (
+                        <p className="mt-1.5 break-words font-serif text-[12px] italic leading-snug text-foreground/85">
+                            {user.bio}
+                        </p>
+                    )}
                 </div>
             </div>
 
@@ -167,22 +187,33 @@ export function UserBarPopover({ trigger, isOpen, onOpenChange }: UserBarPopover
                             <button
                                 key={s.id}
                                 type="button"
-                                onClick={() => setMyStatus(s.id)}
+                                onClick={() => {
+                                    setMyStatus(s.id)
+                                    setPresenceUseCase(getWsPort(), s.id)
+                                }}
                                 className={cn(
-                                    "flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left transition-colors",
+                                    "flex w-full cursor-pointer gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left transition-colors",
+                                    s.subtitle ? "items-start" : "items-center",
                                     active ? "bg-accent" : "hover:bg-accent/40",
                                 )}
                             >
-                                <Dot className={s.dotClass} ring={active} />
-                                <span
-                                    className={cn(
-                                        "flex-1 truncate text-[12.5px] text-foreground",
-                                        active ? "title font-medium" : "font-normal",
+                                <Dot className={cn(s.dotClass, s.subtitle && "mt-[5px]")} ring={active} />
+                                <div className="flex min-w-0 flex-1 flex-col">
+                                    <span
+                                        className={cn(
+                                            "truncate text-[12.5px] text-foreground",
+                                            active ? "title font-medium" : "font-normal",
+                                        )}
+                                    >
+                                        {s.label}
+                                    </span>
+                                    {s.subtitle && (
+                                        <span className="mt-0.5 text-[10.5px] leading-snug text-muted-foreground">
+                                            {s.subtitle}
+                                        </span>
                                     )}
-                                >
-                                    {s.label}
-                                </span>
-                                {active && <Check className="h-3.5 w-3.5 text-chat" />}
+                                </div>
+                                {active && <Check className={cn("h-3.5 w-3.5 text-chat", s.subtitle && "mt-[3px]")} />}
                             </button>
                         )
                     })}
@@ -191,7 +222,7 @@ export function UserBarPopover({ trigger, isOpen, onOpenChange }: UserBarPopover
                     <div className="mt-1.5 border-t border-border pt-1.5">
                         <button
                             type="button"
-                            className="flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-muted-foreground transition-colors hover:bg-accent/40"
+                            className="flex w-full cursor-pointer items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-muted-foreground transition-colors hover:bg-accent/40"
                         >
                             <Bell className="h-3.5 w-3.5" />
                             <span className="flex-1 text-[12.5px]">Mute notifications</span>
@@ -199,7 +230,7 @@ export function UserBarPopover({ trigger, isOpen, onOpenChange }: UserBarPopover
                         </button>
                         <button
                             type="button"
-                            className="flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-muted-foreground transition-colors hover:bg-accent/40"
+                            className="flex w-full cursor-pointer items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-muted-foreground transition-colors hover:bg-accent/40"
                         >
                             <Moon className="h-3.5 w-3.5" />
                             <span className="flex-1 text-[12.5px]">Quiet hours</span>
@@ -253,16 +284,16 @@ export function UserBarPopover({ trigger, isOpen, onOpenChange }: UserBarPopover
                 <button
                     type="button"
                     onClick={handleOpenSettings}
-                    className="flex items-center gap-1.5 rounded-[5px] px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+                    className="flex cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
                 >
-                    <Settings className="h-3.5 w-3.5" />
-                    Settings
+                    <UserPen className="h-3.5 w-3.5" />
+                    Modify profile
                 </button>
                 <button
                     type="button"
                     onClick={handleCopyAddress}
                     className={cn(
-                        "flex items-center gap-1.5 rounded-[5px] px-2.5 py-1 text-[11px] transition-colors",
+                        "flex cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 py-1 text-[11px] transition-colors",
                         copied
                             ? "text-success"
                             : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
@@ -276,7 +307,7 @@ export function UserBarPopover({ trigger, isOpen, onOpenChange }: UserBarPopover
                 <button
                     type="button"
                     onClick={handleSignOut}
-                    className="flex items-center gap-1.5 rounded-[5px] border border-destructive px-2.5 py-1 text-[11px] text-destructive transition-colors hover:bg-destructive/10"
+                    className="flex cursor-pointer items-center gap-1.5 rounded-[5px] border border-destructive px-2.5 py-1 text-[11px] text-destructive transition-colors hover:bg-destructive/10"
                 >
                     <LogOut className="h-3.5 w-3.5" />
                     Sign out

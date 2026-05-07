@@ -1,3 +1,6 @@
+/** Closed enum of pronoun choices the IdP currently supports. */
+export type Pronouns = "he" | "she" | "non-binary"
+
 export interface UserProfile {
     sub: string
     email: string
@@ -5,6 +8,14 @@ export interface UserProfile {
     display_name: string | null
     address: string
     avatar_url?: string
+    pronouns?: Pronouns | null
+    bio?: string | null
+}
+
+export interface ProfilePatch {
+    display_name: string
+    pronouns: Pronouns | null
+    bio: string
 }
 
 export interface OidcConfig {

@@ -49,7 +49,7 @@ export function LoginPage() {
                     <button
                         type="button"
                         onClick={handleBack}
-                        className="-mr-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:text-foreground"
+                        className="-mr-2 inline-flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:text-foreground"
                     >
                         <ArrowLeft className="h-3.5 w-3.5" />
                         Back

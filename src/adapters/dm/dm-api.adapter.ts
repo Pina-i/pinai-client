@@ -1,6 +1,6 @@
 import ky, { HTTPError } from "ky"
-import type { DirectMessage, DmConversationSummary } from "@/domain/models/dm"
-import type { DmCursor, IDmPort } from "@/domain/ports/dm.port"
+import type { Attachment, DirectMessage, DmConversationSummary } from "@/domain/models/dm"
+import type { DmCursor, IDmPort, UploadProgress } from "@/domain/ports/dm.port"
 
 export class DmApiAdapter implements IDmPort {
     async listConversations(idpUrl: string, accessToken: string): Promise<DmConversationSummary[]> {
@@ -50,10 +50,12 @@ export class DmApiAdapter implements IDmPort {
         recipientAddress: string,
         content: string,
         replyToId?: string,
+        attachmentIds?: string[],
     ): Promise<DirectMessage> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/dm`
         const json: Record<string, unknown> = { recipient_address: recipientAddress, content }
         if (replyToId) json.reply_to_id = replyToId
+        if (attachmentIds && attachmentIds.length > 0) json.attachment_ids = attachmentIds
         try {
             return await ky.post(url, {
                 headers: { Authorization: `Bearer ${accessToken}` },
@@ -63,6 +65,76 @@ export class DmApiAdapter implements IDmPort {
             if (error instanceof HTTPError) {
                 const err = await error.response.json().catch(() => ({})) as { error?: string }
                 throw new Error(err.error ?? `Failed to send message: ${error.response.status}`)
+            }
+            throw error
+        }
+    }
+
+    /** XHR-based to surface upload progress events that fetch/ky don't expose. */
+    uploadAttachment(
+        idpUrl: string,
+        accessToken: string,
+        file: File,
+        onProgress?: UploadProgress,
+        signal?: AbortSignal,
+    ): Promise<Attachment> {
+        return new Promise<Attachment>((resolve, reject) => {
+            const url = `${idpUrl.replace(/\/$/, "")}/api/attachments`
+            const xhr = new XMLHttpRequest()
+            xhr.open("POST", url)
+            xhr.setRequestHeader("Authorization", `Bearer ${accessToken}`)
+            xhr.responseType = "json"
+
+            if (onProgress) {
+                xhr.upload.addEventListener("progress", (e) => {
+                    if (e.lengthComputable) onProgress(e.loaded, e.total)
+                })
+            }
+
+            xhr.addEventListener("load", () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    const body = xhr.response as { attachments?: Attachment[] }
+                    const first = body?.attachments?.[0]
+                    if (first) resolve(first)
+                    else reject(new Error("Upload returned no attachment"))
+                } else {
+                    const message = (xhr.response && (xhr.response as { error?: string }).error)
+                        || `Upload failed: ${xhr.status}`
+                    reject(new Error(message))
+                }
+            })
+            xhr.addEventListener("error", () => reject(new Error("Network error during upload")))
+            xhr.addEventListener("abort", () => reject(new DOMException("Upload aborted", "AbortError")))
+
+            if (signal) {
+                if (signal.aborted) {
+                    xhr.abort()
+                    return
+                }
+                signal.addEventListener("abort", () => xhr.abort(), { once: true })
+            }
+
+            const form = new FormData()
+            form.append("file", file, file.name)
+            xhr.send(form)
+        })
+    }
+
+    async getAttachmentBlobUrl(
+        idpUrl: string,
+        accessToken: string,
+        attachmentId: string,
+    ): Promise<string> {
+        const url = `${idpUrl.replace(/\/$/, "")}/api/attachments/${encodeURIComponent(attachmentId)}`
+        try {
+            const body = await ky.get(url, {
+                headers: { Authorization: `Bearer ${accessToken}` },
+            }).json<{ url: string }>()
+            return body.url
+        } catch (error) {
+            if (error instanceof HTTPError) {
+                const err = await error.response.json().catch(() => ({})) as { error?: string }
+                throw new Error(err.error ?? `Failed to resolve attachment: ${error.response.status}`)
             }
             throw error
         }

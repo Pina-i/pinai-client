@@ -5,7 +5,7 @@ import { Tooltip } from "@/presentation/atoms/Tooltip/Tooltip"
 import { ThemeSwitcher } from "@/presentation/molecules/ThemeSwitcher/ThemeSwitcher"
 import { presenceToUserStatus } from "@/domain/models/presence"
 import { useAppStore } from "@/store/store"
-import { Hash, HelpCircle, MessageSquare, Pin, Users } from "lucide-react"
+import { Hash, MessageSquare, Pin, Users } from "lucide-react"
 import { NotificationsPopover } from "./NotificationsPopover/NotificationsPopover"
 
 export function AppHeader() {
@@ -110,19 +110,6 @@ export function AppHeader() {
                 <ThemeSwitcher />
 
                 <NotificationsPopover />
-
-                <Tooltip
-                    content="Help"
-                    placement="bottom"
-                    delay={300}
-                >
-                    <IconButton
-                        aria-label="Help"
-                        className="p-1 text-muted-foreground hover:text-foreground"
-                    >
-                        <HelpCircle className="h-5 w-5" />
-                    </IconButton>
-                </Tooltip>
             </div>
         </header>
     )

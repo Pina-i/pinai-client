@@ -274,13 +274,13 @@ export function NotificationsPopover() {
                 <IconButton
                     aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
                     className={cn(
-                        "relative p-1",
-                        isOpen ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                        "relative h-[34px] w-[34px] rounded-[var(--radius-sm)] border border-border-strong text-foreground transition-colors",
+                        isOpen ? "bg-accent" : "bg-card hover:bg-accent/40",
                     )}
                 >
-                    <Bell className="h-5 w-5" />
+                    <Bell className="h-[18px] w-[18px]" />
                     {unreadCount > 0 && (
-                        <span className="absolute right-[2px] top-[2px] h-[7px] w-[7px] rounded-full border-2 border-background bg-voice" />
+                        <span className="absolute right-1.5 top-1.5 h-[7px] w-[7px] rounded-full border-2 border-card bg-voice" />
                     )}
                 </IconButton>
             }

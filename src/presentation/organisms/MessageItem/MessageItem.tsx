@@ -3,8 +3,13 @@ import { Check, Copy, Edit, Reply, Smile, Trash2 } from "lucide-react"
 import { Button, Input, TextField, ToggleButton } from "react-aria-components"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
+import { AttachmentFilmstrip } from "@/presentation/molecules/AttachmentFilmstrip/AttachmentFilmstrip"
+import { ImageLightboxDialog } from "@/presentation/molecules/ImageLightboxDialog/ImageLightboxDialog"
 import { Menu, type MenuItemDescriptor } from "@/presentation/molecules/Menu/Menu"
+import { SingleImageAttachment } from "@/presentation/molecules/SingleImageAttachment/SingleImageAttachment"
+import { isImageAttachment } from "@/presentation/_libs/attachments"
 import { cn } from "@/presentation/_libs/utils"
+import type { Attachment } from "@/domain/models/dm"
 import type { Message } from "@/lib/types"
 import { useAppStore } from "@/store/store"
 import { useMessageItemViewModel } from "./MessageItem.viewmodel"
@@ -36,6 +41,11 @@ export function MessageItem({ message, conversationKey, onReply }: MessageItemPr
     )
 
     const [copied, setCopied] = useState(false)
+    const [lightboxAttachment, setLightboxAttachment] = useState<Attachment | null>(null)
+
+    const attachments = message.attachments ?? []
+    const isLoneImage =
+        attachments.length === 1 && isImageAttachment(attachments[0])
 
     const emojiMenuItems: MenuItemDescriptor[] = quickEmojis.map((key) => {
         const char = emojiMap[key] ?? key
@@ -106,17 +116,35 @@ export function MessageItem({ message, conversationKey, onReply }: MessageItemPr
                         </Button>
                     </div>
                 ) : (
-                    <p className="text-sm leading-relaxed text-foreground">
-                        {message.content}
-                        {message.edited && (
-                            <span className="ml-1 text-xs text-muted-foreground">(edited)</span>
-                        )}
-                    </p>
+                    message.content && (
+                        <p className="text-sm leading-relaxed text-foreground">
+                            {message.content}
+                            {message.edited && (
+                                <span className="ml-1 text-xs text-muted-foreground">(edited)</span>
+                            )}
+                        </p>
+                    )
+                )}
+
+                {/* Attachments — single image gets the click-to-expand layout,
+                    everything else renders as a horizontal filmstrip. */}
+                {attachments.length > 0 && (
+                    isLoneImage ? (
+                        <SingleImageAttachment
+                            attachment={attachments[0]}
+                            onExpand={() => setLightboxAttachment(attachments[0])}
+                        />
+                    ) : (
+                        <AttachmentFilmstrip
+                            attachments={attachments}
+                            onImageClick={(a) => setLightboxAttachment(a)}
+                        />
+                    )
                 )}
 
                 {/* Reactions */}
                 {message.reactions && message.reactions.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1">
+                    <div className="mb-0.5 mt-1.5 flex flex-wrap gap-1.5">
                         {message.reactions.map((r) => (
                             <ToggleButton
                                 key={r.emoji}
@@ -124,14 +152,14 @@ export function MessageItem({ message, conversationKey, onReply }: MessageItemPr
                                 onChange={() => vm.handleReaction(r.emoji)}
                                 aria-label={`React with ${r.emoji}`}
                                 className={cn(
-                                    "flex items-center gap-1 border px-2 py-0.5 text-xs outline-none transition-colors cursor-pointer",
+                                    "inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] text-muted-foreground outline-none transition-colors",
                                     r.reacted
-                                        ? "border-primary/50 bg-primary/10 text-primary"
-                                        : "border-border bg-sidebar text-muted-foreground hover:border-primary/30",
+                                        ? "border-chat/45 bg-[color-mix(in_oklab,var(--chat)_10%,var(--muted))]"
+                                        : "border-border bg-muted hover:border-border-strong",
                                 )}
                             >
                                 <span>{emojiMap[r.emoji] ?? r.emoji}</span>
-                                <span>{r.count}</span>
+                                <span className="font-mono text-foreground">{r.count}</span>
                             </ToggleButton>
                         ))}
                     </div>
@@ -192,6 +220,15 @@ export function MessageItem({ message, conversationKey, onReply }: MessageItemPr
                     </IconButton>
                 )}
             </div>
+
+            <ImageLightboxDialog
+                isOpen={!!lightboxAttachment}
+                onClose={() => setLightboxAttachment(null)}
+                attachment={lightboxAttachment}
+                senderAddress={message.authorAddress}
+                senderDisplayName={message.author}
+                timeLabel={message.timestamp}
+            />
         </div>
     )
 }

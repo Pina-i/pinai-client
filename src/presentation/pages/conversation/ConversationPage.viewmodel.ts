@@ -22,9 +22,11 @@ function mapApiMessage(msg: DirectMessage, currentUser: UserProfile): Message {
         avatar: displayName.slice(0, 2).toUpperCase(),
         content: msg.content,
         timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        createdAt: msg.created_at,
         color: "#a78bfa",
         edited: msg.edited_at != null,
         reactions: msg.reactions?.map((r) => ({ emoji: r.emoji, count: r.count, reacted: r.reacted_by_me })),
+        attachments: msg.attachments,
     }
     if (msg.reply_to_id && msg.reply_to_content) {
         mapped.replyTo = {
@@ -116,30 +118,42 @@ export function useConversationPageViewModel(name: string) {
     const messagesEndRef = useRef<HTMLDivElement>(null)
 
     const sendMessage = useCallback(
-        async (content: string) => {
+        async (content: string, attachmentIds: string[] = []) => {
             if (!user) return
             // The recipient address is the federation address of the other member
             const recipientAddress = dmData?.address ?? name
             const currentReply = replyingTo
             setReplyingTo(null)
 
-            if (currentReply && accessToken && idpUrl) {
-                // Replies go through REST API (supports reply_to_id).
+            // The WS `send_dm` shortcut doesn't carry reply_to_id or
+            // attachment_ids — anything that needs them goes through REST.
+            const needsRest = !!currentReply || attachmentIds.length > 0
+
+            if (needsRest && accessToken && idpUrl) {
                 try {
-                    const dm = await getDmPort().sendMessage(idpUrl, accessToken, recipientAddress, content, currentReply.id)
+                    const dm = await getDmPort().sendMessage(
+                        idpUrl,
+                        accessToken,
+                        recipientAddress,
+                        content,
+                        currentReply?.id,
+                        attachmentIds.length > 0 ? attachmentIds : undefined,
+                    )
                     pushDmMessage(conversationKey, mapApiMessage(dm, user))
                 } catch {
                     // Silent — could show error toast later.
                 }
             } else {
-                // Regular messages use WebSocket for instant delivery.
+                // Regular text-only messages use WebSocket for instant delivery.
+                const now = new Date()
                 const newMsg: Message = {
                     id: crypto.randomUUID(),
                     author: user.display_name ?? user.preferred_username,
                     authorAddress: user.address,
                     avatar: (user.display_name ?? user.preferred_username).slice(0, 2).toUpperCase(),
                     content,
-                    timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                    timestamp: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                    createdAt: now.toISOString(),
                     color: "#a78bfa",
                 }
                 pushDmMessage(conversationKey, newMsg)
@@ -181,9 +195,13 @@ export function useConversationPageViewModel(name: string) {
         return `${others.length} people are typing…`
     }, [typingByConversation, conversationKey, user?.address, dmData])
 
+    const displayName =
+        dmData?.kind === "dm" ? dmData.displayName : (name.split("@")[0] ?? name)
+
     return {
         user,
         name,
+        displayName,
         conversationKey,
         messages,
         messagesEndRef,

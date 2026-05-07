@@ -92,7 +92,10 @@ export function useIdpWebSocket(): void {
                 }
                 case "new_dm": {
                     const conversationId = event.data.conversation_id
-                    const senderAddress = event.data.sender_address
+                    // Remote senders arrive as actor URIs on the wire; normalise to
+                    // the federated address form so it matches keys in
+                    // `avatarsByAddress` (and the rest of the UI).
+                    const senderAddress = actorUriToAddress(event.data.sender_address)
                     const senderDisplayName =
                         event.data.sender_display_name ?? senderAddress.split("@")[0] ?? "?"
                     const msg: Message = {
@@ -105,7 +108,9 @@ export function useIdpWebSocket(): void {
                             hour: "2-digit",
                             minute: "2-digit",
                         }),
+                        createdAt: event.data.created_at,
                         color: "#a78bfa",
+                        attachments: event.data.attachments,
                     }
                     if (event.data.reply_to_id && event.data.reply_to_content) {
                         msg.replyTo = {
@@ -124,7 +129,12 @@ export function useIdpWebSocket(): void {
                     // Notify if the user is not currently viewing this conversation.
                     if (actionsRef.current.activeDm !== conversationId) {
                         actionsRef.current.incrementDmUnread(conversationId)
-                        playDmNotificationSound()
+                        // Suppress sound notifications while the user has set
+                        // their status to "do not disturb" (the message itself
+                        // still arrives in the conversation).
+                        if (useAppStore.getState().myStatus !== "dnd") {
+                            playDmNotificationSound()
+                        }
                     }
                     break
                 }
