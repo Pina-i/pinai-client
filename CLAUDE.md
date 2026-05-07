@@ -115,6 +115,7 @@ The `Dockerfile` runs `vite build` and copies the output into an nginx image. Th
 ```env
 VITE_APP_NAME=Pina-i
 VITE_DEFAULT_IDP_URL=https://idp.example.com   # optional default, user can override
+VITE_KLIPY_API_KEY=                            # optional; enables the GIF picker (Klipy)
 ```
 
 Note: no secrets belong in the frontend environment. All sensitive config is user-provided at runtime.
