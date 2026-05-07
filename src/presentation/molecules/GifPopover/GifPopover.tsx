@@ -2,7 +2,7 @@ import { useState } from "react"
 import { Search } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/presentation/_libs/utils"
-import { TENOR_ENABLED, useTenorSearch, type TenorGif } from "./useTenor"
+import { KLIPY_ENABLED, useKlipySearch, type KlipyGif } from "./useKlipy"
 
 interface GifPopoverProps {
     /**
@@ -21,10 +21,10 @@ const CATEGORIES: ReadonlyArray<{ key: string; label: string }> = [
 ]
 
 /**
- * Tenor-powered GIF search popover. Shape matches the prototype's `GifPopover`
+ * Klipy-powered GIF search popover. Shape matches the prototype's `GifPopover`
  * but the data is live: search input + category pills + 2-column thumbnail grid.
  *
- * On select: fetch the GIF bytes from Tenor's CDN, wrap in a `File`, hand off
+ * On select: fetch the GIF bytes from Klipy's CDN, wrap in a `File`, hand off
  * to the composer's upload pipeline.
  */
 export function GifPopover({ onPickGif }: GifPopoverProps) {
@@ -32,9 +32,9 @@ export function GifPopover({ onPickGif }: GifPopoverProps) {
     const [activeCategory, setActiveCategory] = useState<string>("")
 
     const effectiveQuery = search.trim().length > 0 ? search : activeCategory
-    const { gifs, isLoading } = useTenorSearch(effectiveQuery)
+    const { gifs, isLoading } = useKlipySearch(effectiveQuery)
 
-    async function handlePick(gif: TenorGif) {
+    async function handlePick(gif: KlipyGif) {
         try {
             const resp = await fetch(gif.gifUrl)
             if (!resp.ok) throw new Error(`Failed to load GIF: ${resp.status}`)
@@ -56,15 +56,15 @@ export function GifPopover({ onPickGif }: GifPopoverProps) {
             <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
                 <span className="title flex-1 text-[13.5px] font-medium">Send a GIF</span>
                 <span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-muted-foreground">
-                    powered by tenor
+                    powered by klipy
                 </span>
             </div>
 
-            {!TENOR_ENABLED ? (
+            {!KLIPY_ENABLED ? (
                 <div className="px-4 py-6 text-center font-mono text-[11px] leading-relaxed text-muted-foreground">
                     GIF integration not configured.
                     <br />
-                    Set <span className="text-foreground">VITE_TENOR_API_KEY</span> at build time to enable.
+                    Set <span className="text-foreground">VITE_KLIPY_API_KEY</span> at build time to enable.
                 </div>
             ) : (
                 <>
