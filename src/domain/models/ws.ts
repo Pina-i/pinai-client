@@ -1,4 +1,5 @@
 import type { PresenceState } from "@/domain/models/presence"
+import type { Attachment } from "@/domain/models/dm"
 
 // ── Server → Client events ──────────────────────────────────────────────────
 
@@ -13,6 +14,10 @@ export interface DmEventPayload {
     reply_to_id?: string | null
     reply_to_content?: string | null
     reply_to_sender?: string | null
+    /** Linked attachments — empty when the sender used the WS `send_dm` path
+     *  (which doesn't carry attachment_ids). The REST `POST /api/dm` path
+     *  does, and inbound federation DMs preserve them. */
+    attachments?: Attachment[]
     /** Echoed back only on the sender's own optimistic WS sends. */
     client_id?: string | null
 }
@@ -78,6 +83,7 @@ export type WsClientMessage =
     | { type: "typing_start"; data: { conversationId: string } }
     | { type: "watch_conversation"; data: { conversationId: string } }
     | { type: "unwatch_conversation"; data: { conversationId: string } }
+    | { type: "set_presence"; data: { state: "online" | "away" | "offline" | "dnd" } }
 
 // ── Connection status ───────────────────────────────────────────────────────
 

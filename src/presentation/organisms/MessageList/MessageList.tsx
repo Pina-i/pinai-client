@@ -1,5 +1,6 @@
-import type { RefObject } from "react"
+import type { ReactNode, RefObject } from "react"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
+import { DateDivider, formatDateDividerLabel } from "@/presentation/molecules/DateDivider/DateDivider"
 import type { Message } from "@/lib/types"
 import { MessageItem } from "../MessageItem/MessageItem"
 
@@ -11,17 +12,30 @@ interface MessageListProps {
 }
 
 export function MessageList({ messages, conversationKey, onReply, messagesEndRef }: MessageListProps) {
+    const items: ReactNode[] = []
+    let lastDayKey: string | undefined
+
+    for (const msg of messages) {
+        const date = new Date(msg.createdAt)
+        const dayKey = date.toDateString()
+        if (dayKey !== lastDayKey) {
+            items.push(<DateDivider key={`divider-${dayKey}-${msg.id}`} label={formatDateDividerLabel(date)} />)
+            lastDayKey = dayKey
+        }
+        items.push(
+            <MessageItem
+                key={msg.id}
+                message={msg}
+                conversationKey={conversationKey}
+                onReply={onReply}
+            />,
+        )
+    }
+
     return (
         <ScrollArea className="flex-1 px-4 py-4">
             <div className="flex flex-col gap-1">
-                {messages.map((msg) => (
-                    <MessageItem
-                        key={msg.id}
-                        message={msg}
-                        conversationKey={conversationKey}
-                        onReply={onReply}
-                    />
-                ))}
+                {items}
                 <div ref={messagesEndRef} />
             </div>
         </ScrollArea>

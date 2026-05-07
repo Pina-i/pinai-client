@@ -1,4 +1,4 @@
-export type PresenceState = "online" | "away" | "offline"
+export type PresenceState = "online" | "away" | "offline" | "dnd"
 
 /** Snapshot entry returned by GET /api/presence. */
 export interface PresenceSnapshotEntry {
@@ -22,11 +22,12 @@ export interface TypingEventPayload {
 
 /**
  * Maps a server-side `PresenceState` to the UI's `UserStatus` palette.
- * The UI status enum has no `"away"` variant — we render it as `"idle"`.
+ * `away` renders as `idle`; `dnd` is shown as the same `dnd` UI variant.
  */
-export function presenceToUserStatus(state: PresenceState | undefined): "online" | "idle" | "offline" {
+export function presenceToUserStatus(state: PresenceState | undefined): "online" | "idle" | "dnd" | "offline" {
     if (state === "online") return "online"
     if (state === "away") return "idle"
+    if (state === "dnd") return "dnd"
     return "offline"
 }
 

@@ -1,4 +1,5 @@
 import ky, { HTTPError } from "ky"
+import type { ProfilePatch, UserProfile } from "@/domain/models/auth"
 import type { IUserPort } from "@/domain/ports/user.port"
 
 export class UserApiAdapter implements IUserPort {
@@ -36,6 +37,26 @@ export class UserApiAdapter implements IUserPort {
             if (error instanceof HTTPError) {
                 const err = await error.response.json().catch(() => ({})) as { error?: string }
                 throw new Error(err.error ?? `Failed to delete avatar: ${error.response.status}`)
+            }
+            throw error
+        }
+    }
+
+    async updateProfile(
+        idpUrl: string,
+        accessToken: string,
+        patch: ProfilePatch,
+    ): Promise<UserProfile> {
+        const url = `${idpUrl.replace(/\/$/, "")}/api/profile`
+        try {
+            return await ky.patch(url, {
+                headers: { Authorization: `Bearer ${accessToken}` },
+                json: patch,
+            }).json<UserProfile>()
+        } catch (error) {
+            if (error instanceof HTTPError) {
+                const err = await error.response.json().catch(() => ({})) as { error?: string }
+                throw new Error(err.error ?? `Failed to update profile: ${error.response.status}`)
             }
             throw error
         }

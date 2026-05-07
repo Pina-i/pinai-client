@@ -1,5 +1,7 @@
 export type UserStatus = "online" | "idle" | "dnd" | "invisible" | "offline"
 
+import type { Attachment } from "@/domain/models/dm"
+
 export interface Message {
     id: string
     author: string
@@ -9,11 +11,16 @@ export interface Message {
     authorAddress?: string
     avatar: string
     content: string
+    /** Pre-formatted display string ("HH:MM"). Shown next to the author name. */
     timestamp: string
+    /** ISO 8601 instant — used to group messages under day separators. */
+    createdAt: string
     color: string
     edited?: boolean
     reactions?: Array<{ emoji: string; count: number; reacted: boolean }>
     replyTo?: { id: string; content: string; author: string }
+    /** Linked attachments resolved from the server. Empty/undefined → none. */
+    attachments?: Attachment[]
 }
 
 export interface Server {

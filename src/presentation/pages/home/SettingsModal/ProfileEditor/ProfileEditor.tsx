@@ -1,9 +1,9 @@
-import type { UserProfile } from "@/domain/models/auth"
+import type { Pronouns, UserProfile } from "@/domain/models/auth"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { AvatarCropDialog } from "@/presentation/molecules/AvatarCropDialog/AvatarCropDialog"
 import { cn } from "@/presentation/_libs/utils"
-import { useProfileEditorViewModel } from "./ProfileEditor.viewmodel"
+import { PRONOUN_OPTIONS, useProfileEditorViewModel } from "./ProfileEditor.viewmodel"
 
 interface ProfileEditorProps {
     user: UserProfile
@@ -80,12 +80,17 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
                 </div>
                 <div>
                     <label className={fieldLabelClass}>Pronouns</label>
-                    <input
-                        className={inputClass}
-                        placeholder="she / her"
+                    <select
+                        className={cn(inputClass, "appearance-none cursor-pointer")}
                         value={vm.draft.pronouns}
-                        onChange={(e) => vm.setPronouns(e.target.value)}
-                    />
+                        onChange={(e) => vm.setPronouns(e.target.value as "" | Pronouns)}
+                    >
+                        {PRONOUN_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                            </option>
+                        ))}
+                    </select>
                 </div>
                 <div>
                     <label className={fieldLabelClass}>Bio</label>
@@ -116,7 +121,7 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
             <div className="flex-1" />
             <div className="flex gap-2 border-t border-border pt-3.5">
                 <IconButton
-                    isDisabled={!vm.isDirty}
+                    isDisabled={!vm.isDirty || vm.isSaving}
                     onPress={vm.reset}
                     className="rounded-[5px] px-3 py-2 text-[12px] text-muted-foreground hover:text-foreground"
                 >
@@ -124,17 +129,18 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
                 </IconButton>
                 <span className="flex-1" />
                 <IconButton
+                    isDisabled={vm.isSaving}
                     onPress={vm.reset}
                     className="rounded-[5px] border border-border-strong px-3 py-2 text-[12px] text-foreground hover:bg-accent/40"
                 >
                     Cancel
                 </IconButton>
                 <IconButton
-                    isDisabled={!vm.isDirty}
+                    isDisabled={!vm.isDirty || vm.isSaving}
                     onPress={vm.save}
                     className="rounded-[5px] bg-chat px-4 py-2 text-[12px] font-semibold text-primary-foreground hover:opacity-90"
                 >
-                    Save
+                    {vm.isSaving ? "Saving…" : "Save"}
                 </IconButton>
             </div>
         </div>

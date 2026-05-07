@@ -6,6 +6,7 @@ import { Tooltip } from "@/presentation/atoms/Tooltip/Tooltip"
 import { useAppStore } from "@/store/store"
 import { useNavigate } from "@tanstack/react-router"
 import { Plus } from "lucide-react"
+import { IncomingDmBubbles } from "./IncomingDmBubbles/IncomingDmBubbles"
 
 export function ServerStrip() {
     const { servers, activeServer, view, switchToServer, switchToDms } = useAppStore()
@@ -43,6 +44,9 @@ export function ServerStrip() {
             </Tooltip>
 
             <div className="my-1.5 h-px w-6 bg-border" />
+
+            {/* Incoming DMs — pop in when a message arrives, click to open. */}
+            <IncomingDmBubbles />
 
             <ScrollArea className="w-full flex-1">
                 <div className="flex flex-col items-center gap-2.5">

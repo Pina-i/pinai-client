@@ -53,13 +53,15 @@ export function useHomePageViewModel() {
     const sendMessage = useCallback(
         (content: string) => {
             if (!user) return
+            const now = new Date()
             const newMsg: Message = {
                 id: crypto.randomUUID(),
                 author: user.display_name ?? user.preferred_username,
                 authorAddress: user.address,
                 avatar: (user.display_name ?? user.preferred_username).slice(0, 2).toUpperCase(),
                 content,
-                timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                timestamp: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                createdAt: now.toISOString(),
                 color: "#a78bfa",
             }
             if (view === "dms" && activeDm) {

@@ -1,3 +1,11 @@
+/** Attachment metadata as returned by the IdP REST API and on the WS new_dm event. */
+export interface Attachment {
+    id: string
+    mime_type: string
+    byte_size: number
+    original_filename: string
+}
+
 /** Raw API response: a single direct message. */
 export interface DirectMessage {
     id: string
@@ -13,6 +21,7 @@ export interface DirectMessage {
     reply_to_content: string | null
     reply_to_sender: string | null
     reactions: Array<{ emoji: string; count: number; reacted_by_me: boolean }>
+    attachments?: Attachment[]
 }
 
 /** Reaction group as returned by the API, per message. */
