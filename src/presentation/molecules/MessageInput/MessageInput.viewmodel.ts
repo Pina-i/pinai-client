@@ -1,7 +1,8 @@
 import { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react"
 import { toast } from "sonner"
 import type { Attachment } from "@/domain/models/dm"
-import { uploadAttachmentUseCase } from "@/domain/usecases/dm/upload-attachment.usecase"
+import type { AttachmentBlobKey } from "@/domain/models/e2ee"
+import { uploadEncryptedAttachmentUseCase } from "@/domain/usecases/dm/upload-encrypted-attachment.usecase"
 import { getDmPort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 
@@ -18,6 +19,13 @@ export interface PendingAttachment {
     progress: number
     /** Populated once the IdP returns the orphan attachment row. */
     attachment?: Attachment
+    /**
+     * Per-attachment decryption material (key + nonce + real metadata).
+     * Set in lockstep with `attachment` after a successful encrypted
+     * upload. Threaded through `onSend` so the conversation viewmodel
+     * can tuck it into `TextBody.attachments[]`.
+     */
+    key?: AttachmentBlobKey
     /** Set when the upload fails — surfaces in the row UI as a retry affordance. */
     error?: string
     /** Used to cancel an in-flight upload (× button on the row). */
@@ -30,7 +38,16 @@ export interface MessageInputHandle {
 }
 
 interface UseMessageInputViewModelArgs {
-    onSend: (content: string, attachmentIds: string[]) => void | Promise<void>
+    /**
+     * `attachmentKeys` is aligned with `attachmentIds` by id (same
+     * length, populated whenever the corresponding upload was the
+     * encrypted-upload path — which it always is in 5c.4+).
+     */
+    onSend: (
+        content: string,
+        attachmentIds: string[],
+        attachmentKeys: AttachmentBlobKey[],
+    ) => void | Promise<void>
     onType?: () => void
     handleRef?: RefObject<MessageInputHandle | null>
 }
@@ -111,7 +128,7 @@ export function useMessageInputViewModel(args: UseMessageInputViewModelArgs): Me
             // Kick off each upload independently so per-file progress is honest.
             for (const row of newRows) {
                 const localId = row.localId
-                uploadAttachmentUseCase(getDmPort(), {
+                uploadEncryptedAttachmentUseCase(getDmPort(), {
                     idpUrl,
                     accessToken,
                     file: row.file,
@@ -120,8 +137,8 @@ export function useMessageInputViewModel(args: UseMessageInputViewModelArgs): Me
                         patchPending(localId, { progress: total > 0 ? loaded / total : 0 })
                     },
                 })
-                    .then((attachment) => {
-                        patchPending(localId, { attachment, progress: 1 })
+                    .then(({ attachment, key }) => {
+                        patchPending(localId, { attachment, key, progress: 1 })
                     })
                     .catch((err: unknown) => {
                         // Aborted uploads (user clicked × on the row) are silent.
@@ -161,13 +178,16 @@ export function useMessageInputViewModel(args: UseMessageInputViewModelArgs): Me
     async function onSubmit() {
         if (!canSend) return
         const content = value.trim()
-        const attachmentIds = pending
-            .map((p) => p.attachment?.id)
-            .filter((id): id is string => typeof id === "string")
+        const ready = pending.filter(
+            (p): p is PendingAttachment & { attachment: Attachment; key: AttachmentBlobKey } =>
+                p.attachment != null && p.key != null,
+        )
+        const attachmentIds = ready.map((p) => p.attachment.id)
+        const attachmentKeys = ready.map((p) => p.key)
 
         setIsSending(true)
         try {
-            await args.onSend(content, attachmentIds)
+            await args.onSend(content, attachmentIds, attachmentKeys)
             // Clear after a successful onSend — failures should keep the draft.
             setValueRaw("")
             setPending([])

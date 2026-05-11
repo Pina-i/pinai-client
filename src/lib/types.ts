@@ -1,6 +1,7 @@
 export type UserStatus = "online" | "idle" | "dnd" | "invisible" | "offline"
 
 import type { Attachment } from "@/domain/models/dm"
+import type { AttachmentBlobKey } from "@/domain/models/e2ee"
 
 export interface Message {
     id: string
@@ -19,8 +20,26 @@ export interface Message {
     edited?: boolean
     reactions?: Array<{ emoji: string; count: number; reacted: boolean }>
     replyTo?: { id: string; content: string; author: string }
-    /** Linked attachments resolved from the server. Empty/undefined → none. */
+    /** Linked attachments resolved from the server. Empty/undefined → none.
+     *  Server-visible metadata is placeholder ("encrypted" /
+     *  "application/octet-stream") under E2EE — real filename + MIME +
+     *  size live inside `attachmentKeys`. */
     attachments?: Attachment[]
+    /** Decryption material per attachment id, populated when the MLS
+     *  body has been decrypted. Missing → caller must fall back to the
+     *  placeholder wire metadata in `attachments`. */
+    attachmentKeys?: Record<string, AttachmentBlobKey>
+    /** Send lifecycle for own messages. Absent → indicator hidden.
+     *  - `"sending"`: optimistic push, network in flight.
+     *  - `"sent"`: server confirmed; check icon auto-hides ~3s after
+     *    `statusAt` (no permanent ✓ clutter on history).
+     *  - `"failed"`: caught error; renders ⚠ + a retry icon-button.
+     *  Persisted alongside the rest of `dmMessages` — the
+     *  fade-window math naturally re-hides "sent" icons on reload. */
+    status?: "sending" | "sent" | "failed"
+    /** ISO instant of the last `status` change. Drives the 3-second
+     *  fade for the "sent" check. */
+    statusAt?: string
 }
 
 export interface Server {

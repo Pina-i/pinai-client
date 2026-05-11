@@ -43,7 +43,15 @@ export const createAuthSlice: StateCreator<AppStore, [["zustand/devtools", never
         )
     },
 
-    clearSession: () => set({ accessToken: null, user: null }, false, "auth/clearSession"),
+    clearSession: () =>
+        set(
+            // Clear fingerprints alongside the session — they belong to
+            // the user that just logged out and re-fetching them on
+            // first interaction post-login is cheap.
+            { accessToken: null, user: null, fingerprintsByActorUri: {} },
+            false,
+            "auth/clearSession",
+        ),
 
     setMyStatus: (status) => set({ myStatus: status }, false, "auth/setMyStatus"),
 

@@ -6,6 +6,7 @@ import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { AttachmentFilmstrip } from "@/presentation/molecules/AttachmentFilmstrip/AttachmentFilmstrip"
 import { ImageLightboxDialog } from "@/presentation/molecules/ImageLightboxDialog/ImageLightboxDialog"
 import { Menu, type MenuItemDescriptor } from "@/presentation/molecules/Menu/Menu"
+import { MessageStatus } from "@/presentation/molecules/MessageStatus/MessageStatus"
 import { SingleImageAttachment } from "@/presentation/molecules/SingleImageAttachment/SingleImageAttachment"
 import { isImageAttachment } from "@/presentation/_libs/attachments"
 import { cn } from "@/presentation/_libs/utils"
@@ -30,11 +31,33 @@ const emojiMap: Record<string, string> = {
 interface MessageItemProps {
     message: Message
     conversationKey: string
+    /** Federated address of the conversation's recipient. Threaded
+     *  through from `ConversationPage` so reaction sends route to
+     *  the right address even when `localDmConvos` hasn't refreshed
+     *  yet (e.g. immediately after a first message — the sender's
+     *  own WS echo skips the conversation-list invalidation). */
+    recipientAddress: string
     onReply: (messageId: string) => void
+    onRetry: (messageId: string) => void
+    hasPendingIntent: (messageId: string) => boolean
 }
 
-export function MessageItem({ message, conversationKey, onReply }: MessageItemProps) {
-    const vm = useMessageItemViewModel(message, conversationKey, onReply)
+export function MessageItem({
+    message,
+    conversationKey,
+    recipientAddress,
+    onReply,
+    onRetry,
+    hasPendingIntent,
+}: MessageItemProps) {
+    const vm = useMessageItemViewModel(
+        message,
+        conversationKey,
+        recipientAddress,
+        onReply,
+        onRetry,
+        hasPendingIntent,
+    )
 
     const avatarUrl = useAppStore((s) =>
         message.authorAddress ? s.avatarsByAddress[message.authorAddress] ?? null : null,
@@ -83,6 +106,14 @@ export function MessageItem({ message, conversationKey, onReply }: MessageItemPr
                         {message.author}
                     </span>
                     <span className="text-xs text-muted-foreground">{message.timestamp}</span>
+                    {vm.isOwn && (
+                        <MessageStatus
+                            status={message.status}
+                            statusAt={message.statusAt}
+                            canRetry={vm.canRetry}
+                            onRetry={vm.retrySend}
+                        />
+                    )}
                 </div>
 
                 {vm.isEditing ? (
@@ -132,11 +163,13 @@ export function MessageItem({ message, conversationKey, onReply }: MessageItemPr
                     isLoneImage ? (
                         <SingleImageAttachment
                             attachment={attachments[0]}
+                            attachmentKey={message.attachmentKeys?.[attachments[0].id]}
                             onExpand={() => setLightboxAttachment(attachments[0])}
                         />
                     ) : (
                         <AttachmentFilmstrip
                             attachments={attachments}
+                            attachmentKeys={message.attachmentKeys}
                             onImageClick={(a) => setLightboxAttachment(a)}
                         />
                     )
@@ -225,6 +258,9 @@ export function MessageItem({ message, conversationKey, onReply }: MessageItemPr
                 isOpen={!!lightboxAttachment}
                 onClose={() => setLightboxAttachment(null)}
                 attachment={lightboxAttachment}
+                attachmentKey={
+                    lightboxAttachment ? message.attachmentKeys?.[lightboxAttachment.id] : undefined
+                }
                 senderAddress={message.authorAddress}
                 senderDisplayName={message.author}
                 timeLabel={message.timestamp}

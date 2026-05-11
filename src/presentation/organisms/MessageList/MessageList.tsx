@@ -7,11 +7,22 @@ import { MessageItem } from "../MessageItem/MessageItem"
 interface MessageListProps {
     messages: Message[]
     conversationKey: string
+    recipientAddress: string
     onReply: (messageId: string) => void
+    onRetry: (messageId: string) => void
+    hasPendingIntent: (messageId: string) => boolean
     messagesEndRef: RefObject<HTMLDivElement | null>
 }
 
-export function MessageList({ messages, conversationKey, onReply, messagesEndRef }: MessageListProps) {
+export function MessageList({
+    messages,
+    conversationKey,
+    recipientAddress,
+    onReply,
+    onRetry,
+    hasPendingIntent,
+    messagesEndRef,
+}: MessageListProps) {
     const items: ReactNode[] = []
     let lastDayKey: string | undefined
 
@@ -27,7 +38,10 @@ export function MessageList({ messages, conversationKey, onReply, messagesEndRef
                 key={msg.id}
                 message={msg}
                 conversationKey={conversationKey}
+                recipientAddress={recipientAddress}
                 onReply={onReply}
+                onRetry={onRetry}
+                hasPendingIntent={hasPendingIntent}
             />,
         )
     }

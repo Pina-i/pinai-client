@@ -1,11 +1,13 @@
 import { useState } from "react"
 import type { Attachment } from "@/domain/models/dm"
+import type { AttachmentBlobKey } from "@/domain/models/e2ee"
 import { useAttachmentBlobUrl } from "@/presentation/hooks/useAttachmentBlobUrl"
 import { formatBytes } from "@/presentation/_libs/attachments"
 import { cn } from "@/presentation/_libs/utils"
 
 interface SingleImageAttachmentProps {
     attachment: Attachment
+    attachmentKey: AttachmentBlobKey | undefined
     onExpand: () => void
 }
 
@@ -16,15 +18,17 @@ interface SingleImageAttachmentProps {
  *
  * Click anywhere → caller opens the lightbox via `onExpand`.
  */
-export function SingleImageAttachment({ attachment, onExpand }: SingleImageAttachmentProps) {
-    const url = useAttachmentBlobUrl(attachment.id)
+export function SingleImageAttachment({ attachment, attachmentKey, onExpand }: SingleImageAttachmentProps) {
+    const url = useAttachmentBlobUrl(attachment.id, attachmentKey)
     const [dims, setDims] = useState<{ w: number; h: number } | null>(null)
+    const filename = attachmentKey?.original_filename ?? attachment.original_filename
+    const byteSize = attachmentKey?.byte_size ?? attachment.byte_size
 
     return (
         <button
             type="button"
             onClick={onExpand}
-            aria-label={`Open ${attachment.original_filename} in lightbox`}
+            aria-label={`Open ${filename} in lightbox`}
             className={cn(
                 "mt-1.5 block w-full max-w-[560px] cursor-zoom-in overflow-hidden rounded-[var(--radius)]",
                 "border border-border bg-muted text-left p-0",
@@ -35,7 +39,7 @@ export function SingleImageAttachment({ attachment, onExpand }: SingleImageAttac
                 {url ? (
                     <img
                         src={url}
-                        alt={attachment.original_filename}
+                        alt={filename}
                         onLoad={(e) => {
                             const img = e.currentTarget
                             if (img.naturalWidth > 0) {
@@ -69,8 +73,8 @@ export function SingleImageAttachment({ attachment, onExpand }: SingleImageAttac
                     )}
                     style={{ background: "linear-gradient(to top, oklch(0.18 0.01 60 / 0.85), transparent)" }}
                 >
-                    <span className="truncate">{attachment.original_filename}</span>
-                    <span className="shrink-0">{formatBytes(attachment.byte_size)}</span>
+                    <span className="truncate">{filename}</span>
+                    <span className="shrink-0">{formatBytes(byteSize)}</span>
                 </div>
             </div>
         </button>

@@ -1,8 +1,7 @@
 import { useCallback, useRef, useState } from "react"
 import { useAppStore } from "@/store/store"
 import { sendFriendRequestUseCase } from "@/domain/usecases/social/send-friend-request.usecase"
-import { sendDmWsUseCase } from "@/domain/usecases/ws/send-dm-ws.usecase"
-import { getSocialPort, getWsPort } from "@/ioc"
+import { getSocialPort } from "@/ioc"
 import type { Message } from "@/lib/types"
 
 export function useHomePageViewModel() {
@@ -45,7 +44,7 @@ export function useHomePageViewModel() {
 
     const messagePlaceholder =
         view === "dms"
-            ? `Message @${activeDmData?.displayName ?? activeDmData?.name ?? ""}`
+            ? `Message @${activeDmData?.displayName ?? activeDmData?.address ?? ""}`
             : `Message #${currentChannel?.name ?? ""}`
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -65,15 +64,12 @@ export function useHomePageViewModel() {
                 color: "#a78bfa",
             }
             if (view === "dms" && activeDm) {
-                // Optimistic push to store.
+                // Phase 5a: HomePage's inline DM send is a duplicate of
+                // ConversationPage's flow. Skip the WS send here — the
+                // ConversationPage viewmodel is now the canonical
+                // encrypt-before-send path. Optimistic local insert
+                // still happens so the input stays responsive.
                 pushDmMessage(activeDm, newMsg)
-                // Send via WebSocket.
-                try {
-                    const recipientAddress = activeDmData?.name ?? activeDm
-                    sendDmWsUseCase(recipientAddress, content, getWsPort(), newMsg.id)
-                } catch {
-                    // Silent — message already shown optimistically.
-                }
             } else {
                 setMessages((prev) => ({ ...prev, [activeChannel]: [...(prev[activeChannel] ?? []), newMsg] }))
             }

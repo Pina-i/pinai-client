@@ -23,3 +23,26 @@ export function actorUriToAddress(uri: string): string {
         return uri
     }
 }
+
+/**
+ * Inverse of {@link actorUriToAddress}: `username@host` → canonical
+ * `<scheme>://<host>/users/<username>`. Used when we hold an address
+ * (typically a route param like `/dm/alice@idp.alice.com`) but need
+ * to call an API that only speaks actor URIs.
+ *
+ * The scheme is borrowed from `localIssuer` so dev (everyone on
+ * `http://localhost:*`) and prod (everyone on `https://`) both work
+ * without a per-host registry. Mirrors the same heuristic the IdP's
+ * `federation::delivery::resolve_remote_actor` uses server-side.
+ *
+ * Returns `null` for an unparseable input rather than guessing.
+ */
+export function addressToActorUri(address: string, localIssuer: string): string | null {
+    const at = address.lastIndexOf("@")
+    if (at <= 0 || at === address.length - 1) return null
+    const handle = address.slice(0, at)
+    const host = address.slice(at + 1)
+    if (!handle || !host) return null
+    const scheme = localIssuer.startsWith("https") ? "https" : "http"
+    return `${scheme}://${host}/users/${handle}`
+}

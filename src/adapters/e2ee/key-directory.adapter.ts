@@ -1,0 +1,496 @@
+/**
+ * REST adapter for the IdP key directory + MLS Delivery Service.
+ *
+ * Wraps the eight `/api/keys/*` and three `/api/mls/*` endpoints from
+ * `identity-provider/specs/05-e2ee.md`. Bytes-in / bytes-out — base64
+ * is the wire format for every binary blob (matches the server's JSON
+ * shape).
+ */
+
+import ky, { HTTPError } from "ky"
+
+import type {
+    ActorUri,
+    ClaimedKeyPackage,
+    ConversationId,
+    DeviceId,
+    IdentityPublicKeys,
+    KeyPackageStatusResponse,
+} from "@/domain/models/e2ee"
+
+export interface CommitView {
+    id: string
+    conversation_id: ConversationId
+    epoch: number
+    proposer_actor_uri: ActorUri
+    /** TLS-encoded MLS Commit. */
+    commit_blob: Uint8Array
+    created_at: string
+}
+
+export interface WelcomeView {
+    id: string
+    conversation_id: ConversationId
+    recipient_device_id: DeviceId
+    /** TLS-encoded MLS Welcome. */
+    welcome_blob: Uint8Array
+    created_at: string
+}
+
+export interface IdentityKeysResponse {
+    keys: IdentityPublicKeys
+    published_at: string
+    rotated_at: string
+}
+
+export interface Argon2Params {
+    /** Memory cost in KiB. */
+    m_kib: number
+    /** Time cost (iterations). */
+    t: number
+    /** Parallelism. */
+    p: number
+}
+
+export interface RecoveryBlobResponse {
+    /** XChaCha20-Poly1305 ciphertext of MSK, with 24-byte nonce prepended. */
+    wrapped_msk: Uint8Array
+    /** ≥ 16 bytes — server validates this. */
+    salt: Uint8Array
+    argon2_params: Argon2Params
+    created_at: string
+    updated_at: string
+}
+
+export interface IKeyDirectoryAdapter {
+    publishIdentity(
+        idpUrl: string,
+        accessToken: string,
+        keys: IdentityPublicKeys,
+    ): Promise<void>
+    getIdentity(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+    ): Promise<IdentityKeysResponse | null>
+
+    uploadKeyPackages(
+        idpUrl: string,
+        accessToken: string,
+        deviceId: DeviceId,
+        packages: { key_package: Uint8Array; expires_at: string }[],
+    ): Promise<{ uploaded: number; available_after: number }>
+    /**
+     * Claim a single KeyPackage for `actorUri`. Pass `deviceId = null`
+     * to let the server pick any device with spare KPs (cross-IdP
+     * pattern); pass a specific `deviceId` for same-user multi-device
+     * targeting.
+     */
+    claimKeyPackage(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+        deviceId: DeviceId | null,
+    ): Promise<ClaimedKeyPackage>
+    getKeyPackageStatus(
+        idpUrl: string,
+        accessToken: string,
+    ): Promise<KeyPackageStatusResponse>
+
+    // ─── MLS Delivery Service ────────────────────────────────────────
+
+    postCommit(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        epoch: number,
+        commitBlob: Uint8Array,
+    ): Promise<CommitView>
+
+    getCommitsSince(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        sinceEpoch: number,
+    ): Promise<{ commits: CommitView[]; has_more: boolean }>
+
+    getWelcomes(
+        idpUrl: string,
+        accessToken: string,
+        deviceId: DeviceId,
+    ): Promise<WelcomeView[]>
+
+    /**
+     * Hand a Welcome bundle to the sender's own IdP for delivery. The
+     * IdP routes based on `recipient_actor_uri`:
+     *  - **Local recipient** → row in `mls_welcomes` + `MlsWelcomeReady`
+     *    WS event. Returns the inserted id.
+     *  - **Remote recipient** → signed AP `Create{Note}` with
+     *    `mlsKind: welcome` to the recipient IdP's inbox. Returns
+     *    `{ id: nil-uuid }` (no local row).
+     *
+     * Sender authenticates via Bearer; the receiving (or originating)
+     * IdP applies the relevant trust check.
+     */
+    postWelcome(
+        idpUrl: string,
+        accessToken: string,
+        body: {
+            recipient_actor_uri: ActorUri
+            recipient_device_id: DeviceId
+            conversation_id: ConversationId
+            welcome_blob: Uint8Array
+        },
+    ): Promise<{ id: string }>
+
+    // ─── Recovery Key ─────────────────────────────────────────────────
+
+    putRecoveryBlob(
+        idpUrl: string,
+        accessToken: string,
+        body: { wrapped_msk: Uint8Array; salt: Uint8Array; argon2_params: Argon2Params },
+    ): Promise<void>
+    /** Returns null when the user hasn't opted into Recovery Key. */
+    getRecoveryBlob(
+        idpUrl: string,
+        accessToken: string,
+    ): Promise<RecoveryBlobResponse | null>
+    /** Opt out — clears the wrapped blob. No-op if nothing was set. */
+    deleteRecoveryBlob(idpUrl: string, accessToken: string): Promise<void>
+}
+
+export class KeyDirectoryApiAdapter implements IKeyDirectoryAdapter {
+    async publishIdentity(
+        idpUrl: string,
+        accessToken: string,
+        keys: IdentityPublicKeys,
+    ): Promise<void> {
+        const url = `${trimSlash(idpUrl)}/api/keys/identity`
+        await guarded(() =>
+            ky.post(url, {
+                headers: authHeader(accessToken),
+                json: {
+                    msk_public: b64(keys.msk_public),
+                    ssk_public: b64(keys.ssk_public),
+                    ssk_signature: b64(keys.ssk_signature),
+                    usk_public: b64(keys.usk_public),
+                    usk_signature: b64(keys.usk_signature),
+                },
+            }),
+        )
+    }
+
+    async getIdentity(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+    ): Promise<IdentityKeysResponse | null> {
+        const url = `${trimSlash(idpUrl)}/api/keys/identity/${encodeURIComponent(actorUri)}`
+        try {
+            const json = await ky.get(url, { headers: authHeader(accessToken) }).json<{
+                msk_public: string
+                ssk_public: string
+                ssk_signature: string
+                usk_public: string
+                usk_signature: string
+                published_at: string
+                rotated_at: string
+            }>()
+            return {
+                keys: {
+                    msk_public: unb64(json.msk_public),
+                    ssk_public: unb64(json.ssk_public),
+                    ssk_signature: unb64(json.ssk_signature),
+                    usk_public: unb64(json.usk_public),
+                    usk_signature: unb64(json.usk_signature),
+                },
+                published_at: json.published_at,
+                rotated_at: json.rotated_at,
+            }
+        } catch (error) {
+            if (error instanceof HTTPError && error.response.status === 404) return null
+            throw await wrap(error, "Failed to fetch identity")
+        }
+    }
+
+    async uploadKeyPackages(
+        idpUrl: string,
+        accessToken: string,
+        deviceId: DeviceId,
+        packages: { key_package: Uint8Array; expires_at: string }[],
+    ): Promise<{ uploaded: number; available_after: number }> {
+        const url = `${trimSlash(idpUrl)}/api/keys/packages`
+        return guarded(() =>
+            ky
+                .post(url, {
+                    headers: authHeader(accessToken),
+                    json: {
+                        device_id: deviceId,
+                        packages: packages.map((p) => ({
+                            key_package: b64(p.key_package),
+                            expires_at: p.expires_at,
+                        })),
+                    },
+                })
+                .json<{ uploaded: number; available_after: number }>(),
+        )
+    }
+
+    async claimKeyPackage(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+        deviceId: DeviceId | null,
+    ): Promise<ClaimedKeyPackage> {
+        const url = `${trimSlash(idpUrl)}/api/keys/packages/claim`
+        const body: Record<string, unknown> = { actor_uri: actorUri }
+        if (deviceId) body.device_id = deviceId
+        const json = await guarded(() =>
+            ky
+                .post(url, {
+                    headers: authHeader(accessToken),
+                    json: body,
+                })
+                .json<{
+                    key_package: string
+                    device_id: DeviceId
+                    expires_at: string
+                    remaining_count: number
+                    needs_refill: boolean
+                }>(),
+        )
+        return {
+            key_package: unb64(json.key_package),
+            device_id: json.device_id,
+            expires_at: json.expires_at,
+            remaining_count: json.remaining_count,
+            needs_refill: json.needs_refill,
+        }
+    }
+
+    async getKeyPackageStatus(
+        idpUrl: string,
+        accessToken: string,
+    ): Promise<KeyPackageStatusResponse> {
+        const url = `${trimSlash(idpUrl)}/api/keys/packages/status`
+        return guarded(() =>
+            ky.get(url, { headers: authHeader(accessToken) }).json<KeyPackageStatusResponse>(),
+        )
+    }
+
+    async postCommit(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        epoch: number,
+        commitBlob: Uint8Array,
+    ): Promise<CommitView> {
+        const url = `${trimSlash(idpUrl)}/api/mls/groups/${encodeURIComponent(
+            conversationId,
+        )}/commits`
+        const json = await guarded(() =>
+            ky
+                .post(url, {
+                    headers: authHeader(accessToken),
+                    json: { epoch, commit_blob: b64(commitBlob) },
+                })
+                .json<RawCommitView>(),
+        )
+        return parseCommitView(json)
+    }
+
+    async getCommitsSince(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        sinceEpoch: number,
+    ): Promise<{ commits: CommitView[]; has_more: boolean }> {
+        const url = `${trimSlash(idpUrl)}/api/mls/groups/${encodeURIComponent(
+            conversationId,
+        )}/commits`
+        const json = await guarded(() =>
+            ky
+                .get(url, {
+                    headers: authHeader(accessToken),
+                    searchParams: { since: sinceEpoch },
+                })
+                .json<{ commits: RawCommitView[]; has_more: boolean }>(),
+        )
+        return { commits: json.commits.map(parseCommitView), has_more: json.has_more }
+    }
+
+    async getWelcomes(
+        idpUrl: string,
+        accessToken: string,
+        deviceId: DeviceId,
+    ): Promise<WelcomeView[]> {
+        const url = `${trimSlash(idpUrl)}/api/mls/welcomes`
+        const json = await guarded(() =>
+            ky
+                .get(url, {
+                    headers: authHeader(accessToken),
+                    searchParams: { device_id: deviceId },
+                })
+                .json<{ welcomes: RawWelcomeView[] }>(),
+        )
+        return json.welcomes.map((w) => ({
+            id: w.id,
+            conversation_id: w.conversation_id,
+            recipient_device_id: w.recipient_device_id,
+            welcome_blob: unb64(w.welcome_blob),
+            created_at: w.created_at,
+        }))
+    }
+
+    async postWelcome(
+        idpUrl: string,
+        accessToken: string,
+        body: {
+            recipient_actor_uri: ActorUri
+            recipient_device_id: DeviceId
+            conversation_id: ConversationId
+            welcome_blob: Uint8Array
+        },
+    ): Promise<{ id: string }> {
+        const url = `${trimSlash(idpUrl)}/api/mls/welcomes`
+        return guarded(() =>
+            ky
+                .post(url, {
+                    headers: authHeader(accessToken),
+                    json: {
+                        recipient_actor_uri: body.recipient_actor_uri,
+                        recipient_device_id: body.recipient_device_id,
+                        conversation_id: body.conversation_id,
+                        welcome_blob: b64(body.welcome_blob),
+                    },
+                })
+                .json<{ id: string }>(),
+        )
+    }
+
+    async putRecoveryBlob(
+        idpUrl: string,
+        accessToken: string,
+        body: { wrapped_msk: Uint8Array; salt: Uint8Array; argon2_params: Argon2Params },
+    ): Promise<void> {
+        const url = `${trimSlash(idpUrl)}/api/keys/recovery`
+        await guarded(() =>
+            ky.put(url, {
+                headers: authHeader(accessToken),
+                json: {
+                    wrapped_msk: b64(body.wrapped_msk),
+                    salt: b64(body.salt),
+                    argon2_params: body.argon2_params,
+                },
+            }),
+        )
+    }
+
+    async getRecoveryBlob(
+        idpUrl: string,
+        accessToken: string,
+    ): Promise<RecoveryBlobResponse | null> {
+        const url = `${trimSlash(idpUrl)}/api/keys/recovery`
+        try {
+            const json = await ky.get(url, { headers: authHeader(accessToken) }).json<{
+                wrapped_msk: string
+                salt: string
+                argon2_params: Argon2Params
+                created_at: string
+                updated_at: string
+            }>()
+            return {
+                wrapped_msk: unb64(json.wrapped_msk),
+                salt: unb64(json.salt),
+                argon2_params: json.argon2_params,
+                created_at: json.created_at,
+                updated_at: json.updated_at,
+            }
+        } catch (error) {
+            if (error instanceof HTTPError && error.response.status === 404) return null
+            throw await wrap(error, "Failed to fetch recovery blob")
+        }
+    }
+
+    async deleteRecoveryBlob(idpUrl: string, accessToken: string): Promise<void> {
+        const url = `${trimSlash(idpUrl)}/api/keys/recovery`
+        try {
+            await ky.delete(url, { headers: authHeader(accessToken) })
+        } catch (error) {
+            // 404 == "wasn't configured", which is the same end state.
+            if (error instanceof HTTPError && error.response.status === 404) return
+            throw await wrap(error, "Failed to delete recovery blob")
+        }
+    }
+}
+
+interface RawCommitView {
+    id: string
+    conversation_id: ConversationId
+    epoch: number
+    proposer_actor_uri: ActorUri
+    commit_blob: string
+    created_at: string
+}
+
+interface RawWelcomeView {
+    id: string
+    conversation_id: ConversationId
+    recipient_device_id: DeviceId
+    welcome_blob: string
+    created_at: string
+}
+
+function parseCommitView(c: RawCommitView): CommitView {
+    return {
+        id: c.id,
+        conversation_id: c.conversation_id,
+        epoch: c.epoch,
+        proposer_actor_uri: c.proposer_actor_uri,
+        commit_blob: unb64(c.commit_blob),
+        created_at: c.created_at,
+    }
+}
+
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+function trimSlash(url: string): string {
+    return url.replace(/\/$/, "")
+}
+
+function authHeader(token: string): Record<string, string> {
+    return { Authorization: `Bearer ${token}` }
+}
+
+function b64(bytes: Uint8Array): string {
+    let s = ""
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
+    return btoa(s)
+}
+
+function unb64(s: string): Uint8Array {
+    const bin = atob(s)
+    const out = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+    return out
+}
+
+async function guarded<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+        return await fn()
+    } catch (error) {
+        throw await wrap(error, "Key directory request failed")
+    }
+}
+
+async function wrap(error: unknown, fallback: string): Promise<Error> {
+    if (error instanceof HTTPError) {
+        const body = (await error.response.json().catch(() => ({}))) as {
+            error?: string
+            error_description?: string
+        }
+        const detail = body.error_description ?? body.error ?? `${error.response.status}`
+        return new Error(`${fallback}: ${detail}`)
+    }
+    return error instanceof Error ? error : new Error(String(error))
+}

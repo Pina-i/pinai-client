@@ -69,7 +69,10 @@ export function ConversationPage({ name }: ConversationPageProps) {
                 <MessageList
                     messages={vm.messages}
                     conversationKey={vm.conversationKey}
+                    recipientAddress={vm.recipientAddress}
                     onReply={vm.handleReply}
+                    onRetry={vm.retrySend}
+                    hasPendingIntent={vm.hasPendingIntent}
                     messagesEndRef={vm.messagesEndRef}
                 />
                 {vm.typingLabel && (
