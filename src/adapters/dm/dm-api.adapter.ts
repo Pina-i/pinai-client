@@ -48,14 +48,19 @@ export class DmApiAdapter implements IDmPort {
         idpUrl: string,
         accessToken: string,
         recipientAddress: string,
-        content: string,
+        mlsCiphertext: string,
         replyToId?: string,
         attachmentIds?: string[],
+        conversationId?: string,
     ): Promise<DirectMessage> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/dm`
-        const json: Record<string, unknown> = { recipient_address: recipientAddress, content }
+        const json: Record<string, unknown> = {
+            recipient_address: recipientAddress,
+            mls_ciphertext: mlsCiphertext,
+        }
         if (replyToId) json.reply_to_id = replyToId
         if (attachmentIds && attachmentIds.length > 0) json.attachment_ids = attachmentIds
+        if (conversationId) json.conversation_id = conversationId
         try {
             return await ky.post(url, {
                 headers: { Authorization: `Bearer ${accessToken}` },
@@ -77,6 +82,7 @@ export class DmApiAdapter implements IDmPort {
         file: File,
         onProgress?: UploadProgress,
         signal?: AbortSignal,
+        attachmentId?: string,
     ): Promise<Attachment> {
         return new Promise<Attachment>((resolve, reject) => {
             const url = `${idpUrl.replace(/\/$/, "")}/api/attachments`
@@ -115,6 +121,10 @@ export class DmApiAdapter implements IDmPort {
             }
 
             const form = new FormData()
+            // The `attachment_id` field MUST come before the file part
+            // because the server iterates parts in order and reads the
+            // id before pairing it with the single file.
+            if (attachmentId) form.append("attachment_id", attachmentId)
             form.append("file", file, file.name)
             xhr.send(form)
         })
@@ -140,44 +150,12 @@ export class DmApiAdapter implements IDmPort {
         }
     }
 
-    async addReaction(idpUrl: string, accessToken: string, messageId: string, emoji: string): Promise<void> {
-        const url = `${idpUrl.replace(/\/$/, "")}/api/dm/${messageId}/reactions`
-        try {
-            await ky.post(url, {
-                headers: { Authorization: `Bearer ${accessToken}` },
-                json: { emoji },
-            })
-        } catch (error) {
-            if (error instanceof HTTPError) {
-                const err = await error.response.json().catch(() => ({})) as { error?: string }
-                throw new Error(err.error ?? `Failed to add reaction: ${error.response.status}`)
-            }
-            throw error
-        }
-    }
-
-    async removeReaction(idpUrl: string, accessToken: string, messageId: string, emoji: string): Promise<void> {
-        const url = `${idpUrl.replace(/\/$/, "")}/api/dm/${messageId}/reactions`
-        try {
-            await ky.delete(url, {
-                headers: { Authorization: `Bearer ${accessToken}` },
-                searchParams: { emoji },
-            })
-        } catch (error) {
-            if (error instanceof HTTPError) {
-                const err = await error.response.json().catch(() => ({})) as { error?: string }
-                throw new Error(err.error ?? `Failed to remove reaction: ${error.response.status}`)
-            }
-            throw error
-        }
-    }
-
-    async editMessage(idpUrl: string, accessToken: string, messageId: string, content: string): Promise<void> {
+    async editMessage(idpUrl: string, accessToken: string, messageId: string, mlsCiphertext: string): Promise<void> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/dm/${messageId}/edit`
         try {
             await ky.patch(url, {
                 headers: { Authorization: `Bearer ${accessToken}` },
-                json: { content },
+                json: { mls_ciphertext: mlsCiphertext },
             })
         } catch (error) {
             if (error instanceof HTTPError) {

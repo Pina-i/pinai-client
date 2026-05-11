@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { X } from "lucide-react"
 import type { Attachment } from "@/domain/models/dm"
+import type { AttachmentBlobKey } from "@/domain/models/e2ee"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
@@ -13,6 +14,7 @@ interface ImageLightboxDialogProps {
     isOpen: boolean
     onClose: () => void
     attachment: Attachment | null
+    attachmentKey?: AttachmentBlobKey
     senderAddress?: string
     senderDisplayName?: string
     timeLabel?: string
@@ -27,11 +29,12 @@ export function ImageLightboxDialog({
     isOpen,
     onClose,
     attachment,
+    attachmentKey,
     senderAddress,
     senderDisplayName,
     timeLabel,
 }: ImageLightboxDialogProps) {
-    const url = useAttachmentBlobUrl(attachment?.id)
+    const url = useAttachmentBlobUrl(attachment?.id, attachmentKey)
     const avatarUrl = useAppStore((s) =>
         senderAddress ? s.avatarsByAddress[senderAddress] ?? null : null,
     )
@@ -45,6 +48,8 @@ export function ImageLightboxDialog({
 
     if (!attachment) return null
 
+    const filename = attachmentKey?.original_filename ?? attachment.original_filename
+    const byteSize = attachmentKey?.byte_size ?? attachment.byte_size
     const initials = (senderDisplayName ?? "?").slice(0, 2).toUpperCase()
 
     return (
@@ -59,13 +64,13 @@ export function ImageLightboxDialog({
                     <div className="min-w-0 flex-1">
                         <div className="truncate text-[12.5px] font-medium">{senderDisplayName ?? "—"}</div>
                         <div className="truncate font-mono text-[10.5px] tracking-[0.04em] text-muted-foreground">
-                            {attachment.original_filename} · {formatBytes(attachment.byte_size)}
+                            {filename} · {formatBytes(byteSize)}
                             {timeLabel && ` · ${timeLabel}`}
                         </div>
                     </div>
                     <IconButton
                         isDisabled={!url}
-                        onPress={() => url && downloadAttachment(url, attachment.original_filename)}
+                        onPress={() => url && downloadAttachment(url, filename)}
                         className={cn(
                             "rounded-md border border-border-strong px-3 py-1.5",
                             "font-mono text-[10.5px] uppercase tracking-[0.06em] text-foreground",
@@ -94,7 +99,7 @@ export function ImageLightboxDialog({
                     {url && (
                         <img
                             src={url}
-                            alt={attachment.original_filename}
+                            alt={filename}
                             onLoad={(e) => {
                                 const img = e.currentTarget
                                 if (img.naturalWidth > 0) {
