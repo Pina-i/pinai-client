@@ -241,6 +241,48 @@ impl Identity {
         })
     }
 
+    /// Rebind an existing leaf-signature keypair that already lives in
+    /// `provider.storage()` — typically because a snapshot was just
+    /// restored. Unlike [`Identity::new`] this does **not** generate a
+    /// fresh keypair: it looks up the one indexed by the supplied
+    /// `signature_public_key` and wires it into a fresh `Identity`. The
+    /// caller is expected to recover the public key from a restored
+    /// `Group`'s leaf credential (matching the device's `actor_uri` +
+    /// `device_id`) so that subsequent encrypts continue to sign with
+    /// the same key the recipient already has in its tree.
+    ///
+    /// Errors if no matching keypair is in provider storage — that
+    /// indicates the snapshot didn't include the keypair, so falling
+    /// back to [`Identity::new`] is the only safe move.
+    pub fn restore(
+        provider: &Provider,
+        identity: &[u8],
+        signature_public_key: Vec<u8>,
+    ) -> Result<Identity, JsError> {
+        let scheme = SignatureScheme::ED25519;
+        // Verify the keypair is actually in storage before handing back
+        // an Identity — `signer()` would surface this later, but
+        // failing fast here gives the caller a clean signal to fall
+        // back to fresh-key generation.
+        let _exists = SignatureKeyPair::read(provider.0.storage(), &signature_public_key, scheme)
+            .ok_or_else(|| {
+                JsError::new(
+                    "Identity::restore: no keypair in provider storage for the supplied \
+                     signature_public_key — caller should fall back to Identity::new",
+                )
+            })?;
+        let credential = BasicCredential::new(identity.to_vec());
+        let credential_with_key = CredentialWithKey {
+            credential: credential.into(),
+            signature_key: signature_public_key.clone().into(),
+        };
+        Ok(Identity {
+            credential_with_key,
+            signature_public_key,
+            signature_scheme_repr: scheme as u16,
+        })
+    }
+
     /// Build a fresh single-use KeyPackage for upload to the IdP key
     /// directory. Caller is responsible for batching these into the
     /// `POST /api/keys/packages` payload.
