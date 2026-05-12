@@ -394,9 +394,13 @@ export function useIdpWebSocket(): void {
                         receivedAt: new Date().toISOString(),
                         friendshipId: event.data.friendship_id,
                     })
-                    // When our friend request is accepted, refresh the friends list.
+                    // When our friend request is accepted, refresh the friends list AND
+                    // the DM conversation list — the accepter's IdP minted a DM row
+                    // alongside `set_status('accepted')` so the conversation should
+                    // appear in `localDmConvos` immediately, not on the next mount.
                     if (event.type === "friend_accepted" && idpUrl) {
                         queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
+                        queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
                     }
                     // When a friend is removed, also refresh.
                     if (event.type === "friend_removed" && idpUrl) {

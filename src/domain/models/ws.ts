@@ -28,6 +28,13 @@ export interface FriendEventPayload {
     actor_uri: string
     username: string
     display_name: string | null
+    /** Set on `friend_accepted` — the DM conversation_id the accepter's IdP
+     *  minted alongside `set_status('accepted')`. Both sides receive the
+     *  same id (the accepter advertises it via the AP envelope), so the
+     *  conversation appears in `localDmConvos` immediately on
+     *  `dm-conversations` invalidation. Absent on `friend_request` /
+     *  `friend_removed`. */
+    conversation_id?: string | null
 }
 
 export interface ProfileUpdatePayload {

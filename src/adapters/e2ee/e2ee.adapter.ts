@@ -167,11 +167,22 @@ export class E2eeAdapter implements IE2eePort {
 
     private async doBindIdentity(localActorUri: ActorUri): Promise<void> {
         const deviceId = await this.storage.getOrCreateDeviceId()
-        this.mls.setIdentity(localActorUri, deviceId)
+        // Try to recover an already-stored signing key from one of the
+        // restored groups' leaf credentials before falling back to
+        // fresh-key generation. Without this, every page reload would
+        // mint a new MLS leaf keypair and orphan the previous one —
+        // peers' trees still reference the old public key, so signature
+        // verification fails on the next inbound application message
+        // ("process PrivateMessage failed: Verifying the signature
+        // failed.").
+        const existingKey = this.mls.findOwnLeafSigKey(localActorUri, deviceId)
+        this.mls.setIdentity(localActorUri, deviceId, existingKey ?? undefined)
         this.identityBound = true
-        // setIdentity wrote a fresh signature keypair into the
-        // provider's storage; persist immediately so the keypair
-        // survives the next reload.
+        // First-ever bind generates a fresh keypair into the provider
+        // storage; persist now so the next reload picks it up via the
+        // findOwnLeafSigKey path above. Subsequent binds (existingKey
+        // present) don't actually mutate state but the snapshot save
+        // is cheap and keeps the invariant simple.
         await this.persistMlsState()
     }
 

@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
 import { sendDmWsUseCase } from "@/domain/usecases/ws/send-dm-ws.usecase"
 import { sendTypingStartUseCase } from "@/domain/usecases/presence/send-typing-start.usecase"
 import { getConversationHistoryUseCase } from "@/domain/usecases/dm/get-conversation-history.usecase"
+import { getDmConversationsUseCase } from "@/domain/usecases/dm/get-dm-conversations.usecase"
+import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 import { getDmPort, getE2eePort, getWsPort } from "@/ioc"
 import { actorUriToAddress, addressToActorUri } from "@/domain/models/identity"
 import type { Message } from "@/lib/types"
@@ -197,27 +200,55 @@ export function useConversationPageViewModel(name: string) {
     const typingByConversation = useAppStore((s) => s.typingByConversation)
     const wsStatus = useAppStore((s) => s.wsStatus)
 
-    // Look up the conversation by address (route param) — the DmConversation.address field
+    // Look up the conversation by address (route param). Friends always
+    // have a row here (created at friendship-accept). Non-friend DMs
+    // (e.g. "DM a group member I'm not friends with") have no row until
+    // the first message is sent — we mint a UUID for them below.
     const dmData = localDmConvos.find((d) => d.address === name)
 
-    // On a brand-new conversation the server hasn't told us the
-    // conversation_id yet, so `dmData` is undefined. The first send
-    // mints a UUID up front (the MLS group_id, pinned via
-    // `POST /api/dm`), and from that moment on we want
-    // `conversationKey` to be that UUID — otherwise the optimistic
-    // pushed under the UUID is invisible to the render path keyed by
-    // address. We stash it here as soon as `sendMessage` is called.
-    // Once the conversation list refreshes (via the WS-triggered
-    // query invalidation) and `dmData` populates with the same UUID,
-    // both fallbacks resolve to the same value and the pending state
-    // becomes a no-op.
-    const [pendingFirstMessageConvId, setPendingFirstMessageConvId] = useState<string | null>(null)
+    // Subscribe to the same `dm-conversations` query the layout fires
+    // so we know when the initial load has settled. This is the only
+    // signal that distinguishes "still loading, dmData might appear" from
+    // "loaded, no conversation exists — safe to mint a fresh UUID". Without
+    // it, a reload-then-rapid-send window could mint a UUID for a
+    // conversation that already exists server-side, racing the very
+    // problem the friendship-accept refactor was meant to fix.
+    const { isSuccess: dmConvosLoaded } = useQuery({
+        queryKey: dmConversationsQueryKey(idpUrl ?? ""),
+        queryFn: () => getDmConversationsUseCase(idpUrl!, accessToken!, getDmPort()),
+        enabled: !!accessToken && !!idpUrl,
+    })
 
-    // The conversation key is the stable UUID (conversation_id). Falls
-    // back to `pendingFirstMessageConvId` for the brief window before
-    // `dmData` arrives on first send, then to the route-param address
-    // before any send has happened at all.
-    const conversationKey = dmData?.id ?? pendingFirstMessageConvId ?? name
+    // Lazily-minted UUID for fresh non-friend DMs. Keyed on (idpUrl,
+    // address) so it stays stable across renders but resets if the
+    // route changes. We only mint once we're certain the conversation
+    // list has loaded and there's genuinely no row — the loaded flag
+    // is what guards against the reload race.
+    const mintedIdRef = useRef<{ key: string; id: string } | null>(null)
+    const mintedConversationId = useMemo<string | null>(() => {
+        if (!idpUrl || !dmConvosLoaded || dmData) return null
+        const key = `${idpUrl}|${name}`
+        if (mintedIdRef.current?.key === key) return mintedIdRef.current.id
+        const id = crypto.randomUUID()
+        mintedIdRef.current = { key, id }
+        return id
+    }, [idpUrl, name, dmConvosLoaded, dmData])
+
+    // Resolved conversation_id used everywhere: existing row's id if
+    // dmData is present, otherwise the lazily-minted UUID. `null` only
+    // during the loading window — sends are blocked then.
+    const conversationId = dmData?.id ?? mintedConversationId
+
+    // Resolved recipient actor URI: prefer `dmData.actorUri` (already
+    // canonical), fall back to deriving from the route param. The
+    // derivation mirrors the IdP's `resolve_remote_actor` heuristic for
+    // cross-IdP addresses.
+    const recipientActorUri = dmData?.actorUri ?? (idpUrl ? addressToActorUri(name, idpUrl) : null)
+
+    // Stable map/render key. While loading, we fall back to the route
+    // param so the page mounts; sends are gated on `conversationId`
+    // being a real UUID, so nothing gets persisted under `name`.
+    const conversationKey = conversationId ?? name
 
     const [replyingTo, setReplyingTo] = useState<{ id: string; content: string; author: string } | null>(null)
 
@@ -230,29 +261,28 @@ export function useConversationPageViewModel(name: string) {
 
     // Tell the IdP to open an outbound SSE for any remote domain involved in
     // this conversation (so cross-instance presence + typing flow back to us).
-    // Skip if conversationKey isn't yet a UUID (fresh conversation, no DM sent).
-    // Re-emits whenever the WebSocket reaches `connected` so the watch survives
-    // a race where ConversationPage mounts before the socket finishes its
-    // handshake.
+    // Skip until we have a real conversation_id (either dmData's or a freshly
+    // minted one for a non-friend DM). Re-emits whenever the WebSocket
+    // reaches `connected` so the watch survives a race where
+    // ConversationPage mounts before the socket finishes its handshake.
     useEffect(() => {
-        const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-        if (!UUID.test(conversationKey)) return
+        if (!conversationId) return
         if (wsStatus !== "connected") return
 
         const ws = getWsPort()
         try {
-            ws.send({ type: "watch_conversation", data: { conversationId: conversationKey } })
+            ws.send({ type: "watch_conversation", data: { conversationId } })
         } catch {
             // Will retry on the next wsStatus transition to "connected".
         }
         return () => {
             try {
-                ws.send({ type: "unwatch_conversation", data: { conversationId: conversationKey } })
+                ws.send({ type: "unwatch_conversation", data: { conversationId } })
             } catch {
                 // Connection already dead; server will drop the watcher on disconnect.
             }
         }
-    }, [conversationKey, wsStatus])
+    }, [conversationId, wsStatus])
 
     // Load message history from REST API once per conversation mount.
     const historyLoadedRef = useRef(false)
@@ -339,9 +369,8 @@ export function useConversationPageViewModel(name: string) {
         attachmentKeys: AttachmentBlobKey[]
         replyTo: { id: string; content: string; author: string } | null
         recipientAddress: string
-        recipientActorUri: string | null
-        effectiveConvId: string
-        isFirstMessage: boolean
+        recipientActorUri: string
+        conversationId: string
         optimisticAttachmentKeys: Record<string, AttachmentBlobKey>
     }
     const pendingIntentsRef = useRef<Map<string, SendIntent>>(new Map())
@@ -355,7 +384,7 @@ export function useConversationPageViewModel(name: string) {
     const runSend = useCallback(
         async (optimisticId: string, intent: SendIntent) => {
             if (!accessToken || !idpUrl || !user) return
-            const optimisticKey = intent.effectiveConvId
+            const optimisticKey = intent.conversationId
             const needsRest = !!intent.replyTo || intent.attachmentIds.length > 0
 
             const reconcileToServer = (dm: DirectMessage) => {
@@ -395,24 +424,22 @@ export function useConversationPageViewModel(name: string) {
                 })
             }
 
-            // Lazy group bootstrap: on the first message to a contact,
-            // claim a KeyPackage for them, build the founding commit +
-            // welcome, and dispatch. Idempotent — subsequent sends
-            // short-circuit. Cross-IdP works since 5d.1 (the IdP
-            // proxies the claim) + 5d.2 (the welcome is routed by the
-            // sender's IdP).
-            if (intent.recipientActorUri) {
-                try {
-                    await getE2eePort().ensureGroupExists(
-                        idpUrl,
-                        accessToken,
-                        intent.effectiveConvId,
-                        intent.recipientActorUri,
-                    )
-                } catch (e) {
-                    markFailed(e, "ensureGroupExists")
-                    return
-                }
+            // Lazy MLS group bootstrap: on the first send into a
+            // conversation, claim a KeyPackage for the recipient, build
+            // the founding commit + welcome, and dispatch. Idempotent
+            // — subsequent sends short-circuit. The conversation row
+            // already exists server-side (created at friendship-accept),
+            // so this only bootstraps the MLS state.
+            try {
+                await getE2eePort().ensureGroupExists(
+                    idpUrl,
+                    accessToken,
+                    intent.conversationId,
+                    intent.recipientActorUri,
+                )
+            } catch (e) {
+                markFailed(e, "ensureGroupExists")
+                return
             }
 
             const textBody: TextBody = { text: intent.content }
@@ -434,7 +461,7 @@ export function useConversationPageViewModel(name: string) {
             let mlsCiphertextBytes: Uint8Array
             try {
                 mlsCiphertextBytes = await getE2eePort().encryptOutbound(
-                    intent.effectiveConvId,
+                    intent.conversationId,
                     appMessage,
                 )
             } catch (e) {
@@ -452,26 +479,11 @@ export function useConversationPageViewModel(name: string) {
                         mlsCiphertextB64,
                         intent.replyTo?.id,
                         intent.attachmentIds.length > 0 ? intent.attachmentIds : undefined,
-                        intent.isFirstMessage ? intent.effectiveConvId : undefined,
+                        intent.conversationId,
                     )
                     reconcileToServer(dm)
                 } catch (e) {
                     markFailed(e, "POST /api/dm")
-                }
-            } else if (intent.isFirstMessage) {
-                try {
-                    const dm = await getDmPort().sendMessage(
-                        idpUrl,
-                        accessToken,
-                        intent.recipientAddress,
-                        mlsCiphertextB64,
-                        undefined,
-                        undefined,
-                        intent.effectiveConvId,
-                    )
-                    reconcileToServer(dm)
-                } catch (e) {
-                    markFailed(e, "POST /api/dm (first-message)")
                 }
             } else {
                 // WS-shortcut send: pass `optimisticId` as `client_id`
@@ -502,51 +514,24 @@ export function useConversationPageViewModel(name: string) {
             attachmentIds: string[] = [],
             attachmentKeys: AttachmentBlobKey[] = [],
         ) => {
-            if (!user) return
+            // Block while `dm-conversations` is still loading — we
+            // can't tell yet whether a row already exists for this
+            // address. `conversationId` is `null` in that window and
+            // populates either from `dmData.id` (friend / existing
+            // convo) or from a freshly minted UUID (non-friend DM).
+            if (!user || !accessToken || !idpUrl) return
+            if (!conversationId || !recipientActorUri) return
             const recipientAddress = dmData?.address ?? name
             const currentReply = replyingTo
             setReplyingTo(null)
 
-            if (!accessToken || !idpUrl) return
-
-            // First-message bootstrap: when there's no DM row yet
-            // server-side, `dmData` is undefined so we can't read its
-            // `actorUri`. Derive the URI from the route param (which
-            // is the recipient's address `username@host`) using the
-            // local issuer's scheme — same heuristic the IdP uses
-            // server-side for cross-IdP delivery.
-            const recipientActorUri =
-                dmData?.actorUri ?? addressToActorUri(recipientAddress, idpUrl)
-
-            // The MLS group needs a UUID `group_id`, and the server's
-            // `conversations.id` has to match it. Generate the UUID
-            // locally on first send, use it for both, and pin it on
-            // `POST /api/dm` via `get_or_create_dm_with_id`.
-            const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-            const isFirstMessage = !UUID_RE.test(conversationKey)
-            const effectiveConvId = isFirstMessage ? crypto.randomUUID() : conversationKey
-            const optimisticKey = effectiveConvId
-
-            // Make the viewmodel's `conversationKey` snap to the
-            // freshly-minted UUID immediately. Without this the
-            // optimistic push lands under `effectiveConvId` but the
-            // render path keeps reading from `dmMessages[name]`
-            // (address) until the server-side convo lands in
-            // `localDmConvos` — the user sees nothing until the
-            // network round-trip + conversation-list refetch
-            // completes, which is exactly the moment the recipient
-            // also receives the message.
-            if (isFirstMessage) {
-                setPendingFirstMessageConvId(effectiveConvId)
-            }
-
-            // Optimistic push *before* any network work. The first-
-            // message path runs ensureGroupExists + encrypt + POST,
-            // which can stretch several hundred ms — without an
-            // up-front push the user sees an empty input until
-            // everything returns. `status: "sending"` drives the
-            // clock icon next to the timestamp; `runSend` flips it
-            // to "sent" or "failed" once the network half lands.
+            // Optimistic push *before* any network work.
+            // `ensureGroupExists` + encrypt + REST can stretch several
+            // hundred ms on first send into a conversation — without
+            // an up-front push the user sees an empty input until
+            // everything returns. `status: "sending"` drives the clock
+            // icon next to the timestamp; `runSend` flips it to "sent"
+            // or "failed" once the network half lands.
             const optimisticId = crypto.randomUUID()
             const optimisticAttachmentKeys: Record<string, AttachmentBlobKey> = {}
             for (const k of attachmentKeys) optimisticAttachmentKeys[k.id] = k
@@ -574,7 +559,7 @@ export function useConversationPageViewModel(name: string) {
                     author: currentReply.author,
                 }
             }
-            pushDmMessage(optimisticKey, optimisticMsg)
+            pushDmMessage(conversationId, optimisticMsg)
 
             const intent: SendIntent = {
                 content,
@@ -585,8 +570,7 @@ export function useConversationPageViewModel(name: string) {
                     : null,
                 recipientAddress,
                 recipientActorUri,
-                effectiveConvId,
-                isFirstMessage,
+                conversationId,
                 optimisticAttachmentKeys,
             }
             pendingIntentsRef.current.set(optimisticId, intent)
@@ -595,14 +579,14 @@ export function useConversationPageViewModel(name: string) {
 
             setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50)
         },
-        [user, conversationKey, dmData, name, pushDmMessage, replyingTo, accessToken, idpUrl, runSend],
+        [user, dmData, name, conversationId, recipientActorUri, pushDmMessage, replyingTo, accessToken, idpUrl, runSend],
     )
 
     const retrySend = useCallback(
         async (optimisticId: string) => {
             const intent = pendingIntentsRef.current.get(optimisticId)
             if (!intent) return
-            updateDmMessage(intent.effectiveConvId, optimisticId, {
+            updateDmMessage(intent.conversationId, optimisticId, {
                 status: "sending",
                 statusAt: new Date().toISOString(),
             })
