@@ -409,3 +409,129 @@ E2EE file.
     8 chars formatted "XXXX-XXXX". Display-only.
 - **Test additions**: `test/format-last-seen.spec.ts` (9 tests),
   `test/device-fingerprint.spec.ts` (4 tests).
+
+## Phase 7 additions (per-device identity + history backup)
+
+Trust model shift: drop user-level MSK/SSK/USK identity in favour of
+per-device IdP-attested DRK (Device Root Key). The IdP signs a long-
+lived attestation per device (1-year lifetime, silent renewal at 30
+days); peer clients verify the attestation chain via the issuer's
+JWKS. The 24-word passphrase repositions from "recover your account"
+to "recover your message history" — derives a History Archive Key
+via Argon2id; per-decrypt plaintexts are encrypted under that key
+and uploaded to a server-side opaque-ciphertext archive.
+
+See `identity-provider/docs/plans/2026-05-14-per-device-identity-design.md`
+for the full design.
+
+### New adapters
+
+- **`adapters/jwks/jwks-cache.adapter.ts`** — `JwksCacheAdapter`.
+  Lazy fetch of `<issuer>/.well-known/jwks.json` with 1-hour
+  `localStorage` TTL, in-flight dedup per issuer, refresh-on-
+  invalidate for IdP key-rotation safety. Returns raw 32-byte
+  Ed25519 public keys ready for `@noble/curves` verify.
+- **`adapters/e2ee/attestation-chain.adapter.ts`** — pure
+  `verifyLeafCredential(bytes, jwksCache)`. Implements the Section 3
+  verification order: parse `LeafCredentialV1` JSON, check
+  `v === 1`, confirm issuer origin matches actor URI, check
+  `expires_at` (5-min clock-skew slack), verify IdP signature
+  (rotation-safe via invalidate-and-retry). Returns
+  `{ ok, actorUri, deviceId }` or `{ ok: false, reason }`.
+- **`adapters/e2ee/history-archive.adapter.ts`** —
+  `HistoryArchiveAdapter`. `deriveKey(passphraseWords, salt)` via
+  `argon2idAsync` (t=3, m=64 MiB, p=4, dkLen=32);
+  `encrypt(key, plaintext)` → AES-256-GCM with fresh 12-byte nonce;
+  `decrypt(key, ct, nonce)` throws on auth-tag mismatch.
+- **`adapters/e2ee/history-archive-api.adapter.ts`** —
+  `HistoryArchiveApiAdapter` implementing `IHistoryArchivePort`.
+  Pure transport for `POST/GET/DELETE /api/history/messages` +
+  `GET/POST /api/history/salt`; base64 encode/decode of opaque
+  ciphertexts.
+
+### Wire-format simplification
+
+`LeafCredentialV1` JSON inside the MLS BasicCredential is
+`{ v: 1, actor_uri, device_id, drk_pub, idp_att: { issuer, kid, expires_at, signature } }`.
+The original design's `drk_sig(leaf_pub)` field was dropped because
+openmls-wasm doesn't expose the leaf signing key for external pre-
+signing without wrapper changes; the remaining trust chain (IdP
+attests DRK + actor; openmls's LeafNode self-signature ensures leaf
+integrity; bearer-token authn on KP upload ensures the right device
+publishes) holds against the documented threat model.
+
+### Adapter additions
+
+- **`storage.adapter.ts`** — IDB schema v3 → v4. New
+  `device_attestation` object store holding the DRK keypair + IdP
+  attestation + canonical signed message (for local re-verify).
+  `DeviceAttestation` type exported. `saveDeviceAttestation` /
+  `loadDeviceAttestation` methods follow the existing seal-under-
+  device-key pattern.
+- **`key-directory.adapter.ts`** —
+  `IKeyDirectoryAdapter.registerDevice(idpUrl, accessToken, deviceId, drkPublicKey)`
+  POSTs to `/api/keys/devices`; returns `{ signature, kid,
+  issued_at, expires_at, signed_message }`.
+- **`e2ee.adapter.ts`** — additive Phase 7 methods (old MSK
+  `register` path still works alongside):
+  - `registerDevice` — idempotent device-attestation flow.
+    Dedupes concurrent callers via in-flight promise; renews
+    silently when within 30 days of expiry.
+  - `bufferDecryptedForArchive` / `startFlushing` /
+    `stopFlushing` / `clearHistoryBackup` — Layer B engine.
+  - `restoreHistoryFromPassphrase` — pull-and-decrypt loop.
+  - `bootstrapFirstDevice` now also calls `registerDevice` after
+    the legacy MSK register completes.
+
+### Use cases (`domain/usecases/e2ee/`)
+
+- `register-device.usecase.ts` — port delegate (2 tests).
+- `restore-history-from-passphrase.usecase.ts` — port delegate
+  (2 tests). UI trigger deferred — the use case is exercised by
+  Settings → Restore in a follow-up.
+
+### Hooks (`presentation/hooks/`)
+
+- `useDeviceFanout` — push + reconcile multi-device fanout.
+  Reconcile-on-connect via the existing `useDevices` TanStack
+  Query; on every device-list refresh the pure `runDeviceFanout`
+  scans for non-current non-revoked devices and emits Add commits
+  via the existing `addContactToGroup` machinery.
+- `useHistoryArchiveFlusher` — lifecycle hook for the 2-second
+  flush timer + buffer (both live in the adapter; this hook is
+  pure mount/unmount glue).
+- `useIdpWebSocket` gains a `device_joined` event case and a
+  module-level `registerDeviceFanoutHandler` slot that the auth
+  layout uses to plug `useDeviceFanout.onDeviceJoined` into the
+  shared WS connection without business logic in the WS hook.
+
+### Onboarding gate
+
+`decideGateRoute` simplified to two branches (app/setup). The
+previous restore branch — recover MSK from a passphrase blob — is
+gone; per-device identity means a brand-new device on an existing
+account just registers its own MSK + DRK in the setup flow.
+
+### Test additions
+
+- `test/jwks-cache.spec.ts` — 5 tests (TTL, dedup, invalidate,
+  unknown kid, concurrent fetches)
+- `test/attestation-chain.spec.ts` — 6 tests (well-formed accept,
+  origin mismatch, expired, unknown kid, rotation-retry, bad IdP
+  signature)
+- `test/history-archive.spec.ts` — 5 tests (deterministic derive,
+  salt variance, encrypt/decrypt round-trip, wrong-key throws,
+  fresh nonce per encrypt)
+- `test/register-device.spec.ts` — 2 tests
+- `test/restore-history.spec.ts` — 2 tests
+- `test/gate-routing.spec.ts` rewritten — 2 tests for the new
+  2-branch table
+
+72 tests across 15 suites; tsc clean.
+
+### Rip-out (Phase 5)
+
+- `RecoveryRestorePage` + route — gone; gate no longer routes
+  there
+- `e2ee-debug` DEV-only inspection page + route — gone
+- `useFingerprint` hook — gone (no callers remained)
