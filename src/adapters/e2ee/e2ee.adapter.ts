@@ -21,6 +21,9 @@
  * handler.
  */
 
+import { generateMnemonic } from "@scure/bip39"
+import { wordlist } from "@scure/bip39/wordlists/english.js"
+
 import type {
     ActorUri,
     ApplicationMessage,
@@ -130,7 +133,7 @@ export class E2eeAdapter implements IE2eePort {
      * Concurrency: both the provider/snapshot bootstrap and the
      * identity bind are guarded by cached promises so two concurrent
      * callers (React strict-mode double-fire, simultaneous
-     * `useRegisterMlsIdentity` + `useConsumeMlsWelcomes` effects, etc.)
+     * onboarding-bootstrap + `useConsumeMlsWelcomes` effects, etc.)
      * never produce two MLS Identity leaves competing for the same
      * provider — the second one used to silently orphan the first
      * and leave its keypair unreachable in storage.
@@ -191,6 +194,9 @@ export class E2eeAdapter implements IE2eePort {
     private providerInitPromise: Promise<void> | null = null
     private identityBindPromise: Promise<void> | null = null
     private registerPromise: Promise<{ device_id: DeviceId; fingerprint: Fingerprint }> | null = null
+    private bootstrapPromise:
+        | Promise<{ device_id: DeviceId; fingerprint: Fingerprint; words: string[] }>
+        | null = null
 
     /**
      * Take a fresh provider snapshot + the current group-id list and
@@ -217,13 +223,15 @@ export class E2eeAdapter implements IE2eePort {
         accessToken: string,
         actorUri: ActorUri,
     ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint }> {
-        // Gate concurrent calls. `useRegisterMlsIdentity` runs in a
-        // useEffect, which under React strict mode (or simply two
-        // sibling auth-aware hooks remounting in the same tick) can
-        // fire twice. Without this gate, both invocations would race:
-        // each would upload INITIAL_KEY_PACKAGE_BATCH=50 KPs, the IdP
-        // would land both batches, and the next refresh would hit
-        // "stash cap exceeded: have 100, uploading 50, cap is 100".
+        // Gate concurrent calls. After Phase 6a, `register` is driven
+        // by the onboarding setup view's `bootstrapFirstDeviceUseCase`
+        // and the recovery-restore view's "Start fresh" link. Under
+        // React strict mode the page can re-render and re-invoke the
+        // effect that triggers it. Without this gate, both invocations
+        // would race: each would upload INITIAL_KEY_PACKAGE_BATCH=50
+        // KPs, the IdP would land both batches, and the next refresh
+        // would hit "stash cap exceeded: have 100, uploading 50,
+        // cap is 100".
         if (this.registerPromise) return this.registerPromise
         this.registerPromise = this.doRegister(idpUrl, accessToken, actorUri)
         try {
@@ -257,6 +265,13 @@ export class E2eeAdapter implements IE2eePort {
             )
         }
 
+        // Bind the device to this actor URI so the onboarding gate can
+        // detect cross-account contamination on the next mount. Done
+        // unconditionally (covers both the first-register path AND
+        // re-runs against an existing keypair, where the binding may
+        // not yet be set from a legacy session).
+        await this.storage.setBoundActorUri(actorUri)
+
         // Seed the KeyPackage stash, but only refill what's missing
         // up to the IdP's cap. A previous (broken) session may have
         // already published KPs whose private halves are gone — the
@@ -276,6 +291,107 @@ export class E2eeAdapter implements IE2eePort {
             device_id: deviceId,
             fingerprint: this.identity.fingerprint(keypair.msk_public),
         }
+    }
+
+    async bootstrapFirstDevice(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+    ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint; words: string[] }> {
+        if (this.bootstrapPromise) return this.bootstrapPromise
+        this.bootstrapPromise = this.doBootstrapFirstDevice(idpUrl, accessToken, actorUri)
+        try {
+            return await this.bootstrapPromise
+        } catch (e) {
+            // Allow retries on failure; success can stay cached so
+            // re-mounts within the same session short-circuit.
+            this.bootstrapPromise = null
+            throw e
+        }
+    }
+
+    private async doBootstrapFirstDevice(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+    ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint; words: string[] }> {
+        const { device_id, fingerprint } = await this.register(idpUrl, accessToken, actorUri)
+
+        // Idempotency across hard refresh: if a passphrase already
+        // exists locally (a previous bootstrap on this device
+        // completed at least step 4), reuse it. Generating a fresh
+        // mnemonic here would silently invalidate any words the user
+        // already wrote down — the new mnemonic would overwrite the
+        // server blob, and the old words they have on paper would no
+        // longer unlock the account.
+        const existing = await this.storage.loadRecoveryPassphrase()
+        if (existing && existing.length === 24) {
+            return { device_id, fingerprint, words: existing }
+        }
+
+        const mnemonic = generateMnemonic(wordlist, 256)
+        const words = mnemonic.split(" ")
+        if (words.length !== 24) {
+            throw new Error(`bootstrap: expected 24-word mnemonic, got ${words.length}`)
+        }
+        await this.setupRecoveryKey(idpUrl, accessToken, mnemonic)
+        await this.storage.saveRecoveryPassphrase(words)
+        return { device_id, fingerprint, words }
+    }
+
+    async hasLocalIdentity(): Promise<boolean> {
+        return (await this.storage.loadIdentityKeypair()) !== null
+    }
+
+    async getBoundActorUri(): Promise<ActorUri | null> {
+        return this.storage.getBoundActorUri()
+    }
+
+    async getDeviceId(): Promise<DeviceId> {
+        return this.storage.getOrCreateDeviceId()
+    }
+
+    async wipeLocalDevice(): Promise<void> {
+        try {
+            await this.storage.clear()
+        } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn("wipeLocalDevice: storage.clear failed (best-effort)", e)
+        }
+        // Drop the in-memory MLS provider so the next op starts fresh
+        // — without this, the wiped IDB would race a cached Provider
+        // instance still holding the previous user's group state.
+        this.snapshotRestored = false
+        this.identityBound = false
+        this.providerInitPromise = null
+        this.identityBindPromise = null
+        this.registerPromise = null
+        this.bootstrapPromise = null
+        this.mls.resetProvider()
+    }
+
+    async loadStoredPassphrase(): Promise<string[] | null> {
+        return this.storage.loadRecoveryPassphrase()
+    }
+
+    async saveStoredPassphrase(words: string[]): Promise<void> {
+        return this.storage.saveRecoveryPassphrase(words)
+    }
+
+    async hasRecoveryKey(idpUrl: string, accessToken: string): Promise<boolean> {
+        const blob = await this.directory.getRecoveryBlob(idpUrl, accessToken)
+        return blob !== null
+    }
+
+    async clearRecoveryKey(idpUrl: string, accessToken: string): Promise<void> {
+        // Server delete first — the local wipe is harmless even if the
+        // server call later fails (the user can still recover by
+        // re-typing whatever they have written down, against the now-
+        // stale server blob… which won't exist). Order-wise, deleting
+        // the server blob is the user-meaningful side effect; the
+        // local copy is a UX-only artifact.
+        await this.directory.deleteRecoveryBlob(idpUrl, accessToken)
+        await this.storage.clearRecoveryPassphrase()
     }
 
     async getOwnFingerprint(): Promise<Fingerprint | null> {
@@ -497,8 +613,8 @@ export class E2eeAdapter implements IE2eePort {
         recipientActorUri: ActorUri,
     ): Promise<void> {
         // Provider/snapshot only — the local identity must already be
-        // bound via the post-login `useRegisterMlsIdentity` (or
-        // `useConsumeMlsWelcomes`) hooks. Don't pass `recipientActorUri`
+        // bound via the onboarding bootstrap or `useConsumeMlsWelcomes`
+        // before this path runs. Don't pass `recipientActorUri`
         // through ensureInitialized: that would stamp this device's
         // MLS leaf credential with the **peer's** actor URI on a fresh
         // device that somehow reached this path before login bootstrap
@@ -580,6 +696,11 @@ export class E2eeAdapter implements IE2eePort {
             accessToken,
             this.identity.publicKeys(restored),
         )
+
+        // Bind the device to this actor URI — same purpose as in
+        // register(): the gate uses it to detect cross-account
+        // contamination on subsequent mounts.
+        await this.storage.setBoundActorUri(actorUri)
 
         // Bring the fresh device's MLS Identity online + seed its
         // KeyPackage stash so peers can add it to groups.

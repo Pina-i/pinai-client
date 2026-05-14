@@ -253,11 +253,19 @@ export function useConversationPageViewModel(name: string) {
     const [replyingTo, setReplyingTo] = useState<{ id: string; content: string; author: string } | null>(null)
 
     // Sync store so ChannelSidebar highlights the active DM and clear unread badge.
+    // We deliberately gate on `conversationId` (the UUID) rather than
+    // `conversationKey` (which falls back to the route address during
+    // the initial loading window) — otherwise `activeDm` is briefly set
+    // to `alice@idp.alice.com` instead of the canonical UUID, the WS
+    // handler's `activeDm !== conversation_id` guard fails for any
+    // `new_dm` arriving in that window, and the unread badge increments
+    // for a conversation the user is actively reading.
     useEffect(() => {
-        setActiveDm(conversationKey)
-        clearDmUnread(conversationKey)
+        if (!conversationId) return
+        setActiveDm(conversationId)
+        clearDmUnread(conversationId)
         return () => setActiveDm(null)
-    }, [conversationKey, setActiveDm, clearDmUnread])
+    }, [conversationId, setActiveDm, clearDmUnread])
 
     // Tell the IdP to open an outbound SSE for any remote domain involved in
     // this conversation (so cross-instance presence + typing flow back to us).

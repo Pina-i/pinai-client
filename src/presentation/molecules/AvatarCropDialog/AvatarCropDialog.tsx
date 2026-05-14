@@ -43,7 +43,7 @@ export function AvatarCropDialog({ isOpen, file, onClose, onSave }: AvatarCropDi
     if (!file) return null
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} isDismissable={!isSaving}>
+        <Modal isOpen={isOpen} onClose={onClose} isDismissable={!isSaving} label="Crop avatar">
             <div className="flex w-[360px] flex-col gap-4 rounded-[var(--radius-md)] border border-border bg-card p-5 shadow-2xl">
                 <div>
                     <p className="mono-eyebrow tracking-[0.14em] text-muted-foreground">Editing · Avatar</p>

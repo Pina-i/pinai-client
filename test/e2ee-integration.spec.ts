@@ -268,6 +268,8 @@ class InMemoryE2eeStorage implements E2eeStorage {
     private deviceKey: CryptoKey | null = null
     private keypair: IdentityKeypair | null = null
     private snapshot: MlsSnapshot | null = null
+    private recoveryPassphrase: string[] | null = null
+    private boundActorUri: string | null = null
 
     async getOrCreateDeviceId(): Promise<DeviceId> {
         if (!this.deviceId) this.deviceId = crypto.randomUUID()
@@ -295,11 +297,28 @@ class InMemoryE2eeStorage implements E2eeStorage {
     async loadMlsSnapshot(): Promise<MlsSnapshot | null> {
         return this.snapshot
     }
+    async saveRecoveryPassphrase(words: string[]): Promise<void> {
+        this.recoveryPassphrase = [...words]
+    }
+    async loadRecoveryPassphrase(): Promise<string[] | null> {
+        return this.recoveryPassphrase
+    }
+    async clearRecoveryPassphrase(): Promise<void> {
+        this.recoveryPassphrase = null
+    }
+    async getBoundActorUri(): Promise<string | null> {
+        return this.boundActorUri
+    }
+    async setBoundActorUri(actorUri: string): Promise<void> {
+        this.boundActorUri = actorUri
+    }
     async clear(): Promise<void> {
         this.deviceId = null
         this.deviceKey = null
         this.keypair = null
         this.snapshot = null
+        this.recoveryPassphrase = null
+        this.boundActorUri = null
     }
 }
 

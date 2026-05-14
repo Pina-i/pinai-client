@@ -53,7 +53,7 @@ export function ImageLightboxDialog({
     const initials = (senderDisplayName ?? "?").slice(0, 2).toUpperCase()
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} variant="fullscreen" isDismissable>
+        <Modal isOpen={isOpen} onClose={onClose} variant="fullscreen" isDismissable label="Image viewer">
             <div
                 className="flex flex-1 flex-col"
                 style={{ background: "oklch(0.10 0.005 60 / 0.82)", backdropFilter: "blur(8px)" }}
@@ -91,15 +91,20 @@ export function ImageLightboxDialog({
                     </IconButton>
                 </div>
 
-                {/* Image stage */}
+                {/* Image stage — clicking the empty space around the image
+                  * dismisses the lightbox. The Modal molecule's fullscreen
+                  * variant makes the Dialog fill the whole overlay, which
+                  * masks React Aria's `isDismissable` backdrop — so we
+                  * implement the outside-click ourselves here. */}
                 <div
                     className="flex flex-1 items-center justify-center px-8 pb-4"
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={onClose}
                 >
                     {url && (
                         <img
                             src={url}
                             alt={filename}
+                            onClick={(e) => e.stopPropagation()}
                             onLoad={(e) => {
                                 const img = e.currentTarget
                                 if (img.naturalWidth > 0) {

@@ -1,5 +1,5 @@
 import { Plus, Reply, Send, Smile, X } from "lucide-react"
-import type { RefObject } from "react"
+import { useState, type RefObject } from "react"
 import { Input, TextField } from "react-aria-components"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { EmojiPicker } from "@/presentation/molecules/EmojiPicker/EmojiPicker"
@@ -42,6 +42,12 @@ export function MessageInput({
     handleRef,
 }: MessageInputProps) {
     const vm = useMessageInputViewModel({ onSend, onType, handleRef })
+
+    // Controlled state for the GIF popover so picking one snaps it shut.
+    // React Aria's `DialogTrigger` does NOT auto-close on inner clicks
+    // unless the click closes via the standard form-submit / link path —
+    // a GIF tile is a plain button, so we toggle the open state ourselves.
+    const [gifOpen, setGifOpen] = useState(false)
 
     // Decide between progress-row strip (any upload mid-flight) and chip strip
     // (everything ready). Empty string short-circuits the whole strip.
@@ -160,6 +166,8 @@ export function MessageInput({
                     <Popover
                         placement="top end"
                         offset={8}
+                        isOpen={gifOpen}
+                        onOpenChange={setGifOpen}
                         trigger={
                             <IconButton
                                 aria-label="GIF"
@@ -174,7 +182,12 @@ export function MessageInput({
                         }
                         className="overflow-visible"
                     >
-                        <GifPopover onPickGif={(file) => vm.onAddFiles([file])} />
+                        <GifPopover
+                            onPickGif={(file) => {
+                                vm.onAddFiles([file])
+                                setGifOpen(false)
+                            }}
+                        />
                     </Popover>
 
                     <IconButton

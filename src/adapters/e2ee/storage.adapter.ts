@@ -21,24 +21,28 @@
 import { type IDBPDatabase, openDB } from "idb"
 
 import type {
+    ActorUri,
     ConversationId,
     DeviceId,
     IdentityKeypair,
 } from "@/domain/models/e2ee"
 
 const DB_NAME = "pinai-e2ee"
-// Bumped to 2 to add the `mls_snapshot` store. The `upgrade` callback
-// is additive only — existing rows in `meta` / `identity` survive.
-const DB_VERSION = 2
+// Bumped to 3 to add the `recovery_passphrase` store (Phase 6a). The
+// `upgrade` callback is additive only — existing rows in `meta` /
+// `identity` / `mls_snapshot` survive.
+const DB_VERSION = 3
 
 const META_STORE = "meta"
 const IDENTITY_STORE = "identity"
 const GROUPS_STORE = "groups"
 const MLS_SNAPSHOT_STORE = "mls_snapshot"
+const RECOVERY_PASSPHRASE_STORE = "recovery_passphrase"
 
 const META_KEY = "current"
 const IDENTITY_KEY = "current"
 const MLS_SNAPSHOT_KEY = "current"
+const RECOVERY_PASSPHRASE_KEY = "current"
 
 const AES_ALGORITHM: AesKeyAlgorithm = { name: "AES-GCM", length: 256 }
 const AES_KEY_USAGES: KeyUsage[] = ["encrypt", "decrypt"]
@@ -47,6 +51,16 @@ const IV_BYTES = 12
 interface MetaRow {
     device_id: DeviceId
     device_key: CryptoKey
+    /**
+     * Actor URI of the user this device's stored identity belongs to.
+     * Set after `register()` or `recoverFromPassphrase()` succeeds.
+     * The onboarding gate reads this to detect "different user logged
+     * in on the same browser" and wipes the IDB before admitting the
+     * new user to the app, preventing cross-account contamination of
+     * keys / MLS state / message cache. Undefined for legacy rows
+     * created before Phase 6a — treated as null.
+     */
+    bound_actor_uri?: ActorUri
 }
 
 interface SealedRow {
@@ -112,6 +126,30 @@ export interface E2eeStorage {
      */
     loadMlsSnapshot(): Promise<MlsSnapshot | null>
     /**
+     * Persist the recovery passphrase locally so the user can retrieve
+     * it from Settings → Devices later (Phase 6b reveal UI). Encrypted
+     * under the same device key — security-equivalent to having the
+     * unwrapped MSK on disk already, since a device-compromised
+     * attacker could exfiltrate either to recover the account.
+     */
+    saveRecoveryPassphrase(words: string[]): Promise<void>
+    /**
+     * Returns the previously-saved recovery passphrase, or `null` if
+     * none has been stored on this device (fresh install, never set up,
+     * or explicitly cleared via the 6b "Clear recovery key" action).
+     */
+    loadRecoveryPassphrase(): Promise<string[] | null>
+    /** Drop the local copy. Paired with deleting the server-side blob. */
+    clearRecoveryPassphrase(): Promise<void>
+    /**
+     * Return the actor URI bound to this device's stored identity, or
+     * null when no identity is set up yet (or when it predates the
+     * actor-binding behaviour added in Phase 6a).
+     */
+    getBoundActorUri(): Promise<ActorUri | null>
+    /** Bind the device's identity to a specific user. Called after register/recover. */
+    setBoundActorUri(actorUri: ActorUri): Promise<void>
+    /**
      * Drop all E2EE state — used by `revokeDevice` on this device and
      * by the "log out everywhere" UI flow (Phase 6).
      */
@@ -130,6 +168,9 @@ export class IndexedDbStorageAdapter implements E2eeStorage {
                 if (!db.objectStoreNames.contains(GROUPS_STORE)) db.createObjectStore(GROUPS_STORE)
                 if (!db.objectStoreNames.contains(MLS_SNAPSHOT_STORE)) {
                     db.createObjectStore(MLS_SNAPSHOT_STORE)
+                }
+                if (!db.objectStoreNames.contains(RECOVERY_PASSPHRASE_STORE)) {
+                    db.createObjectStore(RECOVERY_PASSPHRASE_STORE)
                 }
             },
         })
@@ -215,10 +256,59 @@ export class IndexedDbStorageAdapter implements E2eeStorage {
         }
     }
 
+    async saveRecoveryPassphrase(words: string[]): Promise<void> {
+        const meta = await this.getOrCreateMeta()
+        const sealed = await sealWith(meta.device_key, { words })
+        const db = await this.openIfNeeded()
+        await db.put(RECOVERY_PASSPHRASE_STORE, sealed, RECOVERY_PASSPHRASE_KEY)
+    }
+
+    async loadRecoveryPassphrase(): Promise<string[] | null> {
+        const meta = await this.getMeta()
+        if (!meta) return null
+        const db = await this.openIfNeeded()
+        const sealed = (await db.get(
+            RECOVERY_PASSPHRASE_STORE,
+            RECOVERY_PASSPHRASE_KEY,
+        )) as SealedRow | undefined
+        if (!sealed) return null
+        try {
+            const json = await openSealed<{ words: string[] }>(meta.device_key, sealed)
+            return Array.isArray(json.words) ? json.words : null
+        } catch (e) {
+            // Corrupt or wrong key. Drop it and behave as "not stored"
+            // — the wrapped MSK is still on the server, the user just
+            // can't view the passphrase from this device.
+            // eslint-disable-next-line no-console
+            console.warn("Recovery passphrase decrypt failed; dropping", e)
+            await db
+                .delete(RECOVERY_PASSPHRASE_STORE, RECOVERY_PASSPHRASE_KEY)
+                .catch(() => undefined)
+            return null
+        }
+    }
+
+    async clearRecoveryPassphrase(): Promise<void> {
+        const db = await this.openIfNeeded()
+        await db.delete(RECOVERY_PASSPHRASE_STORE, RECOVERY_PASSPHRASE_KEY)
+    }
+
+    async getBoundActorUri(): Promise<ActorUri | null> {
+        const meta = await this.getMeta()
+        return meta?.bound_actor_uri ?? null
+    }
+
+    async setBoundActorUri(actorUri: ActorUri): Promise<void> {
+        const meta = await this.getOrCreateMeta()
+        const updated: MetaRow = { ...meta, bound_actor_uri: actorUri }
+        const db = await this.openIfNeeded()
+        await db.put(META_STORE, updated, META_KEY)
+    }
+
     async clear(): Promise<void> {
         const db = await this.openIfNeeded()
         const tx = db.transaction(
-            [META_STORE, IDENTITY_STORE, GROUPS_STORE, MLS_SNAPSHOT_STORE],
+            [META_STORE, IDENTITY_STORE, GROUPS_STORE, MLS_SNAPSHOT_STORE, RECOVERY_PASSPHRASE_STORE],
             "readwrite",
         )
         await Promise.all([
@@ -226,6 +316,7 @@ export class IndexedDbStorageAdapter implements E2eeStorage {
             tx.objectStore(IDENTITY_STORE).clear(),
             tx.objectStore(GROUPS_STORE).clear(),
             tx.objectStore(MLS_SNAPSHOT_STORE).clear(),
+            tx.objectStore(RECOVERY_PASSPHRASE_STORE).clear(),
         ])
         await tx.done
     }

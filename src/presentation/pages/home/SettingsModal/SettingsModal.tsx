@@ -1,8 +1,9 @@
 import type { ReactNode } from "react"
-import { Bell, Headphones, Lock, MessageSquare, Settings as SettingsIcon, Sparkles, Sun } from "lucide-react"
+import { Bell, Headphones, Laptop, Lock, MessageSquare, Settings as SettingsIcon, Sparkles, Sun } from "lucide-react"
 import type { UserProfile } from "@/domain/models/auth"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
+import { DevicesEditor } from "./DevicesEditor/DevicesEditor"
 import { IdentityTile } from "./IdentityTile/IdentityTile"
 import { PlaceholderEditor } from "./PlaceholderEditor/PlaceholderEditor"
 import { ProfileEditor } from "./ProfileEditor/ProfileEditor"
@@ -98,6 +99,14 @@ const SECTIONS: SectionDescriptor[] = [
         preview: <span className="font-mono text-[10.5px] text-muted-foreground">⌘K · ⌘\\ · ⇧⌘M</span>,
     },
     {
+        id: "devices",
+        label: "Devices",
+        title: "Devices signed in to Pīna'i.",
+        description: "Phones and laptops you're signed in on.",
+        icon: <Laptop className={ICON_PROPS} />,
+        preview: <span className="font-mono text-[10.5px] text-chat">manage signed-in devices</span>,
+    },
+    {
         id: "connections",
         label: "Connected servers",
         title: "Federated identities you’ve linked.",
@@ -117,7 +126,7 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
     const activeDescriptor = SECTIONS.find((s) => s.id === activeSection) ?? SECTIONS[0]
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} variant="fullscreen" isDismissable>
+        <Modal isOpen={isOpen} onClose={onClose} variant="fullscreen" isDismissable label="Settings">
             <div className="flex h-screen w-full">
                 {/* LEFT — landing grid */}
                 <div className="flex flex-[1.05] flex-col border-r border-border bg-background">
@@ -164,6 +173,8 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
                 <div className="flex flex-[0.95] flex-col">
                     {activeDescriptor.id === "profile" ? (
                         <ProfileEditor user={user} />
+                    ) : activeDescriptor.id === "devices" ? (
+                        <DevicesEditor />
                     ) : (
                         <PlaceholderEditor
                             sectionLabel={activeDescriptor.label}

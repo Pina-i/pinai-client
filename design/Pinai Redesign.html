@@ -15,6 +15,20 @@
   @keyframes pn-glow{0%,100%{box-shadow:inset 0 0 0 2px var(--voice),0 0 20px -4px var(--voice)}50%{box-shadow:inset 0 0 0 2px var(--voice),0 0 40px -2px var(--voice)}}
   @keyframes pn-wave{0%{transform:scaleY(0.3)}100%{transform:scaleY(1)}}
   @keyframes pn-fade-in{from{opacity:0}to{opacity:1}}
+  @keyframes pn-spin{to{transform:rotate(360deg)}}
+  @keyframes pn-ring{
+    0%,72%,100%{transform:rotate(0)}
+    76%{transform:rotate(14deg)}
+    80%{transform:rotate(-12deg)}
+    84%{transform:rotate(10deg)}
+    88%{transform:rotate(-8deg)}
+    92%{transform:rotate(4deg)}
+    96%{transform:rotate(-2deg)}
+  }
+  @keyframes pn-ping{
+    0%{transform:scale(1);opacity:0.8}
+    80%,100%{transform:scale(2.6);opacity:0}
+  }
 </style>
 </head>
 <body>
@@ -30,12 +44,19 @@
 <script type="text/babel" src="screens/shell.jsx"></script>
 <script type="text/babel" src="screens/signin.jsx"></script>
 <script type="text/babel" src="screens/friends.jsx"></script>
+<script type="text/babel" src="screens/contextmenu.jsx"></script>
 <script type="text/babel" src="screens/chat.jsx"></script>
+<script type="text/babel" src="screens/message-status.jsx"></script>
+<script type="text/babel" src="screens/message-status-variants.jsx"></script>
+<script type="text/babel" src="screens/ios-frame.jsx"></script>
+<script type="text/babel" src="screens/chat-mobile.jsx"></script>
 <script type="text/babel" src="screens/voice.jsx"></script>
 <script type="text/babel" src="screens/addfriend.jsx"></script>
 <script type="text/babel" src="screens/notifications.jsx"></script>
 <script type="text/babel" src="screens/userstatus.jsx"></script>
 <script type="text/babel" src="screens/settings.jsx"></script>
+<script type="text/babel" src="screens/mobile-app.jsx"></script>
+<script type="text/babel" src="screens/security.jsx"></script>
 
 <script type="text/babel" data-presets="react">
 function App() {
@@ -71,6 +92,13 @@ function App() {
           </DCArtboard>
         </DCSection>
 
+        <DCSection id="message-status" title="Message status · read receipts"
+          subtitle="Six treatments for sent/read indicators on self-sent messages. Same thread, six visual vocabularies — pick one (or mix two).">
+          <DCArtboard id="msg-status" label="Specimens · sent · delivered · read" width={1200} height={900}>
+            <MessageStatusProposals/>
+          </DCArtboard>
+        </DCSection>
+
         <DCSection id="composer-states" title="Composer · interaction states"
           subtitle="Four states for attaching content: GIF picker, drag-and-drop, per-file upload progress, and pre-send chips.">
           <DCArtboard id="cs-gif" label="A · GIF popover · open" width={1200} height={780}>
@@ -87,6 +115,28 @@ function App() {
           </DCArtboard>
         </DCSection>
 
+        <DCSection id="mobile-conversation" title="Mobile · Conversation"
+          subtitle="iOS. Composer sits at the bottom with the home indicator left clear and a 44pt tap target. Attaching, GIF picking, lightboxing all happen in full-screen sheets rather than tiny popovers.">
+          <DCArtboard id="m-default" label="A · Thread · default" width={390} height={844}>
+            <MobileChatScreen state="default"/>
+          </DCArtboard>
+          <DCArtboard id="m-attach" label="B · Tap ‘+’ · attach sheet" width={390} height={844}>
+            <MobileChatScreen state="attachSheet"/>
+          </DCArtboard>
+          <DCArtboard id="m-gif" label="C · GIF picker · bottom sheet" width={390} height={844}>
+            <MobileChatScreen state="gifSheet"/>
+          </DCArtboard>
+          <DCArtboard id="m-upload" label="D · Uploading · per-file progress" width={390} height={844}>
+            <MobileChatScreen state="uploading"/>
+          </DCArtboard>
+          <DCArtboard id="m-chips" label="E · Pre-send · chips" width={390} height={844}>
+            <MobileChatScreen state="chips"/>
+          </DCArtboard>
+          <DCArtboard id="m-light" label="F · Image lightbox · full-screen" width={390} height={844}>
+            <MobileChatScreen state="lightbox"/>
+          </DCArtboard>
+        </DCSection>
+
         <DCSection id="voice" title="Voice"
           subtitle="Amber/honey is the voice accent — warmer, speaks “live signal”. Distinct from chat at a glance.">
           <DCArtboard id="voice" label="04 · Voice room" width={1200} height={780}>
@@ -95,7 +145,7 @@ function App() {
         </DCSection>
 
         <DCSection id="addfriend" title="Add Friend · Popover exploration"
-          subtitle="Anchored popovers — keep the Friends list visible behind. Three directions, picking refinement over disruption.">
+          subtitle="Quick lookup that keeps your friends list in view. Three takes — single field, tabbed (address / link / QR), or live search with mutuals.">
           <DCArtboard id="af-compact" label="A · Compact popover" width={1200} height={760}>
             <AddFriendPopoverCompact/>
           </DCArtboard>
@@ -107,43 +157,103 @@ function App() {
           </DCArtboard>
         </DCSection>
 
+        <DCSection id="contextmenu" title="Friends · Right-click context menu"
+          subtitle="Right-click a friend (here: Maia, currently in voice) for a small menu of actions. Four directions for the row menu, plus a tailored variant for the DMs sidebar.">
+          <DCArtboard id="cm-classic" label="A · Classic list" width={1200} height={780}>
+            <ContextMenuClassic/>
+          </DCArtboard>
+          <DCArtboard id="cm-identity" label="B · Identity header + actions" width={1200} height={780}>
+            <ContextMenuIdentity/>
+          </DCArtboard>
+          <DCArtboard id="cm-toolbar" label="C · Quick-action toolbar + list" width={1200} height={780}>
+            <ContextMenuToolbar/>
+          </DCArtboard>
+          <DCArtboard id="cm-sectioned" label="D · Sectioned by intent" width={1200} height={780}>
+            <ContextMenuSectioned/>
+          </DCArtboard>
+          <DCArtboard id="cm-dm" label="E · DM sidebar variant" width={1200} height={780}>
+            <ContextMenuDM/>
+          </DCArtboard>
+        </DCSection>
+
         <DCSection id="notifications" title="Notifications · Bell popover exploration"
-          subtitle="Anchored to the bell in the topbar — three directions for hierarchy, density and interaction. The Friends list stays visible behind so context isn't lost.">
+          subtitle="What you missed, opened from the bell in the top bar. Your friends list stays visible behind so you don't lose your place.">
           <DCArtboard id="notif-editorial" label="A · Editorial inbox" width={1200} height={760}>
             <NotifPopoverEditorial/>
-          </DCArtboard>
-          <DCArtboard id="notif-categorized" label="B · Categorized · rail + feed" width={1200} height={760}>
-            <NotifPopoverCategorized/>
-          </DCArtboard>
-          <DCArtboard id="notif-activity" label="C · Activity stream" width={1200} height={760}>
-            <NotifPopoverActivity/>
           </DCArtboard>
         </DCSection>
 
         <DCSection id="userstatus" title="User status · UserBar popover exploration"
-          subtitle="Anchored to the user item in the bottom-left of the sidebar. Three directions for identity + presence swap.">
-          <DCArtboard id="us-identity" label="A · Identity card" width={1200} height={780}>
-            <UserStatusPopoverIdentity/>
-          </DCArtboard>
-          <DCArtboard id="us-dial" label="B · Status-first dial" width={1200} height={780}>
-            <UserStatusPopoverDial/>
-          </DCArtboard>
+          subtitle="Tap your name in the bottom-left to set how you appear to friends — online, away, busy, invisible.">
           <DCArtboard id="us-activity" label="C · Identity + activity" width={1200} height={780}>
             <UserStatusPopoverActivity/>
           </DCArtboard>
         </DCSection>
 
         <DCSection id="settings" title="User settings · full-page rework"
-          subtitle="Three directions for the settings overlay — replacing the current cramped left rail + thin form."
+          subtitle="A roomier place to manage your profile, privacy and devices — three directions for the layout."
         >
           <DCArtboard id="set-editorial" label="A · Editorial · live profile preview" width={1200} height={780}>
             <SettingsEditorial/>
           </DCArtboard>
-          <DCArtboard id="set-twopane" label="B · Two-pane editor · floating save bar" width={1200} height={780}>
-            <SettingsTwoPane/>
-          </DCArtboard>
           <DCArtboard id="set-cards" label="C · Card grid + drill-in" width={1200} height={780}>
             <SettingsCardGrid/>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="mobile-app" title="Mobile · App screens"
+          subtitle="The whole app on a phone. Sign in, find your friends, drop into a voice room, manage your account — every flow rethought for one-handed use.">
+          <DCArtboard id="m-signin" label="01 · Sign-in" width={390} height={844}>
+            <MobileSignIn/>
+          </DCArtboard>
+          <DCArtboard id="m-friends" label="02 · Friends + tab bar" width={390} height={844}>
+            <MobileFriends/>
+          </DCArtboard>
+          <DCArtboard id="m-voice" label="03 · Voice room · live" width={390} height={844}>
+            <MobileVoice/>
+          </DCArtboard>
+          <DCArtboard id="m-addfriend" label="04 · Add friend (A · address)" width={390} height={844}>
+            <MobileAddFriend/>
+          </DCArtboard>
+          <DCArtboard id="m-notif" label="05 · Notifications (A · editorial)" width={390} height={844}>
+            <MobileNotifications/>
+          </DCArtboard>
+          <DCArtboard id="m-userstatus" label="06 · User status (C · sheet)" width={390} height={844}>
+            <MobileUserStatus/>
+          </DCArtboard>
+          <DCArtboard id="m-settings" label="07 · Settings (C · card grid)" width={390} height={844}>
+            <MobileSettings/>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="security" title="Security · End-to-end encryption"
+          subtitle="With friends, encryption stays out of the way — it just works. With strangers, small in-context hints let you decide for yourself. A recovery passphrase saved once on your first device unlocks your full conversation history on every new one.">
+          <DCArtboard id="sec-warnings" label="01 · Subtle in-context hints" width={1200} height={780}>
+            <SecSubtleWarnings/>
+          </DCArtboard>
+          <DCArtboard id="sec-recovery" label="02 · Recovery passphrase · save it" width={1200} height={780}>
+            <SecRecoveryKey/>
+          </DCArtboard>
+          <DCArtboard id="sec-recover-empty" label="03a · Recover history · new device" width={1200} height={780}>
+            <SecRecoverHistory/>
+          </DCArtboard>
+          <DCArtboard id="sec-recover-entering" label="03b · Recover history · mid-entry + typo catch" width={1200} height={780}>
+            <SecRecoverHistoryEntering/>
+          </DCArtboard>
+          <DCArtboard id="sec-devices" label="04 · Settings → Devices" width={1200} height={780}>
+            <SecDevicesSettings/>
+          </DCArtboard>
+          <DCArtboard id="sec-pair-qr" label="05 · Pair a new device · QR (mobile)" width={390} height={844}>
+            <SecPairQrMobile/>
+          </DCArtboard>
+          <DCArtboard id="sec-pair-scan" label="06 · Pair a new device · Scanner (mobile)" width={390} height={844}>
+            <SecPairScanMobile/>
+          </DCArtboard>
+          <DCArtboard id="sec-badge" label="07 · Encrypted badge · specimens" width={1200} height={760}>
+            <SecBadgeSpecimens/>
+          </DCArtboard>
+          <DCArtboard id="sec-title-styles" label="08 · Title compositions · pick one" width={1200} height={900}>
+            <SecTitleStyles/>
           </DCArtboard>
         </DCSection>
 

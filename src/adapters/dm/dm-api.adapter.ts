@@ -150,6 +150,25 @@ export class DmApiAdapter implements IDmPort {
         }
     }
 
+    async markConversationRead(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: string,
+    ): Promise<void> {
+        const url = `${idpUrl.replace(/\/$/, "")}/api/dm/${encodeURIComponent(conversationId)}/read`
+        try {
+            await ky.post(url, {
+                headers: { Authorization: `Bearer ${accessToken}` },
+            })
+        } catch (error) {
+            if (error instanceof HTTPError) {
+                const err = await error.response.json().catch(() => ({})) as { error?: string }
+                throw new Error(err.error ?? `Failed to mark conversation as read: ${error.response.status}`)
+            }
+            throw error
+        }
+    }
+
     async editMessage(idpUrl: string, accessToken: string, messageId: string, mlsCiphertext: string): Promise<void> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/dm/${messageId}/edit`
         try {

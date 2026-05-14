@@ -88,7 +88,7 @@ export class MlsAdapter {
     /**
      * Cached in-flight `initialize()` promise. Guards against two
      * concurrent callers (e.g. React strict-mode double-fire of the
-     * `useRegisterMlsIdentity` + `useConsumeMlsWelcomes` effects) both
+     * onboarding bootstrap + `useConsumeMlsWelcomes` effects) both
      * passing the `if (this.provider)` short-circuit and ending up
      * with two `new Provider()` instances — the second silently
      * orphans the first, so any `Identity` already bound against the
@@ -105,6 +105,20 @@ export class MlsAdapter {
      * the bundle uses its default URL relative to the .js glue. Tests
      * pass a `WebAssembly.Module` to avoid the network round-trip.
      */
+    /**
+     * Drop the in-memory provider, identity, and group caches. Called
+     * by `E2eeAdapter.wipeLocalDevice` when a different user logs in
+     * on the same browser — without this, a stale `Provider` instance
+     * holding the previous user's group state would race the wiped
+     * IDB on the next op.
+     */
+    resetProvider(): void {
+        this.provider = null
+        this.identity = null
+        this.groups.clear()
+        this.initPromise = null
+    }
+
     async initialize(wasmInput?: Parameters<typeof init>[0]): Promise<void> {
         if (this.provider) return
         if (!this.initPromise) {
@@ -175,13 +189,11 @@ export class MlsAdapter {
         deviceId: DeviceId,
     ): Uint8Array | null {
         for (const group of this.groups.values()) {
-            const members = group.list_members()
-            for (const m of members) {
+            const own = group.list_members().find((m) => {
                 const cred = decodeLeafCredential(m.credential_bytes)
-                if (cred && cred.actor_uri === actorUri && cred.device_id === deviceId) {
-                    return m.signature_public_key
-                }
-            }
+                return cred?.actor_uri === actorUri && cred.device_id === deviceId
+            })
+            if (own) return own.signature_public_key
         }
         return null
     }
