@@ -568,6 +568,21 @@ export class E2eeAdapter implements IE2eePort {
     ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint; words: string[] }> {
         const { device_id, fingerprint } = await this.register(idpUrl, accessToken, actorUri)
 
+        // Phase 7 — also register the device's DRK attestation so the
+        // server has the IdP-signed binding (and other live devices of
+        // this user receive a DeviceJoined event). Idempotent — skips when
+        // a fresh attestation already exists.
+        try {
+            await this.registerDevice(idpUrl, accessToken, actorUri)
+        } catch (e) {
+            // Non-fatal: the legacy MSK identity is already published, so
+            // the device works for messaging. The Phase 7 attestation will
+            // be retried on the next sign-in. We log so we notice if this
+            // path is hot in production.
+            // eslint-disable-next-line no-console
+            console.warn("[bootstrap] registerDevice failed (non-fatal)", e)
+        }
+
         // Idempotency across hard refresh: if a passphrase already
         // exists locally (a previous bootstrap on this device
         // completed at least step 4), reuse it. Generating a fresh
