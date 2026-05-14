@@ -1,3 +1,4 @@
+import { useEffect } from "react"
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { useAppStore } from "@/store/store"
@@ -5,8 +6,13 @@ import { isTokenValid } from "@/adapters/auth/token"
 import { ensureAuthenticatedUseCase } from "@/domain/usecases/auth/ensureAuthenticated.usecase"
 import { getAuthPort } from "@/ioc/index"
 import { useConsumeMlsWelcomes } from "@/presentation/hooks/useConsumeMlsWelcomes"
+import { useDeviceFanout } from "@/presentation/hooks/useDeviceFanout"
+import { useHistoryArchiveFlusher } from "@/presentation/hooks/useHistoryArchiveFlusher"
 import { useIdentityOnboardingGate } from "@/presentation/hooks/useIdentityOnboardingGate"
-import { useIdpWebSocket } from "@/presentation/hooks/useIdpWebSocket"
+import {
+    registerDeviceFanoutHandler,
+    useIdpWebSocket,
+} from "@/presentation/hooks/useIdpWebSocket"
 import { useLoadPendingNotifications } from "@/presentation/hooks/useLoadPendingNotifications"
 import { useLoadDmConversations } from "@/presentation/hooks/useLoadDmConversations"
 import { useHeartbeat } from "@/presentation/hooks/useHeartbeat"
@@ -40,6 +46,9 @@ function AuthenticatedLayout() {
     useLoadDmConversations()
     useLoadPresence()
     useConsumeMlsWelcomes()
+    useHistoryArchiveFlusher()
+    const { onDeviceJoined } = useDeviceFanout()
+    useEffect(() => registerDeviceFanoutHandler(onDeviceJoined), [onDeviceJoined])
 
     const probing = gate.status === "loading" || gate.status === "redirecting"
     // Hold the loader visible for at least 600 ms even when the
