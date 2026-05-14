@@ -21,6 +21,7 @@
  * handler.
  */
 
+import { ed25519 } from "@noble/curves/ed25519.js"
 import { generateMnemonic } from "@scure/bip39"
 import { wordlist } from "@scure/bip39/wordlists/english.js"
 
@@ -33,13 +34,24 @@ import type {
     KeyPackageStatusResponse,
 } from "@/domain/models/e2ee"
 import type { IE2eePort } from "@/domain/ports/e2ee.port"
+import type { IHistoryArchivePort } from "@/domain/ports/history-archive.port"
 
+import type { HistoryArchiveAdapter } from "./history-archive.adapter"
 import type { IdentityAdapter } from "./identity.adapter"
 import type { IKeyDirectoryAdapter } from "./key-directory.adapter"
 import type { MlsAdapter } from "./mls.adapter"
 import { PairingInitiator, PairingResponder } from "./pairing.adapter"
 import type { RecoveryAdapter } from "./recovery.adapter"
-import type { E2eeStorage } from "./storage.adapter"
+import type { DeviceAttestation, E2eeStorage } from "./storage.adapter"
+
+/** Phase 7 — silent renewal triggers when remaining validity drops below this. */
+const ATTESTATION_RENEWAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
+
+function attestationNeedsRenewal(att: DeviceAttestation): boolean {
+    const expires = Date.parse(att.expires_at)
+    if (Number.isNaN(expires)) return true
+    return expires - Date.now() < ATTESTATION_RENEWAL_WINDOW_MS
+}
 
 /**
  * Default lifetime for a freshly-built KeyPackage, in milliseconds.
@@ -98,6 +110,14 @@ export class E2eeAdapter implements IE2eePort {
     private readonly storage: E2eeStorage
     private readonly directory: IKeyDirectoryAdapter
     private readonly recovery: RecoveryAdapter
+    // Phase 7 — optional history-backup wiring. When unset, the per-decrypt
+    // buffer is silently disabled (no flushing happens). IoC always provides
+    // these in production; tests can omit to keep the old surface working.
+    private readonly historyArchive: IHistoryArchivePort | null
+    private readonly historyCrypto: HistoryArchiveAdapter | null
+    private readonly onPlaintextRestored:
+        | ((conversationId: ConversationId, messageId: string, plaintext: Uint8Array) => void)
+        | null
 
     constructor(
         identity: IdentityAdapter,
@@ -105,12 +125,243 @@ export class E2eeAdapter implements IE2eePort {
         storage: E2eeStorage,
         directory: IKeyDirectoryAdapter,
         recovery: RecoveryAdapter,
+        historyArchive: IHistoryArchivePort | null = null,
+        historyCrypto: HistoryArchiveAdapter | null = null,
+        onPlaintextRestored:
+            | ((conversationId: ConversationId, messageId: string, plaintext: Uint8Array) => void)
+            | null = null,
     ) {
         this.identity = identity
         this.mls = mls
         this.storage = storage
         this.directory = directory
         this.recovery = recovery
+        this.historyArchive = historyArchive
+        this.historyCrypto = historyCrypto
+        this.onPlaintextRestored = onPlaintextRestored
+    }
+
+    // ─── Phase 7 — per-device IdP attestation ────────────────────────
+
+    private registerDevicePromise: Promise<void> | null = null
+
+    async registerDevice(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+    ): Promise<void> {
+        // Reuse an in-flight registration so concurrent callers (e.g. the
+        // onboarding gate + bootstrap-first-device usecase) share one HTTP
+        // round-trip and one IDB write.
+        if (this.registerDevicePromise) return this.registerDevicePromise
+        this.registerDevicePromise = this.doRegisterDevice(idpUrl, accessToken, actorUri)
+        try {
+            await this.registerDevicePromise
+        } finally {
+            // Allow retries on failure; success can re-execute later
+            // (e.g. on attestation expiry) by clearing the cache.
+            this.registerDevicePromise = null
+        }
+    }
+
+    private async doRegisterDevice(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+    ): Promise<void> {
+        void actorUri // Bound on the server side via the bearer token; included for symmetry with the design doc.
+
+        // Load existing DRK + attestation if any; mint fresh if absent.
+        const existing = await this.storage.loadDeviceAttestation()
+        let drkPrivate: Uint8Array
+        let drkPublic: Uint8Array
+
+        if (existing && !attestationNeedsRenewal(existing)) {
+            return
+        }
+        if (existing) {
+            drkPrivate = existing.drk_private
+            drkPublic = existing.drk_public
+        } else {
+            const kp = ed25519.keygen()
+            drkPrivate = kp.secretKey
+            drkPublic = kp.publicKey
+        }
+
+        const deviceId = await this.storage.getOrCreateDeviceId()
+        const response = await this.directory.registerDevice(
+            idpUrl,
+            accessToken,
+            deviceId,
+            drkPublic,
+        )
+        await this.storage.saveDeviceAttestation({
+            drk_public: drkPublic,
+            drk_private: drkPrivate,
+            signature: response.signature,
+            kid: response.kid,
+            issued_at: response.issued_at,
+            expires_at: response.expires_at,
+            signed_message: response.signed_message,
+        })
+    }
+
+    // ─── Phase 7 — history-backup engine ─────────────────────────────
+
+    private archiveBuffer: Array<{
+        conversationId: ConversationId
+        messageId: string
+        plaintext: Uint8Array
+    }> = []
+    private flushTimer: ReturnType<typeof setInterval> | null = null
+    private cachedHak: Uint8Array | null = null
+    private flushIdpUrl: string | null = null
+    private flushAccessToken: string | null = null
+
+    /**
+     * Phase 7 — buffer a freshly decrypted plaintext for upload. Called
+     * internally from `decryptInbound` (wired in Phase 5). No-op when
+     * `historyArchive` / `historyCrypto` aren't wired or the user
+     * doesn't have a stored passphrase yet.
+     */
+    bufferDecryptedForArchive(
+        conversationId: ConversationId,
+        messageId: string,
+        plaintext: Uint8Array,
+    ): void {
+        if (!this.historyArchive || !this.historyCrypto) return
+        this.archiveBuffer.push({ conversationId, messageId, plaintext })
+        if (this.archiveBuffer.length >= 10) void this.flushArchiveNow()
+    }
+
+    startFlushing(idpUrl: string, accessToken: string): void {
+        this.flushIdpUrl = idpUrl
+        this.flushAccessToken = accessToken
+        if (this.flushTimer || !this.historyArchive) return
+        this.flushTimer = setInterval(() => {
+            void this.flushArchiveNow()
+        }, 2000)
+    }
+
+    stopFlushing(): void {
+        if (this.flushTimer) {
+            clearInterval(this.flushTimer)
+            this.flushTimer = null
+        }
+        this.flushIdpUrl = null
+        this.flushAccessToken = null
+        this.cachedHak = null
+    }
+
+    async getCachedPassphrase(): Promise<string[] | null> {
+        return this.storage.loadRecoveryPassphrase()
+    }
+
+    async restoreHistoryFromPassphrase(
+        idpUrl: string,
+        accessToken: string,
+        passphrase: string[],
+    ): Promise<{ restored: number; skipped: number }> {
+        if (!this.historyArchive || !this.historyCrypto) {
+            return { restored: 0, skipped: 0 }
+        }
+        const salt = await this.historyArchive.getSalt(idpUrl, accessToken)
+        if (!salt) return { restored: 0, skipped: 0 }
+        const hak = await this.historyCrypto.deriveKey(passphrase, salt)
+
+        let restored = 0
+        let skipped = 0
+        let cursor: { after_id: string; after_created_at: string } | null = null
+        do {
+            const page = await this.historyArchive.downloadPage(
+                idpUrl,
+                accessToken,
+                cursor,
+                100,
+            )
+            for (const entry of page.entries) {
+                try {
+                    const plain = await this.historyCrypto.decrypt(
+                        hak,
+                        entry.ciphertext,
+                        entry.nonce,
+                    )
+                    if (this.onPlaintextRestored) {
+                        this.onPlaintextRestored(
+                            entry.conversation_id as ConversationId,
+                            entry.id,
+                            plain,
+                        )
+                    }
+                    restored += 1
+                } catch {
+                    skipped += 1
+                }
+            }
+            cursor = page.next_cursor
+        } while (cursor)
+        return { restored, skipped }
+    }
+
+    async clearHistoryBackup(idpUrl: string, accessToken: string): Promise<void> {
+        if (this.historyArchive) {
+            await this.historyArchive.wipeArchive(idpUrl, accessToken)
+        }
+        await this.storage.clearRecoveryPassphrase()
+        this.cachedHak = null
+        this.archiveBuffer = []
+    }
+
+    /**
+     * Drain the buffered plaintexts into the server. Derives HAK lazily
+     * on first flush per session via `(salt, cached passphrase)`; when
+     * no passphrase is stored locally the buffer just sits there and
+     * the next clear() / page reload drops it.
+     */
+    private async flushArchiveNow(): Promise<void> {
+        if (
+            !this.historyArchive ||
+            !this.historyCrypto ||
+            this.archiveBuffer.length === 0 ||
+            !this.flushIdpUrl ||
+            !this.flushAccessToken
+        ) {
+            return
+        }
+        if (!this.cachedHak) {
+            const phrase = await this.storage.loadRecoveryPassphrase()
+            if (!phrase) return
+            const salt = await this.historyArchive.getSalt(this.flushIdpUrl, this.flushAccessToken)
+            if (!salt) return
+            this.cachedHak = await this.historyCrypto.deriveKey(phrase, salt)
+        }
+        const toFlush = this.archiveBuffer.splice(0, this.archiveBuffer.length)
+        try {
+            const entries = await Promise.all(
+                toFlush.map(async (e) => {
+                    const { ciphertext, nonce } = await this.historyCrypto!.encrypt(
+                        this.cachedHak!,
+                        e.plaintext,
+                    )
+                    return {
+                        id: e.messageId,
+                        conversation_id: e.conversationId,
+                        ciphertext,
+                        nonce,
+                    }
+                }),
+            )
+            await this.historyArchive.uploadBatch(
+                this.flushIdpUrl,
+                this.flushAccessToken,
+                entries,
+            )
+        } catch (err) {
+            // Re-queue so the next tick retries.
+            // eslint-disable-next-line no-console
+            console.warn("[history-archive] flush failed; re-buffering", err)
+            this.archiveBuffer.unshift(...toFlush)
+        }
     }
 
     /**
