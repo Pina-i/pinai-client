@@ -508,12 +508,11 @@ export class E2eeAdapter implements IE2eePort {
         if (!keypair) {
             keypair = this.identity.generate()
             await this.storage.saveIdentityKeypair(keypair)
-            // First-ever registration: publish the public triple.
-            await this.directory.publishIdentity(
-                idpUrl,
-                accessToken,
-                this.identity.publicKeys(keypair),
-            )
+            // Phase 7 — server no longer accepts user-level MSK/SSK/USK
+            // publication (the /api/keys/identity endpoint is gone). The
+            // local keypair is still generated because the MLS leaf
+            // signing code path expects it; per-device IdP attestation
+            // lands via `registerDevice` (called from doBootstrapFirstDevice).
         }
 
         // Bind the device to this actor URI so the onboarding gate can
@@ -600,7 +599,12 @@ export class E2eeAdapter implements IE2eePort {
         if (words.length !== 24) {
             throw new Error(`bootstrap: expected 24-word mnemonic, got ${words.length}`)
         }
-        await this.setupRecoveryKey(idpUrl, accessToken, mnemonic)
+        // Phase 7 — the legacy setupRecoveryKey call (server-side
+        // passphrase-wrapped MSK blob via PUT /api/keys/recovery) is gone
+        // along with the endpoint. The passphrase now exists locally on
+        // the issuing device and is shown to the user; restore on a new
+        // device uses /api/history/* under HAK = Argon2id(passphrase, salt).
+        void mnemonic // intentionally unused now — kept above so the local save still happens
         await this.storage.saveRecoveryPassphrase(words)
 
         // Phase 7 — mint the per-user salt for Argon2id HAK derivation
