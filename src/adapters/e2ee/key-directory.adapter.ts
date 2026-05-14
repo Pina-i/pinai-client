@@ -62,6 +62,20 @@ export interface RecoveryBlobResponse {
     updated_at: string
 }
 
+/**
+ * Phase 7 — response shape for `POST /api/keys/devices`. The server signs
+ * `(actor_uri, device_id, drk_pub, expires_at, kid)` and returns the
+ * signature plus the canonical bytes so the client can locally re-verify
+ * before persisting.
+ */
+export interface RegisterDeviceResponse {
+    signature: Uint8Array
+    kid: string
+    issued_at: string
+    expires_at: string
+    signed_message: Uint8Array
+}
+
 export interface IKeyDirectoryAdapter {
     publishIdentity(
         idpUrl: string,
@@ -73,6 +87,17 @@ export interface IKeyDirectoryAdapter {
         accessToken: string,
         actorUri: ActorUri,
     ): Promise<IdentityKeysResponse | null>
+    /**
+     * Phase 7 — register or refresh this device's IdP attestation.
+     * Idempotent on `(device_id, drk_pub)`: new row → first-time mint;
+     * existing row + same DRK → renewal; existing row + new DRK → rotation.
+     */
+    registerDevice(
+        idpUrl: string,
+        accessToken: string,
+        deviceId: DeviceId,
+        drkPublicKey: Uint8Array,
+    ): Promise<RegisterDeviceResponse>
 
     uploadKeyPackages(
         idpUrl: string,
@@ -178,6 +203,34 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryAdapter {
                 },
             }),
         )
+    }
+
+    async registerDevice(
+        idpUrl: string,
+        accessToken: string,
+        deviceId: DeviceId,
+        drkPublicKey: Uint8Array,
+    ): Promise<RegisterDeviceResponse> {
+        const url = `${trimSlash(idpUrl)}/api/keys/devices`
+        const body = await guarded(() =>
+            ky.post(url, {
+                headers: authHeader(accessToken),
+                json: { device_id: deviceId, drk_public_key: b64(drkPublicKey) },
+            }).json<{
+                signature: string
+                kid: string
+                issued_at: string
+                expires_at: string
+                signed_message: string
+            }>(),
+        )
+        return {
+            signature: unb64(body.signature),
+            kid: body.kid,
+            issued_at: body.issued_at,
+            expires_at: body.expires_at,
+            signed_message: unb64(body.signed_message),
+        }
     }
 
     async getIdentity(

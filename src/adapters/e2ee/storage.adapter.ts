@@ -28,21 +28,23 @@ import type {
 } from "@/domain/models/e2ee"
 
 const DB_NAME = "pinai-e2ee"
-// Bumped to 3 to add the `recovery_passphrase` store (Phase 6a). The
+// Bumped to 4 to add the `device_attestation` store (Phase 7). The
 // `upgrade` callback is additive only — existing rows in `meta` /
-// `identity` / `mls_snapshot` survive.
-const DB_VERSION = 3
+// `identity` / `mls_snapshot` / `recovery_passphrase` survive.
+const DB_VERSION = 4
 
 const META_STORE = "meta"
 const IDENTITY_STORE = "identity"
 const GROUPS_STORE = "groups"
 const MLS_SNAPSHOT_STORE = "mls_snapshot"
 const RECOVERY_PASSPHRASE_STORE = "recovery_passphrase"
+const DEVICE_ATTESTATION_STORE = "device_attestation"
 
 const META_KEY = "current"
 const IDENTITY_KEY = "current"
 const MLS_SNAPSHOT_KEY = "current"
 const RECOVERY_PASSPHRASE_KEY = "current"
+const DEVICE_ATTESTATION_KEY = "current"
 
 const AES_ALGORITHM: AesKeyAlgorithm = { name: "AES-GCM", length: 256 }
 const AES_KEY_USAGES: KeyUsage[] = ["encrypt", "decrypt"]
@@ -96,6 +98,27 @@ export interface MlsSnapshot {
     known_group_ids: ConversationId[]
 }
 
+/**
+ * Phase 7 — per-device IdP-attested identity material.
+ *
+ * The DRK private key is the device's long-lived signing key (1-year
+ * lifetime by default). The attestation is the IdP's signature over
+ * the canonical bytes `(actor_uri, device_id, drk_pub, expires_at, kid)`.
+ * Both live in IDB encrypted under the device key, alongside the
+ * canonical message bytes the IdP signed so the client can re-verify
+ * after restoration without re-deriving the byte order.
+ */
+export interface DeviceAttestation {
+    drk_public: Uint8Array
+    drk_private: Uint8Array
+    signature: Uint8Array
+    kid: string
+    issued_at: string  // RFC3339
+    expires_at: string // RFC3339
+    /** Canonical bytes the IdP signed — kept for local re-verification. */
+    signed_message: Uint8Array
+}
+
 export interface E2eeStorage {
     /** Returns the device's UUID, generating + persisting on first call. */
     getOrCreateDeviceId(): Promise<DeviceId>
@@ -142,6 +165,17 @@ export interface E2eeStorage {
     /** Drop the local copy. Paired with deleting the server-side blob. */
     clearRecoveryPassphrase(): Promise<void>
     /**
+     * Phase 7 — persist the device's DRK + IdP attestation. Replaces any
+     * previous attestation (used for renewal at the 30-day window and for
+     * key rotation).
+     */
+    saveDeviceAttestation(att: DeviceAttestation): Promise<void>
+    /**
+     * Phase 7 — load the stored DRK + attestation, or `null` when the
+     * device hasn't yet called `POST /api/keys/devices`.
+     */
+    loadDeviceAttestation(): Promise<DeviceAttestation | null>
+    /**
      * Return the actor URI bound to this device's stored identity, or
      * null when no identity is set up yet (or when it predates the
      * actor-binding behaviour added in Phase 6a).
@@ -171,6 +205,9 @@ export class IndexedDbStorageAdapter implements E2eeStorage {
                 }
                 if (!db.objectStoreNames.contains(RECOVERY_PASSPHRASE_STORE)) {
                     db.createObjectStore(RECOVERY_PASSPHRASE_STORE)
+                }
+                if (!db.objectStoreNames.contains(DEVICE_ATTESTATION_STORE)) {
+                    db.createObjectStore(DEVICE_ATTESTATION_STORE)
                 }
             },
         })
@@ -293,6 +330,34 @@ export class IndexedDbStorageAdapter implements E2eeStorage {
         await db.delete(RECOVERY_PASSPHRASE_STORE, RECOVERY_PASSPHRASE_KEY)
     }
 
+    async saveDeviceAttestation(att: DeviceAttestation): Promise<void> {
+        const meta = await this.getOrCreateMeta()
+        const sealed = await sealWith(meta.device_key, deviceAttestationToJson(att))
+        const db = await this.openIfNeeded()
+        await db.put(DEVICE_ATTESTATION_STORE, sealed, DEVICE_ATTESTATION_KEY)
+    }
+
+    async loadDeviceAttestation(): Promise<DeviceAttestation | null> {
+        const meta = await this.getMeta()
+        if (!meta) return null
+        const db = await this.openIfNeeded()
+        const sealed = (await db.get(DEVICE_ATTESTATION_STORE, DEVICE_ATTESTATION_KEY)) as
+            | SealedRow
+            | undefined
+        if (!sealed) return null
+        try {
+            const json = await openSealed<DeviceAttestationJson>(meta.device_key, sealed)
+            return deviceAttestationFromJson(json)
+        } catch (e) {
+            // Corrupt or wrong key — drop the row; next register-device call
+            // will mint a fresh attestation.
+            // eslint-disable-next-line no-console
+            console.warn("Device attestation decrypt failed; dropping", e)
+            await db.delete(DEVICE_ATTESTATION_STORE, DEVICE_ATTESTATION_KEY).catch(() => undefined)
+            return null
+        }
+    }
+
     async getBoundActorUri(): Promise<ActorUri | null> {
         const meta = await this.getMeta()
         return meta?.bound_actor_uri ?? null
@@ -308,7 +373,14 @@ export class IndexedDbStorageAdapter implements E2eeStorage {
     async clear(): Promise<void> {
         const db = await this.openIfNeeded()
         const tx = db.transaction(
-            [META_STORE, IDENTITY_STORE, GROUPS_STORE, MLS_SNAPSHOT_STORE, RECOVERY_PASSPHRASE_STORE],
+            [
+                META_STORE,
+                IDENTITY_STORE,
+                GROUPS_STORE,
+                MLS_SNAPSHOT_STORE,
+                RECOVERY_PASSPHRASE_STORE,
+                DEVICE_ATTESTATION_STORE,
+            ],
             "readwrite",
         )
         await Promise.all([
@@ -317,12 +389,47 @@ export class IndexedDbStorageAdapter implements E2eeStorage {
             tx.objectStore(GROUPS_STORE).clear(),
             tx.objectStore(MLS_SNAPSHOT_STORE).clear(),
             tx.objectStore(RECOVERY_PASSPHRASE_STORE).clear(),
+            tx.objectStore(DEVICE_ATTESTATION_STORE).clear(),
         ])
         await tx.done
     }
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
+
+interface DeviceAttestationJson {
+    drk_public: number[]
+    drk_private: number[]
+    signature: number[]
+    kid: string
+    issued_at: string
+    expires_at: string
+    signed_message: number[]
+}
+
+function deviceAttestationToJson(att: DeviceAttestation): DeviceAttestationJson {
+    return {
+        drk_public: Array.from(att.drk_public),
+        drk_private: Array.from(att.drk_private),
+        signature: Array.from(att.signature),
+        kid: att.kid,
+        issued_at: att.issued_at,
+        expires_at: att.expires_at,
+        signed_message: Array.from(att.signed_message),
+    }
+}
+
+function deviceAttestationFromJson(j: DeviceAttestationJson): DeviceAttestation {
+    return {
+        drk_public: new Uint8Array(j.drk_public),
+        drk_private: new Uint8Array(j.drk_private),
+        signature: new Uint8Array(j.signature),
+        kid: j.kid,
+        issued_at: j.issued_at,
+        expires_at: j.expires_at,
+        signed_message: new Uint8Array(j.signed_message),
+    }
+}
 
 async function sealWith(key: CryptoKey, value: object): Promise<SealedRow> {
     const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES))
