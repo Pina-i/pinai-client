@@ -263,6 +263,63 @@ export interface IE2eePort {
         passphrase: string,
     ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint }>
 
+    // ─── Phase 7 — per-device IdP attestation + history backup ──────────
+
+    /**
+     * Phase 7 — register/renew/rotate this device's DRK attestation.
+     * Idempotent. Generates a DRK on first call, calls
+     * `POST /api/keys/devices`, persists the attestation locally.
+     * Subsequent calls reuse the stored DRK and renew when within 30
+     * days of expiry; otherwise short-circuit.
+     */
+    registerDevice(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+    ): Promise<void>
+
+    /**
+     * Phase 7 — fetch the locally-cached recovery passphrase, or null
+     * when the device has no copy stored (paired-via-QR device, fresh
+     * install, or explicitly cleared).
+     */
+    getCachedPassphrase(): Promise<string[] | null>
+
+    /**
+     * Phase 7 — Layer B history-backup engine controls. The adapter
+     * owns an internal buffer of decrypted plaintexts plus a debounced
+     * flush timer; `startFlushing` / `stopFlushing` manage the timer
+     * lifecycle and the lifecycle hook in the authenticated layout
+     * wraps them.
+     */
+    startFlushing(idpUrl: string, accessToken: string): void
+    stopFlushing(): void
+
+    /**
+     * Phase 7 — Layer B restore. Given the 24-word passphrase, pulls
+     * the user's encrypted plaintext archive from the server, decrypts
+     * each entry under the derived HAK, and pushes successful entries
+     * into the local message store via the `onPlaintextRestored`
+     * callback configured at adapter construction.
+     *
+     * Returns counts: `restored` is the number of entries successfully
+     * decoded; `skipped` is the count of AES-GCM auth-tag failures
+     * (wrong passphrase or unrelated archive).
+     */
+    restoreHistoryFromPassphrase(
+        idpUrl: string,
+        accessToken: string,
+        passphrase: string[],
+    ): Promise<{ restored: number; skipped: number }>
+
+    /**
+     * Phase 7 — `DELETE /api/history/messages` + drop local cached
+     * passphrase + memory-purge cached HAK. After clearing, the
+     * per-decrypt upload becomes a no-op (no key to encrypt with)
+     * until the user re-generates a passphrase.
+     */
+    clearHistoryBackup(idpUrl: string, accessToken: string): Promise<void>
+
     // ─── Pairing ──────────────────────────────────────────────────────
 
     /**
