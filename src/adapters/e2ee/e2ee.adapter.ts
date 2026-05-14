@@ -602,6 +602,21 @@ export class E2eeAdapter implements IE2eePort {
         }
         await this.setupRecoveryKey(idpUrl, accessToken, mnemonic)
         await this.storage.saveRecoveryPassphrase(words)
+
+        // Phase 7 — mint the per-user salt for Argon2id HAK derivation
+        // and POST to the server. `POST /api/history/salt` is idempotent
+        // via COALESCE — if another device of this user already set a
+        // salt, this returns that salt and we lose harmlessly.
+        if (this.historyArchive) {
+            try {
+                const salt = crypto.getRandomValues(new Uint8Array(16))
+                await this.historyArchive.setSalt(idpUrl, accessToken, salt)
+            } catch (e) {
+                // Non-fatal — the next sign-in re-attempts.
+                // eslint-disable-next-line no-console
+                console.warn("[bootstrap] history salt mint failed (non-fatal)", e)
+            }
+        }
         return { device_id, fingerprint, words }
     }
 
