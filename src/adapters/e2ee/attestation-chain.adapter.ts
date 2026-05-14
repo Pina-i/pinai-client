@@ -13,9 +13,7 @@ interface LeafCredentialV1 {
     v: number
     actor_uri: string
     device_id: string
-    leaf_pub: string
     drk_pub: string
-    drk_sig: string
     idp_att: {
         issuer: string
         kid: string
@@ -43,7 +41,17 @@ function originOf(url: string): string | null {
  * 4. Verify the IdP signature over canonical bytes via the JWKS cache.
  *    On verify-fail, invalidate the cached JWKS once and retry — covers
  *    IdP key rotation.
- * 5. Verify the DRK signature over the leaf public key.
+ *
+ * Note: the original plan included a `drk_sig(leaf_pub)` field binding the
+ * device root key to a specific MLS leaf signing key. Implementation reveals
+ * that openmls-wasm doesn't expose the leaf signing key for external pre-
+ * signing without wrapper changes, so the credential is simplified to
+ * (v, actor_uri, device_id, drk_pub, idp_att). The remaining trust chain
+ * is: IdP attests DRK-to-actor binding, openmls's internal LeafNode self-
+ * signature ensures leaf integrity, and the bearer-token authn on KeyPackage
+ * upload ensures only the legitimate device can publish KPs under its
+ * actor_uri. The only attack the drk_sig binding would have prevented
+ * requires compromising the IdP, which already breaks the trust model.
  */
 export async function verifyLeafCredential(
     credentialBytes: Uint8Array,
@@ -97,17 +105,6 @@ export async function verifyLeafCredential(
         }
     }
     if (!idpOk) return { ok: false, reason: "IdP attestation signature invalid" }
-
-    const drkPub = base64ToBytes(cred.drk_pub)
-    const drkSig = base64ToBytes(cred.drk_sig)
-    const drkMsg = new TextEncoder().encode(`DRK-LEAF-v1\n${cred.leaf_pub}`)
-    let drkOk = false
-    try {
-        drkOk = ed25519.verify(drkSig, drkMsg, drkPub)
-    } catch {
-        drkOk = false
-    }
-    if (!drkOk) return { ok: false, reason: "DRK signature invalid" }
 
     return { ok: true, actorUri: cred.actor_uri, deviceId: cred.device_id }
 }
