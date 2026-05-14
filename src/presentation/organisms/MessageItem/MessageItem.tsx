@@ -68,7 +68,8 @@ export function MessageItem({
 
     const attachments = message.attachments ?? []
     const isLoneImage =
-        attachments.length === 1 && isImageAttachment(attachments[0])
+        attachments.length === 1 &&
+        isImageAttachment(attachments[0], message.attachmentKeys?.[attachments[0].id])
 
     const emojiMenuItems: MenuItemDescriptor[] = quickEmojis.map((key) => {
         const char = emojiMap[key] ?? key

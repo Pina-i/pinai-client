@@ -37,6 +37,91 @@ export interface IE2eePort {
     }>
 
     /**
+     * Cheap predicate the onboarding gate uses to decide whether to
+     * probe the server or skip straight into the app. Returns true
+     * when an identity bundle exists in IndexedDB for this device.
+     */
+    hasLocalIdentity(): Promise<boolean>
+
+    /**
+     * Returns the actor URI the local identity is bound to (set after
+     * register / recoverFromPassphrase) or null. The onboarding gate
+     * uses this to detect cross-account contamination — Alice logging
+     * out and Pierre logging back in on the same browser must NOT
+     * have Pierre inherit Alice's keys.
+     */
+    getBoundActorUri(): Promise<ActorUri | null>
+
+    /**
+     * Returns this device's stable UUID. The Settings → Devices view
+     * (Phase 6b) reads it to mark the current row with an "This
+     * device" chip — the server doesn't know which row is the caller.
+     */
+    getDeviceId(): Promise<DeviceId>
+
+    /**
+     * Wipe every encrypted IDB row owned by this device — identity
+     * bundle, MLS snapshot, recovery passphrase, meta (device key +
+     * device id). Used by the gate when it detects a different user
+     * has signed in on this browser. After this returns, the device
+     * looks "fresh" to the next gate run.
+     *
+     * Best-effort: per-DB errors are swallowed because the worst
+     * outcome is that the gate sees a partial state and retries.
+     */
+    wipeLocalDevice(): Promise<void>
+
+    /**
+     * Phase 6a — first-device bootstrap. Generates the identity,
+     * mints a 24-word BIP-39 recovery passphrase, wraps the MSK and
+     * uploads to `PUT /api/keys/recovery`, persists the passphrase
+     * locally for the future Settings → Devices reveal UI.
+     *
+     * Deduplicated at the adapter level: concurrent callers (e.g.
+     * React StrictMode's double-effect-fire, sibling components that
+     * both mount the setup viewmodel) share the same in-flight
+     * promise. Without this guarantee the racing calls would each
+     * generate their own mnemonic, the local + server copies could
+     * end up out of sync, and recovery on a new device would fail.
+     */
+    bootstrapFirstDevice(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+    ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint; words: string[] }>
+
+    /**
+     * Returns the recovery passphrase saved on this device at setup
+     * time, or null when the device has none (fresh install, the user
+     * never set one up, or it was explicitly cleared via the 6b
+     * "Clear recovery key" action). Source for the Settings → Devices
+     * reveal UI in Phase 6b.
+     */
+    loadStoredPassphrase(): Promise<string[] | null>
+
+    /**
+     * Persist the recovery passphrase on this device so the user can
+     * retrieve it later from Settings. Encrypted under the same
+     * device key as the rest of the e2ee state.
+     */
+    saveStoredPassphrase(words: string[]): Promise<void>
+
+    /**
+     * Delete the wrapped MSK on the server AND wipe the local
+     * passphrase copy. Used by Phase 6b "Clear recovery key". Idempotent.
+     */
+    clearRecoveryKey(idpUrl: string, accessToken: string): Promise<void>
+
+    /**
+     * True when a wrapped MSK blob is configured on the server for
+     * this account. Used by the onboarding gate to decide between the
+     * full "Recover history" view and the degraded "Start fresh only"
+     * variant on a new device. Surfaces as a `boolean` rather than the
+     * raw blob to keep the caller from leaking ciphertext bytes around.
+     */
+    hasRecoveryKey(idpUrl: string, accessToken: string): Promise<boolean>
+
+    /**
      * Compute the local user's MSK fingerprint for the UI. Reads from
      * the identity bundle in IndexedDB; returns null if the user
      * hasn't called `register` yet on this device.

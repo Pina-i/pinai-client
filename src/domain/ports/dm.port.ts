@@ -40,6 +40,15 @@ export interface IDmPort {
      */
     editMessage(idpUrl: string, accessToken: string, messageId: string, mlsCiphertext: string): Promise<void>
     /**
+     * POST /api/dm/{conversationId}/read — bump the caller's
+     * `last_read_at`. Called when a new message arrives for the
+     * conversation the user is actively viewing, so the server's
+     * `unread_count` stays in sync with what the user has actually
+     * seen. Without it, the sidebar badge would re-appear once they
+     * navigate away.
+     */
+    markConversationRead(idpUrl: string, accessToken: string, conversationId: string): Promise<void>
+    /**
      * POST /api/attachments — upload a single file via multipart/form-data,
      * reporting per-byte progress. Each call uploads exactly one file so the
      * caller can run them in parallel and surface per-file UI state.

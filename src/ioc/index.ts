@@ -1,4 +1,5 @@
 import { OidcAdapter } from "@/adapters/auth/oidc.adapter"
+import { DeviceDirectoryApiAdapter } from "@/adapters/device-directory/device-directory-api.adapter"
 import { E2eeAdapter } from "@/adapters/e2ee/e2ee.adapter"
 import { NobleIdentityAdapter } from "@/adapters/e2ee/identity.adapter"
 import { KeyDirectoryApiAdapter } from "@/adapters/e2ee/key-directory.adapter"
@@ -11,6 +12,7 @@ import { PresenceApiAdapter } from "@/adapters/presence/presence-api.adapter"
 import { UserApiAdapter } from "@/adapters/user/user-api.adapter"
 import { getSharedE2eeStorage } from "@/store/store"
 import type { IAuthPort } from "@/domain/ports/auth.port"
+import type { IDeviceDirectoryPort } from "@/domain/ports/device-directory.port"
 import type { IE2eePort } from "@/domain/ports/e2ee.port"
 import type { ISocialPort } from "@/domain/ports/social.port"
 import type { IDmPort } from "@/domain/ports/dm.port"
@@ -28,6 +30,7 @@ const dmPort: IDmPort = new DmApiAdapter()
 const wsPort: IWsPort = new IdpWsAdapter()
 const presencePort: IPresencePort = new PresenceApiAdapter()
 const userPort: IUserPort = new UserApiAdapter()
+const deviceDirectoryPort: IDeviceDirectoryPort = new DeviceDirectoryApiAdapter()
 
 // E2EE crypto core (Phase 4b foundation). Held as one set of singletons
 // — the MlsAdapter owns in-memory MLS state that has to live for the
@@ -70,4 +73,8 @@ export function getUserPort(): IUserPort {
 
 export function getE2eePort(): IE2eePort {
     return e2eePort
+}
+
+export function getDeviceDirectoryPort(): IDeviceDirectoryPort {
+    return deviceDirectoryPort
 }

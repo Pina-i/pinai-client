@@ -23,10 +23,11 @@ collaborators it composes.
   `meta` (device UUID + non-extractable AES-GCM CryptoKey),
   `identity` (encrypted MSK/SSK/USK bundle), `mls_snapshot`
   (encrypted snapshot of the openmls provider state +
-  `knownGroupIds[]`, DB v2). All at-rest blobs are encrypted under
-  the same per-device key; the key is also re-used by the Zustand
-  `persist` middleware so the message-plaintext cache lives behind
-  the same key material.
+  `knownGroupIds[]`), `recovery_passphrase` (encrypted local copy
+  of the 24-word mnemonic, Phase 6a — DB v3). All at-rest blobs are
+  encrypted under the same per-device key; the key is also re-used
+  by the Zustand `persist` middleware so the message-plaintext cache
+  lives behind the same key material.
 - **`key-directory.adapter.ts`** — `KeyDirectoryApiAdapter`. REST
   client for the eight `/api/keys/*` (incl. recovery PUT/GET/DELETE)
   and three `/api/mls/*` endpoints.
@@ -46,8 +47,9 @@ collaborators it composes.
   every sub-adapter into `register`, `replenishKeyPackages`,
   `encryptOutbound`, `decryptInbound`, `addContactToGroup`,
   `ensureGroupExists`, `consumePendingWelcomes`, `revokeDevice`,
-  `setupRecoveryKey`, `recoverFromPassphrase`,
-  `startPairingAsInitiator`, `pairAsResponder`,
+  `setupRecoveryKey`, `recoverFromPassphrase`, `hasRecoveryKey`,
+  `clearRecoveryKey`, `loadStoredPassphrase`, `saveStoredPassphrase`,
+  `hasLocalIdentity`, `startPairingAsInitiator`, `pairAsResponder`,
   `getOwnFingerprint`, `getPeerFingerprint`. Bootstrap paths
   (`ensureInitialized`, `register`) are guarded by cached promises
   so concurrent callers (React strict-mode double-fire, sibling
@@ -61,6 +63,10 @@ collaborators it composes.
 - `replenish-keypackages.usecase.ts`
 - `setup-recovery-key.usecase.ts`
 - `recover-from-passphrase.usecase.ts`
+- `bootstrap-first-device.usecase.ts` — Phase 6a. Orchestrates
+  `register` → BIP-39 mnemonic generation → `setupRecoveryKey` →
+  `saveStoredPassphrase` as one transactional unit (every step is
+  idempotent, so retry-on-failure is safe).
 - `pair-device.usecase.ts` — `startPairingAsInitiatorUseCase` and
   `pairAsResponderUseCase` plus a `PairDeviceTransport` interface
   for caller-supplied message ferrying.
@@ -316,6 +322,90 @@ collaborators it composes.
 
 - `test/message-status.spec.ts` — fade-window math behind the
   `MessageStatus` molecule. 5 tests.
+- `test/bootstrap-first-device.spec.ts` — 6a use-case ordering +
+  idempotent retry. 5 tests.
+- `test/gate-routing.spec.ts` — 6a gate's pure decision table. 4 tests.
+- `test/recovery-passphrase-input.spec.ts` — 6a `isPassphraseComplete`
+  predicate. 5 tests.
 
-30 tests across 5 suites, all green; type-check clean across every
+44 tests across 8 suites, all green; type-check clean across every
 E2EE file.
+
+## Phase 6a additions (recovery passphrase onboarding)
+
+- **`hasLocalIdentity()`** on `IE2eePort`. Cheap predicate the
+  onboarding gate uses to short-circuit when an identity bundle is
+  already in IDB.
+- **`hasRecoveryKey(idpUrl, token)`** on `IE2eePort`. Probes
+  `GET /api/keys/recovery` and surfaces a boolean — used by the gate
+  + the restore page to decide the full vs. degraded variant.
+- **`clearRecoveryKey(idpUrl, token)`** on `IE2eePort`. Pairs the
+  server-side `DELETE /api/keys/recovery` with a local wipe of the
+  passphrase IDB slot. Used by the eventual 6b "Clear recovery key"
+  action.
+- **`loadStoredPassphrase()`** / **`saveStoredPassphrase(words)`** on
+  `IE2eePort`. Reveal source for the 6b Settings UI + the persistence
+  side of the bootstrap use case.
+- **`recovery_passphrase` IDB store** (DB v3) in
+  `IndexedDbStorageAdapter`. Encrypted under the device key — same
+  pattern as `identity` and `mls_snapshot`. Migration is additive.
+- **`bootstrapFirstDeviceUseCase`** in `domain/usecases/e2ee/`.
+  Four-step orchestration (register → mnemonic → setupRecoveryKey →
+  saveStoredPassphrase); idempotent under retry.
+- **`@scure/bip39` dependency** (~10 KB gzipped). English 2048-word
+  list + `generateMnemonic` / `validateMnemonic`. Same noble family
+  used by `identity.adapter.ts` and `recovery.adapter.ts`.
+- **`useIdentityOnboardingGate`** in `presentation/hooks/`. Replaces
+  the old `useRegisterMlsIdentity` auto-register-on-mount. Probes
+  local identity + server identity + server recovery blob, then
+  routes to `/onboarding/recovery-setup` (first device),
+  `/onboarding/recovery-restore` (paired-elsewhere or recovery-key
+  case), or admits to the app shell. The pure `decideGateRoute`
+  helper is unit-tested in `test/gate-routing.spec.ts`.
+- **`RecoveryPassphraseDisplay`** / **`RecoveryPassphraseInput`**
+  molecules. Display variant is read-only; Input variant has
+  per-word BIP-39 validation + paste-all support. Both designed to
+  be reused by the 6b reveal UI.
+- **`RecoverySetupPage`** / **`RecoveryRestorePage`** in
+  `presentation/pages/onboarding/`. Setup runs the bootstrap use
+  case, shows the 24 generated words on success. Restore drives
+  `recoverFromPassphraseUseCase`; "Start fresh on this device" link
+  runs plain `register()`.
+
+## Phase 6b additions (Settings → Devices)
+
+- **`getDeviceId()`** on `IE2eePort`. Returns this device's stable
+  UUID — the Devices view uses it to mark the current row with a
+  "This device" chip, because the server can't tell which caller
+  it's answering.
+- **`IDeviceDirectoryPort`** (`domain/ports/device-directory.port.ts`)
+  and **`DeviceDirectoryApiAdapter`** — separate from `IE2eePort` so
+  the directory REST surface (`/api/keys/devices`,
+  `/api/keys/devices/:id/revoke`) stays free of MLS crypto. Revoke
+  is a two-step orchestration in the viewmodel: `IE2eePort.revokeDevice`
+  emits the Remove commits, then `IDeviceDirectoryPort.markRevoked`
+  flips the server flag.
+- **`useDevices`** in `presentation/hooks/`. TanStack Query hook —
+  fetches `/api/keys/devices`, augments each row with `is_current`
+  client-side. Query key `["devices", idpUrl]` is invalidated by
+  the revoke orchestration.
+- **`DevicesEditor`** in
+  `presentation/pages/home/SettingsModal/DevicesEditor/`. Wired into
+  the Settings two-pane layout. Composes the `RecoveryPassphraseCard`
+  molecule + a list of `DeviceCard`s. Per-device "Revoke" buttons
+  iterate `localDmConvos` for the conversation list passed to
+  `revokeDeviceUseCase`. The local "this device" row never shows a
+  revoke button — sign-out for the current device lives on the
+  Settings tile grid (existing flow).
+- **`RecoveryPassphraseCard`** molecule. 6×4 word grid; blurred by
+  default (CSS filter, words stay in the DOM so toggle is in-place
+  + flicker-free). Show / Hide / Copy / Clear actions. Empty-state
+  copy when `loadStoredPassphrase()` returns null (the device was
+  paired via QR and never saw the mnemonic).
+- **Pure helpers** in `presentation/_libs/`:
+  - `format-last-seen.ts` — "just now" / "N minutes ago" /
+    "yesterday" / "N days ago" / etc.
+  - `device-fingerprint.ts` — `sha256(uuid)` → RFC 4648 base32 →
+    8 chars formatted "XXXX-XXXX". Display-only.
+- **Test additions**: `test/format-last-seen.spec.ts` (9 tests),
+  `test/device-fingerprint.spec.ts` (4 tests).

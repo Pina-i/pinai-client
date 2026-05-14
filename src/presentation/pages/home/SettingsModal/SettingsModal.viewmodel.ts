@@ -7,6 +7,7 @@ export type SettingsSection =
     | "notifications"
     | "voice"
     | "keybinds"
+    | "devices"
     | "connections"
 
 export interface SettingsModalViewModel {

@@ -39,10 +39,19 @@ function NotifBackdrop({ children, label }) {
             display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer',
             position:'relative', fontFamily:'inherit',
           }}>
-            {Icons.bell}
-            {/* unread dot */}
+            <span style={{
+              display:'flex',
+              transformOrigin:'50% 18%',
+              animation:'pn-ring 3.4s ease-in-out infinite',
+            }}>{Icons.bell}</span>
+            {/* unread dot + animated ping halo */}
             <span style={{position:'absolute', top:6, right:6, width:7, height:7, borderRadius:'50%',
-              background:'var(--voice)', border:'2px solid var(--card)'}}/>
+              background:'var(--voice)', border:'2px solid var(--card)', zIndex:2}}/>
+            <span style={{position:'absolute', top:6, right:6, width:7, height:7, borderRadius:'50%',
+              background:'var(--voice)', opacity:0.7,
+              animation:'pn-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite',
+              pointerEvents:'none',
+            }}/>
           </button>
           {children}
         </div>
@@ -249,14 +258,14 @@ function NotifPopoverEditorial() {
                 <Mono style={{fontSize:10, color:'var(--muted-foreground)', marginLeft:'auto'}}>just now</Mono>
               </div>
               <div style={{fontSize:13, color:'var(--foreground)', lineHeight:1.4}}>
-                <Serif style={{fontWeight:500}}>Kai</Serif> started a voice room ·{' '}
+                <Serif style={{fontWeight:500}}>Kai</Serif> added you to a voice room ·{' '}
                 <Mono style={{fontSize:11.5, color:'var(--voice)'}}>Design Lab</Mono>
               </div>
               <div style={{display:'flex', gap:6, marginTop:9}}>
                 <button style={{padding:'5px 12px', fontSize:11.5, fontWeight:600,
                   borderRadius:5, border:'none', background:'var(--voice)',
                   color:'var(--voice-foreground)', cursor:'pointer', fontFamily:'inherit'}}>
-                  Join
+                  Open
                 </button>
                 <button style={{padding:'5px 10px', fontSize:11.5, borderRadius:5,
                   border:'1px solid var(--border-strong)', background:'transparent',
@@ -569,7 +578,7 @@ function NotifPopoverActivity() {
             <div style={{flex:1, minWidth:0}}>
               <div style={{display:'flex', alignItems:'baseline', gap:6}}>
                 <Serif style={{fontSize:13.5, fontWeight:500}}>Kai</Serif>
-                <span style={{fontSize:12, color:'var(--muted-foreground)'}}>opened</span>
+                <span style={{fontSize:12, color:'var(--muted-foreground)'}}>added you to</span>
                 <Mono style={{fontSize:11.5, color:'var(--voice)'}}>· Design Lab</Mono>
                 <Mono style={{fontSize:10, color:'var(--muted-foreground)', marginLeft:'auto'}}>just now</Mono>
               </div>
@@ -590,7 +599,7 @@ function NotifPopoverActivity() {
               <button style={{marginTop:8, padding:'5px 11px', fontSize:11.5, fontWeight:600,
                 borderRadius:5, border:'none', background:'var(--voice)',
                 color:'var(--voice-foreground)', cursor:'pointer', fontFamily:'inherit'}}>
-                Join voice
+                Open room
               </button>
             </div>
           </div>

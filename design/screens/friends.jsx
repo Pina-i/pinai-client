@@ -173,13 +173,7 @@ function FriendRow({ name, handle, status, color, dot, inVoice, mutual, offline 
         </div>
       </div>
       <IconBtn>{Icons.message}</IconBtn>
-      {inVoice ? (
-        <button style={{padding:'6px 12px', borderRadius:'var(--radius-sm)', border:'1px solid var(--voice)',
-          background:'transparent', color:'var(--voice)', fontSize:12, cursor:'pointer', fontFamily:'inherit',
-          display:'flex', alignItems:'center', gap:6}}>
-          {Icons.headset} Join
-        </button>
-      ) : <IconBtn>{Icons.more}</IconBtn>}
+      <IconBtn>{Icons.more}</IconBtn>
     </div>
   );
 }

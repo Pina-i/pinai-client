@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
-import { getE2eePort, getWsPort } from "@/ioc"
+import { getDmPort, getE2eePort, getWsPort } from "@/ioc"
 import type {
     ApplicationMessage,
     AttachmentBlobKey,
@@ -324,16 +324,53 @@ export function useIdpWebSocket(): void {
                     }
 
                     actionsRef.current.pushDmMessage(conversationId, msg)
-                    // Refresh the conversation list so new conversations appear in the sidebar.
-                    if (idpUrl) queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
-                    // Notify if the user is not currently viewing this conversation.
-                    if (actionsRef.current.activeDm !== conversationId) {
+
+                    const isActive = actionsRef.current.activeDm === conversationId
+
+                    // Sound plays whether or not the user is in this
+                    // conversation — confirms the message arrived even
+                    // when they're looking elsewhere on screen. DND
+                    // status suppresses it entirely.
+                    if (useAppStore.getState().myStatus !== "dnd") {
+                        playDmNotificationSound()
+                    }
+
+                    if (isActive) {
+                        // User is currently reading this conversation —
+                        // tell the server so its `unread_count` stays at
+                        // 0. Without this, the next `dm-conversations`
+                        // refresh would report unread=1 and the badge /
+                        // bubble would re-appear the moment the user
+                        // navigates away. Fire-and-forget — failure is
+                        // logged but doesn't surface to the user.
+                        if (idpUrl && accessToken) {
+                            getDmPort()
+                                .markConversationRead(idpUrl, accessToken, conversationId)
+                                .catch((e) => {
+                                    // eslint-disable-next-line no-console
+                                    console.warn("markConversationRead failed:", e)
+                                })
+                                .finally(() => {
+                                    // Invalidate AFTER the read marker lands so
+                                    // the refetch picks up the updated
+                                    // `unread_count`.
+                                    if (idpUrl) {
+                                        queryClient.invalidateQueries({
+                                            queryKey: dmConversationsQueryKey(idpUrl),
+                                        })
+                                    }
+                                })
+                        } else if (idpUrl) {
+                            queryClient.invalidateQueries({
+                                queryKey: dmConversationsQueryKey(idpUrl),
+                            })
+                        }
+                    } else {
                         actionsRef.current.incrementDmUnread(conversationId)
-                        // Suppress sound notifications while the user has set
-                        // their status to "do not disturb" (the message itself
-                        // still arrives in the conversation).
-                        if (useAppStore.getState().myStatus !== "dnd") {
-                            playDmNotificationSound()
+                        if (idpUrl) {
+                            queryClient.invalidateQueries({
+                                queryKey: dmConversationsQueryKey(idpUrl),
+                            })
                         }
                     }
                     break

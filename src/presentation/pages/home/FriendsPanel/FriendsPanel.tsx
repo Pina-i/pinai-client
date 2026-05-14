@@ -124,6 +124,7 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
             <Modal
                 isOpen={!!friendToRemove}
                 onClose={() => setFriendToRemove(null)}
+                label="Confirm remove friend"
             >
                 <div className="w-[420px] rounded-[var(--radius-lg)] border border-border-strong bg-popover p-6 shadow-[0_24px_60px_-16px_rgba(0,0,0,0.55)]">
                     <h3 className="title text-base font-medium text-foreground">Remove friend?</h3>

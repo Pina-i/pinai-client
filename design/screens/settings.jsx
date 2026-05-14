@@ -522,11 +522,6 @@ function SettingsCardGrid() {
               @Alice_Waбру · akasatana83@hotmail.fr
             </Mono>
           </div>
-          <button style={{padding:'7px 14px', fontSize:12, borderRadius:5,
-            border:'1px solid var(--chat)', background:'transparent',
-            color:'var(--chat)', cursor:'pointer', fontFamily:'inherit', fontWeight:500}}>
-            Manage account
-          </button>
         </div>
 
         {/* tiles */}
