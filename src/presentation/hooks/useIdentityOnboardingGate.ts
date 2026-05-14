@@ -5,26 +5,25 @@ import { addressToActorUri } from "@/domain/models/identity"
 import { getE2eePort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 
-export type GateDecision = "app" | "setup" | "restore"
+export type GateDecision = "app" | "setup"
 export type GateStatus = "loading" | "ready" | "redirecting" | "error"
 
 /**
- * Pure decision: given the three booleans the gate probes for, which
- * route should the user land on? Extracted so it can be unit-tested
- * without React Router or async plumbing.
+ * Pure decision: given local-identity presence, where should the user
+ * land?
+ *
+ * Phase 7 — two branches only. The previous "restore" branch (recover
+ * MSK from server-stored passphrase blob) is gone. Per-device identity
+ * is the model now: a brand-new device on an existing account just
+ * generates its own MSK + DRK in the setup flow. Friends see no
+ * cryptographic continuity, which is what mass-market users intuit
+ * from Signal/iMessage already.
+ *
+ * The `hasServerIdentity` and `hasServerBlob` probes used to gate this
+ * decision are no longer needed — the gate skips them.
  */
-export function decideGateRoute(probe: {
-    hasLocal: boolean
-    hasServerIdentity: boolean
-    hasServerBlob: boolean
-}): GateDecision {
-    if (probe.hasLocal) return "app"
-    if (!probe.hasServerIdentity) return "setup"
-    // Server identity exists (paired device elsewhere, or recovered
-    // account). The Restore page handles both variants — full when a
-    // server blob exists, degraded ("Start fresh on this device" only)
-    // when not.
-    return "restore"
+export function decideGateRoute(probe: { hasLocal: boolean }): GateDecision {
+    return probe.hasLocal ? "app" : "setup"
 }
 
 export interface GateResult {
@@ -103,28 +102,17 @@ export function useIdentityOnboardingGate(): GateResult {
                     }
                     return
                 }
-                // No local identity — probe the server.
-                const [serverFingerprint, hasBlob] = await Promise.all([
-                    port.getPeerFingerprint(idpUrl, accessToken, ownActorUri),
-                    port.hasRecoveryKey(idpUrl, accessToken),
-                ])
-                if (cancelled) return
-                const decision = decideGateRoute({
-                    hasLocal: false,
-                    hasServerIdentity: serverFingerprint !== null,
-                    hasServerBlob: hasBlob,
-                })
+                // Phase 7 — no local identity → always route to setup.
+                // The legacy server-identity / server-blob probes are gone
+                // (the Phase 6a restore branch is dropped).
+                const decision = decideGateRoute({ hasLocal: false })
                 if (decision === "app") {
                     setStatus("ready")
                 } else {
                     setStatus("redirecting")
-                    void navigate({
-                        to:
-                            decision === "setup"
-                                ? "/onboarding/recovery-setup"
-                                : "/onboarding/recovery-restore",
-                    })
+                    void navigate({ to: "/onboarding/recovery-setup" })
                 }
+                void ownActorUri // retained for future use; the gate no longer probes the server
             } catch (e) {
                 if (cancelled) return
                 // eslint-disable-next-line no-console
