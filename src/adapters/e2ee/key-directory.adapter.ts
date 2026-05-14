@@ -185,24 +185,20 @@ export interface IKeyDirectoryAdapter {
 }
 
 export class KeyDirectoryApiAdapter implements IKeyDirectoryAdapter {
+    /**
+     * Phase 7 — no-op. The legacy POST /api/keys/identity endpoint is
+     * gone; user-level MSK/SSK/USK publication is replaced by per-device
+     * IdP-attested DRK via `registerDevice`. The method stays on the port
+     * for backward-compat with code that hasn't been updated yet (and the
+     * e2ee-integration test stub). A future cleanup pass removes it
+     * everywhere.
+     */
     async publishIdentity(
-        idpUrl: string,
-        accessToken: string,
-        keys: IdentityPublicKeys,
+        _idpUrl: string,
+        _accessToken: string,
+        _keys: IdentityPublicKeys,
     ): Promise<void> {
-        const url = `${trimSlash(idpUrl)}/api/keys/identity`
-        await guarded(() =>
-            ky.post(url, {
-                headers: authHeader(accessToken),
-                json: {
-                    msk_public: b64(keys.msk_public),
-                    ssk_public: b64(keys.ssk_public),
-                    ssk_signature: b64(keys.ssk_signature),
-                    usk_public: b64(keys.usk_public),
-                    usk_signature: b64(keys.usk_signature),
-                },
-            }),
-        )
+        // No-op intentional.
     }
 
     async registerDevice(
@@ -238,32 +234,14 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryAdapter {
         accessToken: string,
         actorUri: ActorUri,
     ): Promise<IdentityKeysResponse | null> {
-        const url = `${trimSlash(idpUrl)}/api/keys/identity/${encodeURIComponent(actorUri)}`
-        try {
-            const json = await ky.get(url, { headers: authHeader(accessToken) }).json<{
-                msk_public: string
-                ssk_public: string
-                ssk_signature: string
-                usk_public: string
-                usk_signature: string
-                published_at: string
-                rotated_at: string
-            }>()
-            return {
-                keys: {
-                    msk_public: unb64(json.msk_public),
-                    ssk_public: unb64(json.ssk_public),
-                    ssk_signature: unb64(json.ssk_signature),
-                    usk_public: unb64(json.usk_public),
-                    usk_signature: unb64(json.usk_signature),
-                },
-                published_at: json.published_at,
-                rotated_at: json.rotated_at,
-            }
-        } catch (error) {
-            if (error instanceof HTTPError && error.response.status === 404) return null
-            throw await wrap(error, "Failed to fetch identity")
-        }
+        // Phase 7 — GET /api/keys/identity is gone. Return null so callers
+        // (e.g. legacy getPeerFingerprint) behave as if the user has no
+        // published identity; per-device IdP attestation is what peers
+        // verify now via `attestation-chain.adapter.ts`.
+        void idpUrl
+        void accessToken
+        void actorUri
+        return null
     }
 
     async uploadKeyPackages(
@@ -421,59 +399,28 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryAdapter {
         )
     }
 
+    // Phase 7 — the /api/keys/recovery endpoints are gone (passphrase-
+    // wrapped MSK is replaced by the encrypted plaintext archive under
+    // HAK). These three methods are no-ops kept on the adapter for
+    // backward-compat with the interface + test stub; the next cleanup
+    // pass removes them from `IKeyDirectoryAdapter` entirely.
     async putRecoveryBlob(
-        idpUrl: string,
-        accessToken: string,
-        body: { wrapped_msk: Uint8Array; salt: Uint8Array; argon2_params: Argon2Params },
+        _idpUrl: string,
+        _accessToken: string,
+        _body: { wrapped_msk: Uint8Array; salt: Uint8Array; argon2_params: Argon2Params },
     ): Promise<void> {
-        const url = `${trimSlash(idpUrl)}/api/keys/recovery`
-        await guarded(() =>
-            ky.put(url, {
-                headers: authHeader(accessToken),
-                json: {
-                    wrapped_msk: b64(body.wrapped_msk),
-                    salt: b64(body.salt),
-                    argon2_params: body.argon2_params,
-                },
-            }),
-        )
+        // No-op intentional.
     }
 
     async getRecoveryBlob(
-        idpUrl: string,
-        accessToken: string,
+        _idpUrl: string,
+        _accessToken: string,
     ): Promise<RecoveryBlobResponse | null> {
-        const url = `${trimSlash(idpUrl)}/api/keys/recovery`
-        try {
-            const json = await ky.get(url, { headers: authHeader(accessToken) }).json<{
-                wrapped_msk: string
-                salt: string
-                argon2_params: Argon2Params
-                created_at: string
-                updated_at: string
-            }>()
-            return {
-                wrapped_msk: unb64(json.wrapped_msk),
-                salt: unb64(json.salt),
-                argon2_params: json.argon2_params,
-                created_at: json.created_at,
-                updated_at: json.updated_at,
-            }
-        } catch (error) {
-            if (error instanceof HTTPError && error.response.status === 404) return null
-            throw await wrap(error, "Failed to fetch recovery blob")
-        }
+        return null
     }
 
-    async deleteRecoveryBlob(idpUrl: string, accessToken: string): Promise<void> {
-        const url = `${trimSlash(idpUrl)}/api/keys/recovery`
-        try {
-            await ky.delete(url, { headers: authHeader(accessToken) })
-        } catch (error) {
-            // 404 == "wasn't configured", which is the same end state.
-            if (error instanceof HTTPError && error.response.status === 404) return
-            throw await wrap(error, "Failed to delete recovery blob")
-        }
+    async deleteRecoveryBlob(_idpUrl: string, _accessToken: string): Promise<void> {
+        // No-op intentional.
     }
 }
 
