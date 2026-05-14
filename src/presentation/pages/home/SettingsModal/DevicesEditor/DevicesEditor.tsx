@@ -1,4 +1,5 @@
-import { Plus } from "lucide-react"
+import { Plus, RotateCcw } from "lucide-react"
+import { Link } from "@tanstack/react-router"
 
 import { RecoveryPassphraseCard } from "@/presentation/molecules/RecoveryPassphraseCard/RecoveryPassphraseCard"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
@@ -30,19 +31,31 @@ export function DevicesEditor() {
                             anything that isn't you.
                         </p>
                     </div>
-                    <button
-                        type="button"
-                        disabled
-                        title="Pairing arrives in the next release."
-                        className={cn(
-                            "inline-flex h-[34px] shrink-0 items-center gap-1.5 rounded-md bg-chat px-3",
-                            "font-sans text-[12px] font-semibold text-primary-foreground",
-                            "disabled:cursor-not-allowed disabled:opacity-50",
-                        )}
-                    >
-                        <Plus className="h-3 w-3" strokeWidth={2.6} />
-                        Pair new
-                    </button>
+                    <div className="flex shrink-0 items-center gap-2">
+                        <Link
+                            to="/onboarding/recovery-restore"
+                            className={cn(
+                                "inline-flex h-[34px] items-center gap-1.5 rounded-md border border-border-strong bg-transparent px-3",
+                                "font-sans text-[12px] text-foreground hover:bg-accent/40",
+                            )}
+                        >
+                            <RotateCcw className="h-3 w-3" strokeWidth={2} />
+                            Restore history
+                        </Link>
+                        <button
+                            type="button"
+                            disabled
+                            title="Pairing arrives in the next release."
+                            className={cn(
+                                "inline-flex h-[34px] items-center gap-1.5 rounded-md bg-chat px-3",
+                                "font-sans text-[12px] font-semibold text-primary-foreground",
+                                "disabled:cursor-not-allowed disabled:opacity-50",
+                            )}
+                        >
+                            <Plus className="h-3 w-3" strokeWidth={2.6} />
+                            Pair new
+                        </button>
+                    </div>
                 </div>
             </div>
 
