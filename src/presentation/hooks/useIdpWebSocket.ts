@@ -352,6 +352,26 @@ export function useIdpWebSocket(): void {
 
                     actionsRef.current.pushDmMessage(conversationId, msg)
 
+                    // Phase 7 — buffer this freshly decrypted plaintext for
+                    // the history archive. The e2eePort flushes the buffer
+                    // every 2s (or on 10-entry burst) under
+                    // `useHistoryArchiveFlusher`. We serialize the whole
+                    // ApplicationMessage so the restore path can re-hydrate
+                    // a full Message rather than just the body text.
+                    if (app) {
+                        try {
+                            const serialized = new TextEncoder().encode(JSON.stringify(app))
+                            getE2eePort().bufferDecryptedForArchive(
+                                conversationId,
+                                event.data.message_id,
+                                serialized,
+                            )
+                        } catch (err) {
+                            // eslint-disable-next-line no-console
+                            console.warn("[history-archive] buffer push failed", err)
+                        }
+                    }
+
                     const isActive = actionsRef.current.activeDm === conversationId
 
                     // Sound plays whether or not the user is in this

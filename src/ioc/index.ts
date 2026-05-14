@@ -13,7 +13,9 @@ import { DmApiAdapter } from "@/adapters/dm/dm-api.adapter"
 import { IdpWsAdapter } from "@/adapters/ws/idp-ws.adapter"
 import { PresenceApiAdapter } from "@/adapters/presence/presence-api.adapter"
 import { UserApiAdapter } from "@/adapters/user/user-api.adapter"
-import { getSharedE2eeStorage } from "@/store/store"
+import { getSharedE2eeStorage, useAppStore } from "@/store/store"
+import type { ApplicationMessage, TextBody } from "@/domain/models/e2ee"
+import type { Message } from "@/lib/types"
 import type { IAuthPort } from "@/domain/ports/auth.port"
 import type { IDeviceDirectoryPort } from "@/domain/ports/device-directory.port"
 import type { IE2eePort } from "@/domain/ports/e2ee.port"
@@ -63,12 +65,31 @@ const e2eePort: IE2eePort = new E2eeAdapter(
     new NobleRecoveryAdapter(),
     historyArchivePort,
     historyArchiveCrypto,
-    (_conversationId, _messageId, _plaintext) => {
-        // Phase 5 will replace this stub with a real dm-slice push.
-        // For now the restore use case is functional but messages don't
-        // actually reach the UI store.
-        // eslint-disable-next-line no-console
-        console.debug("[history-restore] plaintext restored (no UI sink wired yet)")
+    (conversationId, messageId, plaintext) => {
+        // Phase 7 — push a restored archive entry into the dm slice as if
+        // MLS had just decrypted it. `plaintext` is the JSON-encoded
+        // ApplicationMessage that was buffered at original decrypt time.
+        try {
+            const json = new TextDecoder().decode(plaintext)
+            const app = JSON.parse(json) as ApplicationMessage
+            if (app.kind !== "text") return // reactions/edits ride as deltas; skip for the MVP
+            const body = app.body as TextBody
+            const message: Message = {
+                id: messageId,
+                author: body.reply_meta?.preview_sender ?? "Restored",
+                authorAddress: "",
+                avatar: "RS",
+                content: body.text ?? "",
+                timestamp: "",
+                createdAt: new Date().toISOString(),
+                color: "#a78bfa",
+                attachments: [],
+            }
+            useAppStore.getState().pushDmMessage(conversationId, message)
+        } catch (err) {
+            // eslint-disable-next-line no-console
+            console.warn("[history-restore] failed to parse archived plaintext", err)
+        }
     },
 )
 
