@@ -62,6 +62,17 @@ export interface MlsWelcomeReadyPayload {
     recipientDeviceId: string
 }
 
+/**
+ * Phase 7 — a new device of this user just completed `POST /api/keys/devices`.
+ * Other live sessions of the same user receive this and run the multi-device
+ * fanout (Add commit + Welcome per local group).
+ */
+export interface DeviceJoinedPayload {
+    actorUri: string
+    deviceId: string
+    drkPublicKey: string
+}
+
 export interface PresenceUpdateEventPayload {
     actorUri: string
     state: PresenceState
@@ -84,6 +95,7 @@ export type WsServerEvent =
     | { type: "presence_update"; data: PresenceUpdateEventPayload }
     | { type: "typing"; data: TypingEventDataPayload }
     | { type: "mls_welcome_ready"; data: MlsWelcomeReadyPayload }
+    | { type: "device_joined"; data: DeviceJoinedPayload }
     | { type: "heartbeat_ack"; data?: Record<string, never> }
 
 // ── Client → Server messages ────────────────────────────────────────────────

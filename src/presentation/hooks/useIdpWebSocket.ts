@@ -19,6 +19,33 @@ import { playDmNotificationSound } from "@/presentation/_libs/notification-sound
 
 const UNDECRYPTABLE_PLACEHOLDER = "[encrypted]"
 
+/**
+ * Phase 7 — registration slot for the multi-device fanout handler.
+ *
+ * `useIdpWebSocket` doesn't own the fanout logic — that lives in
+ * `useDeviceFanout`. To keep the WS hook free of business logic, the
+ * fanout hook registers its `onDeviceJoined` callback here on mount;
+ * the WS hook invokes it when a `device_joined` event arrives.
+ *
+ * Module-level mutable ref because both hooks share a singleton WS
+ * connection — there's only ever one fanout handler at a time
+ * (mounted in the auth layout root).
+ */
+const deviceFanoutHandlerRef: { current: ((e: import("@/domain/models/ws").DeviceJoinedPayload) => void) | null } = {
+    current: null,
+}
+
+export function registerDeviceFanoutHandler(
+    handler: (e: import("@/domain/models/ws").DeviceJoinedPayload) => void,
+): () => void {
+    deviceFanoutHandlerRef.current = handler
+    return () => {
+        if (deviceFanoutHandlerRef.current === handler) {
+            deviceFanoutHandlerRef.current = null
+        }
+    }
+}
+
 function b64ToBytes(s: string): Uint8Array {
     const bin = atob(s)
     const out = new Uint8Array(bin.length)
@@ -417,6 +444,13 @@ export function useIdpWebSocket(): void {
                         // eslint-disable-next-line no-console
                         console.warn("WS-triggered welcome consumption failed:", e)
                     }
+                    break
+                }
+                case "device_joined": {
+                    // Phase 7 — a new device of this user just registered.
+                    // The useDeviceFanout hook (mounted in the auth layout)
+                    // owns the actual fanout; we just notify it via its ref.
+                    deviceFanoutHandlerRef.current?.(event.data)
                     break
                 }
                 case "friend_request":
