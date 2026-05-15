@@ -8,20 +8,7 @@ import { useAppStore } from "@/store/store"
 export type GateDecision = "app" | "setup"
 export type GateStatus = "loading" | "ready" | "redirecting" | "error"
 
-/**
- * Pure decision: given local-identity presence, where should the user
- * land?
- *
- * Phase 7 — two branches only. The previous "restore" branch (recover
- * MSK from server-stored passphrase blob) is gone. Per-device identity
- * is the model now: a brand-new device on an existing account just
- * generates its own MSK + DRK in the setup flow. Friends see no
- * cryptographic continuity, which is what mass-market users intuit
- * from Signal/iMessage already.
- *
- * The `hasServerIdentity` and `hasServerBlob` probes used to gate this
- * decision are no longer needed — the gate skips them.
- */
+/** Local identity present → app, absent → setup. */
 export function decideGateRoute(probe: { hasLocal: boolean }): GateDecision {
     return probe.hasLocal ? "app" : "setup"
 }
@@ -33,21 +20,8 @@ export interface GateResult {
 }
 
 /**
- * Phase 6a — the identity onboarding gate.
- *
- * Decides whether the just-logged-in user can enter the app shell, or
- * needs to land on one of the two onboarding routes first. Drives the
- * `decideGateRoute` table by probing local IDB + server state, and
- * issues a TanStack Router navigate to the chosen destination.
- *
- * Returns `{ status, retry }`:
- *   - "loading"    — initial probe in flight
- *   - "ready"      — local identity present, app shell may render
- *   - "redirecting"— a navigate has been issued to /onboarding/...
- *   - "error"      — probe network/storage error; caller surfaces retry
- *
- * Idempotent + strict-mode-safe via an internal ref that dedupes
- * concurrent probes.
+ * Onboarding gate. Probes local identity, navigates to setup if absent.
+ * Status flow: loading → ready (admit) / redirecting / error.
  */
 export function useIdentityOnboardingGate(): GateResult {
     const accessToken = useAppStore((s) => s.accessToken)
@@ -102,9 +76,6 @@ export function useIdentityOnboardingGate(): GateResult {
                     }
                     return
                 }
-                // Phase 7 — no local identity → always route to setup.
-                // The legacy server-identity / server-blob probes are gone
-                // (the Phase 6a restore branch is dropped).
                 const decision = decideGateRoute({ hasLocal: false })
                 if (decision === "app") {
                     setStatus("ready")

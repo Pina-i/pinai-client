@@ -62,12 +62,7 @@ export interface RecoveryBlobResponse {
     updated_at: string
 }
 
-/**
- * Phase 7 — response shape for `POST /api/keys/devices`. The server signs
- * `(actor_uri, device_id, drk_pub, expires_at, kid)` and returns the
- * signature plus the canonical bytes so the client can locally re-verify
- * before persisting.
- */
+/** Response from `POST /api/keys/devices`. `signed_message` is returned so the client can locally re-verify. */
 export interface RegisterDeviceResponse {
     signature: Uint8Array
     kid: string
@@ -87,11 +82,7 @@ export interface IKeyDirectoryAdapter {
         accessToken: string,
         actorUri: ActorUri,
     ): Promise<IdentityKeysResponse | null>
-    /**
-     * Phase 7 — register or refresh this device's IdP attestation.
-     * Idempotent on `(device_id, drk_pub)`: new row → first-time mint;
-     * existing row + same DRK → renewal; existing row + new DRK → rotation.
-     */
+    /** Register/renew/rotate the device's IdP-attested DRK. Idempotent on `(device_id, drk_pub)`. */
     registerDevice(
         idpUrl: string,
         accessToken: string,
@@ -185,21 +176,12 @@ export interface IKeyDirectoryAdapter {
 }
 
 export class KeyDirectoryApiAdapter implements IKeyDirectoryAdapter {
-    /**
-     * Phase 7 — no-op. The legacy POST /api/keys/identity endpoint is
-     * gone; user-level MSK/SSK/USK publication is replaced by per-device
-     * IdP-attested DRK via `registerDevice`. The method stays on the port
-     * for backward-compat with code that hasn't been updated yet (and the
-     * e2ee-integration test stub). A future cleanup pass removes it
-     * everywhere.
-     */
+    /** Legacy — no-op since the server-side identity endpoint is gone. */
     async publishIdentity(
         _idpUrl: string,
         _accessToken: string,
         _keys: IdentityPublicKeys,
-    ): Promise<void> {
-        // No-op intentional.
-    }
+    ): Promise<void> {}
 
     async registerDevice(
         idpUrl: string,
@@ -229,18 +211,12 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryAdapter {
         }
     }
 
+    /** Legacy — returns null since peers verify per-device IdP attestation instead. */
     async getIdentity(
-        idpUrl: string,
-        accessToken: string,
-        actorUri: ActorUri,
+        _idpUrl: string,
+        _accessToken: string,
+        _actorUri: ActorUri,
     ): Promise<IdentityKeysResponse | null> {
-        // Phase 7 — GET /api/keys/identity is gone. Return null so callers
-        // (e.g. legacy getPeerFingerprint) behave as if the user has no
-        // published identity; per-device IdP attestation is what peers
-        // verify now via `attestation-chain.adapter.ts`.
-        void idpUrl
-        void accessToken
-        void actorUri
         return null
     }
 
@@ -399,18 +375,14 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryAdapter {
         )
     }
 
-    // Phase 7 — the /api/keys/recovery endpoints are gone (passphrase-
-    // wrapped MSK is replaced by the encrypted plaintext archive under
-    // HAK). These three methods are no-ops kept on the adapter for
-    // backward-compat with the interface + test stub; the next cleanup
-    // pass removes them from `IKeyDirectoryAdapter` entirely.
+    // Legacy — /api/keys/recovery is gone; passphrase now derives the HAK
+    // for the history archive. Methods stay on the interface for the
+    // integration test stub.
     async putRecoveryBlob(
         _idpUrl: string,
         _accessToken: string,
         _body: { wrapped_msk: Uint8Array; salt: Uint8Array; argon2_params: Argon2Params },
-    ): Promise<void> {
-        // No-op intentional.
-    }
+    ): Promise<void> {}
 
     async getRecoveryBlob(
         _idpUrl: string,
@@ -419,9 +391,7 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryAdapter {
         return null
     }
 
-    async deleteRecoveryBlob(_idpUrl: string, _accessToken: string): Promise<void> {
-        // No-op intentional.
-    }
+    async deleteRecoveryBlob(_idpUrl: string, _accessToken: string): Promise<void> {}
 }
 
 interface RawCommitView {

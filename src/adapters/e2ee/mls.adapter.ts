@@ -62,10 +62,7 @@ export interface AddMemberOutput {
      * `mlsKind: welcome`).
      */
     welcome: Uint8Array
-    /**
-     * Ratchet tree the joiner needs alongside the Welcome. Phase 5
-     * piggybacks this on the welcome envelope.
-     */
+    /** Ratchet tree the joiner needs alongside the Welcome. */
     ratchet_tree: Uint8Array
 }
 
@@ -299,7 +296,7 @@ export class MlsAdapter {
         }
     }
 
-    /** The current epoch — exposed for the debug panel and Phase 5 catch-up logic. */
+    /** Current epoch — used by catch-up logic. */
     getEpoch(conversationId: ConversationId): bigint {
         return this.requireGroup(conversationId).epoch()
     }

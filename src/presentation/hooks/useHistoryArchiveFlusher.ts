@@ -4,14 +4,9 @@ import { getE2eePort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 
 /**
- * Phase 7 — Layer B lifecycle hook. Starts the background history-archive
- * flusher on mount, stops it on unmount. The actual buffer + 2-second
- * setInterval live inside the E2EE adapter so the framework dependency
- * doesn't leak; this hook is pure lifecycle.
- *
- * Mount once in the authenticated layout root, alongside
- * `useConsumeMlsWelcomes`. When the user signs out, the layout unmounts
- * and the flusher stops cleanly.
+ * Lifecycle for the history-archive upload loop. The buffer + flush
+ * timer live in the E2EE adapter; this hook just starts/stops them.
+ * Mount once in the authenticated layout root.
  */
 export function useHistoryArchiveFlusher(): void {
     const idpUrl = useAppStore((s) => s.idpUrl)

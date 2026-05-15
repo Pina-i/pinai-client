@@ -31,27 +31,10 @@ function originOf(url: string): string | null {
 }
 
 /**
- * Verify an MLS leaf credential's attestation chain (Section 3 of the
- * per-device identity design doc).
- *
- * 1. Parse JSON; reject if `v !== 1`.
- * 2. `idp_att.issuer` origin must match `actor_uri` origin (so an
- *    attacker-controlled IdP can't attest someone else's actor).
- * 3. `expires_at` must be in the future, with 5-minute clock-skew slack.
- * 4. Verify the IdP signature over canonical bytes via the JWKS cache.
- *    On verify-fail, invalidate the cached JWKS once and retry — covers
- *    IdP key rotation.
- *
- * Note: the original plan included a `drk_sig(leaf_pub)` field binding the
- * device root key to a specific MLS leaf signing key. Implementation reveals
- * that openmls-wasm doesn't expose the leaf signing key for external pre-
- * signing without wrapper changes, so the credential is simplified to
- * (v, actor_uri, device_id, drk_pub, idp_att). The remaining trust chain
- * is: IdP attests DRK-to-actor binding, openmls's internal LeafNode self-
- * signature ensures leaf integrity, and the bearer-token authn on KeyPackage
- * upload ensures only the legitimate device can publish KPs under its
- * actor_uri. The only attack the drk_sig binding would have prevented
- * requires compromising the IdP, which already breaks the trust model.
+ * Verify the IdP→DRK chain on an MLS leaf credential. Checks issuer-origin
+ * binding to actor_uri, expiry (5-min skew), and the IdP signature over
+ * canonical bytes. Invalidates and retries once on verify-failure for JWKS
+ * rotation safety. See `specs/05-e2ee.md` for the wire format.
  */
 export async function verifyLeafCredential(
     credentialBytes: Uint8Array,

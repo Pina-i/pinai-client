@@ -15,11 +15,6 @@ import type {
  *
  * The presentation layer only ever talks to this port — never directly
  * to the WASM bundle or the key-directory REST endpoints.
- *
- * Phase 5 wires `encryptOutbound` / `decryptInbound` into
- * `ConversationPage.viewmodel.ts::sendMessage` and the WS `new_dm`
- * handler. Phase 6 surfaces `register` / `pair` / `revokeDevice` /
- * `setupRecoveryKey` / `recoverFromPassphrase` in the UI.
  */
 export interface IE2eePort {
     /**
@@ -53,9 +48,9 @@ export interface IE2eePort {
     getBoundActorUri(): Promise<ActorUri | null>
 
     /**
-     * Returns this device's stable UUID. The Settings → Devices view
-     * (Phase 6b) reads it to mark the current row with an "This
-     * device" chip — the server doesn't know which row is the caller.
+     * Returns this device's stable UUID. The Settings → Devices view uses
+     * it to mark the current row — the server doesn't know which row is
+     * the caller.
      */
     getDeviceId(): Promise<DeviceId>
 
@@ -72,17 +67,10 @@ export interface IE2eePort {
     wipeLocalDevice(): Promise<void>
 
     /**
-     * Phase 6a — first-device bootstrap. Generates the identity,
-     * mints a 24-word BIP-39 recovery passphrase, wraps the MSK and
-     * uploads to `PUT /api/keys/recovery`, persists the passphrase
-     * locally for the future Settings → Devices reveal UI.
-     *
-     * Deduplicated at the adapter level: concurrent callers (e.g.
-     * React StrictMode's double-effect-fire, sibling components that
-     * both mount the setup viewmodel) share the same in-flight
-     * promise. Without this guarantee the racing calls would each
-     * generate their own mnemonic, the local + server copies could
-     * end up out of sync, and recovery on a new device would fail.
+     * First-device bootstrap. Generates the local identity, registers the
+     * DRK attestation, mints a 24-word recovery passphrase + history-archive
+     * salt, persists locally. Deduplicated against concurrent callers
+     * (StrictMode double-fire would otherwise mint two different mnemonics).
      */
     bootstrapFirstDevice(
         idpUrl: string,
@@ -90,26 +78,12 @@ export interface IE2eePort {
         actorUri: ActorUri,
     ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint; words: string[] }>
 
-    /**
-     * Returns the recovery passphrase saved on this device at setup
-     * time, or null when the device has none (fresh install, the user
-     * never set one up, or it was explicitly cleared via the 6b
-     * "Clear recovery key" action). Source for the Settings → Devices
-     * reveal UI in Phase 6b.
-     */
+    /** Source for the Settings → Devices passphrase-reveal UI. */
     loadStoredPassphrase(): Promise<string[] | null>
 
-    /**
-     * Persist the recovery passphrase on this device so the user can
-     * retrieve it later from Settings. Encrypted under the same
-     * device key as the rest of the e2ee state.
-     */
     saveStoredPassphrase(words: string[]): Promise<void>
 
-    /**
-     * Delete the wrapped MSK on the server AND wipe the local
-     * passphrase copy. Used by Phase 6b "Clear recovery key". Idempotent.
-     */
+    /** Idempotent. Legacy no-op since the server-side recovery blob endpoint is gone. */
     clearRecoveryKey(idpUrl: string, accessToken: string): Promise<void>
 
     /**
@@ -128,14 +102,7 @@ export interface IE2eePort {
      */
     getOwnFingerprint(): Promise<Fingerprint | null>
 
-    /**
-     * Fetch a peer's MSK fingerprint via `GET /api/keys/identity/:actor_uri`.
-     * Returns null when the peer hasn't published an identity row.
-     *
-     * Phase 6's first-contact pin / identity-change UX layers a cache
-     * + warning on top — this method is purely the "go fetch + compute"
-     * primitive.
-     */
+    /** Legacy — returns null since per-device IdP attestation replaced peer MSK fingerprints. */
     getPeerFingerprint(
         idpUrl: string,
         accessToken: string,
@@ -245,10 +212,7 @@ export interface IE2eePort {
         accessToken: string,
     ): Promise<KeyPackageStatusResponse>
 
-    // ─── Recovery Key (Phase 4b — pending) ────────────────────────────
-    //
-    // These will land alongside the Argon2id integration. Stubs here
-    // so the port shape is stable and the use cases can compile.
+    // ─── Legacy — kept on the interface for the integration test stub ──
 
     setupRecoveryKey(
         idpUrl: string,
@@ -263,14 +227,11 @@ export interface IE2eePort {
         passphrase: string,
     ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint }>
 
-    // ─── Phase 7 — per-device IdP attestation + history backup ──────────
+    // ─── Per-device IdP attestation + history backup ────────────────────
 
     /**
-     * Phase 7 — register/renew/rotate this device's DRK attestation.
-     * Idempotent. Generates a DRK on first call, calls
-     * `POST /api/keys/devices`, persists the attestation locally.
-     * Subsequent calls reuse the stored DRK and renew when within 30
-     * days of expiry; otherwise short-circuit.
+     * Idempotent — generates the DRK on first call, mints (or renews) the
+     * IdP attestation, persists locally. Silent renewal at 30 days from expiry.
      */
     registerDevice(
         idpUrl: string,
@@ -278,33 +239,17 @@ export interface IE2eePort {
         actorUri: ActorUri,
     ): Promise<void>
 
-    /**
-     * Phase 7 — fetch the locally-cached recovery passphrase, or null
-     * when the device has no copy stored (paired-via-QR device, fresh
-     * install, or explicitly cleared).
-     */
+    /** Locally-cached 24-word passphrase, or null. */
     getCachedPassphrase(): Promise<string[] | null>
 
-    /**
-     * Phase 7 — Layer B history-backup engine controls. The adapter
-     * owns an internal buffer of decrypted plaintexts plus a debounced
-     * flush timer; `startFlushing` / `stopFlushing` manage the timer
-     * lifecycle and the lifecycle hook in the authenticated layout
-     * wraps them.
-     */
+    /** History-archive upload lifecycle — the auth layout starts/stops these. */
     startFlushing(idpUrl: string, accessToken: string): void
     stopFlushing(): void
 
     /**
-     * Phase 7 — Layer B restore. Given the 24-word passphrase, pulls
-     * the user's encrypted plaintext archive from the server, decrypts
-     * each entry under the derived HAK, and pushes successful entries
-     * into the local message store via the `onPlaintextRestored`
-     * callback configured at adapter construction.
-     *
-     * Returns counts: `restored` is the number of entries successfully
-     * decoded; `skipped` is the count of AES-GCM auth-tag failures
-     * (wrong passphrase or unrelated archive).
+     * Decrypt the server-side archive under the passphrase, push restored
+     * entries via the `onPlaintextRestored` callback. `skipped` counts
+     * AES-GCM auth-tag failures (wrong passphrase, unrelated archive).
      */
     restoreHistoryFromPassphrase(
         idpUrl: string,
@@ -312,24 +257,16 @@ export interface IE2eePort {
         passphrase: string[],
     ): Promise<{ restored: number; skipped: number }>
 
-    /**
-     * Phase 7 — `DELETE /api/history/messages` + drop local cached
-     * passphrase + memory-purge cached HAK. After clearing, the
-     * per-decrypt upload becomes a no-op (no key to encrypt with)
-     * until the user re-generates a passphrase.
-     */
+    /** Wipe server archive + drop local passphrase + purge cached HAK. */
     clearHistoryBackup(idpUrl: string, accessToken: string): Promise<void>
 
     // ─── Pairing ──────────────────────────────────────────────────────
 
     /**
-     * Begin a pairing session on the existing device. Returns the
-     * QR payload to display + the SPAKE2 message to send to the new
-     * device through whatever transport the UI provides.
-     *
-     * Phase 6 wires up the actual transport (IdP relay endpoint or
-     * WebRTC). For now the caller drives the protocol message-by-
-     * message via {@link IE2eePort.completePairingAsInitiator}.
+     * Begin a pairing session on the existing device. Returns the QR
+     * payload + the SPAKE2 message to ferry to the new device. The
+     * caller drives the protocol message-by-message; transport is
+     * unwired today.
      */
     startPairingAsInitiator(): Promise<{
         qr_payload: string

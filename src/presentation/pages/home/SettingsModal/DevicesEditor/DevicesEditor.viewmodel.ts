@@ -71,10 +71,6 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
         if (!idpUrl || !accessToken) return
         setIsClearingRecovery(true)
         try {
-            // Phase 7 — clearHistoryBackup wipes the server-side encrypted
-            // archive + drops the locally-cached passphrase + memory-purges
-            // the cached HAK. After this, per-decrypt uploads become no-ops
-            // until the user re-generates a passphrase.
             await getE2eePort().clearHistoryBackup(idpUrl, accessToken)
             setPassphraseWords(null)
             toast.success("History backup cleared")

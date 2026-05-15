@@ -20,12 +20,8 @@ export interface FanoutInput {
 }
 
 /**
- * Phase 7 — pure fanout routine. For every (missing device, conversation)
- * pair, claim a KeyPackage via the existing addContactToGroup machinery.
- * Per-group failures are logged + swallowed so one bad conversation
- * doesn't block the rest.
- *
- * Exposed for unit testing — the hook below is just lifecycle.
+ * Pure fanout — one Add commit per (missing device, conversation) pair.
+ * Per-group failures are swallowed. Exported for unit testing.
  */
 export async function runDeviceFanout(input: FanoutInput): Promise<void> {
     for (const _deviceId of input.missingDeviceIds) {
@@ -46,15 +42,9 @@ export async function runDeviceFanout(input: FanoutInput): Promise<void> {
 }
 
 /**
- * Hybrid push + reconcile multi-device fanout (Phase 7, Section 4 of the
- * design doc). Mounted once in the authenticated layout root. Returns an
- * `onDeviceJoined` callback that `useIdpWebSocket` invokes when a
- * `device_joined` WS event arrives.
- *
- * The reconcile-on-connect path runs whenever the user's device list
- * refreshes — it scans for devices that aren't yet in every local
- * conversation and fans out Add commits. This catches the case where the
- * user's other devices were offline at the moment of registration.
+ * Hybrid push + reconcile fanout for multi-device. The WS `device_joined`
+ * event drives the push path via the returned callback; the reconcile
+ * path runs on every device-list refresh and catches the offline case.
  */
 export function useDeviceFanout(): {
     onDeviceJoined: (e: DeviceJoinedPayload) => void

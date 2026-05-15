@@ -1,11 +1,4 @@
-/**
- * Phase 7 — REST surface for the server-side history archive.
- *
- * The browser side: encrypts plaintext under the History Archive Key
- * (see `history-archive.adapter.ts`) and ships ciphertext entries here.
- * The server side: opaque storage in `history_messages` (cf.
- * `identity-provider/crates/e2ee/src/history.rs`).
- */
+/** REST surface for the server-side history archive (opaque ciphertexts). */
 
 export interface ArchiveEntry {
     id: string

@@ -62,11 +62,7 @@ export interface MlsWelcomeReadyPayload {
     recipientDeviceId: string
 }
 
-/**
- * Phase 7 — a new device of this user just completed `POST /api/keys/devices`.
- * Other live sessions of the same user receive this and run the multi-device
- * fanout (Add commit + Welcome per local group).
- */
+/** Fired when a new device of this user completes attestation registration. */
 export interface DeviceJoinedPayload {
     actorUri: string
     deviceId: string

@@ -31,12 +31,8 @@ import { cn } from "@/presentation/_libs/utils"
 const GATE_LOADER_MIN_MS = 600
 
 function AuthenticatedLayout() {
-    // Phase 6a — gate the app shell behind the identity onboarding
-    // decision. Registration was previously auto-triggered by
-    // `useRegisterMlsIdentity` on every authenticated mount; it now
-    // happens explicitly inside the onboarding setup view so the
-    // generated recovery passphrase can be shown to the user before
-    // we accept they have an identity.
+    // Gate the app shell behind onboarding — bootstrap happens explicitly
+    // inside the setup view so the passphrase can be shown to the user.
     const gate = useIdentityOnboardingGate()
 
     useIdpWebSocket()
