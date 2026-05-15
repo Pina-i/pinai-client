@@ -1,3 +1,5 @@
+import type { ActorUri } from "@/domain/models/e2ee"
+
 /** Closed enum of pronoun choices the IdP currently supports. */
 export type Pronouns = "he" | "she" | "non-binary"
 
@@ -7,6 +9,14 @@ export interface UserProfile {
     preferred_username: string
     display_name: string | null
     address: string
+    /**
+     * Canonical ActivityPub actor URI — sourced from the IdP's
+     * `/userinfo` response. Treat this as the single source of truth
+     * for the local user's actor URI everywhere on the client; never
+     * re-derive from `idpUrl` + `address`, since the browser's URL to
+     * the IdP can differ from its configured DOMAIN.
+     */
+    actor_uri: ActorUri
     avatar_url?: string
     pronouns?: Pronouns | null
     bio?: string | null

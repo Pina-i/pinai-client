@@ -1,5 +1,5 @@
 import { Plus, Reply, Send, Smile, X } from "lucide-react"
-import { useState, type RefObject } from "react"
+import { useRef, useState, type RefObject } from "react"
 import { Input, TextField } from "react-aria-components"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { EmojiPicker } from "@/presentation/molecules/EmojiPicker/EmojiPicker"
@@ -43,11 +43,33 @@ export function MessageInput({
 }: MessageInputProps) {
     const vm = useMessageInputViewModel({ onSend, onType, handleRef })
 
-    // Controlled state for the GIF popover so picking one snaps it shut.
-    // React Aria's `DialogTrigger` does NOT auto-close on inner clicks
-    // unless the click closes via the standard form-submit / link path —
-    // a GIF tile is a plain button, so we toggle the open state ourselves.
+    // Controlled state for the emoji + GIF popovers so picking one snaps
+    // it shut. React Aria's `DialogTrigger` does NOT auto-close on inner
+    // clicks unless the click closes via the standard form-submit / link
+    // path — a tile/grid cell is a plain button, so we toggle the open
+    // state ourselves.
+    const [emojiOpen, setEmojiOpen] = useState(false)
     const [gifOpen, setGifOpen] = useState(false)
+
+    const textInputRef = useRef<HTMLInputElement | null>(null)
+
+    /**
+     * Return focus to the message input after a popover closes. The
+     * `setTimeout` lets React Aria's `DialogTrigger` run its own
+     * focus-restore (which would aim at the trigger button) first —
+     * ours then wins on the next tick.
+     */
+    function refocusInput() {
+        setTimeout(() => {
+            const el = textInputRef.current
+            if (!el) return
+            el.focus()
+            // Park the caret at the end so the next keystroke continues
+            // the message rather than landing mid-word.
+            const end = el.value.length
+            el.setSelectionRange(end, end)
+        }, 0)
+    }
 
     // Decide between progress-row strip (any upload mid-flight) and chip strip
     // (everything ready). Empty string short-circuits the whole strip.
@@ -139,6 +161,7 @@ export function MessageInput({
                         className="flex-1"
                     >
                         <Input
+                            ref={textInputRef}
                             placeholder={composerPlaceholder}
                             onKeyDown={(e) => {
                                 if (e.key === "Enter" && !e.shiftKey) {
@@ -153,6 +176,8 @@ export function MessageInput({
                     <Popover
                         placement="top end"
                         offset={8}
+                        isOpen={emojiOpen}
+                        onOpenChange={setEmojiOpen}
                         trigger={
                             <IconButton aria-label="Emoji" className="text-muted-foreground hover:text-foreground">
                                 <Smile className="h-5 w-5" />
@@ -160,7 +185,13 @@ export function MessageInput({
                         }
                         className="overflow-hidden rounded-lg border border-border-strong bg-popover shadow-xl"
                     >
-                        <EmojiPicker onEmojiSelect={vm.onEmojiSelect} />
+                        <EmojiPicker
+                            onEmojiSelect={(emoji) => {
+                                vm.onEmojiSelect(emoji)
+                                setEmojiOpen(false)
+                                refocusInput()
+                            }}
+                        />
                     </Popover>
 
                     <Popover
@@ -186,6 +217,7 @@ export function MessageInput({
                             onPickGif={(file) => {
                                 vm.onAddFiles([file])
                                 setGifOpen(false)
+                                refocusInput()
                             }}
                         />
                     </Popover>

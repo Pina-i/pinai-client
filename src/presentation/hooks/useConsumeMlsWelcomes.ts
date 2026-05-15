@@ -17,17 +17,14 @@ import { useAppStore } from "@/store/store"
 export function useConsumeMlsWelcomes(): void {
     const accessToken = useAppStore((s) => s.accessToken)
     const idpUrl = useAppStore((s) => s.idpUrl)
-    const userAddress = useAppStore((s) => s.user?.address ?? null)
+    // The canonical actor URI is sourced from `/userinfo` — never
+    // re-derive client-side, otherwise a browser reaching the IdP via
+    // a different host than its configured DOMAIN binds the MLS
+    // provider's signing key to a mismatched leaf credential.
+    const ownActorUri = useAppStore((s) => s.user?.actor_uri ?? null)
 
     useEffect(() => {
-        if (!accessToken || !idpUrl || !userAddress) return
-        // The actor URI is the recipient's federation form; we have
-        // the address (`username@host`) — convert back to URI shape
-        // used by the e2ee port. The format is the canonical
-        // `<scheme>://<host>/users/<username>`. `idpUrl` already
-        // carries the scheme + host.
-        const username = userAddress.split("@")[0]
-        const ownActorUri = `${idpUrl.replace(/\/$/, "")}/users/${username}`
+        if (!accessToken || !idpUrl || !ownActorUri) return
 
         let cancelled = false
         ;(async () => {
@@ -49,5 +46,5 @@ export function useConsumeMlsWelcomes(): void {
         return () => {
             cancelled = true
         }
-    }, [accessToken, idpUrl, userAddress])
+    }, [accessToken, idpUrl, ownActorUri])
 }

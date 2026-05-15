@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
 
-import { addressToActorUri } from "@/domain/models/identity"
 import { bootstrapFirstDeviceUseCase } from "@/domain/usecases/e2ee/bootstrap-first-device.usecase"
 import { getE2eePort } from "@/ioc"
 import { useAppStore } from "@/store/store"
@@ -26,7 +25,7 @@ export interface RecoverySetupViewModel {
 export function useRecoverySetupPageViewModel(): RecoverySetupViewModel {
     const accessToken = useAppStore((s) => s.accessToken)
     const idpUrl = useAppStore((s) => s.idpUrl)
-    const userAddress = useAppStore((s) => s.user?.address ?? null)
+    const ownActorUri = useAppStore((s) => s.user?.actor_uri ?? null)
     const navigate = useNavigate()
 
     const [status, setStatus] = useState<SetupStatus>("checking")
@@ -35,13 +34,7 @@ export function useRecoverySetupPageViewModel(): RecoverySetupViewModel {
     const [attemptNonce, setAttemptNonce] = useState(0)
 
     useEffect(() => {
-        if (!accessToken || !idpUrl || !userAddress) return
-        const ownActorUri = addressToActorUri(userAddress, idpUrl)
-        if (!ownActorUri) {
-            setStatus("error")
-            setError("Could not resolve your actor URI.")
-            return
-        }
+        if (!accessToken || !idpUrl || !ownActorUri) return
         let cancelled = false
         ;(async () => {
             try {
@@ -92,7 +85,7 @@ export function useRecoverySetupPageViewModel(): RecoverySetupViewModel {
             // overwrite), so two passes are safe.
             cancelled = true
         }
-    }, [accessToken, idpUrl, userAddress, attemptNonce])
+    }, [accessToken, idpUrl, ownActorUri, attemptNonce])
 
     const onCopy = useCallback(() => {
         if (words.length === 0) return

@@ -453,13 +453,13 @@ function RowFact({ icon, title, body, tone }) {
 // 2b · Recover history — enter passphrase on a new device
 // Mirrors SecRecoveryKey (same layout, same word card) but inverted:
 // the right card becomes a 24-slot input. Two states surfaced as separate
-// artboards: empty (just-signed-in) and mid-entry (validation + one typo).
+// artboards: empty (just-signed-in) and mid-entry (validation + progress).
 // ─────────────────────────────────────────────────────────────────────────
 
 // Word list for the mid-entry state — first 22 match RECOVERY_WORDS,
-// "marigld" is a typo (will flag), and the last two are blank.
+// and the last two are blank.
 const RECOVERY_INPUT_FILLED = [
-  'lantern','river','eagle','copper','quartz','marigld',
+  'lantern','river','eagle','copper','quartz','marigold',
   'orchid','steppe','pebble','almond','heron','chestnut',
   'cinder','pollen','garnet','silvan','mariner','tundra',
   'oasis','candle','furrow','dapple','','',
@@ -658,13 +658,13 @@ function SecRecoverHistory() {
   );
 }
 
-// Same view, mid-entry: 22 words typed, 1 flagged as a typo, 2 still empty.
+// Same view, mid-entry: 22 words typed, 2 still empty.
 function SecRecoverHistoryEntering() {
   return (
     <Artboard w={1200} h={780}>
       <div style={{padding:'40px 56px', height:'100%', overflow:'auto',
         display:'grid', gridTemplateColumns:'1.1fr 1fr', gap:36}}>
-        {/* LEFT — copy + inline correction prompt */}
+        {/* LEFT — copy */}
         <div>
           <div style={{display:'flex', alignItems:'center', gap:7,
             color:'var(--muted-foreground)', fontSize:12, marginBottom:14}}>
@@ -697,48 +697,14 @@ function SecRecoverHistoryEntering() {
 
           <p style={{margin:'0 0 14px', color:'var(--foreground)',
             fontSize:14, lineHeight:1.65, maxWidth:520}}>
-            We've matched 21 of your 24 words. One looks like a typo, and two are still
-            empty — finish those and we'll restore everything.
+            We've matched 22 of your 24 words. Two are still empty — finish
+            those and we'll restore everything.
           </p>
-
-          {/* Inline correction prompt */}
-          <div style={{
-            padding:'12px 14px', borderRadius:10, marginTop:6, maxWidth:540,
-            background:'color-mix(in oklab, var(--warning) 7%, var(--background))',
-            border:'1px solid color-mix(in oklab, var(--warning) 32%, var(--border))',
-            display:'flex', gap:11, alignItems:'flex-start',
-          }}>
-            <span style={{color:'var(--warning)', flexShrink:0, marginTop:2}}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>
-              </svg>
-            </span>
-            <div style={{flex:1, fontSize:12.5, color:'var(--foreground)', lineHeight:1.55}}>
-              <Mono style={{fontSize:9.5, letterSpacing:'0.12em', color:'var(--warning)',
-                textTransform:'uppercase', fontWeight:600,
-                display:'block', marginBottom:3}}>Word 06 · not in the dictionary</Mono>
-              <span>
-                You wrote <Mono style={{color:'var(--warning)', fontWeight:600}}>marigld</Mono> —
-                did you mean{' '}
-                <button style={{padding:'2px 7px', borderRadius:5,
-                  border:'1px solid var(--chat)', background:'transparent',
-                  color:'var(--chat)', fontSize:11.5, fontWeight:600,
-                  cursor:'pointer', fontFamily:'JetBrains Mono, monospace'}}>marigold</button>
-                {' '}or{' '}
-                <button style={{padding:'2px 7px', borderRadius:5,
-                  border:'1px solid var(--border-strong)', background:'transparent',
-                  color:'var(--muted-foreground)', fontSize:11.5,
-                  cursor:'pointer', fontFamily:'JetBrains Mono, monospace'}}>marlin</button>
-                ?
-              </span>
-            </div>
-          </div>
 
           <div style={{display:'flex', flexDirection:'column', gap:10, marginTop:18,
             maxWidth:540}}>
             <RowFact icon="✓" title="What's ready"
-              body="21 of 24 words match the dictionary. Two slots remain empty."/>
+              body="22 of 24 words match the dictionary. Two slots remain empty."/>
             <RowFact icon="↺" title="Take your time"
               body="Order matters — they must be in the same sequence you saved."/>
           </div>
@@ -790,19 +756,16 @@ function SecRecoverHistoryEntering() {
                 Your passphrase · 24 words
               </Mono>
               <Mono style={{fontSize:9.5, padding:'1.5px 7px', borderRadius:4,
-                background:'color-mix(in oklab, var(--warning) 18%, transparent)',
-                color:'var(--warning)', letterSpacing:'0.08em', textTransform:'uppercase',
-                fontWeight:600}}>21 / 24 · 1 typo</Mono>
+                background:'color-mix(in oklab, var(--chat) 18%, transparent)',
+                color:'var(--chat)', letterSpacing:'0.08em', textTransform:'uppercase',
+                fontWeight:600}}>22 / 24</Mono>
             </div>
 
             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr',
               gap:'8px 10px'}}>
               {RECOVERY_INPUT_FILLED.map((w, i) => {
                 const focused = i === 22; // next empty cursor
-                const status =
-                  w === '' ? 'empty' :
-                  w === 'marigld' ? 'unknown' :
-                  'ok';
+                const status = w === '' ? 'empty' : 'ok';
                 return (
                   <WordSlot key={i} index={i} value={w}
                     focused={focused} status={status}/>

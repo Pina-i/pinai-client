@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react"
+import { useCallback, useImperativeHandle, useMemo, useRef, type RefObject } from "react"
 import { wordlist } from "@scure/bip39/wordlists/english.js"
 
 import { cn } from "@/presentation/_libs/utils"
@@ -7,12 +7,19 @@ export const RECOVERY_WORD_COUNT = 24
 
 export type SlotStatus = "empty" | "ok" | "unknown"
 
+/** Imperative actions exposed via `handleRef`. */
+export interface RecoveryPassphraseInputHandle {
+    /** Focus the first slot so a subsequent Ctrl/Cmd-V paste-fans across all 24. */
+    focusFirstSlot: () => void
+}
+
 interface RecoveryPassphraseInputProps {
     /** 24-element array. Empty string for unfilled slots. */
     value: string[]
     onChange: (next: string[]) => void
     /** Optional disable — used by the degraded "Start fresh only" variant. */
     disabled?: boolean
+    handleRef?: RefObject<RecoveryPassphraseInputHandle | null>
 }
 
 const WORDLIST_SET = new Set(wordlist)
@@ -48,8 +55,17 @@ export function RecoveryPassphraseInput({
     value,
     onChange,
     disabled,
+    handleRef,
 }: RecoveryPassphraseInputProps) {
     const inputRefs = useRef<Array<HTMLInputElement | null>>([])
+
+    useImperativeHandle(
+        handleRef,
+        () => ({
+            focusFirstSlot: () => inputRefs.current[0]?.focus(),
+        }),
+        [],
+    )
 
     // Defensive normalisation: callers should pass exactly 24 entries
     // but we tolerate shorter arrays by padding with "".

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 
 import type { ActorUri, ConversationId } from "@/domain/models/e2ee"
@@ -51,44 +51,41 @@ export function useDeviceFanout(): {
 } {
     const idpUrl = useAppStore((s) => s.idpUrl)
     const accessToken = useAppStore((s) => s.accessToken)
-    const ownAddress = useAppStore((s) => s.user?.address ?? null)
+    const ownActorUri = useAppStore((s) => s.user?.actor_uri ?? null)
     const localDmConvos = useAppStore((s) => s.localDmConvos)
-    const ownActorUriRef = useRef<ActorUri | null>(null)
     const queryClient = useQueryClient()
-
-    // Resolve own actor URI once we know idpUrl + ownAddress.
-    useEffect(() => {
-        if (!idpUrl || !ownAddress) return
-        const origin = new URL(idpUrl).origin
-        const local = ownAddress.split("@")[0]
-        ownActorUriRef.current = `${origin}/users/${local}` as ActorUri
-    }, [idpUrl, ownAddress])
 
     // Reconcile-on-connect: every time the device list refreshes, scan
     // for non-current, non-revoked devices and run the fanout. The
     // refresh already happens via useDevices (TanStack Query) — we just
     // observe its data.
     const conversationIds: ConversationId[] = localDmConvos.map((c) => c.id as ConversationId)
-    const { data: devicesResponse } = useQuery({
+    // Same queryKey as `useDevices` — both queryFns must agree on shape
+    // (the unwrapped device array) so TanStack's per-key dedup doesn't
+    // serve one consumer a value the other can't read.
+    const { data: devices } = useQuery({
         queryKey: devicesQueryKey(idpUrl ?? ""),
-        queryFn: () => getDeviceDirectoryPort().listDevices(idpUrl!, accessToken!),
+        queryFn: async () => {
+            const res = await getDeviceDirectoryPort().listDevices(idpUrl!, accessToken!)
+            return res.devices
+        },
         enabled: !!idpUrl && !!accessToken,
     })
 
     useEffect(() => {
-        if (!devicesResponse || !idpUrl || !accessToken || !ownActorUriRef.current) return
+        if (!devices || !idpUrl || !accessToken || !ownActorUri) return
         const e2eePort = getE2eePort()
         let cancelled = false
         void (async () => {
             const ownDeviceId = await e2eePort.getDeviceId()
             if (cancelled) return
-            const otherActive = devicesResponse.devices.filter(
+            const otherActive = devices.filter(
                 (d) => d.device_id !== ownDeviceId && d.revoked_at == null,
             )
             await runDeviceFanout({
                 idpUrl,
                 accessToken,
-                actorUri: ownActorUriRef.current!,
+                actorUri: ownActorUri,
                 missingDeviceIds: otherActive.map((d) => d.device_id),
                 conversationIds,
                 e2eePort,
@@ -100,11 +97,11 @@ export function useDeviceFanout(): {
         // conversationIds is derived from localDmConvos; intentionally not
         // listing it in deps to avoid re-running on every typing-status flip.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [devicesResponse, idpUrl, accessToken])
+    }, [devices, idpUrl, accessToken, ownActorUri])
 
     const onDeviceJoined = useCallback(
         (e: DeviceJoinedPayload) => {
-            if (!idpUrl || !accessToken || !ownActorUriRef.current) return
+            if (!idpUrl || !accessToken || !ownActorUri) return
             // Invalidate the device list so the GET /api/keys/devices query
             // refreshes, surfacing the new device row in Settings → Devices.
             void queryClient.invalidateQueries({
@@ -113,13 +110,13 @@ export function useDeviceFanout(): {
             void runDeviceFanout({
                 idpUrl,
                 accessToken,
-                actorUri: ownActorUriRef.current,
+                actorUri: ownActorUri,
                 missingDeviceIds: [e.deviceId],
                 conversationIds: localDmConvos.map((c) => c.id as ConversationId),
                 e2eePort: getE2eePort(),
             })
         },
-        [idpUrl, accessToken, localDmConvos, queryClient],
+        [idpUrl, accessToken, ownActorUri, localDmConvos, queryClient],
     )
 
     return { onDeviceJoined }

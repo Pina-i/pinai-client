@@ -3,6 +3,7 @@ import { PageTransition } from "@/presentation/atoms/page-transition/page-transi
 import { DropOverlay } from "@/presentation/molecules/DropOverlay/DropOverlay"
 import { MessageInput } from "@/presentation/molecules/MessageInput/MessageInput"
 import type { MessageInputHandle } from "@/presentation/molecules/MessageInput/MessageInput.viewmodel"
+import { TypingIndicator } from "@/presentation/molecules/TypingIndicator/TypingIndicator"
 import { MessageList } from "@/presentation/organisms/MessageList/MessageList"
 import { useConversationPageViewModel } from "./ConversationPage.viewmodel"
 
@@ -75,9 +76,9 @@ export function ConversationPage({ name }: ConversationPageProps) {
                     hasPendingIntent={vm.hasPendingIntent}
                     messagesEndRef={vm.messagesEndRef}
                 />
-                {vm.typingLabel && (
-                    <div className="px-4 pb-1 text-xs italic text-muted-foreground" aria-live="polite">
-                        {vm.typingLabel}
+                {vm.typing && (
+                    <div className="px-7">
+                        <TypingIndicator name={vm.typing.name} />
                     </div>
                 )}
                 <MessageInput

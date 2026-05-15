@@ -38,6 +38,20 @@ function attestationNeedsRenewal(att: DeviceAttestation): boolean {
 }
 
 /**
+ * 8-hex-char SHA-256 prefix of arbitrary bytes — used as a non-reversible
+ * identity for the History Archive Key + salt in diagnostic logs so an
+ * operator can compare encrypt-vs-decrypt without leaking the secret.
+ */
+async function fingerprintBytes(bytes: Uint8Array): Promise<string> {
+    const digest = await crypto.subtle.digest("SHA-256", bytes)
+    const hex = Array.from(new Uint8Array(digest))
+        .slice(0, 4)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("")
+    return hex
+}
+
+/**
  * Default lifetime for a freshly-built KeyPackage, in milliseconds.
  * Mirrors the IdP's `E2EE_KEYPACKAGE_LIFETIME_DAYS = 30` default; the
  * server validates `expires_at - now()` against its own ceiling.
@@ -241,6 +255,11 @@ export class E2eeAdapter implements IE2eePort {
         const salt = await this.historyArchive.getSalt(idpUrl, accessToken)
         if (!salt) return { restored: 0, skipped: 0 }
         const historyArchiveKey = await this.historyCrypto.deriveKey(passphrase, salt)
+        // eslint-disable-next-line no-console
+        console.info(
+            `[history-archive] restore HAK derived — salt fp=${await fingerprintBytes(salt)}, ` +
+                `passphrase len=${passphrase.length}, HAK fp=${await fingerprintBytes(historyArchiveKey)}`,
+        )
 
         let restored = 0
         let skipped = 0
@@ -302,6 +321,11 @@ export class E2eeAdapter implements IE2eePort {
             const salt = await this.historyArchive.getSalt(this.flushIdpUrl, this.flushAccessToken)
             if (!salt) return
             this.cachedHistoryArchiveKey = await this.historyCrypto.deriveKey(phrase, salt)
+            // eslint-disable-next-line no-console
+            console.info(
+                `[history-archive] flush HAK derived — salt fp=${await fingerprintBytes(salt)}, ` +
+                    `passphrase len=${phrase.length}, HAK fp=${await fingerprintBytes(this.cachedHistoryArchiveKey)}`,
+            )
         }
         const toFlush = this.archiveBuffer.splice(0, this.archiveBuffer.length)
         try {

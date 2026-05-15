@@ -2,7 +2,6 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 
-import { addressToActorUri } from "@/domain/models/identity"
 import { revokeDeviceUseCase } from "@/domain/usecases/e2ee/revoke-device.usecase"
 import { getDeviceDirectoryPort, getE2eePort } from "@/ioc"
 import { devicesQueryKey, useDevices, type DeviceRow } from "@/presentation/hooks/useDevices"
@@ -39,7 +38,7 @@ export interface DevicesEditorViewModel {
 export function useDevicesEditorViewModel(): DevicesEditorViewModel {
     const idpUrl = useAppStore((s) => s.idpUrl)
     const accessToken = useAppStore((s) => s.accessToken)
-    const userAddress = useAppStore((s) => s.user?.address ?? null)
+    const ownActorUri = useAppStore((s) => s.user?.actor_uri ?? null)
     const localDmConvos = useAppStore((s) => s.localDmConvos)
     const queryClient = useQueryClient()
 
@@ -83,12 +82,7 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
 
     const onRevokeDevice = useCallback(
         async (deviceId: string) => {
-            if (!idpUrl || !accessToken || !userAddress) return
-            const ownActorUri = addressToActorUri(userAddress, idpUrl)
-            if (!ownActorUri) {
-                toast.error("Could not resolve your actor URI")
-                return
-            }
+            if (!idpUrl || !accessToken || !ownActorUri) return
             setRevokingDeviceId(deviceId)
             try {
                 // Step 1 — MLS Remove commits across every conversation
@@ -116,7 +110,7 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
                 setRevokingDeviceId(null)
             }
         },
-        [idpUrl, accessToken, userAddress, localDmConvos, queryClient],
+        [idpUrl, accessToken, ownActorUri, localDmConvos, queryClient],
     )
 
     return {

@@ -1,16 +1,24 @@
 import { useEffect, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 
-import { addressToActorUri } from "@/domain/models/identity"
-import { getE2eePort } from "@/ioc"
+import { getE2eePort, getHistoryArchivePort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 
-export type GateDecision = "app" | "setup"
+export type GateDecision = "app" | "setup" | "restore"
 export type GateStatus = "loading" | "ready" | "redirecting" | "error"
 
-/** Local identity present → app, absent → setup. */
-export function decideGateRoute(probe: { hasLocal: boolean }): GateDecision {
-    return probe.hasLocal ? "app" : "setup"
+/**
+ * Three branches:
+ *  - local identity present → admit to the app
+ *  - no local identity, no server-side history salt → first device for the account → setup
+ *  - no local identity, salt exists → another device has set up the passphrase already → restore
+ */
+export function decideGateRoute(probe: {
+    hasLocal: boolean
+    hasArchive: boolean
+}): GateDecision {
+    if (probe.hasLocal) return "app"
+    return probe.hasArchive ? "restore" : "setup"
 }
 
 export interface GateResult {
@@ -20,25 +28,22 @@ export interface GateResult {
 }
 
 /**
- * Onboarding gate. Probes local identity, navigates to setup if absent.
- * Status flow: loading → ready (admit) / redirecting / error.
+ * Onboarding gate. Probes local identity; on a fresh device, also probes
+ * the server for an existing history-archive salt so a returning user
+ * (signed in on a new device) lands on the restore flow instead of
+ * being asked to mint a new passphrase that would orphan their backup.
  */
 export function useIdentityOnboardingGate(): GateResult {
     const accessToken = useAppStore((s) => s.accessToken)
     const idpUrl = useAppStore((s) => s.idpUrl)
-    const userAddress = useAppStore((s) => s.user?.address ?? null)
+    const ownActorUri = useAppStore((s) => s.user?.actor_uri ?? null)
     const navigate = useNavigate()
     const [status, setStatus] = useState<GateStatus>("loading")
     const [retryNonce, setRetryNonce] = useState(0)
 
     useEffect(() => {
-        if (!accessToken || !idpUrl || !userAddress) {
+        if (!accessToken || !idpUrl || !ownActorUri) {
             setStatus("loading")
-            return
-        }
-        const ownActorUri = addressToActorUri(userAddress, idpUrl)
-        if (!ownActorUri) {
-            setStatus("error")
             return
         }
         let cancelled = false
@@ -76,14 +81,33 @@ export function useIdentityOnboardingGate(): GateResult {
                     }
                     return
                 }
-                const decision = decideGateRoute({ hasLocal: false })
+
+                // Fresh device: ask the server whether the account
+                // already has a history-archive salt. Treat any error
+                // as "no salt" so a transient failure doesn't trap the
+                // user on the gate — worst case they land on setup and
+                // can re-run restore manually from Settings.
+                let hasArchive = false
+                try {
+                    const salt = await getHistoryArchivePort().getSalt(idpUrl, accessToken)
+                    hasArchive = salt !== null
+                } catch (e) {
+                    // eslint-disable-next-line no-console
+                    console.warn("Gate: history-salt probe failed; falling through to setup", e)
+                }
+
+                if (cancelled) return
+                const decision = decideGateRoute({ hasLocal: false, hasArchive })
                 if (decision === "app") {
                     setStatus("ready")
-                } else {
-                    setStatus("redirecting")
-                    void navigate({ to: "/onboarding/recovery-setup" })
+                    return
                 }
-                void ownActorUri // retained for future use; the gate no longer probes the server
+                setStatus("redirecting")
+                const target =
+                    decision === "restore"
+                        ? "/onboarding/recovery-restore"
+                        : "/onboarding/recovery-setup"
+                void navigate({ to: target })
             } catch (e) {
                 if (cancelled) return
                 // eslint-disable-next-line no-console
@@ -100,7 +124,7 @@ export function useIdentityOnboardingGate(): GateResult {
             // cancelled, stranding the gate at status="loading".
             cancelled = true
         }
-    }, [accessToken, idpUrl, userAddress, navigate, retryNonce])
+    }, [accessToken, idpUrl, ownActorUri, navigate, retryNonce])
 
     return {
         status,
