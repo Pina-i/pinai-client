@@ -413,8 +413,8 @@ E2EE file.
 ## Phase 7 additions (per-device identity + history backup)
 
 Trust model shift: drop user-level MSK/SSK/USK identity in favour of
-per-device IdP-attested DRK (Device Root Key). The IdP signs a long-
-lived attestation per device (1-year lifetime, silent renewal at 30
+a per-device IdP-attested Device Root Key. The IdP signs a long-lived
+attestation per device (1-year lifetime, silent renewal at 30
 days); peer clients verify the attestation chain via the issuer's
 JWKS. The 24-word passphrase repositions from "recover your account"
 to "recover your message history" — derives a History Archive Key
@@ -455,16 +455,16 @@ for the full design.
 `{ v: 1, actor_uri, device_id, drk_pub, idp_att: { issuer, kid, expires_at, signature } }`.
 The original design's `drk_sig(leaf_pub)` field was dropped because
 openmls-wasm doesn't expose the leaf signing key for external pre-
-signing without wrapper changes; the remaining trust chain (IdP
-attests DRK + actor; openmls's LeafNode self-signature ensures leaf
-integrity; bearer-token authn on KP upload ensures the right device
+signing without wrapper changes; the remaining trust chain (IdP attests
+the Device Root Key + actor; openmls's LeafNode self-signature ensures
+leaf integrity; bearer-token authn on KP upload ensures the right device
 publishes) holds against the documented threat model.
 
 ### Adapter additions
 
 - **`storage.adapter.ts`** — IDB schema v3 → v4. New
-  `device_attestation` object store holding the DRK keypair + IdP
-  attestation + canonical signed message (for local re-verify).
+  `device_attestation` object store holding the Device Root Key keypair
+  + IdP attestation + canonical signed message (for local re-verify).
   `DeviceAttestation` type exported. `saveDeviceAttestation` /
   `loadDeviceAttestation` methods follow the existing seal-under-
   device-key pattern.
@@ -510,7 +510,7 @@ publishes) holds against the documented threat model.
 `decideGateRoute` simplified to two branches (app/setup). The
 previous restore branch — recover MSK from a passphrase blob — is
 gone; per-device identity means a brand-new device on an existing
-account just registers its own MSK + DRK in the setup flow.
+account just registers its own MSK + Device Root Key in the setup flow.
 
 ### Test additions
 

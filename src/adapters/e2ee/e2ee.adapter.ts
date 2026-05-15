@@ -28,7 +28,7 @@ import { PairingInitiator, PairingResponder } from "./pairing.adapter"
 import type { RecoveryAdapter } from "./recovery.adapter"
 import type { DeviceAttestation, E2eeStorage } from "./storage.adapter"
 
-/** Renew the DRK attestation silently when within this window of expiry. */
+/** Renew the Device Root Key attestation silently when within this window of expiry. */
 const ATTESTATION_RENEWAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 
 function attestationNeedsRenewal(att: DeviceAttestation): boolean {
@@ -124,7 +124,7 @@ export class E2eeAdapter implements IE2eePort {
         this.onPlaintextRestored = onPlaintextRestored
     }
 
-    // ─── DRK attestation ─────────────────────────────────────────────
+    // ─── Device Root Key attestation ─────────────────────────────────
 
     private registerDevicePromise: Promise<void> | null = null
 
@@ -151,19 +151,19 @@ export class E2eeAdapter implements IE2eePort {
         void actorUri // bound on the server via the bearer token
 
         const existing = await this.storage.loadDeviceAttestation()
-        let drkPrivate: Uint8Array
-        let drkPublic: Uint8Array
+        let deviceRootPrivate: Uint8Array
+        let deviceRootPublic: Uint8Array
 
         if (existing && !attestationNeedsRenewal(existing)) {
             return
         }
         if (existing) {
-            drkPrivate = existing.drk_private
-            drkPublic = existing.drk_public
+            deviceRootPrivate = existing.drk_private
+            deviceRootPublic = existing.drk_public
         } else {
             const kp = ed25519.keygen()
-            drkPrivate = kp.secretKey
-            drkPublic = kp.publicKey
+            deviceRootPrivate = kp.secretKey
+            deviceRootPublic = kp.publicKey
         }
 
         const deviceId = await this.storage.getOrCreateDeviceId()
@@ -171,11 +171,11 @@ export class E2eeAdapter implements IE2eePort {
             idpUrl,
             accessToken,
             deviceId,
-            drkPublic,
+            deviceRootPublic,
         )
         await this.storage.saveDeviceAttestation({
-            drk_public: drkPublic,
-            drk_private: drkPrivate,
+            drk_public: deviceRootPublic,
+            drk_private: deviceRootPrivate,
             signature: response.signature,
             kid: response.kid,
             issued_at: response.issued_at,
@@ -192,7 +192,7 @@ export class E2eeAdapter implements IE2eePort {
         plaintext: Uint8Array
     }> = []
     private flushTimer: ReturnType<typeof setInterval> | null = null
-    private cachedHak: Uint8Array | null = null
+    private cachedHistoryArchiveKey: Uint8Array | null = null
     private flushIdpUrl: string | null = null
     private flushAccessToken: string | null = null
 
@@ -223,7 +223,7 @@ export class E2eeAdapter implements IE2eePort {
         }
         this.flushIdpUrl = null
         this.flushAccessToken = null
-        this.cachedHak = null
+        this.cachedHistoryArchiveKey = null
     }
 
     async getCachedPassphrase(): Promise<string[] | null> {
@@ -240,7 +240,7 @@ export class E2eeAdapter implements IE2eePort {
         }
         const salt = await this.historyArchive.getSalt(idpUrl, accessToken)
         if (!salt) return { restored: 0, skipped: 0 }
-        const hak = await this.historyCrypto.deriveKey(passphrase, salt)
+        const historyArchiveKey = await this.historyCrypto.deriveKey(passphrase, salt)
 
         let restored = 0
         let skipped = 0
@@ -255,7 +255,7 @@ export class E2eeAdapter implements IE2eePort {
             for (const entry of page.entries) {
                 try {
                     const plain = await this.historyCrypto.decrypt(
-                        hak,
+                        historyArchiveKey,
                         entry.ciphertext,
                         entry.nonce,
                     )
@@ -281,11 +281,11 @@ export class E2eeAdapter implements IE2eePort {
             await this.historyArchive.wipeArchive(idpUrl, accessToken)
         }
         await this.storage.clearRecoveryPassphrase()
-        this.cachedHak = null
+        this.cachedHistoryArchiveKey = null
         this.archiveBuffer = []
     }
 
-    /** Drain the buffer. Derives HAK lazily; sits idle when no passphrase exists. */
+    /** Drain the buffer. Derives the History Archive Key lazily; idle when no passphrase exists. */
     private async flushArchiveNow(): Promise<void> {
         if (
             !this.historyArchive ||
@@ -296,19 +296,19 @@ export class E2eeAdapter implements IE2eePort {
         ) {
             return
         }
-        if (!this.cachedHak) {
+        if (!this.cachedHistoryArchiveKey) {
             const phrase = await this.storage.loadRecoveryPassphrase()
             if (!phrase) return
             const salt = await this.historyArchive.getSalt(this.flushIdpUrl, this.flushAccessToken)
             if (!salt) return
-            this.cachedHak = await this.historyCrypto.deriveKey(phrase, salt)
+            this.cachedHistoryArchiveKey = await this.historyCrypto.deriveKey(phrase, salt)
         }
         const toFlush = this.archiveBuffer.splice(0, this.archiveBuffer.length)
         try {
             const entries = await Promise.all(
                 toFlush.map(async (e) => {
                     const { ciphertext, nonce } = await this.historyCrypto!.encrypt(
-                        this.cachedHak!,
+                        this.cachedHistoryArchiveKey!,
                         e.plaintext,
                     )
                     return {
@@ -469,7 +469,7 @@ export class E2eeAdapter implements IE2eePort {
         if (!keypair) {
             keypair = this.identity.generate()
             await this.storage.saveIdentityKeypair(keypair)
-            // Local-only — IdP attestation of the device's DRK lands via
+            // Local-only — IdP attestation of the Device Root Key lands via
             // `registerDevice`, separately from this keypair.
         }
 
@@ -525,7 +525,7 @@ export class E2eeAdapter implements IE2eePort {
     ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint; words: string[] }> {
         const { device_id, fingerprint } = await this.register(idpUrl, accessToken, actorUri)
 
-        // DRK attestation. Non-fatal — retried on next sign-in if it fails.
+        // Device Root Key attestation. Non-fatal — retried on next sign-in.
         try {
             await this.registerDevice(idpUrl, accessToken, actorUri)
         } catch (e) {
@@ -548,7 +548,7 @@ export class E2eeAdapter implements IE2eePort {
         void mnemonic
         await this.storage.saveRecoveryPassphrase(words)
 
-        // Salt for Argon2id HAK derivation. Set-once on the server.
+        // Salt for Argon2id History Archive Key derivation. Set-once on the server.
         if (this.historyArchive) {
             try {
                 const salt = crypto.getRandomValues(new Uint8Array(16))

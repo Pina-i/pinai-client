@@ -1,6 +1,7 @@
 /**
- * History-archive crypto. Pure — no I/O. HAK = Argon2id(passphrase, salt),
- * AES-256-GCM per entry with a fresh 12-byte nonce.
+ * History-archive crypto. Pure — no I/O. The History Archive Key is
+ * Argon2id(passphrase, salt); each entry is AES-256-GCM with a fresh
+ * 12-byte nonce.
  */
 
 import { gcm } from "@noble/ciphers/aes.js"

@@ -82,7 +82,7 @@ export interface IKeyDirectoryAdapter {
         accessToken: string,
         actorUri: ActorUri,
     ): Promise<IdentityKeysResponse | null>
-    /** Register/renew/rotate the device's IdP-attested DRK. Idempotent on `(device_id, drk_pub)`. */
+    /** Register/renew/rotate the device's IdP-attested Device Root Key. Idempotent on `(device_id, drk_pub)`. */
     registerDevice(
         idpUrl: string,
         accessToken: string,
@@ -375,8 +375,8 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryAdapter {
         )
     }
 
-    // Legacy — /api/keys/recovery is gone; passphrase now derives the HAK
-    // for the history archive. Methods stay on the interface for the
+    // Legacy — /api/keys/recovery is gone; the passphrase now derives the
+    // History Archive Key. Methods stay on the interface for the
     // integration test stub.
     async putRecoveryBlob(
         _idpUrl: string,

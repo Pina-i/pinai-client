@@ -92,8 +92,9 @@ export interface MlsSnapshot {
 }
 
 /**
- * Per-device DRK + IdP attestation. `signed_message` is the canonical bytes
- * the IdP signed, kept so the client can locally re-verify after restore.
+ * Per-device Device Root Key + IdP attestation. `signed_message` is the
+ * canonical bytes the IdP signed, kept so the client can locally re-verify
+ * after restore.
  */
 export interface DeviceAttestation {
     drk_public: Uint8Array

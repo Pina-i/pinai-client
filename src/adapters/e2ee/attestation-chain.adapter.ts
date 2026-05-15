@@ -31,10 +31,11 @@ function originOf(url: string): string | null {
 }
 
 /**
- * Verify the IdP→DRK chain on an MLS leaf credential. Checks issuer-origin
- * binding to actor_uri, expiry (5-min skew), and the IdP signature over
- * canonical bytes. Invalidates and retries once on verify-failure for JWKS
- * rotation safety. See `specs/05-e2ee.md` for the wire format.
+ * Verify the chain from the IdP signature down to the Device Root Key on
+ * an MLS leaf credential. Checks issuer-origin binding to actor_uri, expiry
+ * (5-min skew), and the IdP signature over canonical bytes. Invalidates
+ * and retries once on verify-failure for JWKS rotation safety. See
+ * `specs/05-e2ee.md` for the wire format.
  */
 export async function verifyLeafCredential(
     credentialBytes: Uint8Array,
