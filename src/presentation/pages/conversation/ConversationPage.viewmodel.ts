@@ -487,7 +487,16 @@ export function useConversationPageViewModel(name: string) {
             }
             const mlsCiphertextB64 = bytesToB64(mlsCiphertextBytes)
 
-            if (needsRest) {
+            // Prefer WS-shortcut for plain text messages, fall back to
+            // REST when the socket isn't connected yet (e.g. right after
+            // a browser relaunch the conversation page can mount before
+            // `useIdpWebSocket` finishes its handshake) — without this
+            // the first send throws "WebSocket is not connected" and
+            // markFailed, even though the server is perfectly reachable.
+            const wsReady = useAppStore.getState().wsStatus === "connected"
+            const useRest = needsRest || !wsReady
+
+            if (useRest) {
                 try {
                     const dm = await getDmPort().sendMessage(
                         idpUrl,
@@ -508,8 +517,7 @@ export function useConversationPageViewModel(name: string) {
                 // the WS handler can reconcile to "sent" via
                 // `isOwnEcho`. WS-send is fire-and-forget — we can't
                 // catch a server-side reject here, so the row stays
-                // at "sending" until the echo flips it. WS-disconnect
-                // surfaces synchronously and is treated as failed.
+                // at "sending" until the echo flips it.
                 try {
                     sendDmWsUseCase(
                         intent.recipientAddress,
