@@ -1,14 +1,8 @@
 /**
- * Client-side cache of peer-IdP JWKS endpoints. Used by
- * `attestation-chain.adapter.ts` to verify the IdP signature on each
- * `LeafCredentialV1.idp_att` that surfaces in an MLS leaf credential.
- *
- * Storage: `localStorage`, keyed by issuer, 1-hour TTL.
- * Concurrency: in-flight fetches are deduped per issuer so a burst of
- * concurrent `getKey` calls only triggers one HTTP request.
- * Rotation: on signature-verify failure, callers `invalidate(issuer)` and
- * retry — that clears the cache + the in-flight tracker, forcing a fresh
- * JWKS fetch.
+ * Per-issuer JWKS cache used by attestation-chain verification.
+ * localStorage with a 1-hour TTL; in-flight fetches deduped; callers
+ * `invalidate(issuer)` then retry on signature-verify failure for
+ * rotation safety.
  */
 
 import { base64urlToBytes } from "@/presentation/_libs/utils-bytes"

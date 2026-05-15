@@ -20,14 +20,8 @@ export interface RecoverySetupViewModel {
 }
 
 /**
- * Phase 6a — view model for the first-device onboarding view.
- *
- * Runs `bootstrapFirstDeviceUseCase` exactly once on mount (StrictMode-
- * safe via a ref guard); the page renders a loading state until it
- * resolves, then shows the 24 generated words. Continue and Skip
- * differ only in UX framing — both navigate to /home with the same
- * cryptographic state (recovery blob uploaded, local passphrase
- * saved, identity registered + KeyPackages seeded).
+ * Runs bootstrap on mount, then shows the 24 generated words. Continue
+ * and Skip both navigate to /home — the cryptographic state is the same.
  */
 export function useRecoverySetupPageViewModel(): RecoverySetupViewModel {
     const accessToken = useAppStore((s) => s.accessToken)

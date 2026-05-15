@@ -7,12 +7,7 @@ interface RecoveryPassphraseDisplayProps {
     badgeTone?: "success" | "muted"
 }
 
-/**
- * Read-only 3-col grid of numbered recovery words. Mirrors the right-
- * hand card in `web-client/design/screens/security.jsx::SecRecoveryKey`.
- * Reused by the first-device onboarding view and by the Phase 6b
- * Settings → Devices reveal UI.
- */
+/** Read-only 3-col grid of numbered recovery words. */
 export function RecoveryPassphraseDisplay({
     words,
     badgeLabel = "strong",

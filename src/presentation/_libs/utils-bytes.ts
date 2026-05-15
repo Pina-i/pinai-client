@@ -1,10 +1,6 @@
 /**
- * Base64url and base64 byte-encoding helpers.
- *
- * - base64url (RFC 7515 §2) — URL-safe alphabet (`-` and `_` instead of `+`
- *   and `/`), padding stripped. Used by JWS / JWK encoded values.
- * - base64 (RFC 4648 §4) — the standard alphabet with `=` padding. Used by
- *   the IdP attestation wire format (Phase 7).
+ * Base64 byte-encoding helpers. `base64url` for JWS/JWK; plain `base64`
+ * (with `=` padding) elsewhere.
  */
 
 export function base64urlToBytes(s: string): Uint8Array {

@@ -1,24 +1,8 @@
 /**
- * Top-level `IE2eePort` implementation. Wires the four sub-adapters
- * (MLS engine, identity-key generator, encrypted IndexedDB store,
- * IdP REST surface) into the high-level operations the rest of the
- * app calls.
- *
- * Phase 4b foundation:
- *  - `register` — fresh device, MSK + SSK + USK + initial KeyPackage stash.
- *  - `replenishKeyPackages` — background refill against the IdP cap.
- *  - `encryptOutbound` / `decryptInbound` — per-conversation pipe.
- *  - `addContactToGroup` — cross-IdP add, claim → commit → welcome → DS.
- *
- * Pending Phase 4b sub-tasks (typed here so the port is stable, but
- * methods throw at call-time):
- *  - Recovery Key (Argon2id wrap/unwrap).
- *  - SPAKE2 device pairing.
- *  - `revokeDevice`.
- *
- * Phase 5 wires `encryptOutbound` / `decryptInbound` into the
- * `ConversationPage.viewmodel.ts` and the `useIdpWebSocket.ts` `new_dm`
- * handler.
+ * Top-level `IE2eePort` implementation. Wires the MLS engine, the encrypted
+ * IndexedDB store, the IdP REST surface, the JWKS / attestation chain, and
+ * the history-archive crypto + transport into the operations the rest of
+ * the app calls.
  */
 
 import { ed25519 } from "@noble/curves/ed25519.js"
@@ -44,7 +28,7 @@ import { PairingInitiator, PairingResponder } from "./pairing.adapter"
 import type { RecoveryAdapter } from "./recovery.adapter"
 import type { DeviceAttestation, E2eeStorage } from "./storage.adapter"
 
-/** Phase 7 — silent renewal triggers when remaining validity drops below this. */
+/** Renew the DRK attestation silently when within this window of expiry. */
 const ATTESTATION_RENEWAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 
 function attestationNeedsRenewal(att: DeviceAttestation): boolean {
@@ -110,9 +94,8 @@ export class E2eeAdapter implements IE2eePort {
     private readonly storage: E2eeStorage
     private readonly directory: IKeyDirectoryAdapter
     private readonly recovery: RecoveryAdapter
-    // Phase 7 — optional history-backup wiring. When unset, the per-decrypt
-    // buffer is silently disabled (no flushing happens). IoC always provides
-    // these in production; tests can omit to keep the old surface working.
+    // Optional — when null, the per-decrypt archive buffer is a no-op.
+    // IoC provides these in production; tests can omit.
     private readonly historyArchive: IHistoryArchivePort | null
     private readonly historyCrypto: HistoryArchiveAdapter | null
     private readonly onPlaintextRestored:
@@ -141,7 +124,7 @@ export class E2eeAdapter implements IE2eePort {
         this.onPlaintextRestored = onPlaintextRestored
     }
 
-    // ─── Phase 7 — per-device IdP attestation ────────────────────────
+    // ─── DRK attestation ─────────────────────────────────────────────
 
     private registerDevicePromise: Promise<void> | null = null
 
@@ -150,16 +133,12 @@ export class E2eeAdapter implements IE2eePort {
         accessToken: string,
         actorUri: ActorUri,
     ): Promise<void> {
-        // Reuse an in-flight registration so concurrent callers (e.g. the
-        // onboarding gate + bootstrap-first-device usecase) share one HTTP
-        // round-trip and one IDB write.
+        // Dedupe concurrent callers (gate + bootstrap usecase under StrictMode).
         if (this.registerDevicePromise) return this.registerDevicePromise
         this.registerDevicePromise = this.doRegisterDevice(idpUrl, accessToken, actorUri)
         try {
             await this.registerDevicePromise
         } finally {
-            // Allow retries on failure; success can re-execute later
-            // (e.g. on attestation expiry) by clearing the cache.
             this.registerDevicePromise = null
         }
     }
@@ -169,9 +148,8 @@ export class E2eeAdapter implements IE2eePort {
         accessToken: string,
         actorUri: ActorUri,
     ): Promise<void> {
-        void actorUri // Bound on the server side via the bearer token; included for symmetry with the design doc.
+        void actorUri // bound on the server via the bearer token
 
-        // Load existing DRK + attestation if any; mint fresh if absent.
         const existing = await this.storage.loadDeviceAttestation()
         let drkPrivate: Uint8Array
         let drkPublic: Uint8Array
@@ -206,7 +184,7 @@ export class E2eeAdapter implements IE2eePort {
         })
     }
 
-    // ─── Phase 7 — history-backup engine ─────────────────────────────
+    // ─── History-backup engine ────────────────────────────────────────
 
     private archiveBuffer: Array<{
         conversationId: ConversationId
@@ -218,12 +196,7 @@ export class E2eeAdapter implements IE2eePort {
     private flushIdpUrl: string | null = null
     private flushAccessToken: string | null = null
 
-    /**
-     * Phase 7 — buffer a freshly decrypted plaintext for upload. Called
-     * internally from `decryptInbound` (wired in Phase 5). No-op when
-     * `historyArchive` / `historyCrypto` aren't wired or the user
-     * doesn't have a stored passphrase yet.
-     */
+    /** Buffer a freshly decrypted plaintext for the archive. No-op when unwired. */
     bufferDecryptedForArchive(
         conversationId: ConversationId,
         messageId: string,
@@ -312,12 +285,7 @@ export class E2eeAdapter implements IE2eePort {
         this.archiveBuffer = []
     }
 
-    /**
-     * Drain the buffered plaintexts into the server. Derives HAK lazily
-     * on first flush per session via `(salt, cached passphrase)`; when
-     * no passphrase is stored locally the buffer just sits there and
-     * the next clear() / page reload drops it.
-     */
+    /** Drain the buffer. Derives HAK lazily; sits idle when no passphrase exists. */
     private async flushArchiveNow(): Promise<void> {
         if (
             !this.historyArchive ||
@@ -474,15 +442,8 @@ export class E2eeAdapter implements IE2eePort {
         accessToken: string,
         actorUri: ActorUri,
     ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint }> {
-        // Gate concurrent calls. After Phase 6a, `register` is driven
-        // by the onboarding setup view's `bootstrapFirstDeviceUseCase`
-        // and the recovery-restore view's "Start fresh" link. Under
-        // React strict mode the page can re-render and re-invoke the
-        // effect that triggers it. Without this gate, both invocations
-        // would race: each would upload INITIAL_KEY_PACKAGE_BATCH=50
-        // KPs, the IdP would land both batches, and the next refresh
-        // would hit "stash cap exceeded: have 100, uploading 50,
-        // cap is 100".
+        // Dedupe concurrent callers — two StrictMode mounts would otherwise
+        // each upload INITIAL_KEY_PACKAGE_BATCH KPs and overshoot the cap.
         if (this.registerPromise) return this.registerPromise
         this.registerPromise = this.doRegister(idpUrl, accessToken, actorUri)
         try {
@@ -508,11 +469,8 @@ export class E2eeAdapter implements IE2eePort {
         if (!keypair) {
             keypair = this.identity.generate()
             await this.storage.saveIdentityKeypair(keypair)
-            // Phase 7 — server no longer accepts user-level MSK/SSK/USK
-            // publication (the /api/keys/identity endpoint is gone). The
-            // local keypair is still generated because the MLS leaf
-            // signing code path expects it; per-device IdP attestation
-            // lands via `registerDevice` (called from doBootstrapFirstDevice).
+            // Local-only — IdP attestation of the device's DRK lands via
+            // `registerDevice`, separately from this keypair.
         }
 
         // Bind the device to this actor URI so the onboarding gate can
@@ -567,28 +525,16 @@ export class E2eeAdapter implements IE2eePort {
     ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint; words: string[] }> {
         const { device_id, fingerprint } = await this.register(idpUrl, accessToken, actorUri)
 
-        // Phase 7 — also register the device's DRK attestation so the
-        // server has the IdP-signed binding (and other live devices of
-        // this user receive a DeviceJoined event). Idempotent — skips when
-        // a fresh attestation already exists.
+        // DRK attestation. Non-fatal — retried on next sign-in if it fails.
         try {
             await this.registerDevice(idpUrl, accessToken, actorUri)
         } catch (e) {
-            // Non-fatal: the legacy MSK identity is already published, so
-            // the device works for messaging. The Phase 7 attestation will
-            // be retried on the next sign-in. We log so we notice if this
-            // path is hot in production.
             // eslint-disable-next-line no-console
             console.warn("[bootstrap] registerDevice failed (non-fatal)", e)
         }
 
-        // Idempotency across hard refresh: if a passphrase already
-        // exists locally (a previous bootstrap on this device
-        // completed at least step 4), reuse it. Generating a fresh
-        // mnemonic here would silently invalidate any words the user
-        // already wrote down — the new mnemonic would overwrite the
-        // server blob, and the old words they have on paper would no
-        // longer unlock the account.
+        // Re-bootstrap idempotency: reusing the existing passphrase prevents
+        // overwriting words the user already wrote down on paper.
         const existing = await this.storage.loadRecoveryPassphrase()
         if (existing && existing.length === 24) {
             return { device_id, fingerprint, words: existing }
@@ -599,24 +545,15 @@ export class E2eeAdapter implements IE2eePort {
         if (words.length !== 24) {
             throw new Error(`bootstrap: expected 24-word mnemonic, got ${words.length}`)
         }
-        // Phase 7 — the legacy setupRecoveryKey call (server-side
-        // passphrase-wrapped MSK blob via PUT /api/keys/recovery) is gone
-        // along with the endpoint. The passphrase now exists locally on
-        // the issuing device and is shown to the user; restore on a new
-        // device uses /api/history/* under HAK = Argon2id(passphrase, salt).
-        void mnemonic // intentionally unused now — kept above so the local save still happens
+        void mnemonic
         await this.storage.saveRecoveryPassphrase(words)
 
-        // Phase 7 — mint the per-user salt for Argon2id HAK derivation
-        // and POST to the server. `POST /api/history/salt` is idempotent
-        // via COALESCE — if another device of this user already set a
-        // salt, this returns that salt and we lose harmlessly.
+        // Salt for Argon2id HAK derivation. Set-once on the server.
         if (this.historyArchive) {
             try {
                 const salt = crypto.getRandomValues(new Uint8Array(16))
                 await this.historyArchive.setSalt(idpUrl, accessToken, salt)
             } catch (e) {
-                // Non-fatal — the next sign-in re-attempts.
                 // eslint-disable-next-line no-console
                 console.warn("[bootstrap] history salt mint failed (non-fatal)", e)
             }
@@ -1071,7 +1008,7 @@ export class E2eeAdapter implements IE2eePort {
         }
     }
 
-    // ─── Device revocation (Phase 5 follow-up) ────────────────────────
+    // ─── Device revocation ─────────────────────────────────────────────
 
     async revokeDevice(
         idpUrl: string,
@@ -1100,9 +1037,7 @@ export class E2eeAdapter implements IE2eePort {
                 removed.push(conversationId)
                 await this.persistMlsState()
             } catch (e) {
-                // Per-group failure shouldn't block the rest. Common
-                // case: 409 (someone else committed at this epoch);
-                // Phase 5d's catch-up retry would be a natural follow-up.
+                // Per-group failure (often 409 epoch race) shouldn't block the rest.
                 // eslint-disable-next-line no-console
                 console.warn(`revokeDevice: per-group commit failed for ${conversationId}`, e)
             }

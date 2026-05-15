@@ -38,25 +38,16 @@ const presencePort: IPresencePort = new PresenceApiAdapter()
 const userPort: IUserPort = new UserApiAdapter()
 const deviceDirectoryPort: IDeviceDirectoryPort = new DeviceDirectoryApiAdapter()
 
-// Phase 7 — Layer A peer-credential verification + Layer B history-archive
-// crypto and REST surface. Held as singletons alongside the other
-// E2EE plumbing so the per-issuer JWKS cache + in-memory HAK persist
-// across calls.
+// JWKS cache + history-archive singletons live alongside the other E2EE
+// plumbing — keeps the per-issuer JWKS and in-memory HAK persistent.
 const jwksCache = new JwksCacheAdapter()
 const historyArchivePort: IHistoryArchivePort = new HistoryArchiveApiAdapter()
 const historyArchiveCrypto = new HistoryArchiveAdapter()
 
-// E2EE crypto core (Phase 4b foundation). Held as one set of singletons
-// — the MlsAdapter owns in-memory MLS state that has to live for the
-// session, so re-construction would lose every joined group.
-//
-// The storage adapter is shared with the Zustand persist middleware
-// (constructed up in `store/store.ts`) so both reuse the same
-// non-extractable AES-256-GCM device key for at-rest encryption.
-//
-// Phase 7 — the `onPlaintextRestored` callback is wired here (rather than
-// inside the adapter) so the adapter stays framework-agnostic. The Phase 5
-// rip-out will pass a real callback that pushes into the dm slice.
+// E2EE crypto core. Singletons — MlsAdapter owns session-scoped in-memory
+// state, re-construction would lose every joined group. Storage is shared
+// with the Zustand persist middleware so both reuse the same non-
+// extractable AES-256-GCM device key.
 const e2eePort: IE2eePort = new E2eeAdapter(
     new NobleIdentityAdapter(),
     new MlsAdapter(),
@@ -66,13 +57,12 @@ const e2eePort: IE2eePort = new E2eeAdapter(
     historyArchivePort,
     historyArchiveCrypto,
     (conversationId, messageId, plaintext) => {
-        // Phase 7 — push a restored archive entry into the dm slice as if
-        // MLS had just decrypted it. `plaintext` is the JSON-encoded
-        // ApplicationMessage that was buffered at original decrypt time.
+        // Push restored archive entries into the dm slice as if MLS just
+        // decrypted them. `plaintext` is the buffered ApplicationMessage JSON.
         try {
             const json = new TextDecoder().decode(plaintext)
             const app = JSON.parse(json) as ApplicationMessage
-            if (app.kind !== "text") return // reactions/edits ride as deltas; skip for the MVP
+            if (app.kind !== "text") return // reactions/edits depend on having the target message in place
             const body = app.body as TextBody
             const message: Message = {
                 id: messageId,

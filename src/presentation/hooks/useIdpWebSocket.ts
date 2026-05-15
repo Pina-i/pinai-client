@@ -19,18 +19,7 @@ import { playDmNotificationSound } from "@/presentation/_libs/notification-sound
 
 const UNDECRYPTABLE_PLACEHOLDER = "[encrypted]"
 
-/**
- * Phase 7 — registration slot for the multi-device fanout handler.
- *
- * `useIdpWebSocket` doesn't own the fanout logic — that lives in
- * `useDeviceFanout`. To keep the WS hook free of business logic, the
- * fanout hook registers its `onDeviceJoined` callback here on mount;
- * the WS hook invokes it when a `device_joined` event arrives.
- *
- * Module-level mutable ref because both hooks share a singleton WS
- * connection — there's only ever one fanout handler at a time
- * (mounted in the auth layout root).
- */
+/** Module-level slot — `useDeviceFanout` registers its callback here. */
 const deviceFanoutHandlerRef: { current: ((e: import("@/domain/models/ws").DeviceJoinedPayload) => void) | null } = {
     current: null,
 }
@@ -352,12 +341,7 @@ export function useIdpWebSocket(): void {
 
                     actionsRef.current.pushDmMessage(conversationId, msg)
 
-                    // Phase 7 — buffer this freshly decrypted plaintext for
-                    // the history archive. The e2eePort flushes the buffer
-                    // every 2s (or on 10-entry burst) under
-                    // `useHistoryArchiveFlusher`. We serialize the whole
-                    // ApplicationMessage so the restore path can re-hydrate
-                    // a full Message rather than just the body text.
+                    // Buffer the full ApplicationMessage so restore can rehydrate it.
                     if (app) {
                         try {
                             const serialized = new TextEncoder().encode(JSON.stringify(app))
@@ -467,9 +451,7 @@ export function useIdpWebSocket(): void {
                     break
                 }
                 case "device_joined": {
-                    // Phase 7 — a new device of this user just registered.
-                    // The useDeviceFanout hook (mounted in the auth layout)
-                    // owns the actual fanout; we just notify it via its ref.
+                    // useDeviceFanout owns the actual fanout via its registered ref.
                     deviceFanoutHandlerRef.current?.(event.data)
                     break
                 }

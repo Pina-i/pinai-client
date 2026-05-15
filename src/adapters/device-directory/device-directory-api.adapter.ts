@@ -3,9 +3,7 @@ import ky, { HTTPError } from "ky"
 import type { DeviceListResponse } from "@/domain/models/device"
 import type { IDeviceDirectoryPort } from "@/domain/ports/device-directory.port"
 
-/**
- * REST client for the Phase 6b device-directory endpoints.
- */
+/** REST client for the device-directory endpoints. */
 export class DeviceDirectoryApiAdapter implements IDeviceDirectoryPort {
     async listDevices(idpUrl: string, accessToken: string): Promise<DeviceListResponse> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/keys/devices`

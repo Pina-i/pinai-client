@@ -10,10 +10,7 @@ import { base64ToBytes, bytesToBase64 } from "@/presentation/_libs/utils-bytes"
 
 const BATCH_MAX = 50
 
-/**
- * Phase 7 — REST client for `/api/history/*` endpoints. The server stores
- * opaque ciphertexts; this adapter just handles base64 + transport.
- */
+/** REST client for `/api/history/*`. Base64 in/out; no crypto here. */
 export class HistoryArchiveApiAdapter implements IHistoryArchivePort {
     async uploadBatch(
         idpUrl: string,

@@ -18,15 +18,9 @@ export interface BootstrapFirstDeviceResult {
 }
 
 /**
- * Phase 6a — first-device onboarding orchestration.
- *
- * Thin wrapper around `IE2eePort.bootstrapFirstDevice`. The actual
- * orchestration (register + generate mnemonic + setupRecoveryKey +
- * saveStoredPassphrase) lives on the adapter so it can be deduplicated
- * via a single `bootstrapPromise` against concurrent callers — under
- * React StrictMode's double-effect-fire two viewmodel mounts would
- * otherwise each generate a different mnemonic, race the local-save
- * and server-upload steps, and leave local + server out of sync.
+ * First-device onboarding orchestration. Thin wrapper — the adapter
+ * dedupes concurrent callers so StrictMode double-mounts don't mint
+ * two mnemonics.
  */
 export const bootstrapFirstDeviceUseCase =
     ({ e2eePort }: BootstrapFirstDeviceDeps) =>

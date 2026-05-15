@@ -4,15 +4,7 @@ import { RecoveryPassphraseInput } from "@/presentation/molecules/RecoveryPassph
 
 import { useRecoveryRestorePageViewModel } from "./RecoveryRestorePage.viewmodel"
 
-/**
- * Phase 7 — history-restore onboarding page.
- *
- * The user types their existing 24-word passphrase; we derive HAK,
- * paginate the server-side encrypted archive, decrypt each entry,
- * and push successful entries into the dm slice. AES-GCM auth-tag
- * failures are silently skipped (wrong passphrase → 0 restored,
- * N skipped → toast "wrong passphrase").
- */
+/** History-restore page — type the passphrase, decrypt + restore the archive. */
 export function RecoveryRestorePage() {
     const vm = useRecoveryRestorePageViewModel()
     const isRestoring = vm.status === "restoring"

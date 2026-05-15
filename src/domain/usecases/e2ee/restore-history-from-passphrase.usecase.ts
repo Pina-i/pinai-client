@@ -9,14 +9,7 @@ export interface RestoreHistoryInput {
     passphrase: string[]
 }
 
-/**
- * Phase 7 — Layer B restore. The trigger UI (page route + viewmodel
- * that calls this) is deferred; the use case itself is functional and
- * unit-tested.
- *
- * Returns counts: `restored` = successful decrypts; `skipped` =
- * AES-GCM auth-tag failures (wrong passphrase or no matching archive).
- */
+/** `skipped` counts AES-GCM auth-tag failures (wrong passphrase or unrelated archive). */
 export const restoreHistoryFromPassphraseUseCase =
     ({ e2eePort }: RestoreHistoryDeps) =>
     (input: RestoreHistoryInput): Promise<{ restored: number; skipped: number }> =>

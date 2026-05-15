@@ -1,9 +1,6 @@
 /**
- * Phase 6b — Settings → Devices.
- *
- * Server-shape of one device row, returned by `GET /api/keys/devices`.
- * `is_current` is not on the wire — the client computes it by
- * comparing `device_id` to the local `getOrCreateDeviceId()`.
+ * Server-shape of `GET /api/keys/devices` rows. `is_current` is computed
+ * client-side by comparing against the local device id.
  */
 
 export type DeviceKind = "laptop" | "phone" | "tablet" | "unknown"

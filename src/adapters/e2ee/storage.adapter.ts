@@ -28,9 +28,7 @@ import type {
 } from "@/domain/models/e2ee"
 
 const DB_NAME = "pinai-e2ee"
-// Bumped to 4 to add the `device_attestation` store (Phase 7). The
-// `upgrade` callback is additive only — existing rows in `meta` /
-// `identity` / `mls_snapshot` / `recovery_passphrase` survive.
+// Upgrade callback is additive — existing rows survive each version bump.
 const DB_VERSION = 4
 
 const META_STORE = "meta"
@@ -54,13 +52,8 @@ interface MetaRow {
     device_id: DeviceId
     device_key: CryptoKey
     /**
-     * Actor URI of the user this device's stored identity belongs to.
-     * Set after `register()` or `recoverFromPassphrase()` succeeds.
-     * The onboarding gate reads this to detect "different user logged
-     * in on the same browser" and wipes the IDB before admitting the
-     * new user to the app, preventing cross-account contamination of
-     * keys / MLS state / message cache. Undefined for legacy rows
-     * created before Phase 6a — treated as null.
+     * Actor URI bound to this device's stored identity. The gate uses it
+     * to detect "different user signed in on the same browser" and wipe.
      */
     bound_actor_uri?: ActorUri
 }
@@ -99,14 +92,8 @@ export interface MlsSnapshot {
 }
 
 /**
- * Phase 7 — per-device IdP-attested identity material.
- *
- * The DRK private key is the device's long-lived signing key (1-year
- * lifetime by default). The attestation is the IdP's signature over
- * the canonical bytes `(actor_uri, device_id, drk_pub, expires_at, kid)`.
- * Both live in IDB encrypted under the device key, alongside the
- * canonical message bytes the IdP signed so the client can re-verify
- * after restoration without re-deriving the byte order.
+ * Per-device DRK + IdP attestation. `signed_message` is the canonical bytes
+ * the IdP signed, kept so the client can locally re-verify after restore.
  */
 export interface DeviceAttestation {
     drk_public: Uint8Array
@@ -149,44 +136,19 @@ export interface E2eeStorage {
      */
     loadMlsSnapshot(): Promise<MlsSnapshot | null>
     /**
-     * Persist the recovery passphrase locally so the user can retrieve
-     * it from Settings → Devices later (Phase 6b reveal UI). Encrypted
-     * under the same device key — security-equivalent to having the
-     * unwrapped MSK on disk already, since a device-compromised
-     * attacker could exfiltrate either to recover the account.
+     * Persist the recovery passphrase locally — encrypted under the
+     * device key, surfaced by Settings → Devices.
      */
     saveRecoveryPassphrase(words: string[]): Promise<void>
-    /**
-     * Returns the previously-saved recovery passphrase, or `null` if
-     * none has been stored on this device (fresh install, never set up,
-     * or explicitly cleared via the 6b "Clear recovery key" action).
-     */
+    /** Null when never stored or explicitly cleared. */
     loadRecoveryPassphrase(): Promise<string[] | null>
-    /** Drop the local copy. Paired with deleting the server-side blob. */
     clearRecoveryPassphrase(): Promise<void>
-    /**
-     * Phase 7 — persist the device's DRK + IdP attestation. Replaces any
-     * previous attestation (used for renewal at the 30-day window and for
-     * key rotation).
-     */
+    /** Replaces any previous attestation — used for renewal and rotation. */
     saveDeviceAttestation(att: DeviceAttestation): Promise<void>
-    /**
-     * Phase 7 — load the stored DRK + attestation, or `null` when the
-     * device hasn't yet called `POST /api/keys/devices`.
-     */
     loadDeviceAttestation(): Promise<DeviceAttestation | null>
-    /**
-     * Return the actor URI bound to this device's stored identity, or
-     * null when no identity is set up yet (or when it predates the
-     * actor-binding behaviour added in Phase 6a).
-     */
     getBoundActorUri(): Promise<ActorUri | null>
-    /** Bind the device's identity to a specific user. Called after register/recover. */
     setBoundActorUri(actorUri: ActorUri): Promise<void>
-    /**
-     * Drop all E2EE state — used by `revokeDevice` on this device and
-     * by the "log out everywhere" UI flow (Phase 6).
-     */
+    /** Drop all E2EE state. */
     clear(): Promise<void>
 }
 

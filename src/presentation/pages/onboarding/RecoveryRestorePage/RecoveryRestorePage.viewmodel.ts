@@ -24,15 +24,6 @@ export interface RecoveryRestoreViewModel {
     onSkip: () => void
 }
 
-/**
- * Phase 7 — history-restore viewmodel. The user types their 24-word
- * passphrase and we pull + decrypt the server-side encrypted archive,
- * pushing successful entries into the dm slice via the IoC-wired
- * `onPlaintextRestored` callback.
- *
- * Skipping just navigates to /home — the user can come back later from
- * Settings → Devices when the trigger UI lands there too.
- */
 export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
     const idpUrl = useAppStore((s) => s.idpUrl)
     const accessToken = useAppStore((s) => s.accessToken)

@@ -10,15 +10,7 @@ export interface RegisterDeviceInput {
     actorUri: ActorUri
 }
 
-/**
- * Phase 7 — idempotent device-attestation flow. Generates the DRK on
- * first call, mints the IdP attestation, persists locally. Subsequent
- * calls reuse the stored DRK and renew the attestation when within 30
- * days of expiry; otherwise short-circuit.
- *
- * Called by the onboarding gate after `useIdentityOnboardingGate`
- * admits a fresh device, and by the silent-renewal scheduler.
- */
+/** Idempotent device-attestation flow. */
 export const registerDeviceUseCase =
     ({ e2eePort }: RegisterDeviceDeps) =>
     (input: RegisterDeviceInput): Promise<void> =>
