@@ -37,6 +37,10 @@ interface MessageItemProps {
      *  yet (e.g. immediately after a first message — the sender's
      *  own WS echo skips the conversation-list invalidation). */
     recipientAddress: string
+    /** First message in a same-author sequence: renders the avatar
+     *  + author/time header. Continuation rows hide both and indent
+     *  the body to align with the text column. */
+    first: boolean
     onReply: (messageId: string) => void
     onRetry: (messageId: string) => void
     hasPendingIntent: (messageId: string) => boolean
@@ -46,6 +50,7 @@ export function MessageItem({
     message,
     conversationKey,
     recipientAddress,
+    first,
     onReply,
     onRetry,
     hasPendingIntent,
@@ -83,13 +88,13 @@ export function MessageItem({
     return (
         <div
             className={cn(
-                "group relative flex gap-4 px-2 py-1.5",
-                vm.isOwn
-                    ? "border-l-2 border-primary/40 hover:bg-primary/5"
-                    : "hover:bg-accent/30",
+                "group relative flex items-start gap-[14px]",
+                first ? "pt-[14px] pb-[2px]" : "pl-[54px] pb-[2px]",
             )}
         >
-            <Avatar initials={message.avatar} imageUrl={avatarUrl} size="md" className="mt-0.5" />
+            {first && (
+                <Avatar initials={message.avatar} imageUrl={avatarUrl} size="md" />
+            )}
 
             <div className="min-w-0 flex-1">
                 {message.replyTo && (
@@ -102,20 +107,33 @@ export function MessageItem({
                     </div>
                 )}
 
-                <div className="flex items-baseline gap-2">
-                    <span className="font-semibold text-primary">
-                        {message.author}
-                    </span>
-                    <span className="text-xs text-muted-foreground">{message.timestamp}</span>
-                    {vm.isOwn && (
-                        <MessageStatus
-                            status={message.status}
-                            statusAt={message.statusAt}
-                            canRetry={vm.canRetry}
-                            onRetry={vm.retrySend}
-                        />
-                    )}
-                </div>
+                {first && (
+                    <div className="mb-[3px] flex items-baseline gap-2">
+                        <span
+                            className={cn(
+                                "title font-medium",
+                                vm.isOwn ? "text-chat" : "text-foreground",
+                            )}
+                            style={{ fontSize: 14.5 }}
+                        >
+                            {message.author}
+                        </span>
+                        <span
+                            className="font-mono text-muted-foreground"
+                            style={{ fontSize: 10.5 }}
+                        >
+                            {message.timestamp}
+                        </span>
+                        {vm.isOwn && (
+                            <MessageStatus
+                                status={message.status}
+                                statusAt={message.statusAt}
+                                canRetry={vm.canRetry}
+                                onRetry={vm.retrySend}
+                            />
+                        )}
+                    </div>
+                )}
 
                 {vm.isEditing ? (
                     <div className="mt-1 flex gap-2">
@@ -149,7 +167,10 @@ export function MessageItem({
                     </div>
                 ) : (
                     message.content && (
-                        <p className="text-sm leading-relaxed text-foreground">
+                        <p
+                            className="text-foreground"
+                            style={{ fontSize: 13.5, lineHeight: 1.55, textWrap: "pretty" }}
+                        >
                             {message.content}
                             {message.edited && (
                                 <span className="ml-1 text-xs text-muted-foreground">(edited)</span>

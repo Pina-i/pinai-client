@@ -46,6 +46,7 @@
 <script type="text/babel" src="screens/friends.jsx"></script>
 <script type="text/babel" src="screens/contextmenu.jsx"></script>
 <script type="text/babel" src="screens/chat.jsx"></script>
+<script type="text/babel" src="screens/message-actions.jsx"></script>
 <script type="text/babel" src="screens/message-status.jsx"></script>
 <script type="text/babel" src="screens/message-status-variants.jsx"></script>
 <script type="text/babel" src="screens/ios-frame.jsx"></script>
@@ -89,6 +90,31 @@ function App() {
           subtitle="Sage/moss is the chat accent — calm, readable, original-voice.">
           <DCArtboard id="chat" label="03 · Direct message" width={1200} height={780}>
             <ChatScreen/>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="message-actions" title="Message hover · action bar"
+          subtitle="Hover (or focus, or long-press) a message to surface React · Reply · Copy · Edit/Delete. Four directions, then a recommendation.">
+          <DCArtboard id="ma-pill" label="A · Floating pill toolbar" width={1200} height={520}>
+            <MessageActionsPill/>
+          </DCArtboard>
+          <DCArtboard id="ma-quick" label="B · Quick-react palette" width={1200} height={520}>
+            <MessageActionsQuick/>
+          </DCArtboard>
+          <DCArtboard id="ma-editorial" label="C · Editorial monospace labels" width={1200} height={520}>
+            <MessageActionsEditorial/>
+          </DCArtboard>
+          <DCArtboard id="ma-edge" label="D · Edge stack" width={1200} height={520}>
+            <MessageActionsEdge/>
+          </DCArtboard>
+          <DCArtboard id="ma-specimens" label="Specimens · all four side-by-side" width={1200} height={760}>
+            <MessageActionsSpecimens/>
+          </DCArtboard>
+          <DCArtboard id="ma-overflow" label="Overflow menu · expanded" width={1200} height={560}>
+            <MessageActionsOverflow/>
+          </DCArtboard>
+          <DCArtboard id="ma-rec" label="Recommendation" width={1200} height={460}>
+            <MessageActionsRec/>
           </DCArtboard>
         </DCSection>
 
@@ -237,7 +263,7 @@ function App() {
           <DCArtboard id="sec-recover-empty" label="03a · Recover history · new device" width={1200} height={780}>
             <SecRecoverHistory/>
           </DCArtboard>
-          <DCArtboard id="sec-recover-entering" label="03b · Recover history · mid-entry + typo catch" width={1200} height={780}>
+          <DCArtboard id="sec-recover-entering" label="03b · Recover history · mid-entry" width={1200} height={780}>
             <SecRecoverHistoryEntering/>
           </DCArtboard>
           <DCArtboard id="sec-devices" label="04 · Settings → Devices" width={1200} height={780}>

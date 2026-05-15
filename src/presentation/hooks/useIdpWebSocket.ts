@@ -4,6 +4,7 @@ import { useAppStore } from "@/store/store"
 import { getDmPort, getE2eePort, getWsPort } from "@/ioc"
 import type {
     ApplicationMessage,
+    ArchiveEnvelope,
     AttachmentBlobKey,
     EditBody,
     ReactionBody,
@@ -277,6 +278,51 @@ export function useIdpWebSocket(): void {
                                 ...(optimistic?.replyTo ? { replyTo: optimistic.replyTo } : {}),
                             },
                         )
+
+                        // Buffer the outbound message for the history
+                        // archive. Forward secrecy wipes the
+                        // send-side ratchet, so we can't re-decrypt
+                        // our own ciphertext later — this is the only
+                        // moment we have both the server's message_id
+                        // and the plaintext together. Without this,
+                        // restore-from-passphrase on a new device only
+                        // surfaces peer messages.
+                        if (optimistic) {
+                            try {
+                                const body: TextBody = { text: optimistic.content }
+                                if (optimistic.replyTo) {
+                                    body.reply_meta = {
+                                        target_message_id: optimistic.replyTo.id,
+                                        preview_text: optimistic.replyTo.content,
+                                        preview_sender: optimistic.replyTo.author,
+                                    }
+                                }
+                                if (optimistic.attachmentKeys) {
+                                    body.attachments = Object.values(optimistic.attachmentKeys)
+                                }
+                                const app: ApplicationMessage<TextBody> = {
+                                    version: 1,
+                                    kind: "text",
+                                    body,
+                                }
+                                const envelope: ArchiveEnvelope = {
+                                    v: 1,
+                                    sender_address: senderAddress,
+                                    sender_display_name: senderDisplayName,
+                                    created_at: event.data.created_at,
+                                    app,
+                                }
+                                const serialized = new TextEncoder().encode(JSON.stringify(envelope))
+                                getE2eePort().bufferDecryptedForArchive(
+                                    conversationId,
+                                    event.data.message_id,
+                                    serialized,
+                                )
+                            } catch (err) {
+                                // eslint-disable-next-line no-console
+                                console.warn("[history-archive] own-echo buffer failed", err)
+                            }
+                        }
                         break
                     }
                     if (isOwn) {
@@ -341,10 +387,18 @@ export function useIdpWebSocket(): void {
 
                     actionsRef.current.pushDmMessage(conversationId, msg)
 
-                    // Buffer the full ApplicationMessage so restore can rehydrate it.
+                    // Buffer the full envelope so restore can rehydrate
+                    // it with proper author/timestamp metadata.
                     if (app) {
                         try {
-                            const serialized = new TextEncoder().encode(JSON.stringify(app))
+                            const envelope: ArchiveEnvelope = {
+                                v: 1,
+                                sender_address: senderAddress,
+                                sender_display_name: senderDisplayName,
+                                created_at: event.data.created_at,
+                                app,
+                            }
+                            const serialized = new TextEncoder().encode(JSON.stringify(envelope))
                             getE2eePort().bufferDecryptedForArchive(
                                 conversationId,
                                 event.data.message_id,
@@ -438,10 +492,8 @@ export function useIdpWebSocket(): void {
                     // queue (same-IdP via POST /api/mls/welcomes, or
                     // cross-IdP via the AP inbox). Pull + join now
                     // rather than waiting for the next login poll.
-                    const userAddress = actionsRef.current.user?.address
-                    if (!userAddress || !idpUrl || !accessToken) break
-                    const username = userAddress.split("@")[0]
-                    const ownActorUri = `${idpUrl.replace(/\/$/, "")}/users/${username}`
+                    const ownActorUri = actionsRef.current.user?.actor_uri
+                    if (!ownActorUri || !idpUrl || !accessToken) break
                     try {
                         await getE2eePort().consumePendingWelcomes(idpUrl, accessToken, ownActorUri)
                     } catch (e) {

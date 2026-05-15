@@ -1,13 +1,11 @@
 /**
- * Pure-function test for the Phase 7 identity onboarding gate's decision
- * table. The hook itself wires this into React Router + an async probe,
- * but the branching logic is the pure `decideGateRoute` function — tested
- * here without React Router plumbing.
+ * Pure-function test for the onboarding gate's decision table. The hook
+ * wires this into React Router + an async probe; the branching itself
+ * is the pure `decideGateRoute` function tested here.
  *
- * Phase 7 simplified the table to two branches: local identity present
- * → app; absent → setup. The previous "restore" branch (recover MSK from
- * server-stored passphrase blob) is gone — per-device identity is the
- * model now.
+ *  - `hasLocal: true`                       → app
+ *  - `hasLocal: false`, `hasArchive: false` → setup    (first device)
+ *  - `hasLocal: false`, `hasArchive: true`  → restore  (returning user on a fresh device)
  */
 import { describe, expect, it } from "vitest"
 
@@ -15,10 +13,15 @@ import { decideGateRoute } from "@/presentation/hooks/useIdentityOnboardingGate"
 
 describe("decideGateRoute", () => {
     it("admits to the app when a local identity exists", () => {
-        expect(decideGateRoute({ hasLocal: true })).toBe("app")
+        expect(decideGateRoute({ hasLocal: true, hasArchive: false })).toBe("app")
+        expect(decideGateRoute({ hasLocal: true, hasArchive: true })).toBe("app")
     })
 
-    it("routes to setup when no local identity is present", () => {
-        expect(decideGateRoute({ hasLocal: false })).toBe("setup")
+    it("routes to setup on a first-device sign-in", () => {
+        expect(decideGateRoute({ hasLocal: false, hasArchive: false })).toBe("setup")
+    })
+
+    it("routes to restore on a new device when the account has a history archive", () => {
+        expect(decideGateRoute({ hasLocal: false, hasArchive: true })).toBe("restore")
     })
 })

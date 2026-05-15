@@ -12,8 +12,19 @@ export type DeviceId = string
 /** Conversation UUID. Used as the MLS group ID. */
 export type ConversationId = string
 
-/** Federation actor URI (e.g. `https://idp.alice.com/users/alice_xK9mP`). */
-export type ActorUri = string
+/**
+ * Federation actor URI (e.g. `https://idp.alice.com/users/alice_xK9mP`).
+ *
+ * Branded so raw strings can't satisfy the type. The IdP's `/userinfo`
+ * response is the canonical source for the local user; for peers, the
+ * URI is already carried by API/WS payloads. When you do need to build
+ * one client-side (an address from a route param, an arbitrary
+ * webfinger-resolved handle), go through `addressToActorUri` in
+ * `domain/models/identity.ts`. Trusted server-emitted strings (e.g.
+ * the `actorUri` field on a conversation row) can be marked via
+ * `asActorUri()` from the same module.
+ */
+export type ActorUri = string & { readonly __actorUri: unique symbol }
 
 /**
  * 60-character base32 fingerprint over an MSK public key. UI shows it
@@ -61,6 +72,24 @@ export interface ApplicationMessage<TBody = unknown> {
     version: 1
     kind: ApplicationKind
     body: TBody
+}
+
+/**
+ * Local archive envelope. Wraps an `ApplicationMessage` with the
+ * metadata the restore path needs to reconstruct a UI `Message`:
+ * sender, original timestamp, optional display name. Encrypted under
+ * the History Archive Key before upload to `/api/history/messages`.
+ *
+ * Versioned so a future schema bump can be detected on restore — `v` is the
+ * envelope version, independent of the inner `app.version`.
+ */
+export interface ArchiveEnvelope {
+    v: 1
+    sender_address: string
+    sender_display_name?: string
+    /** ISO-8601 — the server's persisted `created_at` for the original row. */
+    created_at: string
+    app: ApplicationMessage
 }
 
 export interface TextBody {

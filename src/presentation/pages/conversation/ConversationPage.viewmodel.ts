@@ -119,7 +119,16 @@ async function mapApiMessage(
     }
     const app = await tryDecryptApp(msg.conversation_id, msg.mls_ciphertext, catchUp)
 
-    if (app && app.kind === "reaction") {
+    // Undecryptable peer history: skip rather than rendering an
+    // `[encrypted]` placeholder. From REST these are almost always
+    // messages sent before this device joined the group (no MLS
+    // ratchet state can recover them) — restore-from-passphrase is
+    // the supported path to surface them. Live undecryptable
+    // messages still surface as `[encrypted]` via the WS handler so
+    // genuinely-transient decrypt failures stay visible.
+    if (!app) return { kind: "skip" }
+
+    if (app.kind === "reaction") {
         const body = app.body as ReactionBody
         if (
             body &&
@@ -142,7 +151,7 @@ async function mapApiMessage(
     let plaintext = UNDECRYPTABLE_PLACEHOLDER
     let inlineReplyMeta: { content: string; author: string } | null = null
     let attachmentKeys: Record<string, AttachmentBlobKey> | undefined
-    if (app && app.kind === "text") {
+    if (app.kind === "text") {
         const body = app.body as TextBody
         if (typeof body?.text === "string") plaintext = body.text
         if (
@@ -622,17 +631,18 @@ export function useConversationPageViewModel(name: string) {
         sendTypingStartUseCase(conversationKey, getWsPort())
     }, [conversationKey])
 
-    // Build a "X is typing…" label, excluding the current user.
-    const typingLabel = useMemo(() => {
+    // Active typers excluding self, projected to the shape the
+    // `TypingIndicator` molecule consumes. `null` when nobody is typing.
+    const typing = useMemo<{ name: string } | null>(() => {
         const entries = typingByConversation[conversationKey] ?? []
         const ownAddress = user?.address
         const others = entries.filter((t) => actorUriToAddress(t.actorUri) !== ownAddress)
         if (others.length === 0) return null
         const dmDisplayName = dmData?.kind === "dm" ? dmData.displayName : null
         if (others.length === 1) {
-            return dmDisplayName ? `${dmDisplayName} is typing…` : "Someone is typing…"
+            return { name: dmDisplayName ?? "Someone" }
         }
-        return `${others.length} people are typing…`
+        return { name: `${others.length} people` }
     }, [typingByConversation, conversationKey, user?.address, dmData])
 
     const displayName =
@@ -662,6 +672,6 @@ export function useConversationPageViewModel(name: string) {
         handleReply,
         handleType,
         cancelReply,
-        typingLabel,
+        typing,
     }
 }
