@@ -68,9 +68,9 @@ export interface IE2eePort {
 
     /**
      * First-device bootstrap. Generates the local identity, registers the
-     * DRK attestation, mints a 24-word recovery passphrase + history-archive
-     * salt, persists locally. Deduplicated against concurrent callers
-     * (StrictMode double-fire would otherwise mint two different mnemonics).
+     * Device Root Key attestation, mints a 24-word recovery passphrase +
+     * history-archive salt, persists locally. Deduplicated against concurrent
+     * callers (StrictMode double-fire would otherwise mint two different mnemonics).
      */
     bootstrapFirstDevice(
         idpUrl: string,
@@ -230,8 +230,9 @@ export interface IE2eePort {
     // ─── Per-device IdP attestation + history backup ────────────────────
 
     /**
-     * Idempotent — generates the DRK on first call, mints (or renews) the
-     * IdP attestation, persists locally. Silent renewal at 30 days from expiry.
+     * Idempotent — generates the Device Root Key on first call, mints
+     * (or renews) the IdP attestation, persists locally. Silent renewal
+     * at 30 days from expiry.
      */
     registerDevice(
         idpUrl: string,
@@ -257,7 +258,7 @@ export interface IE2eePort {
         passphrase: string[],
     ): Promise<{ restored: number; skipped: number }>
 
-    /** Wipe server archive + drop local passphrase + purge cached HAK. */
+    /** Wipe server archive + drop local passphrase + purge cached History Archive Key. */
     clearHistoryBackup(idpUrl: string, accessToken: string): Promise<void>
 
     // ─── Pairing ──────────────────────────────────────────────────────

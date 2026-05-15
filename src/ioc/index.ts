@@ -39,7 +39,8 @@ const userPort: IUserPort = new UserApiAdapter()
 const deviceDirectoryPort: IDeviceDirectoryPort = new DeviceDirectoryApiAdapter()
 
 // JWKS cache + history-archive singletons live alongside the other E2EE
-// plumbing — keeps the per-issuer JWKS and in-memory HAK persistent.
+// plumbing — keeps the per-issuer JWKS and the in-memory History Archive
+// Key persistent across calls.
 const jwksCache = new JwksCacheAdapter()
 const historyArchivePort: IHistoryArchivePort = new HistoryArchiveApiAdapter()
 const historyArchiveCrypto = new HistoryArchiveAdapter()
