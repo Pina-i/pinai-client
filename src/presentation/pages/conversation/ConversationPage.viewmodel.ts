@@ -17,6 +17,7 @@ import type {
     TextBody,
 } from "@/domain/models/e2ee"
 import type { UserProfile } from "@/domain/models/auth"
+import type { MessageListHandle } from "@/presentation/organisms/MessageList/MessageList"
 
 /** Placeholder rendered when an MLS ciphertext can't be decrypted. */
 const UNDECRYPTABLE_PLACEHOLDER = "[encrypted]"
@@ -373,7 +374,13 @@ export function useConversationPageViewModel(name: string) {
     }, [accessToken, idpUrl, user, name, conversationKey, seedDmMessages, applyReaction, dmData])
 
     const messages = dmMessages[conversationKey] ?? []
-    const messagesEndRef = useRef<HTMLDivElement>(null)
+    // Scroll-to-bottom is an imperative action — page wires a
+    // `MessageListHandle` here, viewmodel triggers it after a local
+    // send. Old `messagesEndRef.scrollIntoView` only worked when the
+    // sentinel `<div ref={...}/>` was in the DOM; the virtualized list
+    // doesn't render off-screen rows, so the sentinel-by-ref pattern
+    // is gone.
+    const messageListHandleRef = useRef<MessageListHandle | null>(null)
 
     // Send-intent map for failed-message retry. Keyed by the optimistic
     // UUID we generated at send time. Session-only by design — lost on
@@ -602,7 +609,7 @@ export function useConversationPageViewModel(name: string) {
 
             await runSend(optimisticId, intent)
 
-            setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50)
+            setTimeout(() => messageListHandleRef.current?.scrollToBottom(), 50)
         },
         [user, dmData, name, conversationId, recipientActorUri, pushDmMessage, replyingTo, accessToken, idpUrl, runSend],
     )
@@ -672,7 +679,7 @@ export function useConversationPageViewModel(name: string) {
         conversationKey,
         recipientAddress,
         messages,
-        messagesEndRef,
+        messageListHandleRef,
         replyingTo,
         sendMessage,
         retrySend,
