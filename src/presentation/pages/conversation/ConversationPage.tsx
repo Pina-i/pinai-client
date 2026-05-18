@@ -1,10 +1,11 @@
-import { useRef, useState, type DragEvent } from "react"
+import { useDeferredValue, useRef, useState, type DragEvent } from "react"
 import { PageTransition } from "@/presentation/atoms/page-transition/page-transition"
 import { DropOverlay } from "@/presentation/molecules/DropOverlay/DropOverlay"
 import { MessageInput } from "@/presentation/molecules/MessageInput/MessageInput"
 import type { MessageInputHandle } from "@/presentation/molecules/MessageInput/MessageInput.viewmodel"
 import { TypingIndicator } from "@/presentation/molecules/TypingIndicator/TypingIndicator"
 import { MessageList } from "@/presentation/organisms/MessageList/MessageList"
+import type { Message } from "@/lib/types"
 import { useConversationPageViewModel } from "./ConversationPage.viewmodel"
 
 interface ConversationPageProps {
@@ -16,8 +17,20 @@ function dragHasFiles(e: DragEvent<HTMLDivElement>): boolean {
     return Array.from(e.dataTransfer.types).includes("Files")
 }
 
+// Stable reference so `useDeferredValue`'s initialValue path doesn't
+// allocate a fresh array on every render.
+const EMPTY_MESSAGES: Message[] = []
+
 export function ConversationPage({ name }: ConversationPageProps) {
     const vm = useConversationPageViewModel(name)
+
+    // Defer the heavy MessageList render. Initial value `[]` lets the
+    // route transition commit immediately on first navigation from
+    // /home — without it, TanStack Router (which wraps `navigate()` in
+    // `startTransition`) holds the old route visible until the full
+    // message list has rendered. The deferred render then re-runs in
+    // the background with the real cached messages.
+    const deferredMessages = useDeferredValue(vm.messages, EMPTY_MESSAGES)
 
     const messageInputRef = useRef<MessageInputHandle | null>(null)
 
@@ -68,13 +81,13 @@ export function ConversationPage({ name }: ConversationPageProps) {
                 onDrop={handleDrop}
             >
                 <MessageList
-                    messages={vm.messages}
+                    messages={deferredMessages}
                     conversationKey={vm.conversationKey}
                     recipientAddress={vm.recipientAddress}
                     onReply={vm.handleReply}
                     onRetry={vm.retrySend}
                     hasPendingIntent={vm.hasPendingIntent}
-                    messagesEndRef={vm.messagesEndRef}
+                    handleRef={vm.messageListHandleRef}
                 />
                 {vm.typing && (
                     <div className="px-7">
