@@ -13,7 +13,7 @@ interface UserProfileModalProps {
 
 export function UserProfileModal({ member, onClose, onSendMessage }: UserProfileModalProps) {
     return (
-        <Modal isOpen={!!member} onClose={onClose}>
+        <Modal isOpen={!!member} onClose={onClose} label="User profile">
             {member && (
                 <div className="w-80 border border-border bg-card" style={{ boxShadow: "var(--shadow-xl)" }}>
                     {/* Banner */}

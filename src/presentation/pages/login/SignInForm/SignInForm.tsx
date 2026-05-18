@@ -1,7 +1,8 @@
+import { useState } from "react"
 import { Button } from "@/presentation/atoms/Button/Button"
 import { TextField } from "@/presentation/atoms/TextField/TextField"
 import type { OidcParams } from "../LoginPage.viewmodel"
-import { LockKeyhole, Mail } from "lucide-react"
+import { Loader2, LockKeyhole, Mail } from "lucide-react"
 
 function HiddenOidcFields({ params }: { params: OidcParams }) {
     return (
@@ -18,8 +19,17 @@ function HiddenOidcFields({ params }: { params: OidcParams }) {
 }
 
 export function SignInForm({ idpUrl, params }: { idpUrl: string; params: OidcParams }) {
+    // Native form POST navigates the page away after submit — flipping
+    // this lets us swap the button label for a spinner during that
+    // ~200-500 ms gap and prevents double-submits.
+    const [submitting, setSubmitting] = useState(false)
     return (
-        <form action={`${idpUrl}/login`} method="POST" className="space-y-4">
+        <form
+            action={`${idpUrl}/login`}
+            method="POST"
+            className="space-y-4"
+            onSubmit={() => setSubmitting(true)}
+        >
             <HiddenOidcFields params={params} />
             <TextField
                 name="email"
@@ -37,7 +47,13 @@ export function SignInForm({ idpUrl, params }: { idpUrl: string; params: OidcPar
                 icon={<LockKeyhole size={16} />}
                 isRequired
             />
-            <Button type="submit">Sign in</Button>
+            <Button type="submit" isDisabled={submitting} aria-label="Sign in">
+                {submitting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                    "Sign in"
+                )}
+            </Button>
         </form>
     )
 }

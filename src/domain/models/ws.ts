@@ -9,11 +9,12 @@ export interface DmEventPayload {
     kind: "dm" | "group"
     sender_address: string
     sender_display_name: string | null
-    content: string
+    /** Base64-encoded TLS MLSMessage. Client decrypts via IE2eePort. */
+    mls_ciphertext: string
     created_at: string
+    /** Server-visible parent ID for thread routing. The preview text +
+     *  sender display name travel inside the encrypted body. */
     reply_to_id?: string | null
-    reply_to_content?: string | null
-    reply_to_sender?: string | null
     /** Linked attachments — empty when the sender used the WS `send_dm` path
      *  (which doesn't carry attachment_ids). The REST `POST /api/dm` path
      *  does, and inbound federation DMs preserve them. */
@@ -22,17 +23,18 @@ export interface DmEventPayload {
     client_id?: string | null
 }
 
-export interface ReactionEventPayload {
-    messageId: string
-    reactorActorUri: string
-    emoji: string
-}
-
 export interface FriendEventPayload {
     friendship_id: string
     actor_uri: string
     username: string
     display_name: string | null
+    /** Set on `friend_accepted` — the DM conversation_id the accepter's IdP
+     *  minted alongside `set_status('accepted')`. Both sides receive the
+     *  same id (the accepter advertises it via the AP envelope), so the
+     *  conversation appears in `localDmConvos` immediately on
+     *  `dm-conversations` invalidation. Absent on `friend_request` /
+     *  `friend_removed`. */
+    conversation_id?: string | null
 }
 
 export interface ProfileUpdatePayload {
@@ -43,8 +45,28 @@ export interface ProfileUpdatePayload {
 
 export interface MessageEditedPayload {
     message_id: string
-    new_content: string
+    /** Replacement TLS MLSMessage, base64. */
+    new_mls_ciphertext: string
     edited_at: string
+}
+
+/**
+ * `mls_welcome_ready` — server side stored a Welcome bundle for one of
+ * this device's leaves (either same-IdP via `POST /api/mls/welcomes`,
+ * or cross-IdP via the AP inbox). The hook fires
+ * `consumePendingWelcomes` so the new group lands in the local MLS
+ * adapter within seconds.
+ */
+export interface MlsWelcomeReadyPayload {
+    conversationId: string
+    recipientDeviceId: string
+}
+
+/** Fired when a new device of this user completes attestation registration. */
+export interface DeviceJoinedPayload {
+    actorUri: string
+    deviceId: string
+    drkPublicKey: string
 }
 
 export interface PresenceUpdateEventPayload {
@@ -66,10 +88,10 @@ export type WsServerEvent =
     | { type: "friend_accepted"; data: FriendEventPayload }
     | { type: "friend_removed"; data: FriendEventPayload }
     | { type: "friend_profile_updated"; data: ProfileUpdatePayload }
-    | { type: "message_reaction_added"; data: ReactionEventPayload }
-    | { type: "message_reaction_removed"; data: ReactionEventPayload }
     | { type: "presence_update"; data: PresenceUpdateEventPayload }
     | { type: "typing"; data: TypingEventDataPayload }
+    | { type: "mls_welcome_ready"; data: MlsWelcomeReadyPayload }
+    | { type: "device_joined"; data: DeviceJoinedPayload }
     | { type: "heartbeat_ack"; data?: Record<string, never> }
 
 // ── Client → Server messages ────────────────────────────────────────────────
@@ -77,7 +99,7 @@ export type WsServerEvent =
 export type WsClientMessage =
     | {
           type: "send_dm"
-          data: { recipient_address: string; content: string; client_id?: string }
+          data: { recipient_address: string; mls_ciphertext: string; client_id?: string }
       }
     | { type: "heartbeat" }
     | { type: "typing_start"; data: { conversationId: string } }

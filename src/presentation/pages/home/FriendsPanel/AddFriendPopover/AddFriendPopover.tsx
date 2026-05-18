@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { AtSign, Check, Send } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/presentation/atoms/Button/Button"
 import { Popover } from "@/presentation/molecules/Popover/Popover"
 import { cn } from "@/presentation/_libs/utils"
@@ -26,12 +27,14 @@ export function AddFriendPopover({ userAddress, onSendFriendRequest }: AddFriend
 
     async function sendFriendRequest() {
         if (!friendInput.trim()) return
+        const target = friendInput.trim()
         setRequestStatus("sending")
         setRequestError("")
         try {
-            await onSendFriendRequest(friendInput.trim())
+            await onSendFriendRequest(target)
             setRequestStatus("sent")
             setFriendInput("")
+            toast.success(`Friend request sent to ${target}`)
         } catch (e) {
             setRequestStatus("error")
             setRequestError(e instanceof Error ? e.message : "Failed to send request")

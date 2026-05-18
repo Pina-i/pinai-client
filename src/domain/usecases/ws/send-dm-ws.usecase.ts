@@ -1,17 +1,23 @@
 import type { IWsPort } from "@/domain/ports/ws.port"
 
+/**
+ * Send a pre-encrypted MLS application message over the WebSocket.
+ * The caller is responsible for encrypting plaintext via
+ * `IE2eePort.encryptOutbound` before invoking — this use case only
+ * wraps the wire envelope.
+ *
+ * `mlsCiphertext` is base64; the server validates ≤ 64 KiB.
+ */
 export function sendDmWsUseCase(
     recipientAddress: string,
-    content: string,
+    mlsCiphertext: string,
     wsPort: IWsPort,
     clientId?: string,
 ): void {
-    const trimmed = content.trim()
-    if (!trimmed) throw new Error("Message content cannot be empty")
-    if (trimmed.length > 4096) throw new Error("Message content too long (max 4096 chars)")
+    if (!mlsCiphertext) throw new Error("MLS ciphertext is empty")
 
     wsPort.send({
         type: "send_dm",
-        data: { recipient_address: recipientAddress, content: trimmed, client_id: clientId },
+        data: { recipient_address: recipientAddress, mls_ciphertext: mlsCiphertext, client_id: clientId },
     })
 }

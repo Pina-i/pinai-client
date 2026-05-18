@@ -191,7 +191,7 @@ export function ChannelSidebar() {
                                         </p>
                                     )}
                                 </div>
-                                {(dmUnread[dm.id] ?? 0) > 0 && (
+                                {(dmUnread[dm.id] ?? 0) > 0 && activeDm !== dm.id && (
                                     <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-chat px-1.5 font-mono text-[10px] font-bold text-primary-foreground">
                                         {dmUnread[dm.id]}
                                     </span>

@@ -27,7 +27,7 @@ export function AppHeader() {
 
     const currentChannel = (channelsByServer[activeServer] ?? []).find((c) => c.id === activeChannel)
     const activeDmData = localDmConvos.find((d) => d.id === activeDm)
-    const activeDmAddress = activeDmData?.name ?? activeDm ?? ""
+    const activeDmAddress = activeDmData?.address ?? activeDm ?? ""
     const activeDmAvatarUrl =
         activeDmData?.kind === "dm" ? avatarsByAddress[activeDmData.address] ?? null : null
 

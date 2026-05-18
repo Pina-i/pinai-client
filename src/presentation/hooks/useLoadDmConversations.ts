@@ -52,7 +52,10 @@ export function useLoadDmConversations(): void {
                 avatar: displayName.slice(0, 2).toUpperCase(),
                 color: colorFromString(address),
                 status: "offline" as const,
-                lastMessage: summary.last_message_preview ?? "",
+                // Phase 3 dropped server-side preview — body is opaque
+                // ciphertext now. Phase 5b will compute previews from
+                // the decrypted MLS stream.
+                lastMessage: "",
                 unread: 0,
             }
         })

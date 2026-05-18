@@ -12,6 +12,12 @@ interface ModalProps {
     variant?: "centered" | "fullscreen"
     className?: string
     isDismissable?: boolean
+    /** Accessible name for the dialog. React Aria's `Dialog` emits a console
+     *  warning when neither this nor a `<Heading slot="title">` child is
+     *  present, so every Modal consumer should pass one (or render a title
+     *  heading inside `children`). Required-by-convention rather than
+     *  required-by-type to avoid noisy callsite churn during migration. */
+    label?: string
 }
 
 export function Modal({
@@ -21,6 +27,7 @@ export function Modal({
     variant = "centered",
     className,
     isDismissable = true,
+    label,
 }: ModalProps) {
     const isFullscreen = variant === "fullscreen"
 
@@ -41,7 +48,10 @@ export function Modal({
                     className,
                 )}
             >
-                <Dialog className={cn("outline-none", isFullscreen && "flex flex-1")}>
+                <Dialog
+                    aria-label={label}
+                    className={cn("outline-none", isFullscreen && "flex flex-1")}
+                >
                     <motion.div
                         initial={isFullscreen ? { opacity: 0, y: 12 } : { opacity: 0, scale: 0.95 }}
                         animate={isFullscreen ? { opacity: 1, y: 0 } : { opacity: 1, scale: 1 }}

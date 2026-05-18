@@ -1,8 +1,8 @@
 import { Plus, Reply, Send, Smile, X } from "lucide-react"
-import type { RefObject } from "react"
+import { useEffect, useRef, useState, type RefObject } from "react"
 import { Input, TextField } from "react-aria-components"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
-import { EmojiPicker } from "@/presentation/molecules/EmojiPicker/EmojiPicker"
+import { EmojiPickerPopover } from "@/presentation/molecules/EmojiPickerPopover/EmojiPickerPopover"
 import { GifPopover } from "@/presentation/molecules/GifPopover/GifPopover"
 import { Popover } from "@/presentation/molecules/Popover/Popover"
 import { cn } from "@/presentation/_libs/utils"
@@ -42,6 +42,50 @@ export function MessageInput({
     handleRef,
 }: MessageInputProps) {
     const vm = useMessageInputViewModel({ onSend, onType, handleRef })
+
+    // Controlled state for the emoji + GIF popovers so picking one snaps
+    // it shut. React Aria's `DialogTrigger` does NOT auto-close on inner
+    // clicks unless the click closes via the standard form-submit / link
+    // path — a tile/grid cell is a plain button, so we toggle the open
+    // state ourselves.
+    const [emojiOpen, setEmojiOpen] = useState(false)
+    const [gifOpen, setGifOpen] = useState(false)
+
+    const textInputRef = useRef<HTMLInputElement | null>(null)
+
+    /**
+     * Return focus to the message input after a popover closes —
+     * regardless of how (emoji pick, GIF pick, Escape, outside click).
+     *
+     * Watching the open-state edge in a `useEffect` instead of calling
+     * a `setTimeout(0)` inline at the pick site puts us reliably AFTER
+     * React Aria's `DialogTrigger` focus-restoration to the trigger
+     * button. The GIF case in particular was unreliable inline because
+     * the picker's `onClick` is async (`await fetch(gif)` for the file
+     * bytes) — by the time `setGifOpen(false)` fired, the timing
+     * relative to RA's internal restore had drifted.
+     */
+    const prevEmojiOpenRef = useRef(false)
+    const prevGifOpenRef = useRef(false)
+    useEffect(() => {
+        const justClosed =
+            (prevEmojiOpenRef.current && !emojiOpen) || (prevGifOpenRef.current && !gifOpen)
+        prevEmojiOpenRef.current = emojiOpen
+        prevGifOpenRef.current = gifOpen
+        if (!justClosed) return
+        const el = textInputRef.current
+        if (!el) return
+        // One rAF after the effect commit to make sure RA's
+        // restoration round trip is fully done.
+        const id = requestAnimationFrame(() => {
+            el.focus()
+            // Park the caret at the end so the next keystroke continues
+            // the message rather than landing mid-word.
+            const end = el.value.length
+            el.setSelectionRange(end, end)
+        })
+        return () => cancelAnimationFrame(id)
+    }, [emojiOpen, gifOpen])
 
     // Decide between progress-row strip (any upload mid-flight) and chip strip
     // (everything ready). Empty string short-circuits the whole strip.
@@ -133,6 +177,7 @@ export function MessageInput({
                         className="flex-1"
                     >
                         <Input
+                            ref={textInputRef}
                             placeholder={composerPlaceholder}
                             onKeyDown={(e) => {
                                 if (e.key === "Enter" && !e.shiftKey) {
@@ -144,22 +189,27 @@ export function MessageInput({
                         />
                     </TextField>
 
-                    <Popover
+                    <EmojiPickerPopover
                         placement="top end"
                         offset={8}
+                        isOpen={emojiOpen}
+                        onOpenChange={setEmojiOpen}
                         trigger={
                             <IconButton aria-label="Emoji" className="text-muted-foreground hover:text-foreground">
                                 <Smile className="h-5 w-5" />
                             </IconButton>
                         }
-                        className="overflow-hidden rounded-lg border border-border-strong bg-popover shadow-xl"
-                    >
-                        <EmojiPicker onEmojiSelect={vm.onEmojiSelect} />
-                    </Popover>
+                        onEmojiSelect={(emoji) => {
+                            vm.onEmojiSelect(emoji)
+                            setEmojiOpen(false)
+                        }}
+                    />
 
                     <Popover
                         placement="top end"
                         offset={8}
+                        isOpen={gifOpen}
+                        onOpenChange={setGifOpen}
                         trigger={
                             <IconButton
                                 aria-label="GIF"
@@ -174,7 +224,12 @@ export function MessageInput({
                         }
                         className="overflow-visible"
                     >
-                        <GifPopover onPickGif={(file) => vm.onAddFiles([file])} />
+                        <GifPopover
+                            onPickGif={(file) => {
+                                vm.onAddFiles([file])
+                                setGifOpen(false)
+                            }}
+                        />
                     </Popover>
 
                     <IconButton

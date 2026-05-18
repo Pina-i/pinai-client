@@ -21,7 +21,10 @@ function SignInScreen() {
       <div style={{position:'absolute', top:0, left:0, right:0, padding:'24px 32px', display:'flex', justifyContent:'space-between',
         fontFamily:'JetBrains Mono, ui-monospace, monospace', fontSize:10.5, letterSpacing:'0.08em',
         color:'var(--muted-foreground)', textTransform:'uppercase'}}>
-        <span>Pīna'i · v2.0.4</span>
+        <span style={{display:'inline-flex', alignItems:'center', gap:8}}>
+          <PronounceBadge size="sm"/>
+          <span>· v2.0.4</span>
+        </span>
         <span>Self-hosted · Federated · Open-source</span>
       </div>
 
@@ -29,8 +32,8 @@ function SignInScreen() {
         {/* Left: editorial mark */}
         <div style={{padding:'64px 56px', display:'flex', flexDirection:'column', justifyContent:'space-between', borderRight:'1px solid var(--border)'}}>
           <div style={{display:'flex', alignItems:'center', gap:12}}>
-            <Mountain size={34}/>
-            <Serif as="div" style={{fontSize:26, fontWeight:500, letterSpacing:'-0.01em'}}>Pīna'i</Serif>
+            <Mountain size={36}/>
+            <Serif as="div" style={{fontSize:26, fontWeight:500, letterSpacing:'-0.01em', lineHeight:1}}>Pīna'i</Serif>
           </div>
 
           <div>
@@ -142,6 +145,86 @@ function Field({ label, icon, placeholder, type='text' }) {
             color:'var(--foreground)', fontSize:13.5, fontFamily:'inherit'}}/>
       </div>
     </div>
+  );
+}
+
+function PronounceBadge({ size = 'md' }) {
+  const [playing, setPlaying] = React.useState(false);
+  const sm = size === 'sm';
+
+  const speak = React.useCallback(() => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    // Hawaiian "Pīna'i" — feed an English-friendly phonetic transcription
+    // so the default TTS voice approximates /piː.na.ʔi/.
+    const u = new SpeechSynthesisUtterance('pee-nah ee');
+    u.lang = 'en-US';
+    u.rate = 0.78;
+    u.pitch = 1.02;
+    u.onend = () => setPlaying(false);
+    u.onerror = () => setPlaying(false);
+    setPlaying(true);
+    window.speechSynthesis.speak(u);
+  }, []);
+
+  const iconPx = sm ? 9 : 11;
+
+  return (
+    <button
+      onClick={speak}
+      aria-label="Hear how Pīna'i is pronounced"
+      title="Hear how it's pronounced"
+      style={{
+        display:'inline-flex', alignItems:'center',
+        gap: sm ? 5 : 7,
+        padding: sm ? '2px 7px 2px 6px' : '4px 9px 4px 8px',
+        borderRadius:999,
+        border:'1px solid color-mix(in oklab, var(--chat) 24%, var(--border))',
+        background:'color-mix(in oklab, var(--chat) 6%, transparent)',
+        color: playing ? 'var(--chat)' : 'var(--muted-foreground)',
+        cursor:'pointer', fontFamily:'inherit',
+        lineHeight:1,
+        transition:'color 160ms ease, background 160ms ease, border-color 160ms ease',
+      }}
+      onMouseEnter={e => {
+        e.currentTarget.style.color = 'var(--chat)';
+        e.currentTarget.style.background = 'color-mix(in oklab, var(--chat) 14%, transparent)';
+      }}
+      onMouseLeave={e => {
+        e.currentTarget.style.color = playing ? 'var(--chat)' : 'var(--muted-foreground)';
+        e.currentTarget.style.background = 'color-mix(in oklab, var(--chat) 6%, transparent)';
+      }}
+    >
+      {/* tiny speaker icon — fills when playing */}
+      <span style={{display:'inline-flex', position:'relative',
+        width:iconPx, height:iconPx,
+        alignItems:'center', justifyContent:'center'}}>
+        <svg width={iconPx} height={iconPx} viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M11 5L6 9H2v6h4l5 4V5z" fill="currentColor" stroke="none" opacity="0.85"/>
+          {!playing && (
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+          )}
+          {playing && (
+            <>
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07">
+                <animate attributeName="opacity" values="0.3;1;0.3" dur="1.1s" repeatCount="indefinite"/>
+              </path>
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14">
+                <animate attributeName="opacity" values="0.15;0.9;0.15" dur="1.1s" begin="0.18s" repeatCount="indefinite"/>
+              </path>
+            </>
+          )}
+        </svg>
+      </span>
+      <span style={{
+        fontFamily:'var(--serif), serif',
+        fontStyle:'italic', fontWeight:400,
+        fontSize: sm ? 10.5 : 13,
+        letterSpacing:'0.01em', textTransform:'none',
+        lineHeight:1, color:'inherit',
+      }}>/piː.na.ʔi/</span>
+    </button>
   );
 }
 

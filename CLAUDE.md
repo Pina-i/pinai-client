@@ -27,11 +27,13 @@ The user configures their identity provider URL (e.g. `idp.alice.com`) and the c
 | Build tool | Vite |
 | UI Components | React Aria based |
 | Styling | Tailwind CSS with Shadcn-style token system |
-| State management | Zustand |
+| State management | Zustand (with `persist` middleware for selected slices) |
 | Data fetching | TanStack Query (React Query) |
 | WebSocket | Native WebSocket API with a custom hook layer |
 | Auth | OIDC Authorization Code + PKCE (no implicit flow) |
 | Routing | Tanstack Router |
+| E2EE | MLS (RFC 9420) via `openmls 0.8.1` WASM bundle (`crypto/openmls-wasm/`); identity + recovery via `@noble/curves` + `@noble/hashes` + `@noble/ciphers` |
+| At-rest persistence | IndexedDB (`idb`) + AES-256-GCM under a non-extractable device key, inner format is **msgpack** (`msgpackr`) — preserves `Uint8Array` round-trip natively |
 
 ## Related Repositories
 
@@ -48,6 +50,19 @@ This project follows a hexagonal architecture (Clean Architecture) with strict s
 web-client/
 ├── public/
 ├── locales/              # Translation files
+├── crypto/                # Out-of-app crypto bundles (E2EE Phase 4+)
+│   ├── openmls-wasm/      # Standalone Cargo project: `openmls` WASM wrapper.
+│   │                      #   Pinned to openmls 0.8.1; single ciphersuite
+│   │                      #   (MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519).
+│   │                      #   Build with `wasm-pack build --release --target web
+│   │                      #   --out-dir ../openmls-pkg` (or `./build.sh`).
+│   │                      #   `cargo test` runs native unit tests (happy paths only;
+│   │                      #   browser-only checks land in 4b under wasm-bindgen-test).
+│   └── openmls-pkg/       # Generated npm package — wasm-pack output.
+│                          #   ~1.5–2 MiB .wasm (size depends on whether
+│                          #   wasm-opt is enabled in the release profile)
+│                          #   + JS glue + .d.ts. Imported via a `file:`
+│                          #   dependency.
 src/
 ├── domain/           # Business core (use cases, ports, models)
 │   ├── models/       # Business entities
@@ -60,10 +75,16 @@ src/
 │   ├── organisms/    # Complex UI sections (Header, Form, DataTable, etc.)
 │   ├── templates/    # Page layouts and structural components
 │   └── pages/        # Application pages
-├── store/            # UI state management (Zustand)
+├── store/            # UI state management (Zustand). Includes
+│                     #   `encrypted-idb-storage.ts` — the AES-GCM + msgpack
+│                     #   `PersistStorage` backing the persisted slices.
 ├── ioc/              # Dependency injection configuration
 ├── translation/      # Translation system
 └── config/           # Global configurations
+test/                 # Vitest specs (jsdom env). Loads the real
+                      #   `openmls-wasm` bundle off disk via `WebAssembly.compile`
+                      #   so the MLS path runs against the same code the
+                      #   browser does.
 ```
 
 ### Dependency principle
@@ -109,6 +130,8 @@ The `Dockerfile` runs `vite build` and copies the output into an nginx image. Th
 - **Multi-IdP aware** — the client is not hardcoded to a single IdP; the user's configured IdP URL is stored in `localStorage` only (not the token)
 - **Two separate WebSocket connections**: one to the identity-provider (for DMs), one to the active chat-server (for channels)
 - **JWT never sent to wrong backend** — the chat-server JWT and IdP session are kept strictly separate in the store
+- **MLS E2EE is end-to-end client-driven**: encryption/decryption happens in `adapters/e2ee/`, server is opaque to message content. Per-device identity (Phase 7) — each device generates a Device Root Key (Ed25519) signed by the IdP into an attestation; peers verify via the issuer's JWKS. DRK + MLS provider state + per-device 24-word recovery passphrase all live in IndexedDB, encrypted at rest under a per-device non-extractable AES-256-GCM `CryptoKey`. The same device key encrypts the persisted message-plaintext cache (`pinai-zustand-store` IDB) so MLS forward secrecy doesn't blank conversation history on reload. The recovery passphrase derives a History Archive Key (Argon2id) used to encrypt every decrypted plaintext for opt-out server-side history backup. See `adapters/e2ee/CLAUDE.md` and `identity-provider/docs/plans/2026-05-14-per-device-identity-design.md`.
+- **Persistence inner format is msgpack** (not JSON). `Uint8Array` fields (`AttachmentBlobKey.key` / `.nonce`, identity bytes) round-trip natively — JSON would turn them into indexed-property objects that Web Crypto APIs reject.
 
 ## Environment Variables
 
@@ -167,15 +190,15 @@ We could imagine in other slices, store values like : selectedChatServer, sideba
 **All folders and files** must be created using **kebab-case**:
 
 ```
-âœ… my-component/
-âœ… vehicle-list.tsx
-âœ… add-vehicle.usecase.ts
+✅ my-component/
+✅ vehicle-list.tsx
+✅ add-vehicle.usecase.ts
 ```
 
 ```
-âŒ MyComponent/
-âŒ vehicleList.tsx
-âŒ addVehicle.usecase.ts
+❌ MyComponent/
+❌ vehicleList.tsx
+❌ addVehicle.usecase.ts
 ```
 
 #### Dot notation for file types
@@ -191,10 +214,10 @@ You can use **dots** to specify file types (e.g., `.usecase`, `.adapter`, `.port
 Examples with dot notation:
 
 ```
-âœ… add-vehicle.usecase.ts
-âœ… vehicle-api.adapter.ts
-âœ… http-client.helper.ts
-âœ… user-profile.component.tsx
+✅ add-vehicle.usecase.ts
+✅ vehicle-api.adapter.ts
+✅ http-client.helper.ts
+✅ user-profile.component.tsx
 ```
 
 ### 3. Use case organization
