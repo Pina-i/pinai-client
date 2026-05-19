@@ -8,9 +8,18 @@ import { createWsSlice, type WsSlice } from "./slices/ws.slice"
 import { createPresenceSlice, type PresenceSlice } from "./slices/presence.slice"
 import { createAvatarsSlice, type AvatarsSlice } from "./slices/avatars.slice"
 import { createE2eeSlice, type E2eeSlice } from "./slices/e2ee.slice"
+import { createTotpSlice, type TotpSlice } from "./slices/totp.slice"
 import { createEncryptedIdbStorage } from "./encrypted-idb-storage"
 
-export type AppStore = AuthSlice & UiSlice & DataSlice & WsSlice & PresenceSlice & AvatarsSlice & E2eeSlice
+export type AppStore =
+    & AuthSlice
+    & UiSlice
+    & DataSlice
+    & WsSlice
+    & PresenceSlice
+    & AvatarsSlice
+    & E2eeSlice
+    & TotpSlice
 
 /**
  * Persisted slice — the parts of the store we want to survive page
@@ -53,6 +62,7 @@ export const useAppStore = create<AppStore>()(
                 ...createPresenceSlice(...a),
                 ...createAvatarsSlice(...a),
                 ...createE2eeSlice(...a),
+                ...createTotpSlice(...a),
             }),
             {
                 name: "pinai-app-state",

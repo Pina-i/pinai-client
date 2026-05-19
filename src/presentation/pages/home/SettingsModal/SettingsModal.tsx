@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { Bell, Headphones, Laptop, Lock, MessageSquare, Settings as SettingsIcon, Sparkles, Sun } from "lucide-react"
+import { Bell, Headphones, Laptop, Lock, MessageSquare, Settings as SettingsIcon, ShieldCheck, Sparkles, Sun } from "lucide-react"
 import type { UserProfile } from "@/domain/models/auth"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
@@ -7,6 +7,7 @@ import { DevicesEditor } from "./DevicesEditor/DevicesEditor"
 import { IdentityTile } from "./IdentityTile/IdentityTile"
 import { PlaceholderEditor } from "./PlaceholderEditor/PlaceholderEditor"
 import { ProfileEditor } from "./ProfileEditor/ProfileEditor"
+import { SecurityEditor } from "./SecurityEditor/SecurityEditor"
 import { SettingsHeader } from "./SettingsHeader/SettingsHeader"
 import { SettingTile } from "./SettingTile/SettingTile"
 import { useSettingsModalViewModel, type SettingsSection } from "./SettingsModal.viewmodel"
@@ -41,6 +42,14 @@ const SECTIONS: SectionDescriptor[] = [
                 “Designer at Kauai Studio…”
             </span>
         ),
+    },
+    {
+        id: "security",
+        label: "Security",
+        title: "Two-factor authentication.",
+        description: "App-based 2FA and recovery codes.",
+        icon: <ShieldCheck className={ICON_PROPS} />,
+        preview: <span className="font-mono text-[10.5px] text-success">● Authenticator app</span>,
     },
     {
         id: "privacy",
@@ -173,6 +182,8 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
                 <div className="flex flex-[0.95] flex-col">
                     {activeDescriptor.id === "profile" ? (
                         <ProfileEditor user={user} />
+                    ) : activeDescriptor.id === "security" ? (
+                        <SecurityEditor />
                     ) : activeDescriptor.id === "devices" ? (
                         <DevicesEditor />
                     ) : (

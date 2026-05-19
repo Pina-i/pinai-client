@@ -12,6 +12,7 @@ import { SocialApiAdapter } from "@/adapters/social/social-api.adapter"
 import { DmApiAdapter } from "@/adapters/dm/dm-api.adapter"
 import { IdpWsAdapter } from "@/adapters/ws/idp-ws.adapter"
 import { PresenceApiAdapter } from "@/adapters/presence/presence-api.adapter"
+import { TotpApiAdapter } from "@/adapters/totp/totp-api.adapter"
 import { UserApiAdapter } from "@/adapters/user/user-api.adapter"
 import { getSharedE2eeStorage, useAppStore } from "@/store/store"
 import type { ArchiveEnvelope, AttachmentBlobKey, TextBody } from "@/domain/models/e2ee"
@@ -24,6 +25,7 @@ import type { ISocialPort } from "@/domain/ports/social.port"
 import type { IDmPort } from "@/domain/ports/dm.port"
 import type { IWsPort } from "@/domain/ports/ws.port"
 import type { IPresencePort } from "@/domain/ports/presence.port"
+import type { ITotpPort } from "@/domain/ports/totp.port"
 import type { IUserPort } from "@/domain/ports/user.port"
 
 /**
@@ -35,6 +37,7 @@ const socialPort: ISocialPort = new SocialApiAdapter()
 const dmPort: IDmPort = new DmApiAdapter()
 const wsPort: IWsPort = new IdpWsAdapter()
 const presencePort: IPresencePort = new PresenceApiAdapter()
+const totpPort: ITotpPort = new TotpApiAdapter()
 const userPort: IUserPort = new UserApiAdapter()
 const deviceDirectoryPort: IDeviceDirectoryPort = new DeviceDirectoryApiAdapter()
 
@@ -131,6 +134,10 @@ export function getWsPort(): IWsPort {
 
 export function getPresencePort(): IPresencePort {
     return presencePort
+}
+
+export function getTotpPort(): ITotpPort {
+    return totpPort
 }
 
 export function getUserPort(): IUserPort {

@@ -7,7 +7,30 @@ interface AuthShellProps {
     children: ReactNode
     /** Optional className passed to the right-column inner wrapper. */
     rightClassName?: string
+    /**
+     * Override the editorial left-panel headline (ReactNode so callers can mix
+     * serif + italic accent spans). Defaults to the "Quiet rooms, loud voices"
+     * landing copy.
+     */
+    leftHeadline?: ReactNode
+    /** Override the body paragraph that sits under the headline. */
+    leftDescription?: ReactNode
 }
+
+const DEFAULT_HEADLINE = (
+    <>
+        Quiet
+        <br />
+        <em className="font-light italic text-chat">rooms</em>,
+        <br />
+        loud
+        <br />
+        <em className="font-light italic text-voice">voices</em>.
+    </>
+)
+
+const DEFAULT_DESCRIPTION =
+    "A community space you host yourself. Federated by design, owned by the people who gather in it."
 
 /**
  * Editorial sign-in shell. Two-column layout (1.1fr / 1fr) on a dark canvas
@@ -21,7 +44,7 @@ interface AuthShellProps {
  * bottom-left. All colours come from the OKLCH token system, so a theme
  * switch flips the whole layout without further work.
  */
-export function AuthShell({ children, rightClassName }: AuthShellProps) {
+export function AuthShell({ children, rightClassName, leftHeadline, leftDescription }: AuthShellProps) {
     return (
         <div className="relative min-h-screen overflow-hidden bg-background">
             {/* Ambient backdrop — sage top-right, amber bottom-left. */}
@@ -62,17 +85,10 @@ export function AuthShell({ children, rightClassName }: AuthShellProps) {
 
                     <div className="my-12">
                         <h1 className="title text-[76px] font-light leading-[0.95] tracking-[-0.025em] text-foreground">
-                            Quiet
-                            <br />
-                            <em className="font-light italic text-chat">rooms</em>,
-                            <br />
-                            loud
-                            <br />
-                            <em className="font-light italic text-voice">voices</em>.
+                            {leftHeadline ?? DEFAULT_HEADLINE}
                         </h1>
                         <p className="mt-7 max-w-sm text-[14px] leading-[1.55] text-muted-foreground">
-                            A community space you host yourself. Federated by design,
-                            owned by the people who gather in it.
+                            {leftDescription ?? DEFAULT_DESCRIPTION}
                         </p>
                     </div>
 

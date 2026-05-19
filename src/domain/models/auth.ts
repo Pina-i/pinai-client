@@ -6,6 +6,8 @@ export type Pronouns = "he" | "she" | "non-binary"
 export interface UserProfile {
     sub: string
     email: string
+    email_verified: boolean
+    totp_enabled: boolean
     preferred_username: string
     display_name: string | null
     address: string

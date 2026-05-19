@@ -2,6 +2,7 @@ import { useState } from "react"
 
 export type SettingsSection =
     | "profile"
+    | "security"
     | "privacy"
     | "appearance"
     | "notifications"
