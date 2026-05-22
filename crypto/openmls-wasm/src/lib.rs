@@ -9,14 +9,13 @@
 //! - [`Provider`] — wraps `OpenMlsRustCrypto` (in-memory keystore + RNG +
 //!   crypto primitives). Held by JS for the lifetime of a session.
 //! - [`Identity`] — Ed25519 signature keypair + `BasicCredential`. One per
-//!   *device*: the user's MSK is generated separately and signs the leaf
-//!   (Phase 4b's `identity.adapter.ts`).
+//!   *device*: the user's MSK is generated separately and signs the leaf.
 //! - [`KeyPackage`] — single-use bundle uploaded to the IdP key directory.
 //! - [`Group`] — wraps `MlsGroup`. Owns commit / welcome / application
 //!   message production and consumption. Built around the strict-state
 //!   "merge_pending_commit after delivery" pattern from RFC 9420.
 //!
-//! ## Persistence (Phase 4b will wire this up)
+//! ## Persistence
 //!
 //! `OpenMlsRustCrypto` is in-memory by default. The web client will
 //! snapshot the underlying storage to IndexedDB on every successful

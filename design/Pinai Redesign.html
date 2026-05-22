@@ -43,6 +43,7 @@
 <script type="text/babel" src="app.jsx"></script>
 <script type="text/babel" src="screens/shell.jsx"></script>
 <script type="text/babel" src="screens/signin.jsx"></script>
+<script type="text/babel" src="screens/verify-email.jsx"></script>
 <script type="text/babel" src="screens/friends.jsx"></script>
 <script type="text/babel" src="screens/contextmenu.jsx"></script>
 <script type="text/babel" src="screens/chat.jsx"></script>
@@ -81,6 +82,15 @@ function App() {
           <DCArtboard id="signin" label="01 · Sign-in" width={1200} height={780}>
             <SignInScreen/>
           </DCArtboard>
+          <DCArtboard id="verify-empty" label="01b · Verify email · just sent" width={1200} height={780}>
+            <VerifyEmailEmpty/>
+          </DCArtboard>
+          <DCArtboard id="verify-mid" label="01c · Verify email · mid-entry" width={1200} height={780}>
+            <VerifyEmailMidEntry/>
+          </DCArtboard>
+          <DCArtboard id="verify-resent" label="01d · Verify email · resent (cooldown)" width={1200} height={780}>
+            <VerifyEmailResent/>
+          </DCArtboard>
           <DCArtboard id="friends" label="02 · Friends" width={1200} height={780}>
             <FriendsScreen/>
           </DCArtboard>
@@ -90,31 +100,6 @@ function App() {
           subtitle="Sage/moss is the chat accent — calm, readable, original-voice.">
           <DCArtboard id="chat" label="03 · Direct message" width={1200} height={780}>
             <ChatScreen/>
-          </DCArtboard>
-        </DCSection>
-
-        <DCSection id="message-actions" title="Message hover · action bar"
-          subtitle="Hover (or focus, or long-press) a message to surface React · Reply · Copy · Edit/Delete. Four directions, then a recommendation.">
-          <DCArtboard id="ma-pill" label="A · Floating pill toolbar" width={1200} height={520}>
-            <MessageActionsPill/>
-          </DCArtboard>
-          <DCArtboard id="ma-quick" label="B · Quick-react palette" width={1200} height={520}>
-            <MessageActionsQuick/>
-          </DCArtboard>
-          <DCArtboard id="ma-editorial" label="C · Editorial monospace labels" width={1200} height={520}>
-            <MessageActionsEditorial/>
-          </DCArtboard>
-          <DCArtboard id="ma-edge" label="D · Edge stack" width={1200} height={520}>
-            <MessageActionsEdge/>
-          </DCArtboard>
-          <DCArtboard id="ma-specimens" label="Specimens · all four side-by-side" width={1200} height={760}>
-            <MessageActionsSpecimens/>
-          </DCArtboard>
-          <DCArtboard id="ma-overflow" label="Overflow menu · expanded" width={1200} height={560}>
-            <MessageActionsOverflow/>
-          </DCArtboard>
-          <DCArtboard id="ma-rec" label="Recommendation" width={1200} height={460}>
-            <MessageActionsRec/>
           </DCArtboard>
         </DCSection>
 

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import { Logo } from "@/presentation/atoms/Logo/Logo"
+import { PronounceBadge } from "@/presentation/atoms/PronounceBadge/PronounceBadge"
 import { cn } from "@/presentation/_libs/utils"
 
 interface AuthShellProps {
@@ -71,7 +72,10 @@ export function AuthShell({ children, rightClassName, leftHeadline, leftDescript
             {/* Top rule: version + tagline. Sits over the grid so the
                 vertical divider underneath it spans the full viewport. */}
             <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-8 pt-6 mono-eyebrow">
-                <span className="pointer-events-auto">Pīna'i · v2.0.4</span>
+                <span className="pointer-events-auto inline-flex items-center gap-2">
+                    <PronounceBadge />
+                    <span>· v2.0.4</span>
+                </span>
                 <span className="pointer-events-auto">Self-hosted · Federated · Open-source</span>
             </div>
 
