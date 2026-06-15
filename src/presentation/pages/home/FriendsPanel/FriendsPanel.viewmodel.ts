@@ -5,6 +5,16 @@ import { getSocialPort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 import { actorUriToAddress } from "@/domain/models/identity"
 import { presenceToUserStatus } from "@/domain/models/presence"
+import type { UserStatus } from "@/lib/types"
+
+export interface Friend {
+    id: string
+    name: string
+    address: string
+    avatarUrl: string | null
+    status: UserStatus
+    activity: string
+}
 
 export const friendsQueryKey = (idpUrl: string) => ["friends", idpUrl] as const
 
@@ -21,7 +31,7 @@ export function useFriendsPanelViewModel() {
 
     const friends = useMemo(
         () =>
-            rawFriends.map((e) => {
+            rawFriends.map((e): Friend => {
                 const address = actorUriToAddress(e.friend_actor_uri)
                 return {
                     id: e.friend_actor_uri,

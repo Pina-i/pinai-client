@@ -1,16 +1,15 @@
-import { ChevronDown, ChevronRight, Hash, Users, Volume2 } from "lucide-react"
+import { ChevronDown, ChevronRight, Hash, Plus, Users, Volume2 } from "lucide-react"
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { Button } from "react-aria-components"
 import { useAppStore } from "@/store/store"
-import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { SearchField } from "@/presentation/atoms/SearchField/SearchField"
 import { Menu, type MenuItemDescriptor } from "@/presentation/molecules/Menu/Menu"
 import { cn } from "@/presentation/_libs/utils"
-import { presenceToUserStatus, userStatusLabel } from "@/domain/models/presence"
 import { UserPanel } from "./UserPanel"
+import { DmListItem } from "./DmListItem/DmListItem"
 
 export function ChannelSidebar() {
     const view = useAppStore((s) => s.view)
@@ -21,9 +20,7 @@ export function ChannelSidebar() {
     const selectChannel = useAppStore((s) => s.selectChannel)
     const localDmConvos = useAppStore((s) => s.localDmConvos)
     const activeDm = useAppStore((s) => s.activeDm)
-    const dmUnread = useAppStore((s) => s.dmUnread)
-    const presenceByAddress = useAppStore((s) => s.presenceByAddress)
-    const avatarsByAddress = useAppStore((s) => s.avatarsByAddress)
+    const openGroupComposer = useAppStore((s) => s.openGroupComposer)
     const switchToDms = useAppStore((s) => s.switchToDms)
     const navigate = useNavigate()
 
@@ -149,54 +146,21 @@ export function ChannelSidebar() {
                         </Button>
 
                         <div className="mb-1 mt-4 flex items-center justify-between px-2 mono-eyebrow">
-                            <span>Direct Messages · {localDmConvos.length}</span>
+                            <span>Direct Messages</span>
                             <IconButton
-                                aria-label="Start new direct message"
-                                className="text-muted-foreground/60 hover:text-foreground"
+                                aria-label="New group"
+                                onPress={() => openGroupComposer()}
+                                className="relative h-6 w-6 rounded-md text-muted-foreground hover:text-foreground"
                             >
-                                ＋
+                                <Users className="h-[18px] w-[18px]" />
+                                <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-chat text-primary-foreground ring-2 ring-card">
+                                    <Plus className="h-2 w-2" strokeWidth={3.5} />
+                                </span>
                             </IconButton>
                         </div>
 
                         {localDmConvos.map((dm) => (
-                            <Button
-                                key={dm.id}
-                                onPress={() => navigate({ to: "/dm/$name", params: { name: dm.address } })}
-                                className={cn(
-                                    "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 outline-none transition-colors cursor-pointer",
-                                    activeDm === dm.id
-                                        ? "bg-chat/15 text-foreground"
-                                        : "hover:bg-accent/50",
-                                )}
-                            >
-                                <Avatar
-                                    initials={dm.avatar}
-                                    imageUrl={dm.kind === "dm" ? avatarsByAddress[dm.address] ?? null : null}
-                                    color={dm.color}
-                                    size="sm"
-                                    status={
-                                        dm.kind === "dm"
-                                            ? presenceToUserStatus(presenceByAddress[dm.address])
-                                            : undefined
-                                    }
-                                    statusBorderClass="border-card"
-                                />
-                                <div className="min-w-0 flex-1 text-left">
-                                    <p className="title truncate text-[13.5px] font-medium text-foreground">
-                                        {dm.displayName}
-                                    </p>
-                                    {dm.kind === "dm" && (
-                                        <p className="truncate font-mono text-[10.5px] tracking-[0.04em] text-muted-foreground">
-                                            {userStatusLabel(presenceToUserStatus(presenceByAddress[dm.address]))}
-                                        </p>
-                                    )}
-                                </div>
-                                {(dmUnread[dm.id] ?? 0) > 0 && activeDm !== dm.id && (
-                                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-chat px-1.5 font-mono text-[10px] font-bold text-primary-foreground">
-                                        {dmUnread[dm.id]}
-                                    </span>
-                                )}
-                            </Button>
+                            <DmListItem key={dm.id} dm={dm} />
                         ))}
                     </ScrollArea>
                 </>

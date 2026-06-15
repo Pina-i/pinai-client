@@ -210,11 +210,10 @@ export function useConversationPageViewModel(name: string) {
     const typingByConversation = useAppStore((s) => s.typingByConversation)
     const wsStatus = useAppStore((s) => s.wsStatus)
 
-    // Look up the conversation by address (route param). Friends always
-    // have a row here (created at friendship-accept). Non-friend DMs
-    // (e.g. "DM a group member I'm not friends with") have no row until
-    // the first message is sent — we mint a UUID for them below.
-    const dmData = localDmConvos.find((d) => d.address === name)
+    // Route param is a conversation UUID (groups, and sidebar clicks) or a
+    // `username@host` address (DMing a not-yet-existing conversation). The two
+    // never collide, so one lookup serves both; non-friend DMs mint a UUID below.
+    const dmData = localDmConvos.find((d) => d.id === name || d.address === name)
 
     // Subscribe to the same `dm-conversations` query the layout fires
     // so we know when the initial load has settled. This is the only
@@ -660,8 +659,7 @@ export function useConversationPageViewModel(name: string) {
         return { name: `${others.length} people` }
     }, [typingByConversation, conversationKey, user?.address, dmData])
 
-    const displayName =
-        dmData?.kind === "dm" ? dmData.displayName : (name.split("@")[0] ?? name)
+    const displayName = dmData?.displayName ?? (name.split("@")[0] ?? name)
 
     // Federated address of the conversation's recipient. Mirrors the
     // source `sendMessage` uses (the route param `name` is the

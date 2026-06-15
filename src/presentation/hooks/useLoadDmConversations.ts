@@ -53,10 +53,12 @@ export function useLoadDmConversations(): void {
                 color: colorFromString(address),
                 status: "offline" as const,
                 // Phase 3 dropped server-side preview — body is opaque
-                // ciphertext now. Phase 5b will compute previews from
-                // the decrypted MLS stream.
+                // ciphertext now. The sidebar computes 1:1 previews from
+                // the decrypted MLS stream; groups show participant count.
                 lastMessage: "",
                 unread: 0,
+                // `members` excludes the caller, so add 1 for the local user.
+                memberCount: summary.members.length + 1,
             }
         })
         setDmConversations(convos)

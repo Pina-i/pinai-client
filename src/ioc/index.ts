@@ -10,6 +10,7 @@ import { NobleRecoveryAdapter } from "@/adapters/e2ee/recovery.adapter"
 import { JwksCacheAdapter } from "@/adapters/jwks/jwks-cache.adapter"
 import { SocialApiAdapter } from "@/adapters/social/social-api.adapter"
 import { DmApiAdapter } from "@/adapters/dm/dm-api.adapter"
+import { GroupApiAdapter } from "@/adapters/group/group-api.adapter"
 import { IdpWsAdapter } from "@/adapters/ws/idp-ws.adapter"
 import { PresenceApiAdapter } from "@/adapters/presence/presence-api.adapter"
 import { TotpApiAdapter } from "@/adapters/totp/totp-api.adapter"
@@ -23,6 +24,7 @@ import type { IE2eePort } from "@/domain/ports/e2ee.port"
 import type { IHistoryArchivePort } from "@/domain/ports/history-archive.port"
 import type { ISocialPort } from "@/domain/ports/social.port"
 import type { IDmPort } from "@/domain/ports/dm.port"
+import type { IGroupPort } from "@/domain/ports/group.port"
 import type { IWsPort } from "@/domain/ports/ws.port"
 import type { IPresencePort } from "@/domain/ports/presence.port"
 import type { ITotpPort } from "@/domain/ports/totp.port"
@@ -35,6 +37,7 @@ import type { IUserPort } from "@/domain/ports/user.port"
 const authPort: IAuthPort = new OidcAdapter()
 const socialPort: ISocialPort = new SocialApiAdapter()
 const dmPort: IDmPort = new DmApiAdapter()
+const groupPort: IGroupPort = new GroupApiAdapter()
 const wsPort: IWsPort = new IdpWsAdapter()
 const presencePort: IPresencePort = new PresenceApiAdapter()
 const totpPort: ITotpPort = new TotpApiAdapter()
@@ -126,6 +129,10 @@ export function getSocialPort(): ISocialPort {
 
 export function getDmPort(): IDmPort {
     return dmPort
+}
+
+export function getGroupPort(): IGroupPort {
+    return groupPort
 }
 
 export function getWsPort(): IWsPort {

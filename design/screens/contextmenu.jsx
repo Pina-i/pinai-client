@@ -428,6 +428,7 @@ function ContextMenuDM() {
 }
 
 Object.assign(window, {
+  CMFriendsBackdrop, Gly, Popover, MenuItem, MenuDivider,
   ContextMenuClassic, ContextMenuIdentity, ContextMenuToolbar,
   ContextMenuSectioned, ContextMenuDM,
 });

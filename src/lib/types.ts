@@ -80,6 +80,8 @@ export interface DmConversation {
     status: UserStatus
     lastMessage: string
     unread: number
+    /** Total participants (the caller + every other active member). */
+    memberCount: number
 }
 
 export interface Member {

@@ -46,7 +46,10 @@
 <script type="text/babel" src="screens/verify-email.jsx"></script>
 <script type="text/babel" src="screens/friends.jsx"></script>
 <script type="text/babel" src="screens/contextmenu.jsx"></script>
+<script type="text/babel" src="screens/profile.jsx"></script>
 <script type="text/babel" src="screens/chat.jsx"></script>
+<script type="text/babel" src="screens/groups.jsx"></script>
+<script type="text/babel" src="screens/groups2.jsx"></script>
 <script type="text/babel" src="screens/message-actions.jsx"></script>
 <script type="text/babel" src="screens/message-status.jsx"></script>
 <script type="text/babel" src="screens/message-status-variants.jsx"></script>
@@ -59,6 +62,7 @@
 <script type="text/babel" src="screens/settings.jsx"></script>
 <script type="text/babel" src="screens/mobile-app.jsx"></script>
 <script type="text/babel" src="screens/security.jsx"></script>
+<script type="text/babel" src="screens/notfound.jsx"></script>
 
 <script type="text/babel" data-presets="react">
 function App() {
@@ -107,6 +111,31 @@ function App() {
           subtitle="Six treatments for sent/read indicators on self-sent messages. Same thread, six visual vocabularies — pick one (or mix two).">
           <DCArtboard id="msg-status" label="Specimens · sent · delivered · read" width={1200} height={900}>
             <MessageStatusProposals/>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="groups" title="Group conversations · create, add &amp; remove members"
+          subtitle="Desktop. Creating a group, naming it, and managing membership — with cross-server (federated) members shown explicitly and the creator as admin. A private conversation is simply a two-person thread, so changing who's in a 1:1 forks a new group and leaves the original intact.">
+          <DCArtboard id="grp-entry" label="01 · Entry · New-group icon" width={1200} height={780}>
+            <GroupEntry/>
+          </DCArtboard>
+          <DCArtboard id="grp-picker-a" label="02 · Member picker (name optional)" width={1200} height={780}>
+            <GroupPickerTwoPane/>
+          </DCArtboard>
+          <DCArtboard id="grp-created" label="04 · Created · group thread" width={1200} height={780}>
+            <GroupCreated/>
+          </DCArtboard>
+          <DCArtboard id="grp-members" label="05 · Members panel · admin controls" width={1200} height={780}>
+            <GroupMembersPanel/>
+          </DCArtboard>
+          <DCArtboard id="grp-add" label="06 · Add members" width={1200} height={780}>
+            <GroupAddMembers/>
+          </DCArtboard>
+          <DCArtboard id="grp-remove" label="07 · Remove member · admin confirm" width={1200} height={780}>
+            <GroupRemoveMember/>
+          </DCArtboard>
+          <DCArtboard id="grp-fork" label="08 · Adding to a 1:1 → forks a new group" width={1200} height={780}>
+            <GroupForkFromDM/>
           </DCArtboard>
         </DCSection>
 
@@ -169,21 +198,12 @@ function App() {
         </DCSection>
 
         <DCSection id="contextmenu" title="Friends · Right-click context menu"
-          subtitle="Right-click a friend (here: Maia, currently in voice) for a small menu of actions. Four directions for the row menu, plus a tailored variant for the DMs sidebar.">
+          subtitle="Right-click a friend (here: Maia, currently in voice) for a small menu of actions.">
           <DCArtboard id="cm-classic" label="A · Classic list" width={1200} height={780}>
             <ContextMenuClassic/>
           </DCArtboard>
-          <DCArtboard id="cm-identity" label="B · Identity header + actions" width={1200} height={780}>
-            <ContextMenuIdentity/>
-          </DCArtboard>
-          <DCArtboard id="cm-toolbar" label="C · Quick-action toolbar + list" width={1200} height={780}>
-            <ContextMenuToolbar/>
-          </DCArtboard>
-          <DCArtboard id="cm-sectioned" label="D · Sectioned by intent" width={1200} height={780}>
-            <ContextMenuSectioned/>
-          </DCArtboard>
-          <DCArtboard id="cm-dm" label="E · DM sidebar variant" width={1200} height={780}>
-            <ContextMenuDM/>
+          <DCArtboard id="cm-profile" label="“See profile” → profile card modal" width={1200} height={780}>
+            <ContextMenuProfile/>
           </DCArtboard>
         </DCSection>
 
@@ -204,9 +224,6 @@ function App() {
         <DCSection id="settings" title="User settings · full-page rework"
           subtitle="A roomier place to manage your profile, privacy and devices — three directions for the layout."
         >
-          <DCArtboard id="set-editorial" label="A · Editorial · live profile preview" width={1200} height={780}>
-            <SettingsEditorial/>
-          </DCArtboard>
           <DCArtboard id="set-cards" label="C · Card grid + drill-in" width={1200} height={780}>
             <SettingsCardGrid/>
           </DCArtboard>
@@ -265,6 +282,22 @@ function App() {
           </DCArtboard>
           <DCArtboard id="sec-title-styles" label="08 · Title compositions · pick one" width={1200} height={900}>
             <SecTitleStyles/>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="notfound" title="404 · Off the trail"
+          subtitle="What you see when a room or link no longer exists. Three desktop directions — editorial split, centered cartography, and a server-log trace — plus a mobile take.">
+          <DCArtboard id="nf-editorial" label="A · Editorial split" width={1200} height={780}>
+            <NotFoundEditorial/>
+          </DCArtboard>
+          <DCArtboard id="nf-cartography" label="B · Centered cartography" width={1200} height={780}>
+            <NotFoundCartography/>
+          </DCArtboard>
+          <DCArtboard id="nf-terminal" label="C · Server-log trace" width={1200} height={780}>
+            <NotFoundTerminal/>
+          </DCArtboard>
+          <DCArtboard id="nf-mobile" label="Mobile · condensed" width={390} height={844}>
+            <NotFoundMobile/>
           </DCArtboard>
         </DCSection>
 

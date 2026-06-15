@@ -5,7 +5,7 @@ import { Tooltip } from "@/presentation/atoms/Tooltip/Tooltip"
 import { ThemeSwitcher } from "@/presentation/molecules/ThemeSwitcher/ThemeSwitcher"
 import { presenceToUserStatus } from "@/domain/models/presence"
 import { useAppStore } from "@/store/store"
-import { Hash, MessageSquare, Pin, Users } from "lucide-react"
+import { Hash, MessageSquare, Pin, UserPlus, Users } from "lucide-react"
 import { NotificationsPopover } from "./NotificationsPopover/NotificationsPopover"
 
 export function AppHeader() {
@@ -20,6 +20,9 @@ export function AppHeader() {
         setShowPinned,
         showMembers,
         setShowMembers,
+        showGroupMembers,
+        setShowGroupMembers,
+        openGroupComposer,
     } = useAppStore()
 
     const presenceByAddress = useAppStore((s) => s.presenceByAddress)
@@ -76,6 +79,33 @@ export function AppHeader() {
             </div>
 
             <div className="flex items-center gap-2">
+                {view === "dms" && activeDmData?.kind === "group" && (
+                    <Tooltip content="Members" placement="bottom" delay={300}>
+                        <IconButton
+                            onPress={() => setShowGroupMembers((p) => !p)}
+                            aria-label="Toggle members"
+                            className={cn("p-1", showGroupMembers ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
+                        >
+                            <Users className="h-5 w-5" />
+                        </IconButton>
+                    </Tooltip>
+                )}
+                {view === "dms" && activeDmData?.kind === "dm" && (
+                    <Tooltip content="Add people" placement="bottom" delay={300}>
+                        <IconButton
+                            onPress={() =>
+                                openGroupComposer({
+                                    prefillAddresses: [activeDmData.address],
+                                    fromDmId: activeDmData.id,
+                                })
+                            }
+                            aria-label="Add people to start a group"
+                            className="p-1 text-muted-foreground hover:text-foreground"
+                        >
+                            <UserPlus className="h-5 w-5" />
+                        </IconButton>
+                    </Tooltip>
+                )}
                 {view === "server" && (
                     <>
                         <Tooltip
