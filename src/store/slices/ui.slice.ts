@@ -13,7 +13,6 @@ export interface UiSlice {
     showSettings: boolean
     showUserProfile: Member | null
     groupComposer: GroupComposerState | null
-    showGroupMembers: boolean
 
     setShowPinned: (value: boolean | ((prev: boolean) => boolean)) => void
     setShowMembers: (value: boolean | ((prev: boolean) => boolean)) => void
@@ -22,7 +21,6 @@ export interface UiSlice {
     setShowUserProfile: (value: Member | null) => void
     openGroupComposer: (opts?: Partial<GroupComposerState>) => void
     closeGroupComposer: () => void
-    setShowGroupMembers: (value: boolean | ((prev: boolean) => boolean)) => void
 
     switchToServer: (serverId: string) => void
     switchToDms: () => void
@@ -50,7 +48,6 @@ export const createUiSlice: StateCreator<AppStore, [["zustand/devtools", never]]
     showSettings: false,
     showUserProfile: null,
     groupComposer: null,
-    showGroupMembers: false,
 
     setShowPinned: (value) =>
         set(
@@ -81,12 +78,6 @@ export const createUiSlice: StateCreator<AppStore, [["zustand/devtools", never]]
             "ui/openGroupComposer",
         ),
     closeGroupComposer: () => set({ groupComposer: null }, false, "ui/closeGroupComposer"),
-    setShowGroupMembers: (value) =>
-        set(
-            (s) => ({ showGroupMembers: typeof value === "function" ? value(s.showGroupMembers) : value }),
-            false,
-            "ui/setShowGroupMembers",
-        ),
 
     switchToServer: (serverId) => {
         const { channelsByServer } = get()
@@ -100,7 +91,7 @@ export const createUiSlice: StateCreator<AppStore, [["zustand/devtools", never]]
     },
     switchToDms: () => set({ view: "dms", activeDm: null }, false, "ui/switchToDms"),
     selectChannel: (channelId) => set({ activeChannel: channelId }, false, "ui/selectChannel"),
-    setActiveDm: (dmId) => set({ activeDm: dmId, showGroupMembers: false }, false, "ui/setActiveDm"),
+    setActiveDm: (dmId) => set({ activeDm: dmId }, false, "ui/setActiveDm"),
     openDmWith: (name) => {
         const { localDmConvos } = get()
         const existing = localDmConvos.find((d) => d.address === name)

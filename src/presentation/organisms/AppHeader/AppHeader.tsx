@@ -2,11 +2,10 @@ import { cn } from "@/presentation/_libs/utils"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { Tooltip } from "@/presentation/atoms/Tooltip/Tooltip"
-import { ThemeSwitcher } from "@/presentation/molecules/ThemeSwitcher/ThemeSwitcher"
+import { Navbar } from "@/presentation/organisms/Navbar/Navbar"
 import { presenceToUserStatus } from "@/domain/models/presence"
 import { useAppStore } from "@/store/store"
 import { Hash, MessageSquare, Pin, UserPlus, Users } from "lucide-react"
-import { NotificationsPopover } from "./NotificationsPopover/NotificationsPopover"
 
 export function AppHeader() {
     const {
@@ -20,8 +19,6 @@ export function AppHeader() {
         setShowPinned,
         showMembers,
         setShowMembers,
-        showGroupMembers,
-        setShowGroupMembers,
         openGroupComposer,
     } = useAppStore()
 
@@ -48,8 +45,8 @@ export function AppHeader() {
             : undefined
 
     return (
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-5">
-            <div className="flex items-center gap-3">
+        <Navbar>
+            <span className="shrink-0">
                 {view === "dms" && !activeDm ? (
                     <Users className="h-5 w-5 text-muted-foreground" />
                 ) : view === "dms" && activeDmData ? (
@@ -66,81 +63,57 @@ export function AppHeader() {
                 ) : (
                     <Hash className="h-5 w-5 text-muted-foreground" />
                 )}
-                <div className="flex flex-col">
-                    <span className="title text-[17px] font-medium leading-tight text-foreground">
-                        {title}
+            </span>
+
+            <div className="flex min-w-0 flex-col">
+                <span className="title truncate text-[17px] font-medium leading-tight text-foreground">
+                    {title}
+                </span>
+                {description && (
+                    <span className="mt-0.5 truncate font-mono text-[11px] uppercase tracking-[0.04em] text-muted-foreground">
+                        {description}
                     </span>
-                    {description && (
-                        <span className="mt-0.5 font-mono text-[11px] uppercase tracking-[0.04em] text-muted-foreground">
-                            {description}
-                        </span>
-                    )}
-                </div>
+                )}
             </div>
 
-            <div className="flex items-center gap-2">
-                {view === "dms" && activeDmData?.kind === "group" && (
-                    <Tooltip content="Members" placement="bottom" delay={300}>
+            {view === "dms" && activeDmData?.kind === "dm" && (
+                <Tooltip content="Add people" placement="bottom" delay={300}>
+                    <IconButton
+                        onPress={() =>
+                            openGroupComposer({
+                                prefillAddresses: [activeDmData.address],
+                                fromDmId: activeDmData.id,
+                            })
+                        }
+                        aria-label="Add people to start a group"
+                        className="ml-auto shrink-0 p-1 text-muted-foreground hover:text-foreground"
+                    >
+                        <UserPlus className="h-5 w-5" />
+                    </IconButton>
+                </Tooltip>
+            )}
+            {view === "server" && (
+                <div className="ml-auto flex shrink-0 items-center gap-2">
+                    <Tooltip content="Pinned Messages" placement="bottom" delay={300}>
                         <IconButton
-                            onPress={() => setShowGroupMembers((p) => !p)}
-                            aria-label="Toggle members"
-                            className={cn("p-1", showGroupMembers ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
+                            onPress={() => setShowPinned((p) => !p)}
+                            aria-label="Toggle pinned messages"
+                            className={cn("p-1", showPinned ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
+                        >
+                            <Pin className="h-5 w-5" />
+                        </IconButton>
+                    </Tooltip>
+                    <Tooltip content="Member List" placement="bottom" delay={300}>
+                        <IconButton
+                            onPress={() => setShowMembers((p) => !p)}
+                            aria-label="Toggle member list"
+                            className={cn("p-1", showMembers ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
                         >
                             <Users className="h-5 w-5" />
                         </IconButton>
                     </Tooltip>
-                )}
-                {view === "dms" && activeDmData?.kind === "dm" && (
-                    <Tooltip content="Add people" placement="bottom" delay={300}>
-                        <IconButton
-                            onPress={() =>
-                                openGroupComposer({
-                                    prefillAddresses: [activeDmData.address],
-                                    fromDmId: activeDmData.id,
-                                })
-                            }
-                            aria-label="Add people to start a group"
-                            className="p-1 text-muted-foreground hover:text-foreground"
-                        >
-                            <UserPlus className="h-5 w-5" />
-                        </IconButton>
-                    </Tooltip>
-                )}
-                {view === "server" && (
-                    <>
-                        <Tooltip
-                            content="Pinned Messages"
-                            placement="bottom"
-                            delay={300}
-                        >
-                            <IconButton
-                                onPress={() => setShowPinned((p) => !p)}
-                                aria-label="Toggle pinned messages"
-                                className={cn("p-1", showPinned ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
-                            >
-                                <Pin className="h-5 w-5" />
-                            </IconButton>
-                        </Tooltip>
-                        <Tooltip
-                            content="Member List"
-                            placement="bottom"
-                            delay={300}
-                        >
-                            <IconButton
-                                onPress={() => setShowMembers((p) => !p)}
-                                aria-label="Toggle member list"
-                                className={cn("p-1", showMembers ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
-                            >
-                                <Users className="h-5 w-5" />
-                            </IconButton>
-                        </Tooltip>
-                    </>
-                )}
-
-                <ThemeSwitcher />
-
-                <NotificationsPopover />
-            </div>
-        </header>
+                </div>
+            )}
+        </Navbar>
     )
 }

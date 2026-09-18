@@ -1,5 +1,6 @@
 import ky, { HTTPError } from "ky"
 import type { GroupMember, GroupRole, GroupView } from "@/domain/models/group"
+import type { DirectMessage } from "@/domain/models/dm"
 import type { IGroupPort } from "@/domain/ports/group.port"
 
 /** Pull the server's `error_description` (falls back to a generic message). */
@@ -112,6 +113,27 @@ export class GroupApiAdapter implements IGroupPort {
                 .json<GroupMember>()
         } catch (error) {
             throw await toError(error, "Failed to change role")
+        }
+    }
+
+    async sendGroupMessage(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: string,
+        mlsCiphertext: string,
+        replyToId?: string,
+        attachmentIds?: string[],
+    ): Promise<DirectMessage> {
+        const url = `${idpUrl.replace(/\/$/, "")}/api/groups/${conversationId}/messages`
+        const json: Record<string, unknown> = { mls_ciphertext: mlsCiphertext }
+        if (replyToId) json.reply_to_id = replyToId
+        if (attachmentIds && attachmentIds.length > 0) json.attachment_ids = attachmentIds
+        try {
+            return await ky
+                .post(url, { headers: { Authorization: `Bearer ${accessToken}` }, json })
+                .json<DirectMessage>()
+        } catch (error) {
+            throw await toError(error, "Failed to send message")
         }
     }
 }

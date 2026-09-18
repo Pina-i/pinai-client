@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { useLocation } from "@tanstack/react-router"
 import { useAppStore } from "@/store/store"
 import { logoutUseCase } from "@/domain/usecases/auth/logout.usecase"
 import { ServerStrip } from "@/presentation/organisms/ServerStrip/ServerStrip"
@@ -17,10 +18,8 @@ interface HomeLayoutProps {
 export function HomeLayout({ children }: HomeLayoutProps) {
     const {
         view,
-        activeDm,
         localDmConvos,
         showMembers,
-        showGroupMembers,
         showUserProfile,
         setShowUserProfile,
         showSettings,
@@ -31,21 +30,28 @@ export function HomeLayout({ children }: HomeLayoutProps) {
         clearSession,
     } = useAppStore()
 
-    if (!user) return null
+    // Resolve the open group from the route (reactive + synchronous) rather
+    // than the effect-set `activeDm`, so the panel tracks navigation without
+    // the mount/cleanup race that hid it when re-entering a group.
+    const { pathname } = useLocation()
+    const dmParam = pathname.startsWith("/dm/") ? decodeURIComponent(pathname.slice(4)) : null
+    const activeGroup = dmParam
+        ? localDmConvos.find((d) => (d.id === dmParam || d.address === dmParam) && d.kind === "group")
+        : undefined
 
-    const activeIsGroup = localDmConvos.find((d) => d.id === activeDm)?.kind === "group"
+    if (!user) return null
 
     return (
         <div className="flex h-screen w-full overflow-hidden">
             <ServerStrip />
             <ChannelSidebar />
 
-            <div className="flex flex-1 flex-col bg-background">
+            <div className="flex min-w-0 flex-1 flex-col bg-background">
                 <AppHeader />
-                <div className="flex flex-1 overflow-hidden">
+                <div className="flex min-w-0 flex-1 overflow-hidden">
                     {children}
                     {view === "server" && showMembers && <MembersSidebar />}
-                    {view === "dms" && activeIsGroup && showGroupMembers && <GroupMembersPanel />}
+                    {activeGroup && <GroupMembersPanel conversationId={activeGroup.id} />}
                 </div>
             </div>
 

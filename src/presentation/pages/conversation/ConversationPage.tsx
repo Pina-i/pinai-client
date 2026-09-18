@@ -72,9 +72,9 @@ export function ConversationPage({ name }: ConversationPageProps) {
     if (!vm.user) return null
 
     return (
-        <PageTransition className="flex flex-1">
+        <PageTransition className="flex min-w-0 flex-1">
             <div
-                className="relative flex flex-1 flex-col"
+                className="relative flex min-w-0 flex-1 flex-col"
                 onDragEnter={handleDragEnter}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}

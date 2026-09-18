@@ -6,7 +6,7 @@ import { sendTypingStartUseCase } from "@/domain/usecases/presence/send-typing-s
 import { getConversationHistoryUseCase } from "@/domain/usecases/dm/get-conversation-history.usecase"
 import { getDmConversationsUseCase } from "@/domain/usecases/dm/get-dm-conversations.usecase"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
-import { getDmPort, getE2eePort, getWsPort } from "@/ioc"
+import { getDmPort, getE2eePort, getGroupPort, getWsPort } from "@/ioc"
 import { actorUriToAddress, addressToActorUri } from "@/domain/models/identity"
 import type { Message } from "@/lib/types"
 import type { DirectMessage } from "@/domain/models/dm"
@@ -273,7 +273,13 @@ export function useConversationPageViewModel(name: string) {
         if (!conversationId) return
         setActiveDm(conversationId)
         clearDmUnread(conversationId)
-        return () => setActiveDm(null)
+        // Only clear if we're still the active conversation — during a route
+        // transition the exiting page can unmount *after* the next one sets
+        // `activeDm`, and an unguarded reset would wipe it (hiding the group
+        // members panel when re-entering a group).
+        return () => {
+            if (useAppStore.getState().activeDm === conversationId) setActiveDm(null)
+        }
     }, [conversationId, setActiveDm, clearDmUnread])
 
     // Tell the IdP to open an outbound SSE for any remote domain involved in
@@ -392,8 +398,10 @@ export function useConversationPageViewModel(name: string) {
         attachmentKeys: AttachmentBlobKey[]
         replyTo: { id: string; content: string; author: string } | null
         recipientAddress: string
-        recipientActorUri: string
+        /** `null` for groups (no single peer). */
+        recipientActorUri: string | null
         conversationId: string
+        kind: "dm" | "group"
         optimisticAttachmentKeys: Record<string, AttachmentBlobKey>
     }
     const pendingIntentsRef = useRef<Map<string, SendIntent>>(new Map())
@@ -447,22 +455,25 @@ export function useConversationPageViewModel(name: string) {
                 })
             }
 
-            // Lazy MLS group bootstrap: on the first send into a
-            // conversation, claim a KeyPackage for the recipient, build
-            // the founding commit + welcome, and dispatch. Idempotent
-            // — subsequent sends short-circuit. The conversation row
-            // already exists server-side (created at friendship-accept),
-            // so this only bootstraps the MLS state.
-            try {
-                await getE2eePort().ensureGroupExists(
-                    idpUrl,
-                    accessToken,
-                    intent.conversationId,
-                    intent.recipientActorUri,
-                )
-            } catch (e) {
-                markFailed(e, "ensureGroupExists")
-                return
+            // DM-only lazy MLS bootstrap: the first send into a 1:1 claims a
+            // KeyPackage for the peer and builds the founding commit + welcome.
+            // Groups already have their MLS state from creation, so skip it.
+            if (intent.kind === "dm") {
+                if (!intent.recipientActorUri) {
+                    markFailed(new Error("Missing recipient"), "ensureGroupExists")
+                    return
+                }
+                try {
+                    await getE2eePort().ensureGroupExists(
+                        idpUrl,
+                        accessToken,
+                        intent.conversationId,
+                        intent.recipientActorUri,
+                    )
+                } catch (e) {
+                    markFailed(e, "ensureGroupExists")
+                    return
+                }
             }
 
             const textBody: TextBody = { text: intent.content }
@@ -492,6 +503,25 @@ export function useConversationPageViewModel(name: string) {
                 return
             }
             const mlsCiphertextB64 = bytesToB64(mlsCiphertextBytes)
+
+            // Group transport: hand the single ciphertext to the group endpoint,
+            // which fans it out to every member. No WS shortcut for groups.
+            if (intent.kind === "group") {
+                try {
+                    const dm = await getGroupPort().sendGroupMessage(
+                        idpUrl,
+                        accessToken,
+                        intent.conversationId,
+                        mlsCiphertextB64,
+                        intent.replyTo?.id,
+                        intent.attachmentIds.length > 0 ? intent.attachmentIds : undefined,
+                    )
+                    reconcileToServer(dm)
+                } catch (e) {
+                    markFailed(e, "POST /api/groups/:id/messages")
+                }
+                return
+            }
 
             // Prefer WS-shortcut for plain text messages, fall back to
             // REST when the socket isn't connected yet (e.g. right after
@@ -551,7 +581,10 @@ export function useConversationPageViewModel(name: string) {
             // populates either from `dmData.id` (friend / existing
             // convo) or from a freshly minted UUID (non-friend DM).
             if (!user || !accessToken || !idpUrl) return
-            if (!conversationId || !recipientActorUri) return
+            if (!conversationId) return
+            // Groups need only the conversation id; 1:1s need the resolved peer.
+            const isGroup = dmData?.kind === "group"
+            if (!isGroup && !recipientActorUri) return
             const recipientAddress = dmData?.address ?? name
             const currentReply = replyingTo
             setReplyingTo(null)
@@ -602,6 +635,7 @@ export function useConversationPageViewModel(name: string) {
                 recipientAddress,
                 recipientActorUri,
                 conversationId,
+                kind: isGroup ? "group" : "dm",
                 optimisticAttachmentKeys,
             }
             pendingIntentsRef.current.set(optimisticId, intent)

@@ -16,6 +16,7 @@ import { actorUriToAddress } from "@/domain/models/identity"
 import { TYPING_INDICATOR_TTL_MS } from "@/store/slices/presence.slice"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
+import { groupMembersQueryKey } from "@/presentation/pages/home/GroupMembersPanel/GroupMembersPanel.viewmodel"
 import { playDmNotificationSound } from "@/presentation/_libs/notification-sound"
 
 const UNDECRYPTABLE_PLACEHOLDER = "[encrypted]"
@@ -495,10 +496,37 @@ export function useIdpWebSocket(): void {
                     const ownActorUri = actionsRef.current.user?.actor_uri
                     if (!ownActorUri || !idpUrl || !accessToken) break
                     try {
-                        await getE2eePort().consumePendingWelcomes(idpUrl, accessToken, ownActorUri)
+                        const { joined } = await getE2eePort().consumePendingWelcomes(
+                            idpUrl,
+                            accessToken,
+                            ownActorUri,
+                        )
+                        // A federated group is materialised server-side by the
+                        // same inbound Note, so the list has a row to show now.
+                        if (joined > 0) {
+                            queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
+                        }
                     } catch (e) {
                         // eslint-disable-next-line no-console
                         console.warn("WS-triggered welcome consumption failed:", e)
+                    }
+                    break
+                }
+                case "group_created": {
+                    if (idpUrl) {
+                        queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
+                    }
+                    break
+                }
+                case "member_added":
+                case "member_removed":
+                case "member_role_changed":
+                case "group_renamed": {
+                    queryClient.invalidateQueries({
+                        queryKey: groupMembersQueryKey(event.data.conversationId),
+                    })
+                    if (idpUrl) {
+                        queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
                     }
                     break
                 }

@@ -1,4 +1,5 @@
 import type { GroupMember, GroupRole, GroupView } from "@/domain/models/group"
+import type { DirectMessage } from "@/domain/models/dm"
 
 export const GROUP_PORT = "GROUP_PORT"
 
@@ -43,4 +44,13 @@ export interface IGroupPort {
         actorUri: string,
         role: GroupRole,
     ): Promise<GroupMember>
+    /** Send a message to the group — the server fans the ciphertext out to every member. */
+    sendGroupMessage(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: string,
+        mlsCiphertext: string,
+        replyToId?: string,
+        attachmentIds?: string[],
+    ): Promise<DirectMessage>
 }

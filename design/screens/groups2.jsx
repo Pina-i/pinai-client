@@ -9,7 +9,7 @@
 // private two-person conversation untouched.
 
 // ── The group conversation main area (header + thread) ──────────────────
-function GroupChatBase({ panelOpen }) {
+function GroupChatBase({ panelOpen, panelProps }) {
   const members = [YOU, PEOPLE.maia, PEOPLE.kai, PEOPLE.tane];
   return (
     <div style={{flex:1, display:'flex', flexDirection:'column', minWidth:0}}>
@@ -44,6 +44,10 @@ function GroupChatBase({ panelOpen }) {
         <IconBtn>{Icons.more}</IconBtn>
       </div>
 
+      {/* body — thread + (optional) members panel, both BELOW the header
+          so the panel lives only inside the chat, not the top bar */}
+      <div style={{flex:1, display:'flex', minHeight:0}}>
+       <div style={{flex:1, display:'flex', flexDirection:'column', minWidth:0}}>
       {/* messages */}
       <div style={{flex:1, overflow:'hidden', padding:'24px 28px 16px',
         display:'flex', flexDirection:'column', gap:2}}>
@@ -80,6 +84,9 @@ function GroupChatBase({ panelOpen }) {
             display:'flex', alignItems:'center', justifyContent:'center'}}>{Icons.send}</button>
         </div>
       </div>
+       </div>
+       {panelOpen && <MembersPanel {...(panelProps || {})}/>}
+      </div>
     </div>
   );
 }
@@ -114,8 +121,10 @@ function GMsg({ first, self, name, color, time, server, children }) {
   );
 }
 
-// ── Members panel (right slide-over) — add/remove live here ─────────────
-function MembersPanel({ menuFor }) {
+// ── Members panel (docked inside the chat area, below the thread header) —
+//    shown to everyone in the conversation. Lists members; each row has a
+//    single "⋯" that opens a popover of actions. ───────────────────────────
+function MembersPanel({ activeName = 'Maia', menuFor, isAdmin = true }) {
   const roster = [
     { p: YOU, role:'admin', you:true },
     { p: PEOPLE.maia, role:'member' },
@@ -123,33 +132,36 @@ function MembersPanel({ menuFor }) {
     { p: PEOPLE.tane, role:'member' },
   ];
   return (
-    <div style={{width:320, borderLeft:'1px solid var(--border)', background:'var(--card)',
+    <div style={{width:284, borderLeft:'1px solid var(--border)', background:'var(--background)',
       display:'flex', flexDirection:'column', flexShrink:0}}>
-      {/* header */}
-      <div style={{padding:'16px 18px 14px', borderBottom:'1px solid var(--border)'}}>
-        <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+      {/* panel header — sits inside the chat body, not the top bar */}
+      <div style={{padding:'14px 14px 12px 18px', display:'flex', alignItems:'center',
+        justifyContent:'space-between', flexShrink:0}}>
+        <div style={{display:'flex', alignItems:'baseline', gap:8}}>
           <Serif style={{fontSize:16, fontWeight:450}}>Members</Serif>
-          <Mono style={{fontSize:11, color:'var(--muted-foreground)'}}>4 of 10</Mono>
+          <Mono style={{fontSize:10.5, color:'var(--muted-foreground)'}}>4 of 10</Mono>
         </div>
-        <button style={{marginTop:12, width:'100%', padding:'9px', borderRadius:'var(--radius)',
-          border:'1px dashed var(--border-strong)', background:'transparent', color:'var(--chat)',
-          cursor:'pointer', fontFamily:'inherit', fontSize:13, fontWeight:500,
-          display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
-          <UserPlus size={15}/> Add people
-        </button>
+        {isAdmin && (
+          <button title="Add people" style={{width:30, height:30, borderRadius:'var(--radius-sm)',
+            border:'1px solid var(--border)', background:'transparent', color:'var(--chat)',
+            cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center'}}>
+            <UserPlus size={16}/>
+          </button>
+        )}
       </div>
 
       {/* roster */}
-      <div style={{flex:1, overflow:'auto', padding:'8px 8px'}}>
+      <div style={{flex:1, overflow:'auto', padding:'10px 8px'}}>
         <Mono style={{fontSize:9, letterSpacing:'0.14em', textTransform:'uppercase',
-          color:'var(--muted-foreground)', padding:'8px 10px 6px', display:'block'}}>Admin</Mono>
+          color:'var(--muted-foreground)', padding:'4px 10px 6px', display:'block'}}>Admin</Mono>
         {roster.filter(r => r.role==='admin').map((r,i) => (
-          <RosterRow key={i} {...r}/>
+          <RosterRow key={i} {...r} active={activeName === (r.you ? 'You' : r.p.name)} isAdmin={isAdmin}/>
         ))}
         <Mono style={{fontSize:9, letterSpacing:'0.14em', textTransform:'uppercase',
-          color:'var(--muted-foreground)', padding:'12px 10px 6px', display:'block'}}>Members</Mono>
+          color:'var(--muted-foreground)', padding:'14px 10px 6px', display:'block'}}>Members</Mono>
         {roster.filter(r => r.role==='member').map((r,i) => (
-          <RosterRow key={i} {...r} showMenu={menuFor === r.p.name}/>
+          <RosterRow key={i} {...r} active={activeName === r.p.name}
+            showMenu={menuFor === r.p.name} isAdmin={isAdmin}/>
         ))}
       </div>
 
@@ -169,17 +181,17 @@ function MembersPanel({ menuFor }) {
   );
 }
 
-function RosterRow({ p, role, you, showMenu }) {
-  const fed = p.server !== HOME_SERVER;
+function RosterRow({ p, role, you, active, showMenu, isAdmin }) {
+  const highlight = active || showMenu;
   return (
     <div style={{position:'relative'}}>
       <div style={{display:'flex', alignItems:'center', gap:11, padding:'8px 10px',
         borderRadius:'var(--radius-sm)',
-        background: showMenu ? 'color-mix(in oklab, var(--chat) 10%, transparent)' : 'transparent'}}>
+        background: highlight ? 'color-mix(in oklab, var(--chat) 9%, transparent)' : 'transparent'}}>
         <Avatar name={p.name} color={p.color} size={34} dot={p.dot}/>
         <div style={{flex:1, minWidth:0}}>
           <div style={{display:'flex', alignItems:'center', gap:7}}>
-            <Serif style={{fontSize:14, fontWeight:450}}>{you ? 'You' : p.name}</Serif>
+            <Serif style={{fontSize:14, fontWeight:450, whiteSpace:'nowrap'}}>{you ? 'You' : p.name}</Serif>
             {role==='admin' && (
               <span style={{display:'inline-flex', alignItems:'center', gap:3, color:'var(--voice)',
                 fontSize:10, fontFamily:'JetBrains Mono, monospace', letterSpacing:'0.04em'}}>
@@ -189,28 +201,46 @@ function RosterRow({ p, role, you, showMenu }) {
           </div>
           <div style={{marginTop:2}}><ServerTag server={p.server} size="sm"/></div>
         </div>
+
+        {/* one action button — opens the actions popover */}
         {!you && (
-          <button style={{width:26, height:26, borderRadius:'var(--radius-sm)', border:'none',
-            background: showMenu ? 'var(--muted)' : 'transparent', color:'var(--muted-foreground)',
-            cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center'}}>
+          <button title="Actions" style={{width:28, height:28, borderRadius:'50%', flexShrink:0,
+            border: showMenu ? '1px solid var(--border-strong)' : '1px solid transparent',
+            background: showMenu ? 'var(--card)' : 'transparent', cursor:'pointer',
+            color:'var(--muted-foreground)', display:'flex', alignItems:'center', justifyContent:'center'}}>
             {Icons.more}
           </button>
         )}
       </div>
-      {/* admin per-member menu */}
+
+      {/* actions popover */}
       {showMenu && (
-        <div style={{position:'absolute', right:8, top:46, width:200, zIndex:20,
+        <div style={{position:'absolute', right:8, top:46, width:210, zIndex:20,
           background:'var(--popover)', border:'1px solid var(--border-strong)',
           borderRadius:'var(--radius)', boxShadow:'0 18px 50px -16px rgba(0,0,0,0.6)', padding:5}}>
-          <MenuLine icon={Icons.message} label="Message directly"/>
-          <MenuLine icon={Icons.users} label="See profile"/>
-          <MenuLine icon={<Crown size={14}/>} label="Make admin"/>
-          <div style={{height:1, background:'var(--border)', margin:'5px 4px'}}/>
           <MenuLine icon={
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6h16v10H9l-4 4V6z"/></svg>
+          } label="Message privately"/>
+          <MenuLine icon={
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
               strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6 1 0 1.9.2 2.7.6"/><path d="M15 14h6"/></svg>
-          } label="Remove from group" danger/>
+              <rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3z"/></svg>
+          } label="Call"/>
+          <MenuLine icon={
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="8" r="3.5"/><path d="M5 21c0-3.9 3.1-7 7-7s7 3.1 7 7"/></svg>
+          } label="See profile"/>
+          {isAdmin && (<>
+            <div style={{height:1, background:'var(--border)', margin:'5px 4px'}}/>
+            <MenuLine icon={<Crown size={15}/>} label="Make admin"/>
+            <MenuLine icon={
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6 1 0 1.9.2 2.7.6"/><path d="M15 14h6"/></svg>
+            } label="Remove from group" danger/>
+          </>)}
         </div>
       )}
     </div>
@@ -249,8 +279,7 @@ function GroupMembersPanel() {
     <Artboard w={1200} h={780} style={{display:'flex', position:'relative'}}>
       <ServerRail active="home"/>
       <GroupSidebar groupRow="top" activeName="__group"/>
-      <GroupChatBase panelOpen/>
-      <MembersPanel menuFor="Tane"/>
+      <GroupChatBase panelOpen panelProps={{ menuFor:'Maia' }}/>
     </Artboard>
   );
 }
@@ -328,8 +357,7 @@ function GroupRemoveMember() {
     <Artboard w={1200} h={780} style={{display:'flex', position:'relative'}}>
       <ServerRail active="home"/>
       <GroupSidebar groupRow="top" activeName="__group"/>
-      <GroupChatBase panelOpen/>
-      <MembersPanel/>
+      <GroupChatBase panelOpen panelProps={{ activeName:'Tane', menuFor:'Tane' }}/>
 
       <Scrim>
         <div style={{width:420, borderRadius:'var(--radius-xl)', overflow:'hidden',

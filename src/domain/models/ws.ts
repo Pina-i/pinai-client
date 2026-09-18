@@ -62,6 +62,45 @@ export interface MlsWelcomeReadyPayload {
     recipientDeviceId: string
 }
 
+/**
+ * `group_created` — the recipient is a member of a brand-new group. Fired by
+ * the hosting IdP for its local members, and by the recipient's own IdP when
+ * it materialises a federated group from an inbound MLS snapshot.
+ */
+export interface GroupCreatedPayload {
+    conversationId: string
+    name: string | null
+    creatorActorUri: string
+    createdAt: string
+}
+
+export interface MemberAddedPayload {
+    conversationId: string
+    actorUri: string
+    role: string
+    addedByActorUri: string
+}
+
+export interface MemberRemovedPayload {
+    conversationId: string
+    actorUri: string
+    /** Absent when the member left on their own. */
+    removedByActorUri?: string
+}
+
+export interface MemberRoleChangedPayload {
+    conversationId: string
+    actorUri: string
+    role: string
+    changedByActorUri: string
+}
+
+export interface GroupRenamedPayload {
+    conversationId: string
+    name: string | null
+    renamedByActorUri: string
+}
+
 /** Fired when a new device of this user completes attestation registration. */
 export interface DeviceJoinedPayload {
     actorUri: string
@@ -92,6 +131,11 @@ export type WsServerEvent =
     | { type: "typing"; data: TypingEventDataPayload }
     | { type: "mls_welcome_ready"; data: MlsWelcomeReadyPayload }
     | { type: "device_joined"; data: DeviceJoinedPayload }
+    | { type: "group_created"; data: GroupCreatedPayload }
+    | { type: "member_added"; data: MemberAddedPayload }
+    | { type: "member_removed"; data: MemberRemovedPayload }
+    | { type: "member_role_changed"; data: MemberRoleChangedPayload }
+    | { type: "group_renamed"; data: GroupRenamedPayload }
     | { type: "heartbeat_ack"; data?: Record<string, never> }
 
 // ── Client → Server messages ────────────────────────────────────────────────

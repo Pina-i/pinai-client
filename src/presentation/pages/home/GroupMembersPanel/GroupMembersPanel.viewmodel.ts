@@ -12,8 +12,9 @@ export function useGroupMembersPanelViewModel(conversationId: string) {
     const accessToken = useAppStore((s) => s.accessToken)
     const idpUrl = useAppStore((s) => s.idpUrl)
     const myActorUri = useAppStore((s) => s.user?.actor_uri ?? null)
+    // Local instance host, used to flag federated members in the roster.
+    const localHost = useAppStore((s) => s.user?.address?.split("@")[1] ?? null)
     const openGroupComposer = useAppStore((s) => s.openGroupComposer)
-    const setShowGroupMembers = useAppStore((s) => s.setShowGroupMembers)
     const switchToDms = useAppStore((s) => s.switchToDms)
     const queryClient = useQueryClient()
     const navigate = useNavigate()
@@ -68,7 +69,6 @@ export function useGroupMembersPanelViewModel(conversationId: string) {
         if (!idpUrl || !accessToken || !myActorUri) return
         await getGroupPort().removeMember(idpUrl, accessToken, conversationId, myActorUri)
         void queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
-        setShowGroupMembers(false)
         switchToDms()
         void navigate({ to: "/home" })
     }
@@ -84,13 +84,13 @@ export function useGroupMembersPanelViewModel(conversationId: string) {
         isLoading,
         error: error instanceof Error ? error.message : null,
         myActorUri,
+        localHost,
         isAdmin,
         pendingActor,
         removeMember,
         setRole,
         leaveGroup,
         openAddPeople,
-        close: () => setShowGroupMembers(false),
     }
 }
 
