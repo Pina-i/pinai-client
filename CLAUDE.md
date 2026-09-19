@@ -33,6 +33,7 @@ The user configures their identity provider URL (e.g. `idp.alice.com`) and the c
 |-------|-----------|
 | Language | TypeScript |
 | Framework | React 19+ |
+| Package manager | **Bun** (`bun.lock` is the committed lockfile; do not add `package-lock.json`) |
 | Build tool | Vite |
 | UI Components | React Aria based |
 | Styling | Tailwind CSS with Shadcn-style token system |
@@ -71,11 +72,11 @@ web-client/
 │   ├── openmls-wasm/      # Standalone Cargo project: `openmls` WASM wrapper.
 │   │                      #   Pinned to openmls 0.8.1; single ciphersuite
 │   │                      #   (MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519).
-│   │                      #   Built automatically: `predev`/`prebuild` run
-│   │                      #   `npm run wasm` (scripts/build-wasm.mjs), which
-│   │                      #   rebuilds only when src/, Cargo.toml or Cargo.lock
-│   │                      #   are newer than the output. `npm run wasm -- --force`
-│   │                      #   to force. Directly: `./build.sh`.
+│   │                      #   Built automatically: the `dev` and `build` scripts
+│   │                      #   chain scripts/build-wasm.mjs, which rebuilds only
+│   │                      #   when src/, Cargo.toml or Cargo.lock are newer than
+│   │                      #   the output. `bun run wasm -- --force` to force.
+│   │                      #   Directly: `./build.sh`.
 │   │                      #   `cargo test` runs native unit tests (happy paths only;
 │   │                      #   browser-only checks land in 4b under wasm-bindgen-test).
 │   └── openmls-pkg/       # Generated npm package — wasm-pack output.
@@ -88,8 +89,12 @@ web-client/
 ├── scripts/
 │   └── build-wasm.mjs     # Staleness-checked wasm build. Invokes `wasm-pack`
 │                          #   from PATH, so it needs a Rust toolchain in
-│                          #   whichever environment runs npm. wasm-pack adds
-│                          #   the wasm32-unknown-unknown target itself.
+│                          #   whichever environment runs it. wasm-pack adds the
+│                          #   wasm32-unknown-unknown target itself. Also
+│                          #   re-syncs node_modules/openmls-wasm: Bun installs
+│                          #   `file:` deps as hardlinked copies (npm symlinks),
+│                          #   so a rebuild would otherwise leave a stale copy
+│                          #   and the app would load old MLS code silently.
 src/
 ├── domain/           # Business core (use cases, ports, models)
 │   ├── models/       # Business entities
