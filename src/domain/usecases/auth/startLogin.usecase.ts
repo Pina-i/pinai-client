@@ -1,30 +1,31 @@
-import type { IAuthPort } from "@/domain/ports/auth.port"
-import { generateCodeVerifier, computeCodeChallenge, generateRandomString } from "@/adapters/auth/pkce"
+import type { AuthPlatform, IAuthPort } from "@/domain/ports/auth.port"
 
-const CLIENT_ID = "web-client"
-const REDIRECT_URI = `${window.location.origin}/callback`
-
-export async function startLoginUseCase(idpUrl: string, authPort: IAuthPort): Promise<void> {
+export async function startLoginUseCase(
+    idpUrl: string,
+    authPort: IAuthPort,
+    platform: AuthPlatform,
+): Promise<void> {
+    const { clientId, pkce, session, navigation } = platform
     const config = await authPort.discoverConfig(idpUrl)
 
-    const codeVerifier = generateCodeVerifier()
-    const codeChallenge = await computeCodeChallenge(codeVerifier)
-    const state = generateRandomString(16)
-    const nonce = generateRandomString(16)
+    const codeVerifier = pkce.generateCodeVerifier()
+    const codeChallenge = await pkce.computeCodeChallenge(codeVerifier)
+    const state = pkce.generateRandomString(16)
+    const nonce = pkce.generateRandomString(16)
 
-    // Persist across the redirect — sessionStorage is cleared when the tab closes
-    sessionStorage.setItem("post_login_redirect", window.location.pathname + window.location.search)
-    sessionStorage.setItem("pkce_verifier", codeVerifier)
-    sessionStorage.setItem("pkce_state", state)
-    sessionStorage.setItem("pkce_nonce", nonce)
-    sessionStorage.setItem("idp_url", idpUrl)
-    sessionStorage.setItem("token_endpoint", config.token_endpoint)
-    sessionStorage.setItem("userinfo_endpoint", config.userinfo_endpoint)
+    // Has to survive the hand-off to the IdP, but not the session.
+    session.set("post_login_redirect", navigation.currentLocation())
+    session.set("pkce_verifier", codeVerifier)
+    session.set("pkce_state", state)
+    session.set("pkce_nonce", nonce)
+    session.set("idp_url", idpUrl)
+    session.set("token_endpoint", config.token_endpoint)
+    session.set("userinfo_endpoint", config.userinfo_endpoint)
 
     const params = new URLSearchParams({
         response_type: "code",
-        client_id: CLIENT_ID,
-        redirect_uri: REDIRECT_URI,
+        client_id: clientId,
+        redirect_uri: navigation.callbackUrl(),
         scope: "openid profile email",
         state,
         code_challenge: codeChallenge,
@@ -36,5 +37,5 @@ export async function startLoginUseCase(idpUrl: string, authPort: IAuthPort): Pr
     // doc returns URLs based on the server's DOMAIN (e.g. host.docker.internal:8080),
     // which may differ from what the user configured (e.g. localhost:8080). Navigating
     // to a different origin would orphan the session cookie, breaking silent refresh.
-    window.location.href = `${idpUrl.replace(/\/$/, "")}/authorize?${params.toString()}`
+    navigation.navigateTo(`${idpUrl.replace(/\/$/, "")}/authorize?${params.toString()}`)
 }

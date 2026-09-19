@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { handleCallbackUseCase } from "@/domain/usecases/auth/handleCallback.usecase"
 import { useAppStore } from "@/store/store"
-import { getAuthPort } from "@/ioc/index"
+import { getAuthPlatform, getAuthPort, getAuthSessionStore } from "@/ioc/index"
 
 export function useCallbackPageViewModel() {
     const [error, setError] = useState<string | null>(null)
@@ -20,11 +20,11 @@ export function useCallbackPageViewModel() {
         // (StrictMode or back-navigation) finds nothing to exchange.
         window.history.replaceState({}, "", window.location.pathname)
 
-        handleCallbackUseCase(params, getAuthPort())
+        handleCallbackUseCase(params, getAuthPort(), getAuthPlatform())
             .then(({ accessToken, user, idpUrl }) => {
                 setSession(accessToken, user, idpUrl)
-                const redirect = sessionStorage.getItem("post_login_redirect")
-                sessionStorage.removeItem("post_login_redirect")
+                const redirect = getAuthSessionStore().get("post_login_redirect")
+                getAuthSessionStore().remove("post_login_redirect")
                 void navigate({ to: redirect ?? "/home" })
             })
             .catch((err: unknown) => {

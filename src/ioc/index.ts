@@ -1,4 +1,7 @@
+import { BrowserAuthNavigationAdapter } from "@/adapters/auth/auth-navigation-browser.adapter"
+import { BrowserAuthSessionStore } from "@/adapters/auth/auth-session-browser.adapter"
 import { OidcAdapter } from "@/adapters/auth/oidc.adapter"
+import { WebCryptoPkceAdapter } from "@/adapters/auth/pkce"
 import { DeviceDirectoryApiAdapter } from "@/adapters/device-directory/device-directory-api.adapter"
 import { WebCryptoAttachmentCryptoAdapter } from "@/adapters/e2ee/attachment-crypto"
 import { E2eeAdapter } from "@/adapters/e2ee/e2ee.adapter"
@@ -20,7 +23,7 @@ import { getSharedE2eeStorage, useAppStore } from "@/store/store"
 import type { ArchiveEnvelope, AttachmentBlobKey, TextBody } from "@/domain/models/e2ee"
 import type { Message } from "@/lib/types"
 import type { IAttachmentCryptoPort } from "@/domain/ports/attachment-crypto.port"
-import type { IAuthPort } from "@/domain/ports/auth.port"
+import type { AuthPlatform, IAuthPort, IAuthSessionStore } from "@/domain/ports/auth.port"
 import type { IDeviceDirectoryPort } from "@/domain/ports/device-directory.port"
 import type { IE2eePort } from "@/domain/ports/e2ee.port"
 import type { IHistoryArchivePort } from "@/domain/ports/history-archive.port"
@@ -37,6 +40,17 @@ import type { IUserPort } from "@/domain/ports/user.port"
  * Replace with tsyringe container when DI is added.
  */
 const authPort: IAuthPort = new OidcAdapter()
+
+// The platform half of the OIDC flow. A React Native container swaps these
+// three for a deep-link navigator, secure storage and its own client id;
+// nothing in `domain/usecases/auth/` changes.
+const authSessionStore: IAuthSessionStore = new BrowserAuthSessionStore()
+const authPlatform: AuthPlatform = {
+    clientId: "web-client",
+    pkce: new WebCryptoPkceAdapter(),
+    session: authSessionStore,
+    navigation: new BrowserAuthNavigationAdapter(),
+}
 const socialPort: ISocialPort = new SocialApiAdapter()
 const dmPort: IDmPort = new DmApiAdapter()
 const groupPort: IGroupPort = new GroupApiAdapter()
@@ -124,6 +138,14 @@ const e2eePort: IE2eePort = new E2eeAdapter(
 
 export function getAuthPort(): IAuthPort {
     return authPort
+}
+
+export function getAuthPlatform(): AuthPlatform {
+    return authPlatform
+}
+
+export function getAuthSessionStore(): IAuthSessionStore {
+    return authSessionStore
 }
 
 export function getSocialPort(): ISocialPort {

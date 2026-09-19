@@ -1,21 +1,8 @@
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
+import { getAuthSessionStore } from "@/ioc/index"
 
 export type LoginTab = "signin" | "register"
-
-/**
- * Keys written by `startLoginUseCase` before the IdP redirect. We clear them
- * when the user backs out so a subsequent flow generates fresh PKCE values.
- */
-const OIDC_SESSION_KEYS = [
-    "pkce_verifier",
-    "pkce_state",
-    "pkce_nonce",
-    "idp_url",
-    "token_endpoint",
-    "userinfo_endpoint",
-    "post_login_redirect",
-] as const
 
 export interface OidcParams {
     client_id: string
@@ -35,7 +22,7 @@ export function useLoginPageViewModel() {
     const [activeTab, setActiveTab] = useState<LoginTab>(initialTab)
 
     // IdP URL stored by startLoginUseCase before redirecting to /authorize
-    const idpUrl = sessionStorage.getItem("idp_url") ?? ""
+    const idpUrl = getAuthSessionStore().get("idp_url") ?? ""
 
     // OIDC params forwarded by the IdP's /authorize redirect
     const oidcParams: OidcParams = {
@@ -59,9 +46,7 @@ export function useLoginPageViewModel() {
      * `startLoginUseCase` doesn't reuse a verifier the IdP has already seen.
      */
     function handleBack() {
-        for (const key of OIDC_SESSION_KEYS) {
-            sessionStorage.removeItem(key)
-        }
+        getAuthSessionStore().clear()
         navigate({ to: "/" })
     }
 

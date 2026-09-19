@@ -1,12 +1,19 @@
+import type { AuthPlatform } from "@/domain/ports/auth.port"
+
 /**
- * Clears the local session and redirects the browser to the IdP logout endpoint.
- * The IdP will invalidate the session cookie and redirect back to the app.
+ * Clears the local session and hands the user to the IdP logout endpoint.
+ * The IdP invalidates the session cookie and sends them back to the app.
  *
  * `clearSession` is injected by the caller so the use case stays free of
- * any store or framework dependency.
+ * any store or framework dependency; `platform` supplies the return URL and
+ * the hand-off, which differ per platform.
  */
-export function logoutUseCase(idpUrl: string, clearSession: () => void): void {
+export function logoutUseCase(
+    idpUrl: string,
+    clearSession: () => void,
+    platform: AuthPlatform,
+): void {
     clearSession()
-    const postLogoutRedirect = encodeURIComponent(window.location.origin)
-    window.location.href = `${idpUrl}/logout?post_logout_redirect_uri=${postLogoutRedirect}`
+    const postLogoutRedirect = encodeURIComponent(platform.navigation.postLogoutUrl())
+    platform.navigation.navigateTo(`${idpUrl}/logout?post_logout_redirect_uri=${postLogoutRedirect}`)
 }

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import { useLocation } from "@tanstack/react-router"
+import { getAuthPlatform } from "@/ioc/index"
 import { useAppStore } from "@/store/store"
 import { logoutUseCase } from "@/domain/usecases/auth/logout.usecase"
 import { ServerStrip } from "@/presentation/organisms/ServerStrip/ServerStrip"
@@ -70,7 +71,7 @@ export function HomeLayout({ children }: HomeLayoutProps) {
                 isOpen={showSettings}
                 onClose={() => setShowSettings(false)}
                 user={user}
-                onLogout={() => logoutUseCase(idpUrl!, clearSession)}
+                onLogout={() => logoutUseCase(idpUrl!, clearSession, getAuthPlatform())}
             />
         </div>
     )

@@ -1,4 +1,4 @@
-import type { IAuthPort } from "@/domain/ports/auth.port"
+import type { AuthPlatform, IAuthPort } from "@/domain/ports/auth.port"
 import { startLoginUseCase } from "./startLogin.usecase"
 
 /**
@@ -7,7 +7,7 @@ import { startLoginUseCase } from "./startLogin.usecase"
  * - Already authenticated → returns immediately.
  * - Token gone but IdP URL known → triggers the OIDC flow. If the IdP session
  *   cookie is still valid the IdP skips the login form and redirects back
- *   silently (startLoginUseCase navigates away and never resolves).
+ *   silently (on the web, `startLoginUseCase` navigates away and never resolves).
  * - No IdP URL configured → throws so the caller can redirect to the landing page.
  *
  * Any error thrown by startLoginUseCase (IdP unreachable, discovery failure)
@@ -17,11 +17,12 @@ export async function ensureAuthenticatedUseCase(
     isAuthenticated: boolean,
     idpUrl: string | null,
     authPort: IAuthPort,
+    platform: AuthPlatform,
 ): Promise<void> {
     if (isAuthenticated) return
 
     if (!idpUrl) throw new Error("No identity provider configured")
 
-    await startLoginUseCase(idpUrl, authPort)
-    // startLoginUseCase sets window.location.href and never resolves
+    await startLoginUseCase(idpUrl, authPort, platform)
+    // On the web this is unreachable: the document has already navigated away.
 }

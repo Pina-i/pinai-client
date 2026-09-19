@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
+import { getAuthSessionStore } from "@/ioc/index"
 
 export interface VerifyOidcParams {
     client_id: string
@@ -20,7 +21,7 @@ export function useVerifyEmailPageViewModel() {
     const pendingEmail = search.get("pending_email") ?? ""
     const error = search.get("error")
 
-    const idpUrl = sessionStorage.getItem("idp_url") ?? ""
+    const idpUrl = getAuthSessionStore().get("idp_url") ?? ""
 
     const oidcParams: VerifyOidcParams = {
         client_id: search.get("client_id") ?? "",

@@ -3,7 +3,7 @@ import { AtSign, Bell, Check, ChevronRight, Hash, LogOut, Moon, Pencil, UserPen 
 import { useAppStore } from "@/store/store"
 import { logoutUseCase } from "@/domain/usecases/auth/logout.usecase"
 import { setPresenceUseCase } from "@/domain/usecases/presence/set-presence.usecase"
-import { getWsPort } from "@/ioc"
+import { getAuthPlatform, getWsPort } from "@/ioc"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { Popover } from "@/presentation/molecules/Popover/Popover"
 import { cn } from "@/presentation/_libs/utils"
@@ -97,7 +97,7 @@ export function UserBarPopover({ trigger, isOpen, onOpenChange }: UserBarPopover
     function handleSignOut() {
         if (!idpUrl) return
         setOpen(false)
-        logoutUseCase(idpUrl, clearSession)
+        logoutUseCase(idpUrl, clearSession, getAuthPlatform())
     }
 
     function handleOpenSettings() {

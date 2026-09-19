@@ -3,7 +3,7 @@ import { LoginPage } from "@/presentation/pages/login/LoginPage"
 import { useAppStore } from "@/store/store"
 import { isTokenValid } from "@/adapters/auth/token"
 import { startLoginUseCase } from "@/domain/usecases/auth/startLogin.usecase"
-import { getAuthPort } from "@/ioc/index"
+import { getAuthPlatform, getAuthPort } from "@/ioc/index"
 
 export const Route = createFileRoute("/login")({
     beforeLoad: async () => {
@@ -27,7 +27,7 @@ export const Route = createFileRoute("/login")({
         // If the cookie is still valid the IdP issues a code and we land on /home.
         // If not, the IdP redirects back to /login?{oidc_params} and the form is shown.
         try {
-            await startLoginUseCase(idpUrl, getAuthPort())
+            await startLoginUseCase(idpUrl, getAuthPort(), getAuthPlatform())
             // startLoginUseCase sets window.location.href — never returns normally
         } catch {
             // IdP unreachable — go back to landing page

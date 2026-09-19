@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { useAppStore } from "@/store/store"
 import { isTokenValid } from "@/adapters/auth/token"
 import { ensureAuthenticatedUseCase } from "@/domain/usecases/auth/ensureAuthenticated.usecase"
-import { getAuthPort } from "@/ioc/index"
+import { getAuthPlatform, getAuthPort } from "@/ioc/index"
 import { useConsumeMlsWelcomes } from "@/presentation/hooks/useConsumeMlsWelcomes"
 import { useDeviceFanout } from "@/presentation/hooks/useDeviceFanout"
 import { useHistoryArchiveFlusher } from "@/presentation/hooks/useHistoryArchiveFlusher"
@@ -135,7 +135,7 @@ export const Route = createFileRoute("/_authenticated")({
     beforeLoad: async () => {
         const { accessToken, idpUrl } = useAppStore.getState()
         try {
-            await ensureAuthenticatedUseCase(isTokenValid(accessToken), idpUrl, getAuthPort())
+            await ensureAuthenticatedUseCase(isTokenValid(accessToken), idpUrl, getAuthPort(), getAuthPlatform())
         } catch {
             throw redirect({ to: "/" })
         }

@@ -1,3 +1,5 @@
+import type { IPkcePort } from "@/domain/ports/auth.port"
+
 /** Generate a cryptographically random code verifier (64 URL-safe chars). */
 export function generateCodeVerifier(): string {
     const array = new Uint8Array(48)
@@ -24,4 +26,22 @@ function base64UrlEncode(array: Uint8Array): string {
         .replace(/\+/g, "-")
         .replace(/\//g, "_")
         .replace(/=/g, "")
+}
+
+/**
+ * WebCrypto implementation of {@link IPkcePort}. The free functions above
+ * stay exported — they have no state and the specs drive them directly.
+ */
+export class WebCryptoPkceAdapter implements IPkcePort {
+    generateCodeVerifier(): string {
+        return generateCodeVerifier()
+    }
+
+    computeCodeChallenge(verifier: string): Promise<string> {
+        return computeCodeChallenge(verifier)
+    }
+
+    generateRandomString(byteLength: number): string {
+        return generateRandomString(byteLength)
+    }
 }

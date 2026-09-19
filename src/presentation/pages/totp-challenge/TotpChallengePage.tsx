@@ -1,6 +1,7 @@
 import { useRef, useState } from "react"
 import { ArrowLeft, KeyRound, ShieldCheck } from "lucide-react"
 import { useNavigate } from "@tanstack/react-router"
+import { getAuthSessionStore } from "@/ioc/index"
 import { Button } from "@/presentation/atoms/Button/Button"
 import { OtpInput } from "@/presentation/atoms/OtpInput/OtpInput"
 import { TextField } from "@/presentation/atoms/TextField/TextField"
@@ -20,7 +21,7 @@ export function TotpChallengePage() {
     const search = new URLSearchParams(window.location.search)
     const ticket = search.get("ticket") ?? ""
     const error = search.get("error")
-    const idpUrl = sessionStorage.getItem("idp_url") ?? ""
+    const idpUrl = getAuthSessionStore().get("idp_url") ?? ""
 
     const navigate = useNavigate()
     const formRef = useRef<HTMLFormElement | null>(null)
