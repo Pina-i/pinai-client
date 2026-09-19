@@ -8,27 +8,42 @@ Pure TypeScript — no framework dependencies.
 - `UserProfile` — sub, email, preferred_username
 - `OidcConfig` — authorization/token/userinfo endpoints
 - `AuthSession` — access token + user profile
+- `isTokenValid(token)` — checks the JWT `exp` claim (no signature
+  verification — that is the IdP's job). Used by the route guards.
 
 ### ports/auth.port.ts
 - `IAuthPort` — interface for OIDC operations
   - `discoverConfig(idpUrl)` — fetch `.well-known/openid-configuration`
   - `exchangeCode(params)` — POST to `/token`, returns access token string
   - `fetchUserInfo(endpoint, token)` — GET `/userinfo`, returns UserProfile
+- `AuthPlatform` — the platform half of the flow, injected as one argument:
+  - `clientId` — this build's OIDC registration (`web-client`)
+  - `IPkcePort` — randomness + SHA-256
+  - `IAuthSessionStore` — sync scratch space keyed by `AuthSessionKey`,
+    surviving the hand-off to the IdP (`sessionStorage` on the web)
+  - `IAuthNavigationPort` — callback/post-logout URLs and the hand-off
+
+### ports/attachment-crypto.port.ts
+- `IAttachmentCryptoPort` — per-attachment AES-256-GCM seal/open. Protocol
+  visible: the key, nonce and AAD travel to the peer in the MLS body, so
+  every implementation must agree byte-for-byte.
 
 ### usecases/auth/startLogin.usecase.ts
-- Generates PKCE verifier + challenge (S256) and random state/nonce
-- Stores verifier/state/nonce/endpoints in `sessionStorage` for the redirect round-trip
-- Redirects browser to IdP `/authorize`
+- Generates PKCE verifier + challenge (S256) and random state/nonce via `IPkcePort`
+- Stores verifier/state/nonce/endpoints in the `IAuthSessionStore` for the round-trip
+- Hands control to IdP `/authorize` via `IAuthNavigationPort`
 
 ### usecases/auth/handleCallback.usecase.ts
 - Reads `code` + `state` from URL params
-- Validates `state` against sessionStorage (CSRF protection)
+- Validates `state` against the `IAuthSessionStore` (CSRF protection)
 - Calls `IAuthPort.exchangeCode` then `fetchUserInfo`
-- Clears sessionStorage, returns `AuthSession`
+- Clears the scratch space (keeping `post_login_redirect` for the caller),
+  returns `AuthSession`
 
 ### usecases/auth/logout.usecase.ts
 - Clears the local session via an injected `clearSession` callback
-- Redirects to the IdP `/logout` endpoint with a `post_logout_redirect_uri`
+- Hands control to the IdP `/logout` endpoint with a `post_logout_redirect_uri`,
+  both supplied by `IAuthNavigationPort`
 
 ### models/identity.ts
 - `actorUriToAddress(uri)` — only sanctioned converter between
@@ -37,6 +52,9 @@ Pure TypeScript — no framework dependencies.
   or `URL` elsewhere.
 
 ### models/presence.ts
+- `UserStatus` — presence as the UI models it (`online | idle | dnd |
+  invisible | offline`); domain vocabulary because `setPresenceUseCase`
+  takes it
 - `PresenceState` (`online | away | offline`), `PresenceSnapshotEntry`,
   `PresenceUpdatePayload`, `TypingEventPayload`
 - `presenceToUserStatus()` maps presence → UI `UserStatus` (away → idle)

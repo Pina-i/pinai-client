@@ -33,6 +33,10 @@ import { type IDBPDatabase, openDB } from "idb"
 import { pack, unpack } from "msgpackr"
 import type { PersistStorage, StorageValue } from "zustand/middleware"
 
+// TODO(mobile): the store reaches for the web storage adapter directly.
+// Breaking this needs the device key behind an encrypt/decrypt port and
+// IndexedDB behind a key-value port — the storage/crypto pass, not this one.
+// eslint-disable-next-line no-restricted-imports
 import type { E2eeStorage } from "@/adapters/e2ee/storage.adapter"
 
 const DB_NAME = "pinai-zustand-store"

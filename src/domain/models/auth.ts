@@ -41,3 +41,24 @@ export interface AuthSession {
     user: UserProfile
     idpUrl: string
 }
+
+/**
+ * True when the access token is present and its `exp` claim is still in the
+ * future. The signature is deliberately not verified — that is the IdP's
+ * job; this is the client deciding whether it still has a usable session.
+ *
+ * Platform note: `atob` is assumed. React Native polyfills it, but when the
+ * crypto helpers move to a shared package this should switch to the same
+ * base64url decoder they use.
+ */
+export function isTokenValid(token: string | null): boolean {
+    if (!token) return false
+    try {
+        const payload = JSON.parse(
+            atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")),
+        ) as { exp?: number }
+        return typeof payload.exp === "number" && Date.now() / 1000 < payload.exp
+    } catch {
+        return false
+    }
+}

@@ -1,5 +1,9 @@
 import { create } from "zustand"
 import { devtools, persist } from "zustand/middleware"
+// TODO(mobile): the store reaches for the web storage adapter directly.
+// Breaking this needs the device key behind an encrypt/decrypt port and
+// IndexedDB behind a key-value port — the storage/crypto pass, not this one.
+// eslint-disable-next-line no-restricted-imports
 import { IndexedDbStorageAdapter } from "@/adapters/e2ee/storage.adapter"
 import { createAuthSlice, type AuthSlice } from "./slices/auth.slice"
 import { createUiSlice, type UiSlice } from "./slices/ui.slice"

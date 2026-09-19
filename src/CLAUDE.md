@@ -29,6 +29,19 @@ src/ <- this folder
 - The **adapters** depend on the domain (implement ports)
 - The **presentation** (pages) uses the domain via IoC
 
+These are **enforced by ESLint** (`no-restricted-imports` blocks in
+`eslint.config.js`), not merely documented. A crossing import is a file that
+would have to be duplicated into the planned React Native app, so if a rule
+fires, take the dependency as a port parameter instead of reaching for it.
+
+Two exceptions are marked in `store/` with `eslint-disable` and a TODO: the
+store still constructs the IndexedDB storage adapter directly. Removing them
+needs the device key behind an encrypt/decrypt port and IndexedDB behind a
+key-value port.
+
+`lib/` is layer-neutral: `utils-bytes.ts` (base64 helpers, used by adapters)
+and `types.ts` (view models shared by store + presentation).
+
 ### Documentation maintenance
 
 When creating or modifying code in the "domain" and "adapters" folders, ensure a CLAUDE.md exists in that directory explaining:

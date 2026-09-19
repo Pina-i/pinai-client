@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
-import { isTokenValid } from "@/adapters/auth/token"
+import { isTokenValid } from "@/domain/models/auth"
 import { ensureAuthenticatedUseCase } from "@/domain/usecases/auth/ensureAuthenticated.usecase"
 import { getAuthPlatform, getAuthPort } from "@/ioc/index"
 import { useAppStore } from "@/store/store"
