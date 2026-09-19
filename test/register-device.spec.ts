@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
+import { asActorUri } from "@/domain/models/identity"
+
 import type { IE2eePort } from "@/domain/ports/e2ee.port"
 import { registerDeviceUseCase } from "@/domain/usecases/e2ee/register-device.usecase"
 
@@ -11,7 +13,7 @@ describe("registerDeviceUseCase", () => {
         await registerDeviceUseCase({ e2eePort: port })({
             idpUrl: "https://idp.alice.com",
             accessToken: "tok",
-            actorUri: "https://idp.alice.com/users/alice",
+            actorUri: asActorUri("https://idp.alice.com/users/alice"),
         })
         expect(port.registerDevice).toHaveBeenCalledWith(
             "https://idp.alice.com",
@@ -28,7 +30,7 @@ describe("registerDeviceUseCase", () => {
             registerDeviceUseCase({ e2eePort: port })({
                 idpUrl: "https://idp.alice.com",
                 accessToken: "tok",
-                actorUri: "https://idp.alice.com/users/alice",
+                actorUri: asActorUri("https://idp.alice.com/users/alice"),
             }),
         ).rejects.toThrow("attestation failed")
     })

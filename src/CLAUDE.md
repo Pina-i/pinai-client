@@ -42,6 +42,11 @@ key-value port.
 `lib/` is layer-neutral: `utils-bytes.ts` (base64 helpers, used by adapters)
 and `types.ts` (view models shared by store + presentation).
 
+Node globals (`process`, `Buffer`, `__dirname`, …) are blocked under `src/` by
+`no-restricted-globals`. `@types/node` is in the project because the
+wasm-loading specs need it, so the type checker can no longer tell you that
+nothing here runs on Node — the linter does instead.
+
 ### Documentation maintenance
 
 When creating or modifying code in the "domain" and "adapters" folders, ensure a CLAUDE.md exists in that directory explaining:

@@ -6,6 +6,7 @@
   "scripts": {
     "wasm": "node scripts/build-wasm.mjs",
     "dev": "node scripts/build-wasm.mjs && vite",
+    "test": "vitest",
     "build": "node scripts/build-wasm.mjs && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"

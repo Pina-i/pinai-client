@@ -35,7 +35,8 @@ import type {
 } from "@/adapters/e2ee/key-directory.adapter"
 import { MlsAdapter } from "@/adapters/e2ee/mls.adapter"
 import { NobleRecoveryAdapter } from "@/adapters/e2ee/recovery.adapter"
-import type { E2eeStorage, MlsSnapshot } from "@/adapters/e2ee/storage.adapter"
+import type { DeviceAttestation, E2eeStorage, MlsSnapshot } from "@/adapters/e2ee/storage.adapter"
+import { asActorUri } from "@/domain/models/identity"
 import type {
     ActorUri,
     ApplicationMessage,
@@ -67,6 +68,16 @@ interface PackageEntry {
 }
 
 class InMemoryKeyDirectory implements IKeyDirectoryAdapter {
+    /**
+     * Device attestation is the IdP's signing job and this suite never
+     * exercises it. Throwing rather than returning a plausible-looking
+     * attestation: a fake signature here would let a future test pass
+     * while the verification path it is meant to cover is broken.
+     */
+    registerDevice(): Promise<never> {
+        throw new Error("InMemoryKeyDirectory.registerDevice is not exercised by this suite")
+    }
+
     private readonly identityByActor = new Map<ActorUri, IdentityKeysResponse>()
     private readonly packagesByActor = new Map<ActorUri, PackageEntry[]>()
     private readonly commitsByConversation = new Map<ConversationId, CommitView[]>()
@@ -269,7 +280,8 @@ class InMemoryE2eeStorage implements E2eeStorage {
     private keypair: IdentityKeypair | null = null
     private snapshot: MlsSnapshot | null = null
     private recoveryPassphrase: string[] | null = null
-    private boundActorUri: string | null = null
+    private boundActorUri: ActorUri | null = null
+    private deviceAttestation: DeviceAttestation | null = null
 
     async getOrCreateDeviceId(): Promise<DeviceId> {
         if (!this.deviceId) this.deviceId = crypto.randomUUID()
@@ -306,10 +318,16 @@ class InMemoryE2eeStorage implements E2eeStorage {
     async clearRecoveryPassphrase(): Promise<void> {
         this.recoveryPassphrase = null
     }
-    async getBoundActorUri(): Promise<string | null> {
+    async saveDeviceAttestation(attestation: DeviceAttestation): Promise<void> {
+        this.deviceAttestation = attestation
+    }
+    async loadDeviceAttestation(): Promise<DeviceAttestation | null> {
+        return this.deviceAttestation
+    }
+    async getBoundActorUri(): Promise<ActorUri | null> {
         return this.boundActorUri
     }
-    async setBoundActorUri(actorUri: string): Promise<void> {
+    async setBoundActorUri(actorUri: ActorUri): Promise<void> {
         this.boundActorUri = actorUri
     }
     async clear(): Promise<void> {
@@ -345,8 +363,8 @@ async function buildAdapter(
 
 describe("MLS E2EE — full-loop integration (Alice + Bob)", () => {
     const conversationId: ConversationId = "11112222-3333-4444-5555-666677778888"
-    const aliceActor: ActorUri = "https://idp.alice.example/users/alice_xK9mP"
-    const bobActor: ActorUri = "https://idp.bob.example/users/bob_aB1cDe"
+    const aliceActor: ActorUri = asActorUri("https://idp.alice.example/users/alice_xK9mP")
+    const bobActor: ActorUri = asActorUri("https://idp.bob.example/users/bob_aB1cDe")
     const idpUrl = "https://idp.shared.example"
 
     it("register → add → text → reaction → edit → attachment (cross-IdP welcome)", async () => {
@@ -468,8 +486,8 @@ describe("MLS E2EE — full-loop integration (Alice + Bob)", () => {
         const directory = new InMemoryKeyDirectory()
         const sharedIssuer = "https://idp.shared.example"
         directory.senderIssuer = sharedIssuer
-        const aliceLocal: ActorUri = `${sharedIssuer}/users/alice_local`
-        const bobLocal: ActorUri = `${sharedIssuer}/users/bob_local`
+        const aliceLocal: ActorUri = asActorUri(`${sharedIssuer}/users/alice_local`)
+        const bobLocal: ActorUri = asActorUri(`${sharedIssuer}/users/bob_local`)
 
         const alice = await buildAdapter(directory, "alice-token", aliceLocal)
         const bob = await buildAdapter(directory, "bob-token", bobLocal)

@@ -13,12 +13,20 @@
 import { describe, expect, it, vi } from "vitest"
 
 import type { ActorUri } from "@/domain/models/e2ee"
+import { asActorUri } from "@/domain/models/identity"
+import type { KeyPackageStatusResponse } from "@/domain/models/e2ee"
 import type { IE2eePort } from "@/domain/ports/e2ee.port"
 import { bootstrapFirstDeviceUseCase } from "@/domain/usecases/e2ee/bootstrap-first-device.usecase"
 
 const IDP_URL = "https://idp.example"
 const TOKEN = "test-token"
-const ACTOR: ActorUri = "https://idp.example/users/alice_xK9mP"
+const ACTOR: ActorUri = asActorUri("https://idp.example/users/alice_xK9mP")
+
+const EMPTY_KEY_PACKAGE_STATUS: KeyPackageStatusResponse = {
+    devices: [],
+    refill_threshold: 0,
+    cap: 0,
+}
 
 function buildPort(
     bootstrapImpl: IE2eePort["bootstrapFirstDevice"],
@@ -48,8 +56,7 @@ function buildPort(
         addContactToGroup: async () => undefined,
         ensureGroupExists: async () => undefined,
         consumePendingWelcomes: async () => ({ joined: 0 }),
-        replenishKeyPackages: async () => ({ uploaded: 0 }),
-        getKeyPackageStatus: async () => ({ cap: 0, devices: [] } as never),
+        replenishKeyPackages: async () => EMPTY_KEY_PACKAGE_STATUS,
         recoverFromPassphrase: async () => {
             throw new Error("recoverFromPassphrase not stubbed")
         },
@@ -60,7 +67,15 @@ function buildPort(
         pairAsResponder: async () => {
             throw new Error("pairAsResponder not stubbed")
         },
-    } as IE2eePort
+        registerDevice: async () => undefined,
+        getDeviceId: async () => "device-0000-0000-0000-000000000000",
+        getCachedPassphrase: async () => null,
+        bufferDecryptedForArchive: () => undefined,
+        startFlushing: () => undefined,
+        stopFlushing: () => undefined,
+        restoreHistoryFromPassphrase: async () => ({ restored: 0, skipped: 0 }),
+        clearHistoryBackup: async () => undefined,
+    }
 }
 
 describe("bootstrapFirstDeviceUseCase", () => {

@@ -63,6 +63,25 @@ export default defineConfig([
     },
   },
 
+  {
+    // `test/` joined the TypeScript project, and its wasm-loading specs need
+    // `node:fs` / `process` — which means `@types/node` is in scope for the
+    // whole project, including `src`. Nothing under `src` ships to Node: it
+    // runs in a browser today and on Hermes tomorrow, where none of these
+    // exist. The type checker can no longer say so, so the linter does.
+    files: ['src/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        { name: 'process', message: 'Not available in the browser or on Hermes. Use import.meta.env.' },
+        { name: 'Buffer', message: 'Not available in the browser or on Hermes. Use Uint8Array.' },
+        { name: '__dirname', message: 'Node-only. Use import.meta.url.' },
+        { name: '__filename', message: 'Node-only. Use import.meta.url.' },
+        { name: 'global', message: 'Node-only. Use globalThis.' },
+      ],
+    },
+  },
+
   boundary(
     ['src/domain/**/*.{ts,tsx}'],
     OUTWARD('adapters', 'store', 'presentation', 'routes', 'ioc', 'lib'),
