@@ -1,7 +1,7 @@
 import { ed25519 } from "@noble/curves/ed25519.js"
 
 import type { JwksCacheAdapter } from "@/adapters/jwks/jwks-cache.adapter"
-import { base64ToBytes } from "@/presentation/_libs/utils-bytes"
+import { base64ToBytes } from "@/lib/utils-bytes"
 
 const CLOCK_SKEW_MS = 5 * 60 * 1000 // 5 minutes
 

@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 
-import { decryptDownloaded } from "@/adapters/e2ee/attachment-crypto"
 import type { AttachmentBlobKey } from "@/domain/models/e2ee"
-import { getDmPort } from "@/ioc"
+import { getAttachmentCryptoPort, getDmPort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 
 /**
@@ -61,7 +60,7 @@ export function useAttachmentBlobUrl(
                 const resp = await fetch(ciphertextUrl)
                 if (!resp.ok) throw new Error(`Ciphertext fetch failed: ${resp.status}`)
                 const ciphertext = new Uint8Array(await resp.arrayBuffer())
-                const blob = await decryptDownloaded(ciphertext, attachmentKey)
+                const blob = await getAttachmentCryptoPort().decryptDownloaded(ciphertext, attachmentKey)
                 if (cancelled) return
                 createdUrl = URL.createObjectURL(blob)
                 setDecryptedUrl(createdUrl)

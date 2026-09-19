@@ -1,6 +1,6 @@
-import { encryptForUpload } from "@/adapters/e2ee/attachment-crypto"
 import type { Attachment } from "@/domain/models/dm"
 import type { AttachmentBlobKey } from "@/domain/models/e2ee"
+import type { IAttachmentCryptoPort } from "@/domain/ports/attachment-crypto.port"
 import type { IDmPort, UploadProgress } from "@/domain/ports/dm.port"
 
 export interface UploadEncryptedAttachmentParams {
@@ -26,9 +26,10 @@ export interface UploadEncryptedAttachmentParams {
  */
 export async function uploadEncryptedAttachmentUseCase(
     dmPort: IDmPort,
+    attachmentCrypto: IAttachmentCryptoPort,
     params: UploadEncryptedAttachmentParams,
 ): Promise<{ attachment: Attachment; key: AttachmentBlobKey }> {
-    const { ciphertext, key } = await encryptForUpload(params.file)
+    const { ciphertext, key } = await attachmentCrypto.encryptForUpload(params.file)
 
     // Server stores placeholder filename + MIME — the real values
     // travel inside the encrypted body. The encrypted File's name is

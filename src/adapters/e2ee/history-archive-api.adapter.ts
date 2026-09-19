@@ -6,7 +6,7 @@ import type {
     ArchivePageCursor,
     IHistoryArchivePort,
 } from "@/domain/ports/history-archive.port"
-import { base64ToBytes, bytesToBase64 } from "@/presentation/_libs/utils-bytes"
+import { base64ToBytes, bytesToBase64 } from "@/lib/utils-bytes"
 
 const BATCH_MAX = 50
 

@@ -10,6 +10,7 @@
  */
 
 import type { AttachmentBlobKey } from "@/domain/models/e2ee"
+import type { IAttachmentCryptoPort } from "@/domain/ports/attachment-crypto.port"
 
 const AES_ALGORITHM: AesKeyAlgorithm = { name: "AES-GCM", length: 256 }
 const KEY_USAGES: KeyUsage[] = ["encrypt", "decrypt"]
@@ -85,4 +86,21 @@ export async function decryptDownloaded(
         ciphertext as BufferSource,
     )
     return new Blob([plaintextAb], { type: blobKey.mime_type })
+}
+
+/**
+ * WebCrypto implementation of {@link IAttachmentCryptoPort}.
+ *
+ * The free functions above stay exported: the E2EE integration specs
+ * drive them directly, and there is no value in going through an
+ * instance there.
+ */
+export class WebCryptoAttachmentCryptoAdapter implements IAttachmentCryptoPort {
+    encryptForUpload(file: File): Promise<{ ciphertext: Uint8Array; key: AttachmentBlobKey }> {
+        return encryptForUpload(file)
+    }
+
+    decryptDownloaded(ciphertext: Uint8Array, blobKey: AttachmentBlobKey): Promise<Blob> {
+        return decryptDownloaded(ciphertext, blobKey)
+    }
 }

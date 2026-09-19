@@ -5,7 +5,7 @@
  * rotation safety.
  */
 
-import { base64urlToBytes } from "@/presentation/_libs/utils-bytes"
+import { base64urlToBytes } from "@/lib/utils-bytes"
 
 interface JwksKey {
     kty: string

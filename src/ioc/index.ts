@@ -1,5 +1,6 @@
 import { OidcAdapter } from "@/adapters/auth/oidc.adapter"
 import { DeviceDirectoryApiAdapter } from "@/adapters/device-directory/device-directory-api.adapter"
+import { WebCryptoAttachmentCryptoAdapter } from "@/adapters/e2ee/attachment-crypto"
 import { E2eeAdapter } from "@/adapters/e2ee/e2ee.adapter"
 import { HistoryArchiveAdapter } from "@/adapters/e2ee/history-archive.adapter"
 import { HistoryArchiveApiAdapter } from "@/adapters/e2ee/history-archive-api.adapter"
@@ -18,6 +19,7 @@ import { UserApiAdapter } from "@/adapters/user/user-api.adapter"
 import { getSharedE2eeStorage, useAppStore } from "@/store/store"
 import type { ArchiveEnvelope, AttachmentBlobKey, TextBody } from "@/domain/models/e2ee"
 import type { Message } from "@/lib/types"
+import type { IAttachmentCryptoPort } from "@/domain/ports/attachment-crypto.port"
 import type { IAuthPort } from "@/domain/ports/auth.port"
 import type { IDeviceDirectoryPort } from "@/domain/ports/device-directory.port"
 import type { IE2eePort } from "@/domain/ports/e2ee.port"
@@ -43,6 +45,7 @@ const presencePort: IPresencePort = new PresenceApiAdapter()
 const totpPort: ITotpPort = new TotpApiAdapter()
 const userPort: IUserPort = new UserApiAdapter()
 const deviceDirectoryPort: IDeviceDirectoryPort = new DeviceDirectoryApiAdapter()
+const attachmentCryptoPort: IAttachmentCryptoPort = new WebCryptoAttachmentCryptoAdapter()
 
 // JWKS cache + history-archive singletons live alongside the other E2EE
 // plumbing — keeps the per-issuer JWKS and the in-memory History Archive
@@ -157,6 +160,10 @@ export function getE2eePort(): IE2eePort {
 
 export function getDeviceDirectoryPort(): IDeviceDirectoryPort {
     return deviceDirectoryPort
+}
+
+export function getAttachmentCryptoPort(): IAttachmentCryptoPort {
+    return attachmentCryptoPort
 }
 
 export function getJwksCache(): JwksCacheAdapter {

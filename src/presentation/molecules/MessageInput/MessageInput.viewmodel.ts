@@ -3,7 +3,7 @@ import { toast } from "sonner"
 import type { Attachment } from "@/domain/models/dm"
 import type { AttachmentBlobKey } from "@/domain/models/e2ee"
 import { uploadEncryptedAttachmentUseCase } from "@/domain/usecases/dm/upload-encrypted-attachment.usecase"
-import { getDmPort } from "@/ioc"
+import { getAttachmentCryptoPort, getDmPort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 
 /** Maximum files attached to a single message (mirrors the backend default). */
@@ -128,7 +128,7 @@ export function useMessageInputViewModel(args: UseMessageInputViewModelArgs): Me
             // Kick off each upload independently so per-file progress is honest.
             for (const row of newRows) {
                 const localId = row.localId
-                uploadEncryptedAttachmentUseCase(getDmPort(), {
+                uploadEncryptedAttachmentUseCase(getDmPort(), getAttachmentCryptoPort(), {
                     idpUrl,
                     accessToken,
                     file: row.file,
