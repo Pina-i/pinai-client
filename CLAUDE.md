@@ -6,15 +6,24 @@ This is the **browser-based frontend client** of the Pina-i platform, a self-hos
 
 This is **Layer 1** of a three-layer architecture:
 - **Layer 1: Clients ← this repo**
-- Layer 2: Identity & Messaging Backbone (identity-provider)
-- Layer 3: Chat Servers (chat-server)
+- Layer 2: Identity & Messaging Backbone (`identity-provider/`)
+- Layer 3: Chat Servers (`chat-server/`)
+
+Layers 2 and 3 no longer live in repositories of their own — they are subtrees
+of the **`Pina-i/pinai` monorepo**, spanned by a single Cargo workspace. This
+client stays a separate repository: it shares an HTTP contract with those
+services, not a dependency graph.
 
 ## What This Service Does
 
-The web client is the primary user-facing interface. It communicates with **two distinct backends**:
+The web client is the primary user-facing interface. It communicates with **the pinai backend**:
 
-1. **identity-provider** — for OIDC login, user profile, friends, and private DMs
-2. **chat-server(s)** — for community channels, messages, and roles
+1. **`identity-provider`** — OIDC login, user profile, friends, private DMs, presence, and the E2EE key directory
+2. **`chat-server`** — community channels, messages, and roles *(planned: the subtree currently holds only its `CLAUDE.md`, is not a workspace member, and is absent from `compose.yaml`)*
+
+A chat server attaches to exactly one identity provider and deploys alongside
+it, which is why the monorepo keeps `compose.yaml` and the env templates at its
+root rather than per service.
 
 The user configures their identity provider URL (e.g. `idp.alice.com`) and the client drives the OIDC flow from there.
 
@@ -35,12 +44,20 @@ The user configures their identity provider URL (e.g. `idp.alice.com`) and the c
 | E2EE | MLS (RFC 9420) via `openmls 0.8.1` WASM bundle (`crypto/openmls-wasm/`); identity + recovery via `@noble/curves` + `@noble/hashes` + `@noble/ciphers` |
 | At-rest persistence | IndexedDB (`idb`) + AES-256-GCM under a non-extractable device key, inner format is **msgpack** (`msgpackr`) — preserves `Uint8Array` round-trip natively |
 
-## Related Repositories
+## Related Repository
 
-| Repo | Role |
+Everything this client talks to lives in **`Pina-i/pinai`** (`git@github.com:Pina-i/pinai.git`):
+
+| Path | Role |
 |------|------|
-| `pina-i/identity-provider` | OIDC provider this client authenticates against |
-| `pina-i/chat-server` | Community servers this client connects to |
+| `identity-provider/` | OIDC provider this client authenticates against; owns DMs, presence, and the E2EE key directory |
+| `chat-server/` | Community servers this client connects to (planned) |
+| `crates/` | Shared Rust libraries — `common-types`, `jwt-utils`, `http-signatures`, `activitypub`, `observability`, `federation-transport` |
+| `specs/` | Platform-wide specs; service-scoped specs live under that service (e.g. `identity-provider/specs/`) |
+
+Paths in this file that point into the backend are written from that monorepo's
+root. Each service subtree carries its own `CLAUDE.md` — read it before working
+against that service.
 
 ## Project Structure
 
@@ -54,15 +71,25 @@ web-client/
 │   ├── openmls-wasm/      # Standalone Cargo project: `openmls` WASM wrapper.
 │   │                      #   Pinned to openmls 0.8.1; single ciphersuite
 │   │                      #   (MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519).
-│   │                      #   Build with `wasm-pack build --release --target web
-│   │                      #   --out-dir ../openmls-pkg` (or `./build.sh`).
+│   │                      #   Built automatically: `predev`/`prebuild` run
+│   │                      #   `npm run wasm` (scripts/build-wasm.mjs), which
+│   │                      #   rebuilds only when src/, Cargo.toml or Cargo.lock
+│   │                      #   are newer than the output. `npm run wasm -- --force`
+│   │                      #   to force. Directly: `./build.sh`.
 │   │                      #   `cargo test` runs native unit tests (happy paths only;
 │   │                      #   browser-only checks land in 4b under wasm-bindgen-test).
 │   └── openmls-pkg/       # Generated npm package — wasm-pack output.
 │                          #   ~1.5–2 MiB .wasm (size depends on whether
 │                          #   wasm-opt is enabled in the release profile)
 │                          #   + JS glue + .d.ts. Imported via a `file:`
-│                          #   dependency.
+│                          #   dependency. Never committed — wasm-pack writes a
+│                          #   `.gitignore` of `*` into it, so a fresh clone MUST
+│                          #   build before the client will start.
+├── scripts/
+│   └── build-wasm.mjs     # Staleness-checked wasm build. Invokes `wasm-pack`
+│                          #   from PATH, so it needs a Rust toolchain in
+│                          #   whichever environment runs npm. wasm-pack adds
+│                          #   the wasm32-unknown-unknown target itself.
 src/
 ├── domain/           # Business core (use cases, ports, models)
 │   ├── models/       # Business entities
@@ -130,7 +157,7 @@ The `Dockerfile` runs `vite build` and copies the output into an nginx image. Th
 - **Multi-IdP aware** — the client is not hardcoded to a single IdP; the user's configured IdP URL is stored in `localStorage` only (not the token)
 - **Two separate WebSocket connections**: one to the identity-provider (for DMs), one to the active chat-server (for channels)
 - **JWT never sent to wrong backend** — the chat-server JWT and IdP session are kept strictly separate in the store
-- **MLS E2EE is end-to-end client-driven**: encryption/decryption happens in `adapters/e2ee/`, server is opaque to message content. Per-device identity (Phase 7) — each device generates a Device Root Key (Ed25519) signed by the IdP into an attestation; peers verify via the issuer's JWKS. DRK + MLS provider state + per-device 24-word recovery passphrase all live in IndexedDB, encrypted at rest under a per-device non-extractable AES-256-GCM `CryptoKey`. The same device key encrypts the persisted message-plaintext cache (`pinai-zustand-store` IDB) so MLS forward secrecy doesn't blank conversation history on reload. The recovery passphrase derives a History Archive Key (Argon2id) used to encrypt every decrypted plaintext for opt-out server-side history backup. See `adapters/e2ee/CLAUDE.md` and `identity-provider/docs/plans/2026-05-14-per-device-identity-design.md`.
+- **MLS E2EE is end-to-end client-driven**: encryption/decryption happens in `adapters/e2ee/`, server is opaque to message content. Per-device identity (Phase 7) — each device generates a Device Root Key (Ed25519) signed by the IdP into an attestation; peers verify via the issuer's JWKS. DRK + MLS provider state + per-device 24-word recovery passphrase all live in IndexedDB, encrypted at rest under a per-device non-extractable AES-256-GCM `CryptoKey`. The same device key encrypts the persisted message-plaintext cache (`pinai-zustand-store` IDB) so MLS forward secrecy doesn't blank conversation history on reload. The recovery passphrase derives a History Archive Key (Argon2id) used to encrypt every decrypted plaintext for opt-out server-side history backup. See `adapters/e2ee/CLAUDE.md` and `identity-provider/specs/05-e2ee.md` in the `pinai` monorepo.
 - **Persistence inner format is msgpack** (not JSON). `Uint8Array` fields (`AttachmentBlobKey.key` / `.nonce`, identity bytes) round-trip natively — JSON would turn them into indexed-property objects that Web Crypto APIs reject.
 
 ## Environment Variables

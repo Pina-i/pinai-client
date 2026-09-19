@@ -421,7 +421,7 @@ to "recover your message history" — derives a History Archive Key
 via Argon2id; per-decrypt plaintexts are encrypted under that key
 and uploaded to a server-side opaque-ciphertext archive.
 
-See `identity-provider/docs/plans/2026-05-14-per-device-identity-design.md`
+See `identity-provider/specs/05-e2ee.md` in the `Pina-i/pinai` monorepo
 for the full design.
 
 ### New adapters
