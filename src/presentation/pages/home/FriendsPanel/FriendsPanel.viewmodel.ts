@@ -4,8 +4,7 @@ import { getFriendsUseCase } from "@/domain/usecases/social/get-friends.usecase"
 import { getSocialPort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 import { actorUriToAddress } from "@/domain/models/identity"
-import { presenceToUserStatus } from "@/domain/models/presence"
-import type { UserStatus } from "@/lib/types"
+import { presenceToUserStatus, type UserStatus } from "@/domain/models/presence"
 
 export interface Friend {
     id: string

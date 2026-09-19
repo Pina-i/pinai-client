@@ -1,5 +1,5 @@
 import { cn } from "@/presentation/_libs/utils"
-import type { UserStatus } from "@/lib/types"
+import type { UserStatus } from "@/domain/models/presence"
 
 const sizeClasses = {
     xs: "h-6 w-6 text-[10px]",

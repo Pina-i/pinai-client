@@ -1,5 +1,4 @@
-export type UserStatus = "online" | "idle" | "dnd" | "invisible" | "offline"
-
+import type { UserStatus } from "@/domain/models/presence"
 import type { Attachment } from "@/domain/models/dm"
 import type { AttachmentBlobKey } from "@/domain/models/e2ee"
 

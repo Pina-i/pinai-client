@@ -1,5 +1,13 @@
 export type PresenceState = "online" | "away" | "offline" | "dnd"
 
+/**
+ * Presence as the UI models it. Distinct from {@link PresenceState}: the
+ * server has no `idle`/`invisible`, and the UI has no `away`.
+ * Lives in the domain because use cases speak it (`setPresenceUseCase`)
+ * — it is a business vocabulary, not a rendering detail.
+ */
+export type UserStatus = "online" | "idle" | "dnd" | "invisible" | "offline"
+
 /** Snapshot entry returned by GET /api/presence. */
 export interface PresenceSnapshotEntry {
     actorUri: string
@@ -24,7 +32,7 @@ export interface TypingEventPayload {
  * Maps a server-side `PresenceState` to the UI's `UserStatus` palette.
  * `away` renders as `idle`; `dnd` is shown as the same `dnd` UI variant.
  */
-export function presenceToUserStatus(state: PresenceState | undefined): "online" | "idle" | "dnd" | "offline" {
+export function presenceToUserStatus(state: PresenceState | undefined): Exclude<UserStatus, "invisible"> {
     if (state === "online") return "online"
     if (state === "away") return "idle"
     if (state === "dnd") return "dnd"
@@ -36,7 +44,7 @@ export function presenceToUserStatus(state: PresenceState | undefined): "online"
  * Used wherever presence is shown as text (friend list subtitle, conversation
  * header, etc.). Centralised so the wording stays consistent.
  */
-export function userStatusLabel(status: "online" | "idle" | "dnd" | "invisible" | "offline"): string {
+export function userStatusLabel(status: UserStatus): string {
     switch (status) {
         case "online":
             return "Online"

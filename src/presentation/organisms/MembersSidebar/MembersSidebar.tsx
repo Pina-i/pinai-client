@@ -3,7 +3,7 @@ import { useAppStore } from "@/store/store"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { cn } from "@/presentation/_libs/utils"
-import type { UserStatus } from "@/lib/types"
+import type { UserStatus } from "@/domain/models/presence"
 
 const statusGroups: { status: UserStatus; label: string }[] = [
     { status: "online", label: "Online" },

@@ -1,5 +1,5 @@
 import type { UserProfile } from "@/domain/models/auth"
-import type { UserStatus } from "@/lib/types"
+import type { UserStatus } from "@/domain/models/presence"
 import type { StateCreator } from "zustand"
 import type { AppStore } from "../store"
 

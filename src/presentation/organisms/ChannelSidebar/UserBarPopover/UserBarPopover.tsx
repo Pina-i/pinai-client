@@ -7,7 +7,7 @@ import { getWsPort } from "@/ioc"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { Popover } from "@/presentation/molecules/Popover/Popover"
 import { cn } from "@/presentation/_libs/utils"
-import type { UserStatus } from "@/lib/types"
+import type { UserStatus } from "@/domain/models/presence"
 
 interface StatusMeta {
     id: UserStatus

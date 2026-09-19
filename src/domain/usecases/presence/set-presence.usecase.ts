@@ -1,5 +1,5 @@
 import type { IWsPort } from "@/domain/ports/ws.port"
-import type { UserStatus } from "@/lib/types"
+import type { UserStatus } from "@/domain/models/presence"
 
 /**
  * Map the UI status palette to the wire-level `PresenceState`.
