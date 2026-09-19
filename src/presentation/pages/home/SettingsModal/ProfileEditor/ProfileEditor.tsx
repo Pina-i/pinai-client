@@ -18,7 +18,9 @@ const inputClass = cn(
 const fieldLabelClass = "mono-eyebrow mb-[5px] block text-muted-foreground"
 
 export function ProfileEditor({ user }: ProfileEditorProps) {
-    const vm = useProfileEditorViewModel(user)
+    // See VerifyEmailPage: a ref inside the viewmodel object taints every
+    // other property read on it for `react-hooks/refs`.
+    const { fileInputRef, ...vm } = useProfileEditorViewModel(user)
     const initials = vm.draft.displayName.slice(0, 2).toUpperCase() || "?"
 
     return (
@@ -33,7 +35,7 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
                 <Avatar initials={initials} imageUrl={vm.avatarUrl} color="var(--chat)" size="lg" />
                 <div className="flex-1">
                     <input
-                        ref={vm.fileInputRef}
+                        ref={fileInputRef}
                         type="file"
                         accept="image/jpeg,image/png,image/webp,image/gif"
                         onChange={vm.onFileChange}

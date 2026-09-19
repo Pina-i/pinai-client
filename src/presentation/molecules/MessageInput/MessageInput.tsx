@@ -41,7 +41,9 @@ export function MessageInput({
     onCancelReply,
     handleRef,
 }: MessageInputProps) {
-    const vm = useMessageInputViewModel({ onSend, onType, handleRef })
+    // See VerifyEmailPage: a ref inside the viewmodel object taints every
+    // other property read on it for `react-hooks/refs`.
+    const { pickedFileInputRef, ...vm } = useMessageInputViewModel({ onSend, onType, handleRef })
 
     // Controlled state for the emoji + GIF popovers so picking one snaps
     // it shut. React Aria's `DialogTrigger` does NOT auto-close on inner
@@ -117,7 +119,7 @@ export function MessageInput({
             <div className="rounded-[var(--radius-lg)] border border-border-strong bg-card p-2.5">
                 {/* Hidden file input — triggered by the plus icon. */}
                 <input
-                    ref={vm.pickedFileInputRef}
+                    ref={pickedFileInputRef}
                     type="file"
                     multiple
                     onChange={vm.onFileInputChange}

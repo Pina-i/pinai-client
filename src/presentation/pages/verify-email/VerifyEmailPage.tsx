@@ -107,7 +107,10 @@ function StatusRow({ typed, justResent, resendError, serverError }: StatusRowPro
 }
 
 export function VerifyEmailPage() {
-    const vm = useVerifyEmailPageViewModel()
+    // The ref is destructured out: `react-hooks/refs` treats every property
+    // read on an object that holds a ref as a ref access during render, so
+    // keeping it inside `vm` would flag every `vm.code` / `vm.cooldown` too.
+    const { formRef, ...vm } = useVerifyEmailPageViewModel()
     const canSubmit = vm.code.length === 6 && !!vm.idpUrl && !!vm.pendingUserId
 
     return (
@@ -175,7 +178,7 @@ export function VerifyEmailPage() {
                 </div>
 
                 <form
-                    ref={vm.formRef}
+                    ref={formRef}
                     action={`${vm.idpUrl}/verify-email-and-login`}
                     method="POST"
                 >
