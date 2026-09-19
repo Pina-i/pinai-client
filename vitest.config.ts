@@ -25,6 +25,9 @@ export default defineConfig({
         // storage). When `storage.adapter.ts` tests land (alongside
         // recovery + pairing), pull in `fake-indexeddb/auto` here.
         include: ["test/**/*.spec.ts", "src/**/*.spec.ts"],
+        // Node 26's experimental `localStorage` global shadows jsdom's and
+        // resolves to `undefined`; this restores it. See the file for detail.
+        setupFiles: ["./test/setup/web-storage.ts"],
         // openmls-wasm is a `.wasm` bundle loaded via fetch in the
         // browser. In jsdom we feed it a precompiled WebAssembly.Module
         // built from disk — the test imports the bytes via a small

@@ -24,6 +24,7 @@ import { beforeAll, describe, expect, it } from "vitest"
 
 import { NobleIdentityAdapter } from "@/adapters/e2ee/identity.adapter"
 import { MlsAdapter } from "@/adapters/e2ee/mls.adapter"
+import { asActorUri } from "@/domain/models/identity"
 import { DEFAULT_ARGON2_PARAMS, NobleRecoveryAdapter } from "@/adapters/e2ee/recovery.adapter"
 
 /**
@@ -44,7 +45,9 @@ beforeAll(async () => {
 async function makeAdapter(actorUri: string): Promise<MlsAdapter> {
     const a = new MlsAdapter()
     await a.initialize({ module_or_path: wasmModule } as never)
-    await a.setIdentity(actorUri)
+    // `deviceId` is not optional: it goes into the leaf credential, and
+    // omitting it produced credential bytes no production build would emit.
+    await a.setIdentity(asActorUri(actorUri), `${actorUri}#device-1`)
     return a
 }
 

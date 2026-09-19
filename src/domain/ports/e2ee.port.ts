@@ -243,6 +243,17 @@ export interface IE2eePort {
     /** Locally-cached 24-word passphrase, or null. */
     getCachedPassphrase(): Promise<string[] | null>
 
+    /**
+     * Buffer a freshly decrypted plaintext for the history archive. No-op when
+     * the archive is unwired. Called by the WS hook on every inbound decrypt,
+     * so it is part of the port, not an adapter detail.
+     */
+    bufferDecryptedForArchive(
+        conversationId: ConversationId,
+        messageId: string,
+        plaintext: Uint8Array,
+    ): void
+
     /** History-archive upload lifecycle — the auth layout starts/stops these. */
     startFlushing(idpUrl: string, accessToken: string): void
     stopFlushing(): void

@@ -7,10 +7,11 @@ import { getConversationHistoryUseCase } from "@/domain/usecases/dm/get-conversa
 import { getDmConversationsUseCase } from "@/domain/usecases/dm/get-dm-conversations.usecase"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 import { getDmPort, getE2eePort, getGroupPort, getWsPort } from "@/ioc"
-import { actorUriToAddress, addressToActorUri } from "@/domain/models/identity"
+import { actorUriToAddress, addressToActorUri, asActorUri } from "@/domain/models/identity"
 import type { Message } from "@/lib/types"
 import type { DirectMessage } from "@/domain/models/dm"
 import type {
+    ActorUri,
     ApplicationMessage,
     AttachmentBlobKey,
     ReactionBody,
@@ -252,7 +253,12 @@ export function useConversationPageViewModel(name: string) {
     // canonical), fall back to deriving from the route param. The
     // derivation mirrors the IdP's `resolve_remote_actor` heuristic for
     // cross-IdP addresses.
-    const recipientActorUri = dmData?.actorUri ?? (idpUrl ? addressToActorUri(name, idpUrl) : null)
+    // `DmConversation.actorUri` is plain `string` (the view-model type predates
+    // the `ActorUri` brand), but the value came from the server as a canonical
+    // actor URI — `asActorUri` is the sanctioned place to say so.
+    const recipientActorUri: ActorUri | null =
+        (dmData?.actorUri ? asActorUri(dmData.actorUri) : null) ??
+        (idpUrl ? addressToActorUri(name, idpUrl) : null)
 
     // Stable map/render key. While loading, we fall back to the route
     // param so the page mounts; sends are gated on `conversationId`
@@ -399,7 +405,7 @@ export function useConversationPageViewModel(name: string) {
         replyTo: { id: string; content: string; author: string } | null
         recipientAddress: string
         /** `null` for groups (no single peer). */
-        recipientActorUri: string | null
+        recipientActorUri: ActorUri | null
         conversationId: string
         kind: "dm" | "group"
         optimisticAttachmentKeys: Record<string, AttachmentBlobKey>
