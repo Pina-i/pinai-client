@@ -7,7 +7,7 @@ import { AttachmentFilmstrip } from "@/presentation/molecules/AttachmentFilmstri
 import { ImageLightboxDialog } from "@/presentation/molecules/ImageLightboxDialog/ImageLightboxDialog"
 import { MessageStatus } from "@/presentation/molecules/MessageStatus/MessageStatus"
 import { SingleImageAttachment } from "@/presentation/molecules/SingleImageAttachment/SingleImageAttachment"
-import { ReactionPickerContext } from "@/presentation/organisms/MessageList/MessageList"
+import { ReactionPickerContext } from "@/presentation/organisms/MessageList/MessageList.context"
 import { isImageAttachment } from "@/presentation/_libs/attachments"
 import { cn } from "@/presentation/_libs/utils"
 import type { Attachment } from "@/domain/models/dm"

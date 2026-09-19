@@ -4,11 +4,11 @@ import { toast } from "sonner"
 
 import { restoreHistoryFromPassphraseUseCase } from "@/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
 import { getE2eePort } from "@/ioc"
+import type { RecoveryPassphraseInputHandle } from "@/presentation/molecules/RecoveryPassphraseInput/RecoveryPassphraseInput"
 import {
     RECOVERY_WORD_COUNT,
     isPassphraseComplete,
-    type RecoveryPassphraseInputHandle,
-} from "@/presentation/molecules/RecoveryPassphraseInput/RecoveryPassphraseInput"
+} from "@/presentation/molecules/RecoveryPassphraseInput/RecoveryPassphraseInput.helper"
 import { useAppStore } from "@/store/store"
 
 export type RestoreStatus = "initializing" | "ready" | "restoring" | "done" | "error"

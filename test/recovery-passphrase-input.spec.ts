@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest"
 import {
     RECOVERY_WORD_COUNT,
     isPassphraseComplete,
-} from "@/presentation/molecules/RecoveryPassphraseInput/RecoveryPassphraseInput"
+} from "@/presentation/molecules/RecoveryPassphraseInput/RecoveryPassphraseInput.helper"
 
 // 24 known-good BIP-39 words for the happy-path assertions.
 const VALID_24 = [

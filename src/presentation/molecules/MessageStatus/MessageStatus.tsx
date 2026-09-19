@@ -5,30 +5,7 @@ import { AlertCircle, Check, Clock, RotateCw } from "lucide-react"
 import type { Message } from "@/lib/types"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { cn } from "@/presentation/_libs/utils"
-
-/**
- * How long the "sent" check stays visible after the optimistic message
- * is reconciled to the server's row. Past this window the icon hides
- * entirely so old messages don't carry a permanent ✓ stamp. On reload
- * the comparison naturally falls outside the window — no flash.
- */
-export const SENT_FADE_MS = 3000
-
-/**
- * Pure helper: should the "sent" check icon currently render? Factored
- * out for testability — the rest of the component is wiring around
- * this decision. Returns `false` for any non-"sent" status (which
- * have their own render path), for missing `statusAt`, and once more
- * than `SENT_FADE_MS` has elapsed since the status flip.
- */
-export function shouldShowSentIcon(
-    status: Message["status"],
-    statusAt: string | undefined,
-    now: number = Date.now(),
-): boolean {
-    if (status !== "sent" || !statusAt) return false
-    return now - new Date(statusAt).getTime() < SENT_FADE_MS
-}
+import { SENT_FADE_MS, shouldShowSentIcon } from "./MessageStatus.helper"
 
 export interface MessageStatusProps {
     status: Message["status"]

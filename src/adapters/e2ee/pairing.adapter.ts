@@ -294,10 +294,10 @@ function constantTimeEquals(a: Uint8Array, b: Uint8Array): boolean {
 
 // Compile-time guard on the wire shape — if any byte width drifts the
 // pairing protocol's downstream code goes wrong silently. Enforce here.
-const _SIZES_CHECK: [
-    typeof SPAKE2_MESSAGE_BYTES,
-    typeof CONFIRMATION_BYTES,
-    typeof NONCE_BYTES,
-    typeof PAIR_TOKEN_BYTES,
-] = [32, 32, 24, 32]
+const _SIZES_CHECK: [32, 32, 24, 32] = [
+    SPAKE2_MESSAGE_BYTES,
+    CONFIRMATION_BYTES,
+    NONCE_BYTES,
+    PAIR_TOKEN_BYTES,
+]
 void _SIZES_CHECK

@@ -27,7 +27,12 @@ const OUTWARD = (...layers) =>
   layers.flatMap((l) => [`@/${l}`, `@/${l}/**`, `**/${l}/**`])
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // `components/` is an unreferenced React Aria registry dump: nothing under
+  // `src` imports it, and its own `@/lib/react-aria-utils` import does not
+  // resolve (the Vite alias points `@` at `src/`, where that file does not
+  // exist). It is neither built nor type-checked, so linting it only produces
+  // noise. Delete it, or wire it in and drop this ignore.
+  globalIgnores(['dist', 'components']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -39,6 +44,22 @@ export default defineConfig([
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
+    },
+    rules: {
+      // The codebase already treats console logging as something to opt into
+      // deliberately — 31 of its 32 call sites carry a disable comment. Making
+      // the rule real is what gives those comments meaning, and it backs the
+      // security constraint in CLAUDE.md about never logging tokens.
+      'no-console': 'error',
+      // The codebase marks deliberately-unused parameters with a leading
+      // underscore (port implementations that ignore arguments, destructured
+      // rest patterns). Teach the rule the convention rather than sprinkling
+      // disables.
+      '@typescript-eslint/no-unused-vars': ['error', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+        caughtErrorsIgnorePattern: '^_',
+      }],
     },
   },
 

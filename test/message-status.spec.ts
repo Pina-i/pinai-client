@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest"
 import {
     SENT_FADE_MS,
     shouldShowSentIcon,
-} from "@/presentation/molecules/MessageStatus/MessageStatus"
+} from "@/presentation/molecules/MessageStatus/MessageStatus.helper"
 
 describe("shouldShowSentIcon", () => {
     const at = "2026-05-11T12:00:00.000Z"

@@ -1,11 +1,13 @@
-import { createContext, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type RefObject } from "react"
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type RefObject } from "react"
 import {
     ListBox,
     ListBoxItem,
     ListLayout,
     Virtualizer,
 } from "react-aria-components"
-import { DateDivider, formatDateDividerLabel } from "@/presentation/molecules/DateDivider/DateDivider"
+import { DateDivider } from "@/presentation/molecules/DateDivider/DateDivider"
+import { ReactionPickerContext } from "./MessageList.context"
+import { formatDateDividerLabel } from "@/presentation/molecules/DateDivider/DateDivider.helper"
 import { EmojiPickerPopover } from "@/presentation/molecules/EmojiPickerPopover/EmojiPickerPopover"
 import type { Message } from "@/lib/types"
 import { MessageItem } from "../MessageItem/MessageItem"
@@ -70,10 +72,6 @@ interface ReactionPickerState {
  * threaded through never updates. Context triggers every consumer to
  * re-render, sidestepping the cache.
  */
-export const ReactionPickerContext = createContext<{ openMessageId: string | null }>({
-    openMessageId: null,
-})
-
 export function MessageList({
     messages,
     conversationKey,

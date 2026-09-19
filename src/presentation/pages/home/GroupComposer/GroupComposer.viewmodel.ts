@@ -76,6 +76,7 @@ export function useGroupComposerViewModel(composer: GroupComposerState, onClose:
             try {
                 await getE2eePort().addContactToGroup(idpUrl!, accessToken!, conversationId, asActorUri(uri))
             } catch (e) {
+                // eslint-disable-next-line no-console
                 console.warn(`MLS key delivery failed for ${uri}`, e)
             }
         }

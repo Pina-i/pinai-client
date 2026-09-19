@@ -1,11 +1,11 @@
 import { useCallback, useImperativeHandle, useMemo, useRef, type RefObject } from "react"
-import { wordlist } from "@scure/bip39/wordlists/english.js"
 
 import { cn } from "@/presentation/_libs/utils"
-
-export const RECOVERY_WORD_COUNT = 24
-
-export type SlotStatus = "empty" | "ok" | "unknown"
+import {
+    RECOVERY_WORD_COUNT,
+    WORDLIST_SET,
+    type SlotStatus,
+} from "./RecoveryPassphraseInput.helper"
 
 /** Imperative actions exposed via `handleRef`. */
 export interface RecoveryPassphraseInputHandle {
@@ -22,22 +22,10 @@ interface RecoveryPassphraseInputProps {
     handleRef?: RefObject<RecoveryPassphraseInputHandle | null>
 }
 
-const WORDLIST_SET = new Set(wordlist)
-
 /** Per-word status — drives the slot's border/badge styling. */
 function statusFor(word: string): SlotStatus {
     if (!word) return "empty"
     return WORDLIST_SET.has(word) ? "ok" : "unknown"
-}
-
-/**
- * Cheap-to-compute predicate that callers consume to enable the
- * "Restore" button. Exported so the page viewmodel can drive its own
- * state without re-parsing the value array.
- */
-export function isPassphraseComplete(words: string[]): boolean {
-    if (words.length !== RECOVERY_WORD_COUNT) return false
-    return words.every((w) => w !== "" && WORDLIST_SET.has(w))
 }
 
 /**
