@@ -368,7 +368,7 @@ describe("MLS E2EE — full-loop integration (Alice + Bob)", () => {
         //    different IdP, so the welcome should be tagged as a
         //    cross-IdP delivery rather than a local insert.
         await alice.e2ee.addContactToGroup(idpUrl, "alice-token", conversationId, bobActor)
-        expect(alice.mls.hasGroup(conversationId)).toBe(true)
+        expect(await alice.mls.hasGroup(conversationId)).toBe(true)
         expect(directory.welcomeRouting).toHaveLength(1)
         expect(directory.welcomeRouting[0]).toMatchObject({
             recipient_actor_uri: bobActor,
@@ -379,8 +379,8 @@ describe("MLS E2EE — full-loop integration (Alice + Bob)", () => {
         // 3. Bob consumes the pending welcome.
         const consumed = await bob.e2ee.consumePendingWelcomes(idpUrl, "bob-token", bobActor)
         expect(consumed.joined).toBe(1)
-        expect(bob.mls.hasGroup(conversationId)).toBe(true)
-        expect(bob.mls.getEpoch(conversationId)).toBe(alice.mls.getEpoch(conversationId))
+        expect(await bob.mls.hasGroup(conversationId)).toBe(true)
+        expect(await bob.mls.getEpoch(conversationId)).toBe(await alice.mls.getEpoch(conversationId))
 
         // 4. Alice sends "hello" → Bob decrypts.
         const aliceMessageId = "alice-msg-1"
@@ -486,6 +486,6 @@ describe("MLS E2EE — full-loop integration (Alice + Bob)", () => {
         // path actually delivers + the receiver can decrypt.
         const consumed = await bob.e2ee.consumePendingWelcomes(sharedIssuer, "bob-token", bobLocal)
         expect(consumed.joined).toBe(1)
-        expect(bob.mls.getEpoch(conversationId)).toBe(alice.mls.getEpoch(conversationId))
+        expect(await bob.mls.getEpoch(conversationId)).toBe(await alice.mls.getEpoch(conversationId))
     })
 })

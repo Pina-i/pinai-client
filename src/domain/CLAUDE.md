@@ -23,6 +23,17 @@ Pure TypeScript — no framework dependencies.
     surviving the hand-off to the IdP (`sessionStorage` on the web)
   - `IAuthNavigationPort` — callback/post-logout URLs and the hand-off
 
+### ports/mls-engine.port.ts
+- `IMlsEngine` — the MLS engine as the rest of the client sees it, plus
+  `MlsCiphertext` / `AddMemberOutput` / `ProcessOutcome`
+- **Asynchronous throughout by design**, even though the WASM bundle
+  behind it is synchronous: Hermes has no WebAssembly, so React Native
+  will drive the same Rust crate through a native binding, and whether
+  that binding can be synchronous is not yet known. Retrofitting
+  `sync → async` later would rework the whole message path.
+- Bytes in, bytes out — every implementation must agree byte-for-byte;
+  the specs in `test/` are the contract.
+
 ### ports/attachment-crypto.port.ts
 - `IAttachmentCryptoPort` — per-attachment AES-256-GCM seal/open. Protocol
   visible: the key, nonce and AAD travel to the peer in the MLS body, so

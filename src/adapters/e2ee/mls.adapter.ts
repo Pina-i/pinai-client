@@ -23,6 +23,14 @@ import init, {
 } from "openmls-wasm"
 
 import type { ActorUri, ConversationId, DeviceId } from "@/domain/models/e2ee"
+import type {
+    AddMemberOutput,
+    IMlsEngine,
+    MlsCiphertext,
+    ProcessOutcome,
+} from "@/domain/ports/mls-engine.port"
+
+export type { AddMemberOutput, MlsCiphertext, ProcessOutcome }
 
 /**
  * MLS leaf credentials embed the user's `actor_uri` AND the leaf's
@@ -51,31 +59,7 @@ function decodeLeafCredential(bytes: Uint8Array): LeafCredential | null {
     return null
 }
 
-export type MlsCiphertext = Uint8Array
-
-export interface AddMemberOutput {
-    /** TLS-encoded MLS Commit — POST to `/api/mls/groups/:id/commits`. */
-    commit: Uint8Array
-    /**
-     * TLS-encoded MLS Welcome — deliver to the new member's IdP
-     * (local: REST insert; cross-IdP: AP `Create{Note}` with
-     * `mlsKind: welcome`).
-     */
-    welcome: Uint8Array
-    /** Ratchet tree the joiner needs alongside the Welcome. */
-    ratchet_tree: Uint8Array
-}
-
-/**
- * Categorises the result of {@link MlsAdapter.processMessage} so the
- * caller can route without poking at MLS internals.
- */
-export type ProcessOutcome =
-    | { kind: "application"; plaintext: Uint8Array }
-    | { kind: "commit" }
-    | { kind: "proposal" }
-
-export class MlsAdapter {
+export class MlsAdapter implements IMlsEngine {
     /** Set after {@link MlsAdapter.init}. */
     private provider: Provider | null = null
     /** Set after {@link MlsAdapter.setIdentity}. */
@@ -109,7 +93,7 @@ export class MlsAdapter {
      * holding the previous user's group state would race the wiped
      * IDB on the next op.
      */
-    resetProvider(): void {
+    async resetProvider(): Promise<void> {
         this.provider = null
         this.identity = null
         this.groups.clear()
@@ -147,11 +131,11 @@ export class MlsAdapter {
      * When omitted, a fresh keypair is generated and stored — the
      * correct path for a brand-new device (first-ever register).
      */
-    setIdentity(
+    async setIdentity(
         actorUri: ActorUri,
         deviceId: DeviceId,
         existingSignaturePublicKey?: Uint8Array,
-    ): void {
+    ): Promise<void> {
         this.requireProvider()
         const credential: LeafCredential = { actor_uri: actorUri, device_id: deviceId }
         const credentialBytes = encodeLeafCredential(credential)
@@ -181,10 +165,10 @@ export class MlsAdapter {
      * matching leaf is authoritative; any subsequent ones would carry
      * the same bytes.
      */
-    findOwnLeafSigKey(
+    async findOwnLeafSigKey(
         actorUri: ActorUri,
         deviceId: DeviceId,
-    ): Uint8Array | null {
+    ): Promise<Uint8Array | null> {
         for (const group of this.groups.values()) {
             const own = group.list_members().find((m) => {
                 const cred = decodeLeafCredential(m.credential_bytes)
@@ -196,7 +180,7 @@ export class MlsAdapter {
     }
 
     /** Ed25519 public key of the leaf — used for the device fingerprint UI. */
-    getDeviceSignaturePublicKey(): Uint8Array {
+    async getDeviceSignaturePublicKey(): Promise<Uint8Array> {
         return this.requireIdentity().signature_public_key()
     }
 
@@ -205,7 +189,7 @@ export class MlsAdapter {
      * call produces an independent bundle — caller batches them into
      * `POST /api/keys/packages`.
      */
-    createKeyPackage(): Uint8Array {
+    async createKeyPackage(): Promise<Uint8Array> {
         const id = this.requireIdentity()
         const kp = id.key_package(this.requireProvider())
         return kp.to_bytes()
@@ -226,7 +210,7 @@ export class MlsAdapter {
      * Brand-new group. The founder is the only member; bring others in
      * via {@link MlsAdapter.addMember}.
      */
-    createGroup(conversationId: ConversationId): void {
+    async createGroup(conversationId: ConversationId): Promise<void> {
         if (this.groups.has(conversationId)) {
             throw new Error(`MLS group already exists for ${conversationId}`)
         }
@@ -241,11 +225,11 @@ export class MlsAdapter {
      * tree extension on (the default in this adapter), the tree
      * travels inside the welcome and the joiner can pass `null`.
      */
-    joinGroup(
+    async joinGroup(
         conversationId: ConversationId,
         welcomeBytes: Uint8Array,
         ratchetTreeBytes?: Uint8Array | null,
-    ): void {
+    ): Promise<void> {
         if (this.groups.has(conversationId)) {
             throw new Error(`MLS group already exists for ${conversationId}`)
         }
@@ -258,12 +242,12 @@ export class MlsAdapter {
     }
 
     /** True if this device holds an MLS group state for the conversation. */
-    hasGroup(conversationId: ConversationId): boolean {
+    async hasGroup(conversationId: ConversationId): Promise<boolean> {
         return this.groups.has(conversationId)
     }
 
     /** Every conversation we currently hold MLS state for. */
-    knownGroupIds(): ConversationId[] {
+    async knownGroupIds(): Promise<ConversationId[]> {
         return Array.from(this.groups.keys())
     }
 
@@ -273,7 +257,7 @@ export class MlsAdapter {
      * `Group.load_from_provider` after a fresh `Provider` deserializes
      * the bytes.
      */
-    serializeStorage(): Uint8Array {
+    async serializeStorage(): Promise<Uint8Array> {
         return this.requireProvider().serialize_storage()
     }
 
@@ -284,7 +268,7 @@ export class MlsAdapter {
      * the persistence write was racy). After this returns, the
      * adapter is ready to accept ops on those groups again.
      */
-    restoreStorage(snapshot: Uint8Array, knownGroupIds: ConversationId[]): void {
+    async restoreStorage(snapshot: Uint8Array, knownGroupIds: ConversationId[]): Promise<void> {
         const provider = this.requireProvider()
         provider.deserialize_storage(snapshot)
 
@@ -297,7 +281,7 @@ export class MlsAdapter {
     }
 
     /** Current epoch — used by catch-up logic. */
-    getEpoch(conversationId: ConversationId): bigint {
+    async getEpoch(conversationId: ConversationId): Promise<bigint> {
         return this.requireGroup(conversationId).epoch()
     }
 
@@ -308,7 +292,7 @@ export class MlsAdapter {
      * + ratchet tree for delivery. Caller must {@link MlsAdapter.mergePendingCommit}
      * after the IdP DS confirms the commit landed.
      */
-    addMember(conversationId: ConversationId, peerKeyPackageBytes: Uint8Array): AddMemberOutput {
+    async addMember(conversationId: ConversationId, peerKeyPackageBytes: Uint8Array): Promise<AddMemberOutput> {
         const group = this.requireGroup(conversationId)
         const keyPackage = KeyPackage.from_bytes(peerKeyPackageBytes)
         const out = group.add_member(this.requireProvider(), this.requireIdentity(), keyPackage)
@@ -319,7 +303,7 @@ export class MlsAdapter {
         }
     }
 
-    removeMember(conversationId: ConversationId, memberIndex: number): Uint8Array {
+    async removeMember(conversationId: ConversationId, memberIndex: number): Promise<Uint8Array> {
         const group = this.requireGroup(conversationId)
         return group.remove_member(this.requireProvider(), this.requireIdentity(), memberIndex).commit
     }
@@ -330,11 +314,11 @@ export class MlsAdapter {
      * present. Used by the device-revocation flow to locate the
      * lost device's leaf in each group it belongs to.
      */
-    findLeafByDeviceId(
+    async findLeafByDeviceId(
         conversationId: ConversationId,
         actorUri: ActorUri,
         deviceId: DeviceId,
-    ): number | null {
+    ): Promise<number | null> {
         const group = this.requireGroup(conversationId)
         const members = group.list_members()
         for (const m of members) {
@@ -347,19 +331,19 @@ export class MlsAdapter {
     }
 
     /** Self-update — rotates this device's leaf key for PCS. */
-    update(conversationId: ConversationId): Uint8Array {
+    async update(conversationId: ConversationId): Promise<Uint8Array> {
         const group = this.requireGroup(conversationId)
         return group.update(this.requireProvider(), this.requireIdentity()).commit
     }
 
     /** After the IdP DS confirms our commit landed, advance our local copy. */
-    mergePendingCommit(conversationId: ConversationId): void {
+    async mergePendingCommit(conversationId: ConversationId): Promise<void> {
         this.requireGroup(conversationId).merge_pending_commit(this.requireProvider())
     }
 
     // ─── Application messages ────────────────────────────────────────
 
-    encryptApplication(conversationId: ConversationId, plaintext: Uint8Array): MlsCiphertext {
+    async encryptApplication(conversationId: ConversationId, plaintext: Uint8Array): Promise<MlsCiphertext> {
         const group = this.requireGroup(conversationId)
         return group.encrypt_application(
             this.requireProvider(),
@@ -373,7 +357,7 @@ export class MlsAdapter {
      * proposal — for the named group. Returns a discriminated union
      * the caller can switch on.
      */
-    processMessage(conversationId: ConversationId, msgBytes: Uint8Array): ProcessOutcome {
+    async processMessage(conversationId: ConversationId, msgBytes: Uint8Array): Promise<ProcessOutcome> {
         const group = this.requireGroup(conversationId)
         const processed = group.process_message(this.requireProvider(), msgBytes)
         switch (processed.kind) {
@@ -393,12 +377,12 @@ export class MlsAdapter {
      * the per-attachment key derivation flow when we'd rather not
      * inline an AES key in the application message.
      */
-    exportSecret(
+    async exportSecret(
         conversationId: ConversationId,
         label: string,
         context: Uint8Array,
         keyLength: number,
-    ): Uint8Array {
+    ): Promise<Uint8Array> {
         return this.requireGroup(conversationId).export_secret(
             this.requireProvider(),
             label,

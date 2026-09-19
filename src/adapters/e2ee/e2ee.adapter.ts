@@ -23,7 +23,7 @@ import type { IHistoryArchivePort } from "@/domain/ports/history-archive.port"
 import type { HistoryArchiveAdapter } from "./history-archive.adapter"
 import type { IdentityAdapter } from "./identity.adapter"
 import type { IKeyDirectoryAdapter } from "./key-directory.adapter"
-import type { MlsAdapter } from "./mls.adapter"
+import type { IMlsEngine } from "@/domain/ports/mls-engine.port"
 import { PairingInitiator, PairingResponder } from "./pairing.adapter"
 import type { RecoveryAdapter } from "./recovery.adapter"
 import type { DeviceAttestation, E2eeStorage } from "./storage.adapter"
@@ -90,7 +90,7 @@ const INITIAL_KEY_PACKAGE_BATCH = 50
 
 export class E2eeAdapter implements IE2eePort {
     private readonly identity: IdentityAdapter
-    private readonly mls: MlsAdapter
+    private readonly mls: IMlsEngine
     private readonly storage: E2eeStorage
     private readonly directory: IKeyDirectoryAdapter
     private readonly recovery: RecoveryAdapter
@@ -104,7 +104,7 @@ export class E2eeAdapter implements IE2eePort {
 
     constructor(
         identity: IdentityAdapter,
-        mls: MlsAdapter,
+        mls: IMlsEngine,
         storage: E2eeStorage,
         directory: IKeyDirectoryAdapter,
         recovery: RecoveryAdapter,
@@ -377,7 +377,7 @@ export class E2eeAdapter implements IE2eePort {
         const snap = await this.storage.loadMlsSnapshot()
         if (!snap) return
         try {
-            this.mls.restoreStorage(snap.provider_state, snap.known_group_ids)
+            await this.mls.restoreStorage(snap.provider_state, snap.known_group_ids)
         } catch (e) {
             // Corrupt snapshot — boot from scratch. The welcome-poll
             // loop will eventually re-pull every group's MLS state
@@ -397,8 +397,8 @@ export class E2eeAdapter implements IE2eePort {
         // verification fails on the next inbound application message
         // ("process PrivateMessage failed: Verifying the signature
         // failed.").
-        const existingKey = this.mls.findOwnLeafSigKey(localActorUri, deviceId)
-        this.mls.setIdentity(localActorUri, deviceId, existingKey ?? undefined)
+        const existingKey = await this.mls.findOwnLeafSigKey(localActorUri, deviceId)
+        await this.mls.setIdentity(localActorUri, deviceId, existingKey ?? undefined)
         this.identityBound = true
         // First-ever bind generates a fresh keypair into the provider
         // storage; persist now so the next reload picks it up via the
@@ -428,8 +428,8 @@ export class E2eeAdapter implements IE2eePort {
      */
     private async persistMlsState(): Promise<void> {
         try {
-            const provider_state = this.mls.serializeStorage()
-            const known_group_ids = this.mls.knownGroupIds()
+            const provider_state = await this.mls.serializeStorage()
+            const known_group_ids = await this.mls.knownGroupIds()
             await this.storage.saveMlsSnapshot({ provider_state, known_group_ids })
         } catch (e) {
             // eslint-disable-next-line no-console
@@ -589,7 +589,7 @@ export class E2eeAdapter implements IE2eePort {
         this.identityBindPromise = null
         this.registerPromise = null
         this.bootstrapPromise = null
-        this.mls.resetProvider()
+        await this.mls.resetProvider()
     }
 
     async loadStoredPassphrase(): Promise<string[] | null> {
@@ -670,10 +670,15 @@ export class E2eeAdapter implements IE2eePort {
     ): Promise<void> {
         if (count <= 0) return
         const expiresAtIso = new Date(Date.now() + DEFAULT_KEY_PACKAGE_LIFETIME_MS).toISOString()
-        const packages = Array.from({ length: count }, () => ({
-            key_package: this.mls.createKeyPackage(),
-            expires_at: expiresAtIso,
-        }))
+        // Sequential on purpose: every createKeyPackage writes bundle key
+        // material into the provider's storage, so they must not interleave.
+        const packages: { key_package: Uint8Array; expires_at: string }[] = []
+        for (let i = 0; i < count; i++) {
+            packages.push({
+                key_package: await this.mls.createKeyPackage(),
+                expires_at: expiresAtIso,
+            })
+        }
         await this.directory.uploadKeyPackages(idpUrl, accessToken, deviceId, packages)
         // createKeyPackage writes per-bundle key material into the
         // provider's storage; persist so unconsumed KPs survive a
@@ -688,7 +693,7 @@ export class E2eeAdapter implements IE2eePort {
         const plaintext = new TextEncoder().encode(
             JSON.stringify(message, applicationMessageReplacer),
         )
-        const out = this.mls.encryptApplication(conversationId, plaintext)
+        const out = await this.mls.encryptApplication(conversationId, plaintext)
         // encrypt_application advances the send-side ratchet — must
         // persist or the next reload would reuse the same generation
         // and produce duplicate (and detectable) ciphertexts.
@@ -702,7 +707,7 @@ export class E2eeAdapter implements IE2eePort {
         catchUp?: { idpUrl: string; accessToken: string },
     ): Promise<ApplicationMessage | null> {
         try {
-            const out = this.processOnce(conversationId, ciphertext)
+            const out = await this.processOnce(conversationId, ciphertext)
             // process_message advances the recv-side ratchet (and
             // applies commits in-place when the message is one);
             // persist so the next reload doesn't replay it.
@@ -717,7 +722,7 @@ export class E2eeAdapter implements IE2eePort {
             if (!catchUp) throw firstError
             try {
                 await this.catchUpCommits(catchUp.idpUrl, catchUp.accessToken, conversationId)
-                const out = this.processOnce(conversationId, ciphertext)
+                const out = await this.processOnce(conversationId, ciphertext)
                 await this.persistMlsState()
                 return out
             } catch (secondError) {
@@ -731,11 +736,11 @@ export class E2eeAdapter implements IE2eePort {
         }
     }
 
-    private processOnce(
+    private async processOnce(
         conversationId: ConversationId,
         ciphertext: Uint8Array,
-    ): ApplicationMessage | null {
-        const outcome = this.mls.processMessage(conversationId, ciphertext)
+    ): Promise<ApplicationMessage | null> {
+        const outcome = await this.mls.processMessage(conversationId, ciphertext)
         if (outcome.kind !== "application") return null
         const text = new TextDecoder().decode(outcome.plaintext)
         return JSON.parse(text, applicationMessageReviver) as ApplicationMessage
@@ -751,14 +756,14 @@ export class E2eeAdapter implements IE2eePort {
         accessToken: string,
         conversationId: ConversationId,
     ): Promise<void> {
-        if (!this.mls.hasGroup(conversationId)) {
+        if (!(await this.mls.hasGroup(conversationId))) {
             // Nothing to catch up to — caller is missing the founding
             // welcome. The decrypt will continue to fail; the WS
             // `mls_welcome_ready` event eventually delivers the
             // welcome and the next inbound message decrypts cleanly.
             return
         }
-        const sinceEpoch = Number(this.mls.getEpoch(conversationId))
+        const sinceEpoch = Number(await this.mls.getEpoch(conversationId))
         const { commits } = await this.directory.getCommitsSince(
             idpUrl,
             accessToken,
@@ -767,7 +772,7 @@ export class E2eeAdapter implements IE2eePort {
         )
         for (const c of commits) {
             try {
-                this.mls.processMessage(conversationId, c.commit_blob)
+                await this.mls.processMessage(conversationId, c.commit_blob)
             } catch (e) {
                 // eslint-disable-next-line no-console
                 console.warn(
@@ -786,9 +791,9 @@ export class E2eeAdapter implements IE2eePort {
     ): Promise<void> {
         // Pre-check first-message: if there's no MLS group yet, found
         // it before adding. The first sender always founds.
-        const isFirstMessage = !this.mls.hasGroup(conversationId)
+        const isFirstMessage = !(await this.mls.hasGroup(conversationId))
         if (isFirstMessage) {
-            this.mls.createGroup(conversationId)
+            await this.mls.createGroup(conversationId)
         }
 
         // Pass `null` for device_id — the IdP's claim endpoint picks
@@ -800,13 +805,13 @@ export class E2eeAdapter implements IE2eePort {
             actorUri,
             null,
         )
-        const out = this.mls.addMember(conversationId, claimed.key_package)
+        const out = await this.mls.addMember(conversationId, claimed.key_package)
 
         // For a fresh group, the founding commit lives at epoch 0
         // (the create's implicit one). The very first commit we
         // generate via add_member moves us to epoch 1. Server's
         // unique index prevents duplicates; 409 races land in 5d.
-        const epoch = Number(this.mls.getEpoch(conversationId)) + 1
+        const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
         await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, out.commit)
 
         // Hand the welcome to our own IdP and let it route. Same-IdP
@@ -822,7 +827,7 @@ export class E2eeAdapter implements IE2eePort {
             welcome_blob: out.welcome,
         })
 
-        this.mls.mergePendingCommit(conversationId)
+        await this.mls.mergePendingCommit(conversationId)
         // Group bootstrap is a multi-step state mutation; persist
         // once at the end instead of on every intermediate step.
         await this.persistMlsState()
@@ -842,7 +847,7 @@ export class E2eeAdapter implements IE2eePort {
         // device that somehow reached this path before login bootstrap
         // landed.
         await this.ensureInitialized(null)
-        if (this.mls.hasGroup(conversationId)) return
+        if (await this.mls.hasGroup(conversationId)) return
         await this.addContactToGroup(idpUrl, accessToken, conversationId, recipientActorUri)
     }
 
@@ -856,12 +861,12 @@ export class E2eeAdapter implements IE2eePort {
         const welcomes = await this.directory.getWelcomes(idpUrl, accessToken, deviceId)
         let joined = 0
         for (const w of welcomes) {
-            if (this.mls.hasGroup(w.conversation_id)) continue
+            if (await this.mls.hasGroup(w.conversation_id)) continue
             try {
                 // Welcomes carry the ratchet tree via the extension
                 // (we set `use_ratchet_tree_extension(true)` on group
                 // creation), so passing `null` here is correct.
-                this.mls.joinGroup(w.conversation_id, w.welcome_blob, null)
+                await this.mls.joinGroup(w.conversation_id, w.welcome_blob, null)
                 joined++
             } catch (e) {
                 // eslint-disable-next-line no-console
@@ -1024,16 +1029,16 @@ export class E2eeAdapter implements IE2eePort {
         for (const conversationId of conversationIds) {
             // Skip groups we don't have local state for — those would
             // be conversations we joined under a different device.
-            if (!this.mls.hasGroup(conversationId)) continue
+            if (!(await this.mls.hasGroup(conversationId))) continue
 
-            const leafIndex = this.mls.findLeafByDeviceId(conversationId, actorUri, deviceId)
+            const leafIndex = await this.mls.findLeafByDeviceId(conversationId, actorUri, deviceId)
             if (leafIndex == null) continue
 
             try {
-                const commit = this.mls.removeMember(conversationId, leafIndex)
-                const epoch = Number(this.mls.getEpoch(conversationId)) + 1
+                const commit = await this.mls.removeMember(conversationId, leafIndex)
+                const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
                 await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, commit)
-                this.mls.mergePendingCommit(conversationId)
+                await this.mls.mergePendingCommit(conversationId)
                 removed.push(conversationId)
                 await this.persistMlsState()
             } catch (e) {

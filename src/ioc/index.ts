@@ -27,6 +27,7 @@ import type { AuthPlatform, IAuthPort, IAuthSessionStore } from "@/domain/ports/
 import type { IDeviceDirectoryPort } from "@/domain/ports/device-directory.port"
 import type { IE2eePort } from "@/domain/ports/e2ee.port"
 import type { IHistoryArchivePort } from "@/domain/ports/history-archive.port"
+import type { IMlsEngine } from "@/domain/ports/mls-engine.port"
 import type { ISocialPort } from "@/domain/ports/social.port"
 import type { IDmPort } from "@/domain/ports/dm.port"
 import type { IGroupPort } from "@/domain/ports/group.port"
@@ -68,13 +69,19 @@ const jwksCache = new JwksCacheAdapter()
 const historyArchivePort: IHistoryArchivePort = new HistoryArchiveApiAdapter()
 const historyArchiveCrypto = new HistoryArchiveAdapter()
 
-// E2EE crypto core. Singletons — MlsAdapter owns session-scoped in-memory
-// state, re-construction would lose every joined group. Storage is shared
-// with the Zustand persist middleware so both reuse the same non-
-// extractable AES-256-GCM device key.
+// E2EE crypto core. Singletons — the MLS engine owns session-scoped
+// in-memory state, re-construction would lose every joined group. Storage
+// is shared with the Zustand persist middleware so both reuse the same
+// non-extractable AES-256-GCM device key.
+//
+// `mlsEngine` is the one line a React Native container replaces: same
+// `IMlsEngine`, backed by the openmls crate built natively instead of
+// as WASM.
+const mlsEngine: IMlsEngine = new MlsAdapter()
+
 const e2eePort: IE2eePort = new E2eeAdapter(
     new NobleIdentityAdapter(),
-    new MlsAdapter(),
+    mlsEngine,
     getSharedE2eeStorage(),
     new KeyDirectoryApiAdapter(),
     new NobleRecoveryAdapter(),

@@ -7,8 +7,14 @@ collaborators it composes.
 
 ## Files
 
-- **`mls.adapter.ts`** — TS façade over the `openmls-wasm` bundle.
+- **`mls.adapter.ts`** — `MlsAdapter`, the WASM implementation of
+  `IMlsEngine` (`domain/ports/mls-engine.port.ts`). TS façade over the
+  `openmls-wasm` bundle.
   Owns one `Provider` + one `Identity` + a `Map<conversation_id, Group>`.
+  Every method is `async` to satisfy the port even though the underlying
+  wasm calls are synchronous — see the port for why. A React Native build
+  supplies a sibling implementation over the natively-built crate; this
+  file is the only place `openmls-wasm` is imported.
   Exposes `initialize`, `setIdentity`, `createKeyPackage`,
   `createGroup`/`joinGroup`, `addMember`/`removeMember`/`update`,
   `mergePendingCommit`, `encryptApplication`, `processMessage`,

@@ -44,7 +44,7 @@ beforeAll(async () => {
 async function makeAdapter(actorUri: string): Promise<MlsAdapter> {
     const a = new MlsAdapter()
     await a.initialize({ module_or_path: wasmModule } as never)
-    a.setIdentity(actorUri)
+    await a.setIdentity(actorUri)
     return a
 }
 
@@ -91,23 +91,23 @@ describe("mls adapter — two-member round trip", () => {
         // Bob publishes a KeyPackage; Alice claims it (in this test we
         // hand it over directly — the real flow goes through the IdP
         // key directory).
-        const bobKeyPackageBytes = bob.createKeyPackage()
+        const bobKeyPackageBytes = await bob.createKeyPackage()
 
         // Alice founds the group, adds Bob.
-        alice.createGroup(conversationId)
-        const add = alice.addMember(conversationId, bobKeyPackageBytes)
-        alice.mergePendingCommit(conversationId)
+        await alice.createGroup(conversationId)
+        const add = await alice.addMember(conversationId, bobKeyPackageBytes)
+        await alice.mergePendingCommit(conversationId)
 
         // Bob joins from the welcome + ratchet tree.
-        bob.joinGroup(conversationId, add.welcome, add.ratchet_tree)
+        await bob.joinGroup(conversationId, add.welcome, add.ratchet_tree)
 
-        expect(alice.getEpoch(conversationId)).toBe(bob.getEpoch(conversationId))
+        expect(await alice.getEpoch(conversationId)).toBe(await bob.getEpoch(conversationId))
 
         // Alice encrypts → Bob decrypts.
         const plaintext = new TextEncoder().encode("hello bob, encrypted")
-        const ciphertext = alice.encryptApplication(conversationId, plaintext)
+        const ciphertext = await alice.encryptApplication(conversationId, plaintext)
 
-        const outcome = bob.processMessage(conversationId, ciphertext)
+        const outcome = await bob.processMessage(conversationId, ciphertext)
         expect(outcome.kind).toBe("application")
         if (outcome.kind === "application") {
             expect(new TextDecoder().decode(outcome.plaintext)).toBe(
@@ -136,19 +136,19 @@ describe("mls adapter — two-member round trip", () => {
     it("export_secret returns matching bytes on both sides", async () => {
         const alice = await makeAdapter("alice@idp.example.com")
         const bob = await makeAdapter("bob@idp.example.com")
-        const bobKp = bob.createKeyPackage()
-        alice.createGroup(conversationId)
-        const add = alice.addMember(conversationId, bobKp)
-        alice.mergePendingCommit(conversationId)
-        bob.joinGroup(conversationId, add.welcome, add.ratchet_tree)
+        const bobKp = await bob.createKeyPackage()
+        await alice.createGroup(conversationId)
+        const add = await alice.addMember(conversationId, bobKp)
+        await alice.mergePendingCommit(conversationId)
+        await bob.joinGroup(conversationId, add.welcome, add.ratchet_tree)
 
-        const aliceKey = alice.exportSecret(
+        const aliceKey = await alice.exportSecret(
             conversationId,
             "pinai/attachment-key/v1",
             new TextEncoder().encode("attachment-uuid-deadbeef"),
             32,
         )
-        const bobKey = bob.exportSecret(
+        const bobKey = await bob.exportSecret(
             conversationId,
             "pinai/attachment-key/v1",
             new TextEncoder().encode("attachment-uuid-deadbeef"),
