@@ -234,15 +234,19 @@ export function useConversationPageViewModel(name: string) {
     // route changes. We only mint once we're certain the conversation
     // list has loaded and there's genuinely no row — the loaded flag
     // is what guards against the reload race.
-    const mintedIdRef = useRef<{ key: string; id: string } | null>(null)
-    const mintedConversationId = useMemo<string | null>(() => {
-        if (!idpUrl || !dmConvosLoaded || dmData) return null
-        const key = `${idpUrl}|${name}`
-        if (mintedIdRef.current?.key === key) return mintedIdRef.current.id
-        const id = crypto.randomUUID()
-        mintedIdRef.current = { key, id }
-        return id
-    }, [idpUrl, name, dmConvosLoaded, dmData])
+    //
+    // Held in state, adjusted during render, rather than cached in a ref: a
+    // ref written while rendering is impure, and a render React discards
+    // would leave it holding a UUID that was never committed. Setting state
+    // during render of the same component is the sanctioned pattern — React
+    // re-runs this component immediately and throws the first pass away, so
+    // no child ever sees the intermediate `null` and no effect fires on it.
+    const [minted, setMinted] = useState<{ key: string; id: string } | null>(null)
+    const mintKey = idpUrl && dmConvosLoaded && !dmData ? `${idpUrl}|${name}` : null
+    if (mintKey !== null && minted?.key !== mintKey) {
+        setMinted({ key: mintKey, id: crypto.randomUUID() })
+    }
+    const mintedConversationId = mintKey !== null && minted?.key === mintKey ? minted.id : null
 
     // Resolved conversation_id used everywhere: existing row's id if
     // dmData is present, otherwise the lazily-minted UUID. `null` only

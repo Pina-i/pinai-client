@@ -97,17 +97,28 @@ export function MessageList({
     // the element) sidesteps the "mutating .current doesn't notify the
     // observer" problem.
     const reactionAnchorRef = useRef<HTMLDivElement | null>(null)
-    const [reactionPicker, setReactionPicker] = useState<ReactionPickerState | null>(null)
+    // Tagged with the conversation it was opened in, so switching
+    // conversations closes it by derivation rather than by an effect that
+    // fires a second render to clear state.
+    const [openPicker, setOpenPicker] = useState<
+        (ReactionPickerState & { conversationKey: string }) | null
+    >(null)
+    const reactionPicker = openPicker?.conversationKey === conversationKey ? openPicker : null
 
     const openReactionPicker = useCallback(
         (messageId: string, triggerEl: HTMLButtonElement, onReact: (emoji: string) => void) => {
-            setReactionPicker({ messageId, anchorRect: triggerEl.getBoundingClientRect(), onReact })
+            setOpenPicker({
+                conversationKey,
+                messageId,
+                anchorRect: triggerEl.getBoundingClientRect(),
+                onReact,
+            })
         },
-        [],
+        [conversationKey],
     )
 
     const closeReactionPicker = useCallback(() => {
-        setReactionPicker(null)
+        setOpenPicker(null)
     }, [])
 
     const items = useMemo<RowItem[]>(() => {
@@ -187,10 +198,6 @@ export function MessageList({
         sc.addEventListener("scroll", onScroll, { passive: true })
         return () => sc.removeEventListener("scroll", onScroll)
     }, [reactionPicker, closeReactionPicker])
-
-    useEffect(() => {
-        closeReactionPicker()
-    }, [conversationKey, closeReactionPicker])
 
     const pickerContextValue = useMemo(
         () => ({ openMessageId: reactionPicker?.messageId ?? null }),

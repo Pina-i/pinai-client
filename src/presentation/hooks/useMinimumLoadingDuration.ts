@@ -21,8 +21,18 @@ import { useEffect, useRef, useState } from "react"
  */
 export function useMinimumLoadingDuration(isLoading: boolean, minMs: number): boolean {
     const [shouldShow, setShouldShow] = useState(isLoading)
-    const startedAtRef = useRef<number | null>(isLoading ? Date.now() : null)
+    // Seeded by the effect below rather than here: reading the clock during
+    // render is impure, and the effect runs on the same commit.
+    const startedAtRef = useRef<number | null>(null)
 
+    // `react-hooks/set-state-in-effect` wants derived state instead of state
+    // synchronised from an effect. It does not apply here: the whole purpose of
+    // the hook is to keep returning `true` after `isLoading` has already gone
+    // false, which no derivation of the current props can express — the value
+    // is owned by a timer. Deriving `isLoading || holding` instead would leave
+    // one frame where both are false on the falling edge, which is precisely
+    // the flash this hook exists to remove.
+    /* eslint-disable react-hooks/set-state-in-effect */
     useEffect(() => {
         if (isLoading) {
             // Either just started loading or still loading — note the
@@ -56,6 +66,7 @@ export function useMinimumLoadingDuration(isLoading: boolean, minMs: number): bo
         }, remaining)
         return () => window.clearTimeout(timer)
     }, [isLoading, minMs])
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     return shouldShow
 }

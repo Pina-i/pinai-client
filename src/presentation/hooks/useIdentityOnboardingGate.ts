@@ -38,14 +38,21 @@ export function useIdentityOnboardingGate(): GateResult {
     const idpUrl = useAppStore((s) => s.idpUrl)
     const ownActorUri = useAppStore((s) => s.user?.actor_uri ?? null)
     const navigate = useNavigate()
-    const [status, setStatus] = useState<GateStatus>("loading")
     const [retryNonce, setRetryNonce] = useState(0)
 
+    // The probe result is tagged with the session + attempt it belongs to, and
+    // read back only on a match. "Loading" is therefore derived — the absence
+    // of a result for the current key — rather than written from an effect.
+    // It also closes a staleness hole: a result probed for one account can no
+    // longer be shown to the next one to sign in on this device.
+    const probeKey =
+        accessToken && idpUrl && ownActorUri ? `${idpUrl}|${ownActorUri}|${retryNonce}` : null
+    const [probed, setProbed] = useState<{ key: string; status: GateStatus } | null>(null)
+    const status: GateStatus = probeKey !== null && probed?.key === probeKey ? probed.status : "loading"
+
     useEffect(() => {
-        if (!accessToken || !idpUrl || !ownActorUri) {
-            setStatus("loading")
-            return
-        }
+        if (probeKey === null || !accessToken || !idpUrl || !ownActorUri) return
+        const setStatus = (next: GateStatus) => setProbed({ key: probeKey, status: next })
         let cancelled = false
         ;(async () => {
             try {
@@ -124,16 +131,13 @@ export function useIdentityOnboardingGate(): GateResult {
             // cancelled, stranding the gate at status="loading".
             cancelled = true
         }
-    }, [accessToken, idpUrl, ownActorUri, navigate, retryNonce])
+    }, [probeKey, accessToken, idpUrl, ownActorUri, navigate])
 
     return {
         status,
         retry:
             status === "error"
-                ? () => {
-                      setStatus("loading")
-                      setRetryNonce((n) => n + 1)
-                  }
+                ? () => setRetryNonce((n) => n + 1)
                 : null,
     }
 }

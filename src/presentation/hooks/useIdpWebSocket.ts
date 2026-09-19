@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useLayoutEffect, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
 import { getDmPort, getE2eePort, getWsPort } from "@/ioc"
@@ -102,22 +102,13 @@ export function useIdpWebSocket(): void {
     const queryClient = useQueryClient()
 
     // Use refs for store actions to avoid stale closures in adapter callbacks.
-    const actionsRef = useRef({
-        setWsStatus,
-        pushDmMessage,
-        reconcileDmMessage,
-        updateDmMessage,
-        addNotification,
-        incrementDmUnread,
-        updateMessageById,
-        applyReaction,
-        activeDm,
-        user,
-        setPresence,
-        addTyping,
-        setAvatarFor,
-    })
-    actionsRef.current = {
+    // The ref is seeded at mount and refreshed in a layout effect rather than
+    // during render: writing `.current` while rendering is impure, and a render
+    // React discards would leave the ref holding values that were never
+    // committed. `useLayoutEffect` runs before paint, so the WS callbacks —
+    // which only ever fire from async network events — never observe a stale
+    // snapshot.
+    const actions = {
         setWsStatus,
         pushDmMessage,
         reconcileDmMessage,
@@ -132,6 +123,10 @@ export function useIdpWebSocket(): void {
         addTyping,
         setAvatarFor,
     }
+    const actionsRef = useRef(actions)
+    useLayoutEffect(() => {
+        actionsRef.current = actions
+    })
 
     useEffect(() => {
         if (!accessToken || !idpUrl) return

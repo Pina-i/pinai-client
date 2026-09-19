@@ -46,13 +46,18 @@ export function useAttachmentBlobUrl(
     })
 
     // Step 2 + 3: fetch + decrypt + objectURL.
-    const [decryptedUrl, setDecryptedUrl] = useState<string | null>(null)
+    //
+    // The object URL is stored tagged with the inputs that produced it, and
+    // read back only on a match. That makes "the attachment changed, drop the
+    // old URL" a derivation rather than a reset effect — no cascading render,
+    // and no window in which the previous attachment's image is still being
+    // handed out.
+    const decryptKey = enabled && ciphertextUrl && attachmentKey ? `${attachmentId}|${ciphertextUrl}` : null
+    const [decrypted, setDecrypted] = useState<{ key: string; url: string } | null>(null)
+    const decryptedUrl = decryptKey !== null && decrypted?.key === decryptKey ? decrypted.url : null
 
     useEffect(() => {
-        if (!enabled || !ciphertextUrl || !attachmentKey) {
-            setDecryptedUrl(null)
-            return
-        }
+        if (decryptKey === null || !ciphertextUrl || !attachmentKey) return
         let cancelled = false
         let createdUrl: string | null = null
         ;(async () => {
@@ -63,18 +68,18 @@ export function useAttachmentBlobUrl(
                 const blob = await getAttachmentCryptoPort().decryptDownloaded(ciphertext, attachmentKey)
                 if (cancelled) return
                 createdUrl = URL.createObjectURL(blob)
-                setDecryptedUrl(createdUrl)
+                setDecrypted({ key: decryptKey, url: createdUrl })
             } catch (e) {
                 // eslint-disable-next-line no-console
                 console.warn(`Attachment ${attachmentId} decrypt failed:`, e)
-                if (!cancelled) setDecryptedUrl(null)
+                if (!cancelled) setDecrypted(null)
             }
         })()
         return () => {
             cancelled = true
             if (createdUrl) URL.revokeObjectURL(createdUrl)
         }
-    }, [enabled, ciphertextUrl, attachmentKey, attachmentId])
+    }, [decryptKey, ciphertextUrl, attachmentKey, attachmentId])
 
     return decryptedUrl
 }

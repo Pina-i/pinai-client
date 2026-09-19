@@ -84,11 +84,10 @@ export function useVerifyEmailPageViewModel() {
         }
     }, [idpUrl, pendingUserId, cooldown, resending])
 
-    // Once the user starts typing again the "new code sent" toast is stale —
-    // drop it so the validation row reflects current activity.
-    useEffect(() => {
-        if (code.length > 0) setJustResent(false)
-    }, [code])
+    // Once the user starts typing again the "new code sent" toast is stale.
+    // Derived rather than cleared from an effect: typing is exactly the
+    // condition that makes it stale, so there is nothing to synchronise.
+    const showJustResent = justResent && code.length === 0
 
     const navigate = useNavigate()
     const goToLogin = useCallback(() => {
@@ -105,7 +104,7 @@ export function useVerifyEmailPageViewModel() {
         setCode,
         cooldown,
         resending,
-        justResent,
+        justResent: showJustResent,
         resendError,
         resend,
         submitForm,

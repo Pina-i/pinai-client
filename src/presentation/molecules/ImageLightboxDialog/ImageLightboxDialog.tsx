@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { X } from "lucide-react"
 import type { Attachment } from "@/domain/models/dm"
 import type { AttachmentBlobKey } from "@/domain/models/e2ee"
@@ -38,13 +38,11 @@ export function ImageLightboxDialog({
     const avatarUrl = useAppStore((s) =>
         senderAddress ? s.avatarsByAddress[senderAddress] ?? null : null,
     )
-    const [dims, setDims] = useState<{ w: number; h: number } | null>(null)
-
-    // Reset dims when the active image changes — otherwise the previous
-    // image's aspect ratio leaks into the next one's layout for a frame.
-    useEffect(() => {
-        setDims(null)
-    }, [attachment?.id])
+    // Tagged with the image they were measured from: a stale entry simply
+    // does not match, so the previous image's aspect ratio can never leak
+    // into the next one's layout. No reset effect needed.
+    const [measured, setMeasured] = useState<{ id: string; w: number; h: number } | null>(null)
+    const dims = measured && measured.id === attachment?.id ? measured : null
 
     if (!attachment) return null
 
@@ -108,7 +106,9 @@ export function ImageLightboxDialog({
                             onLoad={(e) => {
                                 const img = e.currentTarget
                                 if (img.naturalWidth > 0) {
-                                    setDims({ w: img.naturalWidth, h: img.naturalHeight })
+                                    if (attachment) {
+                                        setMeasured({ id: attachment.id, w: img.naturalWidth, h: img.naturalHeight })
+                                    }
                                 }
                             }}
                             className={cn(
