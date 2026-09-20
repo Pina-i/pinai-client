@@ -28,10 +28,10 @@ import type {
     Argon2Params,
     CommitView,
     IdentityKeysResponse,
-    IKeyDirectoryAdapter,
+    IKeyDirectoryPort,
     RecoveryBlobResponse,
     WelcomeView,
-} from "@/adapters/e2ee/key-directory.adapter"
+} from "@pinai/domain/ports/key-directory.port"
 import { MlsAdapter } from "@/adapters/e2ee/mls.adapter"
 import { NobleRecoveryAdapter } from "@/adapters/e2ee/recovery.adapter"
 import type { DeviceAttestation, E2eeStorage, MlsSnapshot } from "@/adapters/e2ee/sealed-storage"
@@ -65,7 +65,7 @@ interface PackageEntry {
     expiresAt: string
 }
 
-class InMemoryKeyDirectory implements IKeyDirectoryAdapter {
+class InMemoryKeyDirectory implements IKeyDirectoryPort {
     /**
      * Device attestation is the IdP's signing job and this suite never
      * exercises it. Throwing rather than returning a plausible-looking

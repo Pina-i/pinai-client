@@ -22,7 +22,7 @@ import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.po
 
 import type { HistoryArchiveAdapter } from "./history-archive.adapter"
 import type { IdentityAdapter } from "./identity.adapter"
-import type { IKeyDirectoryAdapter } from "./key-directory.adapter"
+import type { IKeyDirectoryPort } from "@pinai/domain/ports/key-directory.port"
 import type { IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
 import { PairingInitiator, PairingResponder } from "./pairing.adapter"
 import type { RecoveryAdapter } from "./recovery.adapter"
@@ -92,7 +92,7 @@ export class E2eeAdapter implements IE2eePort {
     private readonly identity: IdentityAdapter
     private readonly mls: IMlsEngine
     private readonly storage: E2eeStorage
-    private readonly directory: IKeyDirectoryAdapter
+    private readonly directory: IKeyDirectoryPort
     private readonly recovery: RecoveryAdapter
     // Optional — when null, the per-decrypt archive buffer is a no-op.
     // IoC provides these in production; tests can omit.
@@ -106,7 +106,7 @@ export class E2eeAdapter implements IE2eePort {
         identity: IdentityAdapter,
         mls: IMlsEngine,
         storage: E2eeStorage,
-        directory: IKeyDirectoryAdapter,
+        directory: IKeyDirectoryPort,
         recovery: RecoveryAdapter,
         historyArchive: IHistoryArchivePort | null = null,
         historyCrypto: HistoryArchiveAdapter | null = null,

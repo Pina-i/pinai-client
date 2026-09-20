@@ -16,7 +16,7 @@
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js"
 import { argon2idAsync } from "@noble/hashes/argon2.js"
 
-import type { Argon2Params } from "./key-directory.adapter"
+import type { Argon2Params } from "@pinai/domain/ports/key-directory.port"
 
 /**
  * AAD for the wrap. Domain-tagged so a wrapped MSK blob can never be

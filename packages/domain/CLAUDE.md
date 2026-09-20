@@ -47,6 +47,16 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - Bytes in, bytes out — every implementation must agree byte-for-byte;
   the specs in `test/` are the contract.
 
+### ports/key-directory.port.ts
+- `IKeyDirectoryPort` — the IdP key directory + MLS Delivery Service as the
+  E2EE core needs it: claim key packages, post commits and welcomes, store
+  the wrapped recovery blob
+- Plus the wire DTOs (`CommitView`, `WelcomeView`, `IdentityKeysResponse`,
+  `Argon2Params`, `RecoveryBlobResponse`, `RegisterDeviceResponse`), base64
+  already decoded to bytes
+- Lives here, not beside its REST implementation, so the crypto core does not
+  have to depend on the HTTP client that happens to implement it today
+
 ### ports/key-value-store.port.ts
 - `IKeyValueStore` — durable opaque byte blobs in named collections; the
   smallest thing that can carry the E2EE store
