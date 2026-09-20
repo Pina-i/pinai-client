@@ -1,14 +1,14 @@
-# Auth Adapter
+# Auth Adapter — the browser half
 
-Implements the auth ports using fetch, the Web Crypto API and browser
-navigation. Everything platform-bound about the OIDC flow lives here — the
-use cases themselves are free of browser globals.
+What is left here after the OIDC flow was split up: the parts that are
+genuinely this platform's. The use cases live in `@pinai/domain`, free of
+browser globals, and take these through `AuthPlatform`; the HTTP client is
+`OidcAdapter` in `@pinai/api`.
+
+So this directory is Web Crypto, `sessionStorage` and `window.location` —
+and it is the list a React Native app has to reimplement for auth.
 
 ## Files
-
-### oidc.adapter.ts
-- `OidcAdapter` — HTTP adapter for the IdP REST API
-- No dependencies other than the global `fetch`
 
 ### pkce.ts
 - `WebCryptoPkceAdapter` — `IPkcePort` over the free functions below
@@ -28,5 +28,5 @@ use cases themselves are free of browser globals.
   `localStorage`: the PKCE verifier is single-use and must not outlive
   the tab. No access token ever goes here.
 
-(`isTokenValid` moved to `domain/models/auth.ts` — it is a business rule
+(`isTokenValid` lives in `@pinai/domain/models/auth` — it is a business rule
 about session validity, not a technical adapter.)

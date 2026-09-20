@@ -25,9 +25,11 @@ src/ <- this folder
 │   └── pages/        # Application pages (rendered by Tanstack router routes)
 ├── components/ui/    # Vendored React Aria registry output — staging area,
 │                     #   not a library. Unadopted; see its own CLAUDE.md.
-├── ioc/              # Dependency injection configuration
-└── config/           # Global configurations
-└── routes/           # Tanstack Router routes
+├── store/            # Zustand. `store.ts` composes this platform's
+│                     #   persistence; `slices/` is the state itself.
+├── ioc/              # Where the ports are wired to implementations
+├── lib/              # Layer-neutral: view-model types + React Aria helpers
+└── routes/           # TanStack Router routes
 ```
 
 ### Dependency principle
@@ -48,8 +50,10 @@ store. The slices under `store/slices/` are the part a React Native app
 reuses, so they are what the rule enforces. There are no `eslint-disable`
 boundary escapes left.
 
-`lib/` is layer-neutral: `utils-bytes.ts` (base64 helpers, used by adapters)
-and `types.ts` (view models shared by store + presentation).
+`lib/` is layer-neutral: `types.ts` (view models shared by store +
+presentation) and `react-aria-utils.ts` (used only by the unadopted
+`components/ui` kit). The base64 helpers that used to live here are now
+`@pinai/domain/lib/bytes`, because three packages need them.
 
 Node globals (`process`, `Buffer`, `__dirname`, …) are blocked under `src/` by
 `no-restricted-globals`. `@types/node` is in the project because the
@@ -71,65 +75,46 @@ If possible, keep them concise, bullet points, not essays. Aim for under ~50 lin
 
 ## Dependency Injection (IoC)
 
-### Structure
-
-The `src/ioc/` folder contains the IoC container configuration based on **tsyringe**:
-
-- `index.ts` - Entry point that initializes all IoC
-- `init-helpers.ts` - Registration of utility services (logger, http client, date helper, etc.)
-- `init-adapters.ts` - Registration of adapters (port implementations)
-- `init-usecases.ts` - Registration of business use cases
-
-### Usage
-
-**1. Define a port in `domain/ports/`**
+There is no container. `ioc/index.ts` constructs the adapters as module-scope
+singletons and exposes one accessor per port — fifteen of them, all shaped
+`getXxxPort()`. Presentation calls those; it never constructs an adapter.
 
 ```typescript
-export const VEHICLE_PORT = "VEHICLE_PORT";
+// ioc/index.ts
+const dmPort: IDmPort = new DmApiAdapter()
 
-export interface IVehiclePort {
-  addVehicle(vehicle: Omit<Vehicle, "id">): Promise<Vehicle>;
-  getVehicles(): Promise<Vehicle[]>;
+export function getDmPort(): IDmPort {
+    return dmPort
 }
 ```
 
-**2. Implement an adapter in `adapters/`**
-
 ```typescript
-export class VehicleInMemoryAdapter implements IVehiclePort {
-  async addVehicle(vehicle: Omit<Vehicle, "id">): Promise<Vehicle> {
-    // Implementation...
-  }
-}
+// in a viewmodel
+import { getDmPort } from "@/ioc"
+
+const conversations = await getDmConversationsUseCase(idpUrl, token, getDmPort())
 ```
 
-**3. Register in `ioc/init-adapters.ts`**
+Use cases take their ports as arguments rather than resolving them, which is
+what keeps `@pinai/domain` dependency-free and directly testable — the specs
+pass stubs positionally, no container to configure.
 
-```typescript
-import { container } from "tsyringe";
+### Adding a port
 
-container.register<IVehiclePort>(VEHICLE_PORT, {
-  useValue: new VehicleInMemoryAdapter(),
-});
-```
+1. Define the interface in `@pinai/domain/ports/`.
+2. Implement it — in `@pinai/api` if it is transport, `@pinai/crypto` if it is
+   protocol crypto, `adapters/` here if it is platform-specific.
+3. Construct it in `ioc/index.ts` and add a `getXxxPort()` accessor.
+4. Pass it into the use case from the calling viewmodel.
 
-**4. Use in components with the `useService` hook**
+### The second composition root
 
-```typescript
-import { useService } from "@/components/_hooks/useService";
+`store/store.ts` is the other place implementations are wired: it builds the
+key-value store, the device key and `SealedStorage`, and hands the persist
+middleware its storage. It is separate because the IoC imports the store, so
+the store cannot import the IoC.
 
-const vehiclePort = useService<IVehiclePort>(VEHICLE_PORT);
-```
-
-### Custom hook
-
-The `useService` hook is a wrapper around the tsyringe container:
-
-```typescript
-export const useService = <T>(service: string): T => {
-  return container.resolve<T>(service);
-};
-```
+A React Native app writes its own version of both files. Nothing else changes.
 
 ### Global store (Zustand)
 

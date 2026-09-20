@@ -10,6 +10,11 @@ It depends on nothing. Not as a convention — `package.json` lists no
 dependencies, so an import of anything outside simply fails to resolve. The
 eslint rules are the second line, and they say what to do instead.
 
+What follows covers the entries whose rationale is not obvious from reading
+them — why a port is shaped the way it is, why a type lives here. It is not
+an index: most of the models, ports and use cases are exactly what their
+names say, and listing all fifty-odd would age badly and help nobody.
+
 `tsconfig.json` explains the one compromise: `DOM` is in `lib` because `URL`,
 `URLSearchParams`, `AbortSignal` and `atob` have no smaller lib to come from.
 Those four are the entire platform surface this package assumes, and eslint
@@ -46,6 +51,13 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   `sync → async` later would rework the whole message path.
 - Bytes in, bytes out — every implementation must agree byte-for-byte;
   the specs in `test/` are the contract.
+
+### lib/bytes.ts
+- Base64 ↔ bytes, `base64url` for JWS/JWK and padded `base64` elsewhere
+- In the domain because base64 is the wire format for every binary field the
+  protocol carries, so decoding it is part of speaking the protocol rather
+  than a detail of any one transport. Three packages need it.
+- `atob`/`btoa` are two of the four globals this package assumes
 
 ### ports/key-directory.port.ts
 - `IKeyDirectoryPort` — the IdP key directory + MLS Delivery Service as the

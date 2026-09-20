@@ -82,7 +82,7 @@ Three collaborators could not come, and the shape of each is the mobile work:
 
 ## Use cases
 
-`web-client/src/domain/usecases/e2ee/`:
+`@pinai/domain/usecases/e2ee/`:
 - `register-identity.usecase.ts`
 - `replenish-keypackages.usecase.ts`
 - `setup-recovery-key.usecase.ts`
@@ -102,11 +102,23 @@ Three collaborators could not come, and the shape of each is the mobile work:
   zustand cache, fires a one-shot fetch on miss, stores via
   `setFingerprint`. Local user uses on-device identity; peers go
   through `getPeerFingerprint` (which validates the SSK+USK chain).
-- **`store/slices/e2ee.slice.ts`** — `fingerprintsByActorUri` map.
+- **`apps/web/src/store/slices/e2ee.slice.ts`** — `fingerprintsByActorUri` map.
   Cleared on `clearSession` alongside auth state.
 - **`/settings/e2ee-debug`** route — DEV-only inspection panel
   (production builds redirect to `/home`). Shows own fingerprint,
   cached peer fingerprints, KeyPackage stash counts.
+
+---
+
+## Change log by phase
+
+Everything above describes the package as it stands. What follows is a
+chronological record of how it got there, kept because the *why* behind
+several of these decisions — the reaction dedup, the ratchet ordering rule,
+the msgpack switch — is not recoverable from the code. Read it when
+something looks arbitrary; skip it otherwise. It is not maintained as a
+description of the current state, and where it disagrees with the sections
+above, the sections above win.
 
 ## Phase 5b additions
 
@@ -133,7 +145,7 @@ Three collaborators could not come, and the shape of each is the mobile work:
 
 ## Phase 5b cleanup additions
 
-- **Zustand persist** for the message-plaintext cache. `store/encrypted-idb-storage.ts`
+- **Zustand persist** for the message-plaintext cache. `apps/web/src/adapters/storage/encrypted-idb-storage.adapter.ts`
   builds a `PersistStorage<T>` backed by a separate `pinai-zustand-store`
   IndexedDB database, encrypting each slice value with the same
   non-extractable AES-256-GCM `CryptoKey` the E2EE storage adapter
@@ -271,7 +283,7 @@ Three collaborators could not come, and the shape of each is the mobile work:
   `Uint8Array` into `"@u8:<base64>"`; decryption reverses it. Matters
   because `TextBody.attachments[].key` / `.nonce` are real
   `Uint8Array`s and need to come out the other side as the same.
-- **Full-loop integration test** (`test/e2ee-integration.spec.ts`).
+- **Full-loop integration test** (`apps/web/test/e2ee-integration.spec.ts`).
   Two `E2eeAdapter`s + an in-memory `IKeyDirectoryAdapter` + per-
   adapter `E2eeStorage` stubs drive register → `addContactToGroup` →
   `consumePendingWelcomes` → text → reaction → edit → encrypted
@@ -297,13 +309,13 @@ Three collaborators could not come, and the shape of each is the mobile work:
   `repos::messages::create_message` and
   `federation::inbox::persist_inbound_attachments`. See
   `identity-provider/CLAUDE.md` "Cross-cutting rules → Conversations".
-- **`addressToActorUri`** in `domain/models/identity.ts` — inverse
+- **`addressToActorUri`** in `@pinai/domain/models/identity` — inverse
   of `actorUriToAddress`. Used by `ConversationPage.viewmodel` to
   derive the recipient's actor URI from the route param (`name`)
   when `localDmConvos` hasn't refreshed yet (first message to a
   new contact). Same scheme heuristic the IdP uses for federation.
 - **Persistence format**: the Zustand `persist` middleware's storage
-  (`store/encrypted-idb-storage.ts`) uses **msgpack** (`msgpackr`)
+  (`apps/web/src/adapters/storage/encrypted-idb-storage.adapter.ts`) uses **msgpack** (`msgpackr`)
   not JSON. `Uint8Array` survives round-trip natively — required
   so `AttachmentBlobKey.key` / `.nonce` rehydrate as real
   `Uint8Array` instances rather than indexed-property objects that
@@ -337,26 +349,29 @@ Three collaborators could not come, and the shape of each is the mobile work:
 
 ## Tests
 
-- `test/e2ee.spec.ts` — identity adapter + MLS two-member round trip +
-  recovery wrap/unwrap. 12 tests.
-- `test/spake2.spec.ts` — SPAKE2 round trip + wrong-password
-  detection + role-mismatch + tamper detection. 7 tests.
-- `test/pairing.spec.ts` — full pairing dance round trip + tampered
-  pair_token + tampered ciphertext + malformed QR. 4 tests.
-- `test/e2ee-integration.spec.ts` — Alice+Bob full-loop register →
+All specs live in `apps/web/test/` — the app is still the only place with a
+vitest setup, so a package's specs sit there until it needs its own.
+
+- `apps/web/test/e2ee.spec.ts` — identity adapter + MLS two-member round trip +
+  recovery wrap/unwrap.
+- `apps/web/test/spake2.spec.ts` — SPAKE2 round trip + wrong-password
+  detection + role-mismatch + tamper detection.
+- `apps/web/test/pairing.spec.ts` — full pairing dance round trip + tampered
+  pair_token + tampered ciphertext + malformed QR.
+- `apps/web/test/e2ee-integration.spec.ts` — Alice+Bob full-loop register →
   add → text → reaction → edit → attachment, plus a same-IdP
-  routing case. 2 tests.
+  routing case.
 
-- `test/message-status.spec.ts` — fade-window math behind the
-  `MessageStatus` molecule. 5 tests.
-- `test/bootstrap-first-device.spec.ts` — 6a use-case ordering +
-  idempotent retry. 5 tests.
-- `test/gate-routing.spec.ts` — 6a gate's pure decision table. 4 tests.
-- `test/recovery-passphrase-input.spec.ts` — 6a `isPassphraseComplete`
-  predicate. 5 tests.
+- `apps/web/test/message-status.spec.ts` — fade-window math behind the
+  `MessageStatus` molecule.
+- `apps/web/test/bootstrap-first-device.spec.ts` — 6a use-case ordering +
+  idempotent retry.
+- `apps/web/test/gate-routing.spec.ts` — 6a gate's pure decision table.
+- `apps/web/test/recovery-passphrase-input.spec.ts` — 6a `isPassphraseComplete`
+  predicate.
 
-44 tests across 8 suites, all green; type-check clean across every
-E2EE file.
+Counts deliberately omitted — `pnpm run test` is the source of truth, and a
+number written here is wrong by the next commit.
 
 ## Phase 6a additions (recovery passphrase onboarding)
 
@@ -376,7 +391,7 @@ E2EE file.
 - **`recovery_passphrase` IDB store** (DB v3) in
   `IndexedDbStorageAdapter`. Encrypted under the device key — same
   pattern as `identity` and `mls_snapshot`. Migration is additive.
-- **`bootstrapFirstDeviceUseCase`** in `domain/usecases/e2ee/`.
+- **`bootstrapFirstDeviceUseCase`** in `@pinai/domain/usecases/e2ee/`.
   Four-step orchestration (register → mnemonic → setupRecoveryKey →
   saveStoredPassphrase); idempotent under retry.
 - **`@scure/bip39` dependency** (~10 KB gzipped). English 2048-word
@@ -405,7 +420,7 @@ E2EE file.
   UUID — the Devices view uses it to mark the current row with a
   "This device" chip, because the server can't tell which caller
   it's answering.
-- **`IDeviceDirectoryPort`** (`domain/ports/device-directory.port.ts`)
+- **`IDeviceDirectoryPort`** (`@pinai/domain/ports/device-directory.port`)
   and **`DeviceDirectoryApiAdapter`** — separate from `IE2eePort` so
   the directory REST surface (`/api/keys/devices`,
   `/api/keys/devices/:id/revoke`) stays free of MLS crypto. Revoke
@@ -434,8 +449,8 @@ E2EE file.
     "yesterday" / "N days ago" / etc.
   - `device-fingerprint.ts` — `sha256(uuid)` → RFC 4648 base32 →
     8 chars formatted "XXXX-XXXX". Display-only.
-- **Test additions**: `test/format-last-seen.spec.ts` (9 tests),
-  `test/device-fingerprint.spec.ts` (4 tests).
+- **Test additions**: `test/format-last-seen.spec.ts`,
+  `test/device-fingerprint.spec.ts`.
 
 ## Phase 7 additions (per-device identity + history backup)
 
@@ -453,24 +468,24 @@ for the full design.
 
 ### New adapters
 
-- **`adapters/jwks/jwks-cache.adapter.ts`** — `JwksCacheAdapter`.
+- **`apps/web/src/adapters/jwks/jwks-cache.adapter.ts`** — `JwksCacheAdapter`.
   Lazy fetch of `<issuer>/.well-known/jwks.json` with 1-hour
   `localStorage` TTL, in-flight dedup per issuer, refresh-on-
   invalidate for IdP key-rotation safety. Returns raw 32-byte
   Ed25519 public keys ready for `@noble/curves` verify.
-- **`adapters/e2ee/attestation-chain.adapter.ts`** — pure
+- **`attestation-chain.adapter.ts`** — pure
   `verifyLeafCredential(bytes, jwksCache)`. Implements the Section 3
   verification order: parse `LeafCredentialV1` JSON, check
   `v === 1`, confirm issuer origin matches actor URI, check
   `expires_at` (5-min clock-skew slack), verify IdP signature
   (rotation-safe via invalidate-and-retry). Returns
   `{ ok, actorUri, deviceId }` or `{ ok: false, reason }`.
-- **`adapters/e2ee/history-archive.adapter.ts`** —
+- **`history-archive.adapter.ts`** —
   `HistoryArchiveAdapter`. `deriveKey(passphraseWords, salt)` via
   `argon2idAsync` (t=3, m=64 MiB, p=4, dkLen=32);
   `encrypt(key, plaintext)` → AES-256-GCM with fresh 12-byte nonce;
   `decrypt(key, ct, nonce)` throws on auth-tag mismatch.
-- **`adapters/e2ee/history-archive-api.adapter.ts`** —
+- **`@pinai/api/e2ee/history-archive-api.adapter`** —
   `HistoryArchiveApiAdapter` implementing `IHistoryArchivePort`.
   Pure transport for `POST/GET/DELETE /api/history/messages` +
   `GET/POST /api/history/salt`; base64 encode/decode of opaque
@@ -489,7 +504,6 @@ publishes) holds against the documented threat model.
 
 ### Adapter additions
 
-
 - **`key-directory.adapter.ts`** —
   `IKeyDirectoryAdapter.registerDevice(idpUrl, accessToken, deviceId, drkPublicKey)`
   POSTs to `/api/keys/devices`; returns `{ signature, kid,
@@ -505,11 +519,11 @@ publishes) holds against the documented threat model.
   - `bootstrapFirstDevice` now also calls `registerDevice` after
     the legacy MSK register completes.
 
-### Use cases (`domain/usecases/e2ee/`)
+### Use cases (`@pinai/domain/usecases/e2ee/`)
 
-- `register-device.usecase.ts` — port delegate (2 tests).
+- `register-device.usecase.ts` — port delegate.
 - `restore-history-from-passphrase.usecase.ts` — port delegate
-  (2 tests). UI trigger deferred — the use case is exercised by
+ . UI trigger deferred — the use case is exercised by
   Settings → Restore in a follow-up.
 
 ### Hooks (`presentation/hooks/`)
@@ -536,20 +550,18 @@ account just registers its own MSK + Device Root Key in the setup flow.
 
 ### Test additions
 
-- `test/jwks-cache.spec.ts` — 5 tests (TTL, dedup, invalidate,
+- `apps/web/test/jwks-cache.spec.ts` — (TTL, dedup, invalidate,
   unknown kid, concurrent fetches)
-- `test/attestation-chain.spec.ts` — 6 tests (well-formed accept,
+- `apps/web/test/attestation-chain.spec.ts` — (well-formed accept,
   origin mismatch, expired, unknown kid, rotation-retry, bad IdP
   signature)
-- `test/history-archive.spec.ts` — 5 tests (deterministic derive,
+- `apps/web/test/history-archive.spec.ts` — (deterministic derive,
   salt variance, encrypt/decrypt round-trip, wrong-key throws,
   fresh nonce per encrypt)
-- `test/register-device.spec.ts` — 2 tests
-- `test/restore-history.spec.ts` — 2 tests
-- `test/gate-routing.spec.ts` rewritten — 2 tests for the new
+- `apps/web/test/register-device.spec.ts`
+- `apps/web/test/restore-history.spec.ts`
+- `apps/web/test/gate-routing.spec.ts` rewritten for the new
   2-branch table
-
-72 tests across 15 suites; tsc clean.
 
 ### Rip-out (Phase 5)
 

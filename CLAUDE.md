@@ -157,20 +157,23 @@ deliberately absent until that work begins.
 
 ## Deployment
 
-This repo ships its own `Dockerfile` and `docker-compose.yml`. The production build is a static Vite output served by nginx.
+**Not built yet.** There is no `Dockerfile` and no compose file in this repo —
+this section describes the intent, not something that exists.
 
-```yaml
-# docker/docker-compose.yml
-services:
-  web:
-    build: ..
-    ports:
-      - "80:80"
-    environment:
-      VITE_DEFAULT_IDP_URL: https://idp.example.com
-```
+The production artefact is `apps/web/dist`, a static Vite build served by
+nginx, whose config has to fall every path back to `index.html` for SPA
+routing.
 
-The `Dockerfile` runs `vite build` and copies the output into an nginx image. The `nginx.conf` must handle SPA routing (all paths fall back to `index.html`).
+Two things the workspace layout forces on whoever writes it:
+
+- The **build context is the repo root**, not `apps/web`. The build needs
+  `packages/*`, `pnpm-workspace.yaml` and the lockfile, and it needs
+  `crypto/openmls-wasm` because `openmls-pkg` is generated rather than
+  committed.
+- The image therefore needs a **Rust toolchain and `wasm-pack`** at build
+  time, or a prior stage that produces `crypto/openmls-pkg` and copies it in.
+  `pnpm --filter @pinai/web build` runs `scripts/build-wasm.mjs` first and
+  will fail without them.
 
 ## OIDC Authentication Flow
 
@@ -192,7 +195,7 @@ The `Dockerfile` runs `vite build` and copies the output into an nginx image. Th
 - **Multi-IdP aware** — the client is not hardcoded to a single IdP; the user's configured IdP URL is stored in `localStorage` only (not the token)
 - **Two separate WebSocket connections**: one to the identity-provider (for DMs), one to the active chat-server (for channels)
 - **JWT never sent to wrong backend** — the chat-server JWT and IdP session are kept strictly separate in the store
-- **MLS E2EE is end-to-end client-driven**: encryption/decryption happens in `adapters/e2ee/`, server is opaque to message content. Per-device identity (Phase 7) — each device generates a Device Root Key (Ed25519) signed by the IdP into an attestation; peers verify via the issuer's JWKS. DRK + MLS provider state + per-device 24-word recovery passphrase all live in IndexedDB, encrypted at rest under a per-device non-extractable AES-256-GCM `CryptoKey`. The same device key encrypts the persisted message-plaintext cache (`pinai-zustand-store` IDB) so MLS forward secrecy doesn't blank conversation history on reload. The recovery passphrase derives a History Archive Key (Argon2id) used to encrypt every decrypted plaintext for opt-out server-side history backup. See `adapters/e2ee/CLAUDE.md` and `identity-provider/specs/05-e2ee.md` in the `pinai` monorepo.
+- **MLS E2EE is end-to-end client-driven**: encryption/decryption happens in `packages/crypto/`, server is opaque to message content. Per-device identity (Phase 7) — each device generates a Device Root Key (Ed25519) signed by the IdP into an attestation; peers verify via the issuer's JWKS. DRK + MLS provider state + per-device 24-word recovery passphrase all live in IndexedDB, encrypted at rest under a per-device non-extractable AES-256-GCM `CryptoKey`. The same device key encrypts the persisted message-plaintext cache (`pinai-zustand-store` IDB) so MLS forward secrecy doesn't blank conversation history on reload. The recovery passphrase derives a History Archive Key (Argon2id) used to encrypt every decrypted plaintext for opt-out server-side history backup. See `packages/crypto/CLAUDE.md` and `identity-provider/specs/05-e2ee.md` in the `pinai` monorepo.
 - **Persistence inner format is msgpack** (not JSON). `Uint8Array` fields (`AttachmentBlobKey.key` / `.nonce`, identity bytes) round-trip natively — JSON would turn them into indexed-property objects that Web Crypto APIs reject.
 
 ## Environment Variables
