@@ -13,7 +13,7 @@
 
 import { describe, expect, it } from "vitest"
 
-import { Spake2 } from "@/adapters/e2ee/spake2"
+import { Spake2 } from "@pinai/crypto/spake2"
 
 describe("SPAKE2 over Ristretto255", () => {
     const password = new TextEncoder().encode("pair-token-deadbeef")

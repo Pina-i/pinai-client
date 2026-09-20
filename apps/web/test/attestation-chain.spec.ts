@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { ed25519 } from "@noble/curves/ed25519.js"
 
-import { verifyLeafCredential } from "@/adapters/e2ee/attestation-chain.adapter"
+import { verifyLeafCredential } from "@pinai/crypto/attestation-chain.adapter"
 import type { JwksCacheAdapter } from "@/adapters/jwks/jwks-cache.adapter"
 import { bytesToBase64 } from "@pinai/domain/lib/bytes"
 

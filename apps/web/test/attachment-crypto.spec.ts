@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from "vitest"
 
-import { decryptDownloaded, encryptForUpload } from "@/adapters/e2ee/attachment-crypto"
+import { decryptDownloaded, encryptForUpload } from "@pinai/crypto/attachment-crypto"
 import type { AttachmentBlobKey } from "@pinai/domain/models/e2ee"
 import type { LocalFile } from "@pinai/domain/models/file"
 

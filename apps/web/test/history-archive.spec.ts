@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { HistoryArchiveAdapter } from "@/adapters/e2ee/history-archive.adapter"
+import { HistoryArchiveAdapter } from "@pinai/crypto/history-archive.adapter"
 
 // Trimmed BIP-39 word list — content doesn't matter for these tests,
 // just stable bytes to feed Argon2id.

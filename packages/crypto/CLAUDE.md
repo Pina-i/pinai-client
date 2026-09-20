@@ -1,36 +1,36 @@
-# adapters/e2ee — Phase 4b complete
+# @pinai/crypto
 
-Hexagonal seam between the rest of the app and the MLS crypto core.
-Exactly one external entry point (`IE2eePort`) — `e2ee.adapter.ts` is
-the only thing wired into IoC; the six sub-adapters below are
-collaborators it composes.
+The E2EE core: MLS orchestration, identity, recovery, pairing, attestation
+verification, attachment sealing, and the encrypted store's schema.
+
+Exactly one external entry point — `IE2eePort`, implemented by
+`e2ee.adapter.ts`, which is the only thing wired into IoC. Everything else
+here is a collaborator it composes.
+
+Portable by construction. Every primitive is `@noble`/`@scure`, never
+`crypto.subtle`, because what this package produces is protocol-visible —
+other devices have to accept the same bytes. `eslint.config.js` blocks the
+browser-only globals for `packages/*`, so the portability is checked rather
+than intended.
+
+Depends on `@pinai/domain` and the noble libraries. Not on `@pinai/api`: the
+key directory's contract is `IKeyDirectoryPort` in the domain.
+
+## What stayed in `apps/web`
+
+Three collaborators could not come, and the shape of each is the mobile work:
+
+- **`mls.adapter.ts`** — imports `openmls-wasm`, and Hermes has no
+  WebAssembly. A native build over the same crate implements the same
+  `IMlsEngine`; this file is the only place the bundle is imported.
+- **`device-key.adapter.ts`** — a non-extractable `CryptoKey`, which has no
+  equivalent value on a device. `IDeviceKeyPort` is the seam; the Keychain is
+  the other implementation.
+- **`storage/`** — IndexedDB. `SealedStorage` here holds the schema and the
+  sealing; only the byte store underneath is web-specific.
 
 ## Files
 
-- **`mls.adapter.ts`** — `MlsAdapter`, the WASM implementation of
-  `IMlsEngine` (`domain/ports/mls-engine.port.ts`). TS façade over the
-  `openmls-wasm` bundle.
-  Owns one `Provider` + one `Identity` + a `Map<conversation_id, Group>`.
-  Every method is `async` to satisfy the port even though the underlying
-  wasm calls are synchronous — see the port for why. A React Native build
-  supplies a sibling implementation over the natively-built crate; this
-  file is the only place `openmls-wasm` is imported.
-  Exposes `initialize`, `setIdentity`, `createKeyPackage`,
-  `createGroup`/`joinGroup`, `addMember`/`removeMember`/`update`,
-  `mergePendingCommit`, `encryptApplication`, `processMessage`,
-  `exportSecret`. All bytes-in / bytes-out.
-- **`device-key.adapter.ts`** — `WebCryptoDeviceKeyAdapter`, the WebCrypto
-  implementation of `IDeviceKeyPort`. Wraps the non-extractable
-  AES-256-GCM `CryptoKey` that `storage.adapter.ts` mints, and is the single
-  place at-rest sealing happens: both the E2EE stores and the zustand persist
-  middleware go through it, and `getOrCreateDeviceKey` has no caller besides
-  it, so no `CryptoKey` crosses out of `adapters/`. Every encrypted row on
-  disk is a `SealedBytes`. Covered by `test/device-key.spec.ts`.
-- **`../storage/idb-key-value-store.adapter.ts`** — `IdbKeyValueStore`, the
-  web `IKeyValueStore`. Also holds the one thing the port cannot carry: the
-  non-extractable `CryptoKey` itself, which IndexedDB can structured-clone.
-  That is an extra method on the class, not on the port — no other backend
-  has the capability.
 - **`identity.adapter.ts`** — `NobleIdentityAdapter`.
   MSK/SSK/USK Ed25519 generation via `@noble/curves`; SSK + USK signed
   by MSK with domain-separation tags. Computes the 60-char base32
@@ -489,12 +489,7 @@ publishes) holds against the documented threat model.
 
 ### Adapter additions
 
-- **`storage.adapter.ts`** — IDB schema v3 → v4. New
-  `device_attestation` object store holding the Device Root Key keypair
-  + IdP attestation + canonical signed message (for local re-verify).
-  `DeviceAttestation` type exported. `saveDeviceAttestation` /
-  `loadDeviceAttestation` methods follow the existing seal-under-
-  device-key pattern.
+
 - **`key-directory.adapter.ts`** —
   `IKeyDirectoryAdapter.registerDevice(idpUrl, accessToken, deviceId, drkPublicKey)`
   POSTs to `/api/keys/devices`; returns `{ signature, kid,

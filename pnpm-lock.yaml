@@ -205,6 +205,9 @@ importers:
       '@pinai/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@pinai/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
       '@pinai/domain':
         specifier: workspace:*
         version: link:../../packages/domain
@@ -332,6 +335,28 @@ importers:
       ky:
         specifier: ^1.14.3
         version: 1.14.3
+    devDependencies:
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+
+  packages/crypto:
+    dependencies:
+      '@noble/ciphers':
+        specifier: ^2.2.0
+        version: 2.4.0
+      '@noble/curves':
+        specifier: ^2.2.0
+        version: 2.4.0
+      '@noble/hashes':
+        specifier: ^2.2.0
+        version: 2.4.0
+      '@pinai/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@scure/bip39':
+        specifier: ^2.2.0
+        version: 2.4.0
     devDependencies:
       typescript:
         specifier: ~5.9.3

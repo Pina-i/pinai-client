@@ -21,9 +21,9 @@ import { beforeAll, describe, expect, it } from "vitest"
 
 import { loadWasmModule } from "./setup/wasm"
 
-import { decryptDownloaded, encryptForUpload } from "@/adapters/e2ee/attachment-crypto"
-import { E2eeAdapter } from "@/adapters/e2ee/e2ee.adapter"
-import { NobleIdentityAdapter } from "@/adapters/e2ee/identity.adapter"
+import { decryptDownloaded, encryptForUpload } from "@pinai/crypto/attachment-crypto"
+import { E2eeAdapter } from "@pinai/crypto/e2ee.adapter"
+import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
 import type {
     Argon2Params,
     CommitView,
@@ -33,8 +33,8 @@ import type {
     WelcomeView,
 } from "@pinai/domain/ports/key-directory.port"
 import { MlsAdapter } from "@/adapters/e2ee/mls.adapter"
-import { NobleRecoveryAdapter } from "@/adapters/e2ee/recovery.adapter"
-import type { DeviceAttestation, E2eeStorage, MlsSnapshot } from "@/adapters/e2ee/sealed-storage"
+import { NobleRecoveryAdapter } from "@pinai/crypto/recovery.adapter"
+import type { DeviceAttestation, E2eeStorage, MlsSnapshot } from "@pinai/crypto/sealed-storage"
 import type { LocalFile } from "@pinai/domain/models/file"
 import { asActorUri } from "@pinai/domain/models/identity"
 import type {

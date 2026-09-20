@@ -92,6 +92,12 @@ pinai-client/                 # pnpm workspace root
 ├── scripts/build-wasm.mjs    # Staleness-checked wasm build. Needs `wasm-pack` on
 │                             #   PATH, so it needs a Rust toolchain wherever it runs.
 ├── packages/
+│   ├── api/                  # @pinai/api — the IdP's HTTP + WebSocket surface.
+│   │                         #   Depends on domain + ky. Nothing browser-only.
+│   ├── crypto/               # @pinai/crypto — the E2EE core: MLS orchestration,
+│   │                         #   identity, recovery, pairing, attestation,
+│   │                         #   attachment sealing, the sealed store's schema.
+│   │                         #   All @noble, never crypto.subtle.
 │   └── domain/               # @pinai/domain — models, ports, use cases.
 │                             #   No dependencies at all, so an import of
 │                             #   anything outside fails to resolve. Consumed
@@ -115,9 +121,10 @@ pinai-client/                 # pnpm workspace root
             └── lib/          # Layer-neutral helpers + view-model types
 ```
 
-The remaining layers are being lifted into `packages/` one at a time — the
-API adapters, the `@noble` crypto, the MLS engine and the store slices are the
-candidates, in roughly that order of difficulty. `apps/mobile/` is
+Still to lift: the MLS engine (into `@pinai/mls`, which is also where the
+native binding will land) and the store slices with the view models. What
+stays in `apps/web` for good is the platform-specific remainder — WASM,
+WebCrypto, IndexedDB, web storage and navigation. `apps/mobile/` is
 deliberately absent until that work begins.
 
 

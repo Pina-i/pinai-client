@@ -26,6 +26,18 @@ const boundary = (files, groups, message) => ({
 const OUTWARD = (...layers) =>
   layers.flatMap((l) => [`@/${l}`, `@/${l}/**`, `**/${l}/**`])
 
+/** Globals that exist in a browser and not on Hermes. */
+const BROWSER_ONLY = [
+  'window',
+  'document',
+  'localStorage',
+  'sessionStorage',
+  'indexedDB',
+  'navigator',
+  'XMLHttpRequest',
+  'alert',
+]
+
 /** Layer paths, wherever the app lives in the workspace. */
 const app = (layer) => `apps/*/src/${layer}/**/*.{ts,tsx}`
 
@@ -87,18 +99,35 @@ export default defineConfig([
   },
 
   {
-    // The domain compiles with `DOM` in lib because `URL`, `URLSearchParams`,
-    // `AbortSignal` and `atob` have no smaller lib to come from — see
-    // packages/domain/tsconfig.json. These are the globals that admission
-    // must not let in: everything here is browser-only and absent on Hermes.
-    files: ['packages/domain/**/*.ts'],
+    // The shared packages compile with `DOM` in lib because `URL`,
+    // `URLSearchParams`, `AbortSignal` and `atob` have no smaller lib to come
+    // from — see packages/domain/tsconfig.json. These are the globals that
+    // admission must not let in: each is browser-only and absent on Hermes,
+    // so reaching for one here would quietly make the package unshareable.
+    files: ['packages/*/**/*.ts'],
     rules: {
       'no-restricted-globals': [
         'error',
-        ...['window', 'document', 'localStorage', 'sessionStorage', 'indexedDB', 'navigator', 'XMLHttpRequest', 'alert']
-          .map((name) => ({ name, message: 'Browser-only, and absent on Hermes. Take it as a port parameter instead.' })),
+        ...BROWSER_ONLY.map((name) => ({
+          name,
+          message: 'Browser-only, and absent on Hermes. Take it as a port parameter instead.',
+        })),
         { name: 'process', message: 'Node-only. Use injected configuration.' },
         { name: 'Buffer', message: 'Node-only. Use Uint8Array.' },
+      ],
+    },
+  },
+  {
+    // `@pinai/api` drives upload progress through XHR, which React Native
+    // also has. It is the one exception to the list above.
+    files: ['packages/api/**/*.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        ...BROWSER_ONLY.filter((n) => n !== 'XMLHttpRequest').map((name) => ({
+          name,
+          message: 'Browser-only, and absent on Hermes. Take it as a port parameter instead.',
+        })),
       ],
     },
   },

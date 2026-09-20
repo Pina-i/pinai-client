@@ -6,7 +6,7 @@ import { devtools, persist } from "zustand/middleware"
 // `store/slices/` stay free of adapters — they are the part a React Native
 // app reuses, while this file gets a sibling that wires SQLite or MMKV.
 import { WebCryptoDeviceKeyAdapter } from "@/adapters/e2ee/device-key.adapter"
-import { SealedStorage } from "@/adapters/e2ee/sealed-storage"
+import { SealedStorage } from "@pinai/crypto/sealed-storage"
 import { createEncryptedIdbStorage } from "@/adapters/storage/encrypted-idb-storage.adapter"
 import { IdbKeyValueStore } from "@/adapters/storage/idb-key-value-store.adapter"
 import { createAuthSlice, type AuthSlice } from "./slices/auth.slice"

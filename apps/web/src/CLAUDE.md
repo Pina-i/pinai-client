@@ -4,8 +4,14 @@
 
 This project follows a **hexagonal architecture** (Clean Architecture) with strict separation between layers:
 
-The business core is no longer here — it lives in `packages/domain`
-(`@pinai/domain`), which this app depends on like any other package.
+Three layers have left this folder and are packages now, depended on like any
+other: `@pinai/domain` (models, ports, use cases), `@pinai/api` (the IdP's
+HTTP and WebSocket surface) and `@pinai/crypto` (the E2EE core).
+
+What remains under `adapters/` is the part that is genuinely this platform's:
+the WASM MLS engine, the WebCrypto device key, IndexedDB, `sessionStorage`
+for the PKCE round-trip, `localStorage` for the JWKS TTL, and browser
+navigation. That list is the mobile port's inventory.
 
 ```
 locales/              # Translation files

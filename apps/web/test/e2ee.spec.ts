@@ -21,10 +21,10 @@ import { beforeAll, describe, expect, it } from "vitest"
 
 import { loadWasmModule } from "./setup/wasm"
 
-import { NobleIdentityAdapter } from "@/adapters/e2ee/identity.adapter"
+import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
 import { MlsAdapter } from "@/adapters/e2ee/mls.adapter"
 import { asActorUri } from "@pinai/domain/models/identity"
-import { DEFAULT_ARGON2_PARAMS, NobleRecoveryAdapter } from "@/adapters/e2ee/recovery.adapter"
+import { DEFAULT_ARGON2_PARAMS, NobleRecoveryAdapter } from "@pinai/crypto/recovery.adapter"
 
 /**
  * Load the openmls-wasm bytes from disk and compile them once. Reused

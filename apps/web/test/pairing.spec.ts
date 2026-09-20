@@ -9,8 +9,8 @@
 
 import { describe, expect, it } from "vitest"
 
-import { NobleIdentityAdapter } from "@/adapters/e2ee/identity.adapter"
-import { PairingInitiator, PairingResponder } from "@/adapters/e2ee/pairing.adapter"
+import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
+import { PairingInitiator, PairingResponder } from "@pinai/crypto/pairing.adapter"
 
 describe("Device pairing", () => {
     const idAdapter = new NobleIdentityAdapter()
