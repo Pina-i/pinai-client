@@ -1,10 +1,10 @@
+import type { LocalFile } from "@/domain/models/file"
 import type { IUserPort } from "@/domain/ports/user.port"
 
 export interface UploadAvatarParams {
     idpUrl: string
     accessToken: string
-    blob: Blob
-    contentType: string
+    avatar: LocalFile
     setAvatarUrl: (url: string | null) => void
 }
 
@@ -15,8 +15,7 @@ export async function uploadAvatarUseCase(
     const { avatar_url } = await userPort.uploadAvatar(
         params.idpUrl,
         params.accessToken,
-        params.blob,
-        params.contentType,
+        params.avatar,
     )
     params.setAvatarUrl(avatar_url)
     return avatar_url

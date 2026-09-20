@@ -65,7 +65,8 @@ export function useAttachmentBlobUrl(
                 const resp = await fetch(ciphertextUrl)
                 if (!resp.ok) throw new Error(`Ciphertext fetch failed: ${resp.status}`)
                 const ciphertext = new Uint8Array(await resp.arrayBuffer())
-                const blob = await getAttachmentCryptoPort().decryptDownloaded(ciphertext, attachmentKey)
+                const plaintext = await getAttachmentCryptoPort().decryptDownloaded(ciphertext, attachmentKey)
+                const blob = new Blob([plaintext as BlobPart], { type: attachmentKey.mime_type })
                 if (cancelled) return
                 createdUrl = URL.createObjectURL(blob)
                 setDecrypted({ key: decryptKey, url: createdUrl })

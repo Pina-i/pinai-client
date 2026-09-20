@@ -1,10 +1,11 @@
 import type { Attachment } from "@/domain/models/dm"
+import type { LocalFile } from "@/domain/models/file"
 import type { IDmPort, UploadProgress } from "@/domain/ports/dm.port"
 
 export interface UploadAttachmentParams {
     idpUrl: string
     accessToken: string
-    file: File
+    file: LocalFile
     onProgress?: UploadProgress
     signal?: AbortSignal
 }

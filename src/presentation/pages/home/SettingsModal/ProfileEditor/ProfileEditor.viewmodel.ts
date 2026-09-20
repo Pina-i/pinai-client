@@ -3,6 +3,7 @@ import { toast } from "sonner"
 import type { Pronouns, UserProfile } from "@/domain/models/auth"
 import { getUserPort } from "@/ioc"
 import { uploadAvatarUseCase } from "@/domain/usecases/user/upload-avatar.usecase"
+import { blobToLocalFile } from "@/presentation/_libs/local-file"
 import { deleteAvatarUseCase } from "@/domain/usecases/user/delete-avatar.usecase"
 import { updateProfileUseCase } from "@/domain/usecases/user/update-profile.usecase"
 import { useAppStore } from "@/store/store"
@@ -157,8 +158,7 @@ export function useProfileEditorViewModel(user: UserProfile): ProfileEditorViewM
             await uploadAvatarUseCase(getUserPort(), {
                 idpUrl,
                 accessToken,
-                blob,
-                contentType: "image/jpeg",
+                avatar: await blobToLocalFile(blob, "avatar.jpg"),
                 setAvatarUrl,
             })
             toast.success("Avatar updated.")

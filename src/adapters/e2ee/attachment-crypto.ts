@@ -10,6 +10,7 @@
  */
 
 import type { AttachmentBlobKey } from "@/domain/models/e2ee"
+import type { LocalFile } from "@/domain/models/file"
 import type { IAttachmentCryptoPort } from "@/domain/ports/attachment-crypto.port"
 
 const AES_ALGORITHM: AesKeyAlgorithm = { name: "AES-GCM", length: 256 }
@@ -26,7 +27,7 @@ const NONCE_BYTES = 12
  *   bundle that travels inside the MLS body. The receiver uses it to
  *   decrypt.
  */
-export async function encryptForUpload(file: File): Promise<{
+export async function encryptForUpload(file: LocalFile): Promise<{
     ciphertext: Uint8Array
     key: AttachmentBlobKey
 }> {
@@ -38,7 +39,7 @@ export async function encryptForUpload(file: File): Promise<{
         KEY_USAGES,
     )
 
-    const plaintext = new Uint8Array(await file.arrayBuffer())
+    const plaintext = file.bytes
     const aad = new TextEncoder().encode(id)
     const ciphertextAb = await crypto.subtle.encrypt(
         { name: "AES-GCM", iv: nonce, additionalData: aad as BufferSource },
@@ -54,8 +55,8 @@ export async function encryptForUpload(file: File): Promise<{
             key: new Uint8Array(rawKeyAb),
             nonce,
             original_filename: file.name,
-            mime_type: file.type || "application/octet-stream",
-            byte_size: file.size,
+            mime_type: file.mimeType || "application/octet-stream",
+            byte_size: file.bytes.length,
         },
     }
 }
@@ -71,7 +72,7 @@ export async function encryptForUpload(file: File): Promise<{
 export async function decryptDownloaded(
     ciphertext: Uint8Array,
     blobKey: AttachmentBlobKey,
-): Promise<Blob> {
+): Promise<Uint8Array> {
     const cryptoKey = await crypto.subtle.importKey(
         "raw",
         blobKey.key as BufferSource,
@@ -85,7 +86,7 @@ export async function decryptDownloaded(
         cryptoKey,
         ciphertext as BufferSource,
     )
-    return new Blob([plaintextAb], { type: blobKey.mime_type })
+    return new Uint8Array(plaintextAb)
 }
 
 /**
@@ -96,11 +97,11 @@ export async function decryptDownloaded(
  * instance there.
  */
 export class WebCryptoAttachmentCryptoAdapter implements IAttachmentCryptoPort {
-    encryptForUpload(file: File): Promise<{ ciphertext: Uint8Array; key: AttachmentBlobKey }> {
+    encryptForUpload(file: LocalFile): Promise<{ ciphertext: Uint8Array; key: AttachmentBlobKey }> {
         return encryptForUpload(file)
     }
 
-    decryptDownloaded(ciphertext: Uint8Array, blobKey: AttachmentBlobKey): Promise<Blob> {
+    decryptDownloaded(ciphertext: Uint8Array, blobKey: AttachmentBlobKey): Promise<Uint8Array> {
         return decryptDownloaded(ciphertext, blobKey)
     }
 }

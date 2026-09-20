@@ -34,6 +34,15 @@ Pure TypeScript — no framework dependencies.
 - Bytes in, bytes out — every implementation must agree byte-for-byte;
   the specs in `test/` are the contract.
 
+### models/file.ts
+- `LocalFile` — `{ name, mimeType, bytes }`, what the domain needs to send a
+  file somewhere. The browser has `File`, React Native's pickers return
+  `{ uri, name, mimeType }`, and neither can be named here.
+- `bytes` is eager, not a lazy reader: E2EE reads every attachment in full to
+  encrypt it, so a streaming interface would promise something we never do.
+- Conversion lives at the edges — `presentation/_libs/local-file.ts` on the
+  web.
+
 ### ports/device-key.port.ts
 - `IDeviceKeyPort` — at-rest `seal` / `open` bound to this device, plus
   `SealedBytes`

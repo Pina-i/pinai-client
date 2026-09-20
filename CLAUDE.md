@@ -107,9 +107,11 @@ src/
 │   ├── organisms/    # Complex UI sections (Header, Form, DataTable, etc.)
 │   ├── templates/    # Page layouts and structural components
 │   └── pages/        # Application pages
-├── store/            # UI state management (Zustand). Includes
-│                     #   `encrypted-idb-storage.ts` — the AES-GCM + msgpack
-│                     #   `PersistStorage` backing the persisted slices.
+├── store/            # UI state management (Zustand). `store.ts` is the
+│                     #   composition root that wires this platform's
+│                     #   persistence in; `slices/` is the reusable part.
+│                     #   The AES-GCM + msgpack `PersistStorage` itself lives
+│                     #   in `adapters/storage/`.
 ├── ioc/              # Dependency injection configuration
 ├── translation/      # Translation system
 └── config/           # Global configurations

@@ -1,5 +1,6 @@
 import ky, { HTTPError } from "ky"
 import type { Attachment, DirectMessage, DmConversationSummary } from "@/domain/models/dm"
+import type { LocalFile } from "@/domain/models/file"
 import type { DmCursor, IDmPort, UploadProgress } from "@/domain/ports/dm.port"
 
 export class DmApiAdapter implements IDmPort {
@@ -79,7 +80,7 @@ export class DmApiAdapter implements IDmPort {
     uploadAttachment(
         idpUrl: string,
         accessToken: string,
-        file: File,
+        file: LocalFile,
         onProgress?: UploadProgress,
         signal?: AbortSignal,
         attachmentId?: string,
@@ -125,7 +126,8 @@ export class DmApiAdapter implements IDmPort {
             // because the server iterates parts in order and reads the
             // id before pairing it with the single file.
             if (attachmentId) form.append("attachment_id", attachmentId)
-            form.append("file", file, file.name)
+            const part = new File([file.bytes as BlobPart], file.name, { type: file.mimeType })
+            form.append("file", part, file.name)
             xhr.send(form)
         })
     }

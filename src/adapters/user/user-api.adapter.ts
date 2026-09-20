@@ -1,22 +1,22 @@
 import ky, { HTTPError } from "ky"
 import type { ProfilePatch, UserProfile } from "@/domain/models/auth"
+import type { LocalFile } from "@/domain/models/file"
 import type { IUserPort } from "@/domain/ports/user.port"
 
 export class UserApiAdapter implements IUserPort {
     async uploadAvatar(
         idpUrl: string,
         accessToken: string,
-        blob: Blob,
-        contentType: string,
+        avatar: LocalFile,
     ): Promise<{ avatar_url: string }> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/avatar`
         try {
             return await ky.put(url, {
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
-                    "Content-Type": contentType,
+                    "Content-Type": avatar.mimeType,
                 },
-                body: blob,
+                body: new Blob([avatar.bytes as BlobPart], { type: avatar.mimeType }),
             }).json<{ avatar_url: string }>()
         } catch (error) {
             if (error instanceof HTTPError) {

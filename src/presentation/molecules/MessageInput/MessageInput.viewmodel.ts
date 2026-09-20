@@ -3,6 +3,7 @@ import { toast } from "sonner"
 import type { Attachment } from "@/domain/models/dm"
 import type { AttachmentBlobKey } from "@/domain/models/e2ee"
 import { uploadEncryptedAttachmentUseCase } from "@/domain/usecases/dm/upload-encrypted-attachment.usecase"
+import { fileToLocalFile } from "@/presentation/_libs/local-file"
 import { getAttachmentCryptoPort, getDmPort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 
@@ -128,15 +129,18 @@ export function useMessageInputViewModel(args: UseMessageInputViewModelArgs): Me
             // Kick off each upload independently so per-file progress is honest.
             for (const row of newRows) {
                 const localId = row.localId
-                uploadEncryptedAttachmentUseCase(getDmPort(), getAttachmentCryptoPort(), {
-                    idpUrl,
-                    accessToken,
-                    file: row.file,
-                    signal: row.controller.signal,
-                    onProgress: (loaded, total) => {
-                        patchPending(localId, { progress: total > 0 ? loaded / total : 0 })
-                    },
-                })
+                fileToLocalFile(row.file)
+                    .then((file) =>
+                        uploadEncryptedAttachmentUseCase(getDmPort(), getAttachmentCryptoPort(), {
+                            idpUrl,
+                            accessToken,
+                            file,
+                            signal: row.controller.signal,
+                            onProgress: (loaded, total) => {
+                                patchPending(localId, { progress: total > 0 ? loaded / total : 0 })
+                            },
+                        }),
+                    )
                     .then(({ attachment, key }) => {
                         patchPending(localId, { attachment, key, progress: 1 })
                     })

@@ -171,7 +171,10 @@ collaborators it composes.
 
 ## Phase 5c.4 additions (attachments)
 
-- **`attachment-crypto.ts`** — `encryptForUpload(file)` mints a fresh
+- **`attachment-crypto.ts`** — speaks `LocalFile` in and `Uint8Array` out,
+  never `File`/`Blob`: what to do with decrypted bytes is a platform question
+  (an object URL on the web, a cache file on a device).
+  `encryptForUpload(file)` mints a fresh
   AES-256-GCM key + 12-byte nonce + client-generated UUID per
   upload, encrypts file bytes with `additionalData = utf8(uuid)`,
   returns ciphertext + AttachmentBlobKey. `decryptDownloaded` runs

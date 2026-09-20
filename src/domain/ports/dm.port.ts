@@ -1,3 +1,4 @@
+import type { LocalFile } from "@/domain/models/file"
 import type { Attachment, DirectMessage, DmConversationSummary } from "@/domain/models/dm"
 
 export interface DmCursor {
@@ -61,7 +62,7 @@ export interface IDmPort {
     uploadAttachment(
         idpUrl: string,
         accessToken: string,
-        file: File,
+        file: LocalFile,
         onProgress?: UploadProgress,
         signal?: AbortSignal,
         attachmentId?: string,

@@ -1,4 +1,5 @@
 import type { AttachmentBlobKey } from "@/domain/models/e2ee"
+import type { LocalFile } from "@/domain/models/file"
 
 /**
  * Per-attachment AES-256-GCM sealing (`specs/05-e2ee.md § 7`).
@@ -14,12 +15,16 @@ export interface IAttachmentCryptoPort {
      * Seal a file for upload. Returns the ciphertext to POST and the
      * {@link AttachmentBlobKey} bundle that goes inside the MLS body.
      */
-    encryptForUpload(file: File): Promise<{ ciphertext: Uint8Array; key: AttachmentBlobKey }>
+    encryptForUpload(file: LocalFile): Promise<{ ciphertext: Uint8Array; key: AttachmentBlobKey }>
 
     /**
      * Open the bytes the IdP returned for an attachment id.
      * Throws on tag mismatch — wrong key, tampered ciphertext, or a
      * server serving someone else's row under this id.
+     *
+     * Returns bytes, not a `Blob`: what the caller does with them is a
+     * platform question (an object URL on the web, a cache file on a
+     * device), and `blobKey.mime_type` carries the type either way.
      */
-    decryptDownloaded(ciphertext: Uint8Array, blobKey: AttachmentBlobKey): Promise<Blob>
+    decryptDownloaded(ciphertext: Uint8Array, blobKey: AttachmentBlobKey): Promise<Uint8Array>
 }

@@ -36,6 +36,7 @@ import type {
 import { MlsAdapter } from "@/adapters/e2ee/mls.adapter"
 import { NobleRecoveryAdapter } from "@/adapters/e2ee/recovery.adapter"
 import type { DeviceAttestation, E2eeStorage, MlsSnapshot } from "@/adapters/e2ee/storage.adapter"
+import type { LocalFile } from "@/domain/models/file"
 import { asActorUri } from "@/domain/models/identity"
 import type {
     ActorUri,
@@ -442,7 +443,7 @@ describe("MLS E2EE — full-loop integration (Alice + Bob)", () => {
         //    the (stubbed) blob store; the per-attachment key travels
         //    inside the MLS body.
         const fileBytes = new TextEncoder().encode("hello world from a file")
-        const file = new File([fileBytes], "hello.txt", { type: "text/plain" })
+        const file: LocalFile = { name: "hello.txt", mimeType: "text/plain", bytes: fileBytes }
         const { ciphertext, key: blobKey } = await encryptForUpload(file)
         directory.blobs.set(blobKey.id, ciphertext)
 
@@ -473,8 +474,7 @@ describe("MLS E2EE — full-loop integration (Alice + Bob)", () => {
         // Receiver fetches the ciphertext + decrypts.
         const fetched = directory.blobs.get(recvKey.id)
         expect(fetched).toBeDefined()
-        const blob = await decryptDownloaded(fetched!, recvKey)
-        const decryptedBytes = new Uint8Array(await blob.arrayBuffer())
+        const decryptedBytes = await decryptDownloaded(fetched!, recvKey)
         expect(new TextDecoder().decode(decryptedBytes)).toBe("hello world from a file")
     })
 

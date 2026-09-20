@@ -1,4 +1,5 @@
 import type { Attachment } from "@/domain/models/dm"
+import type { LocalFile } from "@/domain/models/file"
 import type { AttachmentBlobKey } from "@/domain/models/e2ee"
 import type { IAttachmentCryptoPort } from "@/domain/ports/attachment-crypto.port"
 import type { IDmPort, UploadProgress } from "@/domain/ports/dm.port"
@@ -6,7 +7,7 @@ import type { IDmPort, UploadProgress } from "@/domain/ports/dm.port"
 export interface UploadEncryptedAttachmentParams {
     idpUrl: string
     accessToken: string
-    file: File
+    file: LocalFile
     onProgress?: UploadProgress
     signal?: AbortSignal
 }
@@ -31,13 +32,14 @@ export async function uploadEncryptedAttachmentUseCase(
 ): Promise<{ attachment: Attachment; key: AttachmentBlobKey }> {
     const { ciphertext, key } = await attachmentCrypto.encryptForUpload(params.file)
 
-    // Server stores placeholder filename + MIME — the real values
-    // travel inside the encrypted body. The encrypted File's name is
-    // the literal "encrypted" so the attachment row's
-    // `original_filename` is set to that.
-    const encryptedFile = new File([ciphertext as BlobPart], "encrypted", {
-        type: "application/octet-stream",
-    })
+    // Server stores placeholder filename + MIME — the real values travel
+    // inside the encrypted body. The literal name "encrypted" is what the
+    // attachment row's `original_filename` ends up as.
+    const encryptedFile: LocalFile = {
+        name: "encrypted",
+        mimeType: "application/octet-stream",
+        bytes: ciphertext,
+    }
 
     const attachment = await dmPort.uploadAttachment(
         params.idpUrl,

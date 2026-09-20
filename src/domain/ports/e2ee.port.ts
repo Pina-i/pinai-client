@@ -55,7 +55,7 @@ export interface IE2eePort {
     getDeviceId(): Promise<DeviceId>
 
     /**
-     * Wipe every encrypted IDB row owned by this device — identity
+     * Wipe every sealed row owned by this device — identity
      * bundle, MLS snapshot, recovery passphrase, meta (device key +
      * device id). Used by the gate when it detects a different user
      * has signed in on this browser. After this returns, the device
