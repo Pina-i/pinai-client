@@ -1,7 +1,7 @@
 import ky, { HTTPError } from "ky"
 
-import type { DeviceListResponse } from "@/domain/models/device"
-import type { IDeviceDirectoryPort } from "@/domain/ports/device-directory.port"
+import type { DeviceListResponse } from "@pinai/domain/models/device"
+import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
 
 /** REST client for the device-directory endpoints. */
 export class DeviceDirectoryApiAdapter implements IDeviceDirectoryPort {

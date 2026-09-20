@@ -8,10 +8,10 @@ import { ContextMenuTrigger } from "@/presentation/molecules/ContextMenu/Context
 import type { ContextMenuItem } from "@/presentation/molecules/ContextMenu/ContextMenuList"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { cn } from "@/presentation/_libs/utils"
-import { actorUriToAddress } from "@/domain/models/identity"
-import { presenceToUserStatus } from "@/domain/models/presence"
+import { actorUriToAddress } from "@pinai/domain/models/identity"
+import { presenceToUserStatus } from "@pinai/domain/models/presence"
 import { useAppStore } from "@/store/store"
-import type { GroupMember } from "@/domain/models/group"
+import type { GroupMember } from "@pinai/domain/models/group"
 import { useGroupMembersPanelViewModel } from "./GroupMembersPanel.viewmodel"
 
 export function GroupMembersPanel({ conversationId }: { conversationId: string }) {

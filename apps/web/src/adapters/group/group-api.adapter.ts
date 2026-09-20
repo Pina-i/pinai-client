@@ -1,7 +1,7 @@
 import ky, { HTTPError } from "ky"
-import type { GroupMember, GroupRole, GroupView } from "@/domain/models/group"
-import type { DirectMessage } from "@/domain/models/dm"
-import type { IGroupPort } from "@/domain/ports/group.port"
+import type { GroupMember, GroupRole, GroupView } from "@pinai/domain/models/group"
+import type { DirectMessage } from "@pinai/domain/models/dm"
+import type { IGroupPort } from "@pinai/domain/ports/group.port"
 
 /** Pull the server's `error_description` (falls back to a generic message). */
 async function toError(error: unknown, fallback: string): Promise<Error> {

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { asActorUri } from "@/domain/models/identity"
+import { asActorUri } from "@pinai/domain/models/identity"
 
-import type { IE2eePort } from "@/domain/ports/e2ee.port"
-import { registerDeviceUseCase } from "@/domain/usecases/e2ee/register-device.usecase"
+import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
+import { registerDeviceUseCase } from "@pinai/domain/usecases/e2ee/register-device.usecase"
 
 describe("registerDeviceUseCase", () => {
     it("delegates to e2eePort.registerDevice with the right args", async () => {

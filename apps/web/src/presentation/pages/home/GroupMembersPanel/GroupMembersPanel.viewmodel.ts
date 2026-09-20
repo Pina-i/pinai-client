@@ -4,7 +4,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { useAppStore } from "@/store/store"
 import { getGroupPort } from "@/ioc"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
-import type { GroupMember, GroupRole } from "@/domain/models/group"
+import type { GroupMember, GroupRole } from "@pinai/domain/models/group"
 
 export const groupMembersQueryKey = (conversationId: string) => ["group-members", conversationId] as const
 

@@ -1,6 +1,6 @@
 import type { StateCreator } from "zustand"
 
-import type { ActorUri, Fingerprint } from "@/domain/models/e2ee"
+import type { ActorUri, Fingerprint } from "@pinai/domain/models/e2ee"
 
 import type { AppStore } from "../store"
 

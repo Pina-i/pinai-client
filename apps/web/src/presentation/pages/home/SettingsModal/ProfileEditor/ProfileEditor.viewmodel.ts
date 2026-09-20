@@ -1,11 +1,11 @@
 import { useMemo, useRef, useState, type ChangeEvent } from "react"
 import { toast } from "sonner"
-import type { Pronouns, UserProfile } from "@/domain/models/auth"
+import type { Pronouns, UserProfile } from "@pinai/domain/models/auth"
 import { getUserPort } from "@/ioc"
-import { uploadAvatarUseCase } from "@/domain/usecases/user/upload-avatar.usecase"
+import { uploadAvatarUseCase } from "@pinai/domain/usecases/user/upload-avatar.usecase"
 import { blobToLocalFile } from "@/presentation/_libs/local-file"
-import { deleteAvatarUseCase } from "@/domain/usecases/user/delete-avatar.usecase"
-import { updateProfileUseCase } from "@/domain/usecases/user/update-profile.usecase"
+import { deleteAvatarUseCase } from "@pinai/domain/usecases/user/delete-avatar.usecase"
+import { updateProfileUseCase } from "@pinai/domain/usecases/user/update-profile.usecase"
 import { useAppStore } from "@/store/store"
 
 const BIO_MAX = 190

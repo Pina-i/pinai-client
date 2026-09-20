@@ -10,7 +10,7 @@ import { SingleImageAttachment } from "@/presentation/molecules/SingleImageAttac
 import { ReactionPickerContext } from "@/presentation/organisms/MessageList/MessageList.context"
 import { isImageAttachment } from "@/presentation/_libs/attachments"
 import { cn } from "@/presentation/_libs/utils"
-import type { Attachment } from "@/domain/models/dm"
+import type { Attachment } from "@pinai/domain/models/dm"
 import type { Message } from "@/lib/types"
 import { useAppStore } from "@/store/store"
 import { useMessageItemViewModel } from "./MessageItem.viewmodel"

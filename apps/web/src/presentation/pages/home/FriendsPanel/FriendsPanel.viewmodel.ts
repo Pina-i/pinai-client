@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query"
 import { useMemo } from "react"
-import { getFriendsUseCase } from "@/domain/usecases/social/get-friends.usecase"
+import { getFriendsUseCase } from "@pinai/domain/usecases/social/get-friends.usecase"
 import { getSocialPort } from "@/ioc"
 import { useAppStore } from "@/store/store"
-import { actorUriToAddress } from "@/domain/models/identity"
-import { presenceToUserStatus, type UserStatus } from "@/domain/models/presence"
+import { actorUriToAddress } from "@pinai/domain/models/identity"
+import { presenceToUserStatus, type UserStatus } from "@pinai/domain/models/presence"
 
 export interface Friend {
     id: string

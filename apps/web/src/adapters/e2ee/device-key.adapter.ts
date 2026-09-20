@@ -1,5 +1,5 @@
 import type { IdbKeyValueStore } from "@/adapters/storage/idb-key-value-store.adapter"
-import type { IDeviceKeyPort, SealedBytes } from "@/domain/ports/device-key.port"
+import type { IDeviceKeyPort, SealedBytes } from "@pinai/domain/ports/device-key.port"
 
 const AES_ALGORITHM: AesKeyAlgorithm = { name: "AES-GCM", length: 256 }
 const AES_KEY_USAGES: KeyUsage[] = ["encrypt", "decrypt"]

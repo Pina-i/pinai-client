@@ -42,7 +42,7 @@
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js"
 import { ed25519 } from "@noble/curves/ed25519.js"
 
-import type { IdentityKeypair } from "@/domain/models/e2ee"
+import type { IdentityKeypair } from "@pinai/domain/models/e2ee"
 
 import { Spake2, type Spake2InProgress } from "./spake2"
 

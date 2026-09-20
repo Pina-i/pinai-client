@@ -91,6 +91,12 @@ pinai-client/                 # pnpm workspace root
 │                             #   client will start.
 ├── scripts/build-wasm.mjs    # Staleness-checked wasm build. Needs `wasm-pack` on
 │                             #   PATH, so it needs a Rust toolchain wherever it runs.
+├── packages/
+│   └── domain/               # @pinai/domain — models, ports, use cases.
+│                             #   No dependencies at all, so an import of
+│                             #   anything outside fails to resolve. Consumed
+│                             #   as source TS; `exports` maps
+│                             #   `@pinai/domain/<path>` to `src/<path>.ts`.
 └── apps/
     └── web/                  # The browser client (@pinai/web)
         ├── index.html, vite.config.ts, vitest.config.ts, tsconfig*.json
@@ -99,10 +105,6 @@ pinai-client/                 # pnpm workspace root
         │                     #   compiles the real bundle the app loads, resolved
         │                     #   through node_modules/openmls-wasm.
         └── src/
-            ├── domain/       # Business core (use cases, ports, models)
-            │   ├── models/   #   Business entities
-            │   ├── ports/    #   Interfaces for adapters
-            │   └── usecases/ #   Business logic
             ├── adapters/     # Technical implementations (API, crypto, storage)
             ├── presentation/ # UI layer (Atomic Design)
             ├── store/        # Zustand. `store.ts` is the composition root that
@@ -113,9 +115,10 @@ pinai-client/                 # pnpm workspace root
             └── lib/          # Layer-neutral helpers + view-model types
 ```
 
-`packages/` does not exist yet. The layers above are being lifted into it one
-at a time, starting with `domain/`; `apps/mobile/` is deliberately absent
-until that work begins.
+The remaining layers are being lifted into `packages/` one at a time — the
+API adapters, the `@noble` crypto, the MLS engine and the store slices are the
+candidates, in roughly that order of difficulty. `apps/mobile/` is
+deliberately absent until that work begins.
 
 
 ### Dependency principle

@@ -23,7 +23,7 @@ import { loadWasmModule } from "./setup/wasm"
 
 import { NobleIdentityAdapter } from "@/adapters/e2ee/identity.adapter"
 import { MlsAdapter } from "@/adapters/e2ee/mls.adapter"
-import { asActorUri } from "@/domain/models/identity"
+import { asActorUri } from "@pinai/domain/models/identity"
 import { DEFAULT_ARGON2_PARAMS, NobleRecoveryAdapter } from "@/adapters/e2ee/recovery.adapter"
 
 /**

@@ -1,6 +1,6 @@
 import ky, { HTTPError } from "ky"
-import type { IAuthPort } from "@/domain/ports/auth.port"
-import type { OidcConfig, UserProfile } from "@/domain/models/auth"
+import type { IAuthPort } from "@pinai/domain/ports/auth.port"
+import type { OidcConfig, UserProfile } from "@pinai/domain/models/auth"
 
 export class OidcAdapter implements IAuthPort {
     async discoverConfig(idpUrl: string): Promise<OidcConfig> {

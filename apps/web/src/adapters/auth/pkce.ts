@@ -1,4 +1,4 @@
-import type { IPkcePort } from "@/domain/ports/auth.port"
+import type { IPkcePort } from "@pinai/domain/ports/auth.port"
 
 /** Generate a cryptographically random code verifier (64 URL-safe chars). */
 export function generateCodeVerifier(): string {

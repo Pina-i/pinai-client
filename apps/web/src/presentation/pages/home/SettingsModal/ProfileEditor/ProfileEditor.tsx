@@ -1,4 +1,4 @@
-import type { Pronouns, UserProfile } from "@/domain/models/auth"
+import type { Pronouns, UserProfile } from "@pinai/domain/models/auth"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { AvatarCropDialog } from "@/presentation/molecules/AvatarCropDialog/AvatarCropDialog"

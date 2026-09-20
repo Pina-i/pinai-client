@@ -38,7 +38,7 @@ import { type IDBPDatabase, openDB } from "idb"
 import { pack, unpack } from "msgpackr"
 import type { PersistStorage, StorageValue } from "zustand/middleware"
 
-import type { IDeviceKeyPort, SealedBytes } from "@/domain/ports/device-key.port"
+import type { IDeviceKeyPort, SealedBytes } from "@pinai/domain/ports/device-key.port"
 
 const DB_NAME = "pinai-zustand-store"
 const DB_VERSION = 1

@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
-import { getDmConversationsUseCase } from "@/domain/usecases/dm/get-dm-conversations.usecase"
+import { getDmConversationsUseCase } from "@pinai/domain/usecases/dm/get-dm-conversations.usecase"
 import { getDmPort } from "@/ioc"
-import { actorUriToAddress } from "@/domain/models/identity"
+import { actorUriToAddress } from "@pinai/domain/models/identity"
 import type { DmConversation } from "@/lib/types"
 import { useEffect } from "react"
 

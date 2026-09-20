@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 
-import { revokeDeviceUseCase } from "@/domain/usecases/e2ee/revoke-device.usecase"
+import { revokeDeviceUseCase } from "@pinai/domain/usecases/e2ee/revoke-device.usecase"
 import { getDeviceDirectoryPort, getE2eePort } from "@/ioc"
 import { devicesQueryKey, useDevices, type DeviceRow } from "@/presentation/hooks/useDevices"
 import { useAppStore } from "@/store/store"

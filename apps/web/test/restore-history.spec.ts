@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
-import type { IE2eePort } from "@/domain/ports/e2ee.port"
-import { restoreHistoryFromPassphraseUseCase } from "@/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
+import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
+import { restoreHistoryFromPassphraseUseCase } from "@pinai/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
 
 const PASSPHRASE = [
     "abandon", "ability", "able", "about", "above", "absent",

@@ -1,4 +1,4 @@
-import { AUTH_SESSION_KEYS, type AuthSessionKey, type IAuthSessionStore } from "@/domain/ports/auth.port"
+import { AUTH_SESSION_KEYS, type AuthSessionKey, type IAuthSessionStore } from "@pinai/domain/ports/auth.port"
 
 /**
  * `sessionStorage` implementation of {@link IAuthSessionStore}.

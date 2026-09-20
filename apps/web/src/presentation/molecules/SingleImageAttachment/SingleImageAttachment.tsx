@@ -1,5 +1,5 @@
-import type { Attachment } from "@/domain/models/dm"
-import type { AttachmentBlobKey } from "@/domain/models/e2ee"
+import type { Attachment } from "@pinai/domain/models/dm"
+import type { AttachmentBlobKey } from "@pinai/domain/models/e2ee"
 import { useAttachmentBlobUrl } from "@/presentation/hooks/useAttachmentBlobUrl"
 import { formatBytes } from "@/presentation/_libs/attachments"
 import { cn } from "@/presentation/_libs/utils"

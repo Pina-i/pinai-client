@@ -1,5 +1,5 @@
-import type { IWsPort } from "@/domain/ports/ws.port"
-import type { WsClientMessage, WsConnectionStatus, WsServerEvent } from "@/domain/models/ws"
+import type { IWsPort } from "@pinai/domain/ports/ws.port"
+import type { WsClientMessage, WsConnectionStatus, WsServerEvent } from "@pinai/domain/models/ws"
 
 const MAX_RECONNECT_DELAY = 30_000
 

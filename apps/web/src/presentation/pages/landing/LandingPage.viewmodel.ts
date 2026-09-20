@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { startLoginUseCase } from "@/domain/usecases/auth/startLogin.usecase"
+import { startLoginUseCase } from "@pinai/domain/usecases/auth/startLogin.usecase"
 import { getAuthPlatform, getAuthPort, getAuthSessionStore } from "@/ioc/index"
 
 const DEFAULT_IDP_URL =

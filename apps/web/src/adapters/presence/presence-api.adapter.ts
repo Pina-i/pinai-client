@@ -1,6 +1,6 @@
 import ky, { HTTPError } from "ky"
-import type { PresenceSnapshotEntry } from "@/domain/models/presence"
-import type { IPresencePort } from "@/domain/ports/presence.port"
+import type { PresenceSnapshotEntry } from "@pinai/domain/models/presence"
+import type { IPresencePort } from "@pinai/domain/ports/presence.port"
 
 interface PresenceResponse {
     presence: PresenceSnapshotEntry[]

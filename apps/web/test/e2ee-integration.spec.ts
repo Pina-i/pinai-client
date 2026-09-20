@@ -35,8 +35,8 @@ import type {
 import { MlsAdapter } from "@/adapters/e2ee/mls.adapter"
 import { NobleRecoveryAdapter } from "@/adapters/e2ee/recovery.adapter"
 import type { DeviceAttestation, E2eeStorage, MlsSnapshot } from "@/adapters/e2ee/sealed-storage"
-import type { LocalFile } from "@/domain/models/file"
-import { asActorUri } from "@/domain/models/identity"
+import type { LocalFile } from "@pinai/domain/models/file"
+import { asActorUri } from "@pinai/domain/models/identity"
 import type {
     ActorUri,
     ApplicationMessage,
@@ -49,7 +49,7 @@ import type {
     KeyPackageStatusResponse,
     ReactionBody,
     TextBody,
-} from "@/domain/models/e2ee"
+} from "@pinai/domain/models/e2ee"
 
 let wasmModule: WebAssembly.Module
 

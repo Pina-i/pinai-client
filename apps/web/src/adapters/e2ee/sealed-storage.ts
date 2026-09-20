@@ -1,6 +1,6 @@
-import type { ActorUri, DeviceId, IdentityKeypair, ConversationId } from "@/domain/models/e2ee"
-import type { IDeviceKeyPort, SealedBytes } from "@/domain/ports/device-key.port"
-import type { IKeyValueStore } from "@/domain/ports/key-value-store.port"
+import type { ActorUri, DeviceId, IdentityKeypair, ConversationId } from "@pinai/domain/models/e2ee"
+import type { IDeviceKeyPort, SealedBytes } from "@pinai/domain/ports/device-key.port"
+import type { IKeyValueStore } from "@pinai/domain/ports/key-value-store.port"
 
 /**
  * The device's encrypted store, independent of where the bytes actually land.

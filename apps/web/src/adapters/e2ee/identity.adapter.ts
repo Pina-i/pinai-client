@@ -21,7 +21,7 @@ import type {
     Fingerprint,
     IdentityKeypair,
     IdentityPublicKeys,
-} from "@/domain/models/e2ee"
+} from "@pinai/domain/models/e2ee"
 
 /**
  * RFC 4648 base32 alphabet, no padding. Used for the human-readable

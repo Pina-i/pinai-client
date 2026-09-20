@@ -202,6 +202,9 @@ importers:
       '@noble/hashes':
         specifier: ^2.2.0
         version: 2.4.0
+      '@pinai/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@scure/bip39':
         specifier: ^2.2.0
         version: 2.4.0
@@ -317,6 +320,12 @@ importers:
       vitest:
         specifier: ^4.1.5
         version: 4.1.11(@types/node@24.13.6)(jsdom@29.1.1(@noble/hashes@2.4.0))(vite@8.3.0(@types/node@24.13.6)(jiti@2.7.0))
+
+  packages/domain:
+    devDependencies:
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
 
 packages:
 

@@ -1,5 +1,5 @@
 import type { StateCreator } from "zustand"
-import type { WsConnectionStatus, WsNotification } from "@/domain/models/ws"
+import type { WsConnectionStatus, WsNotification } from "@pinai/domain/models/ws"
 import type { Message } from "@/lib/types"
 import type { AppStore } from "../store"
 

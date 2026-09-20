@@ -1,5 +1,5 @@
 import { useEffect } from "react"
-import { getPendingFriendRequestsUseCase } from "@/domain/usecases/social/get-pending-friend-requests.usecase"
+import { getPendingFriendRequestsUseCase } from "@pinai/domain/usecases/social/get-pending-friend-requests.usecase"
 import { getSocialPort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 

@@ -18,8 +18,8 @@ import { WebCryptoDeviceKeyAdapter } from "@/adapters/e2ee/device-key.adapter"
 import { SealedStorage } from "@/adapters/e2ee/sealed-storage"
 import type { DeviceAttestation, MlsSnapshot } from "@/adapters/e2ee/sealed-storage"
 import { IdbKeyValueStore } from "@/adapters/storage/idb-key-value-store.adapter"
-import type { ConversationId, IdentityKeypair } from "@/domain/models/e2ee"
-import { asActorUri } from "@/domain/models/identity"
+import type { ConversationId, IdentityKeypair } from "@pinai/domain/models/e2ee"
+import { asActorUri } from "@pinai/domain/models/identity"
 
 function bytes(seed: number, length = 32): Uint8Array {
     return Uint8Array.from({ length }, (_, i) => (seed + i) % 256)

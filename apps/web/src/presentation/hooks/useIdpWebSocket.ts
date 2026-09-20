@@ -9,10 +9,10 @@ import type {
     EditBody,
     ReactionBody,
     TextBody,
-} from "@/domain/models/e2ee"
-import type { WsConnectionStatus, WsServerEvent } from "@/domain/models/ws"
+} from "@pinai/domain/models/e2ee"
+import type { WsConnectionStatus, WsServerEvent } from "@pinai/domain/models/ws"
 import type { Message } from "@/lib/types"
-import { actorUriToAddress } from "@/domain/models/identity"
+import { actorUriToAddress } from "@pinai/domain/models/identity"
 import { TYPING_INDICATOR_TTL_MS } from "@/store/slices/presence.slice"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
@@ -22,12 +22,12 @@ import { playDmNotificationSound } from "@/presentation/_libs/notification-sound
 const UNDECRYPTABLE_PLACEHOLDER = "[encrypted]"
 
 /** Module-level slot — `useDeviceFanout` registers its callback here. */
-const deviceFanoutHandlerRef: { current: ((e: import("@/domain/models/ws").DeviceJoinedPayload) => void) | null } = {
+const deviceFanoutHandlerRef: { current: ((e: import("@pinai/domain/models/ws").DeviceJoinedPayload) => void) | null } = {
     current: null,
 }
 
 export function registerDeviceFanoutHandler(
-    handler: (e: import("@/domain/models/ws").DeviceJoinedPayload) => void,
+    handler: (e: import("@pinai/domain/models/ws").DeviceJoinedPayload) => void,
 ): () => void {
     deviceFanoutHandlerRef.current = handler
     return () => {

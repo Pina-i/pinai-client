@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { handleCallbackUseCase } from "@/domain/usecases/auth/handleCallback.usecase"
+import { handleCallbackUseCase } from "@pinai/domain/usecases/auth/handleCallback.usecase"
 import { useAppStore } from "@/store/store"
 import { getAuthPlatform, getAuthPort, getAuthSessionStore } from "@/ioc/index"
 

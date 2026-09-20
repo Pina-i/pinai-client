@@ -1,7 +1,7 @@
 import { useEffect } from "react"
 import { useAppStore } from "@/store/store"
 import { getWsPort } from "@/ioc"
-import { sendHeartbeatUseCase } from "@/domain/usecases/presence/send-heartbeat.usecase"
+import { sendHeartbeatUseCase } from "@pinai/domain/usecases/presence/send-heartbeat.usecase"
 
 const HEARTBEAT_INTERVAL_MS = 30_000
 

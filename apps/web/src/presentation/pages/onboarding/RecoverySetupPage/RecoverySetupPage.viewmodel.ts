@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
 
-import { bootstrapFirstDeviceUseCase } from "@/domain/usecases/e2ee/bootstrap-first-device.usecase"
+import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstrap-first-device.usecase"
 import { getE2eePort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 

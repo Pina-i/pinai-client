@@ -1,23 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
-import { sendDmWsUseCase } from "@/domain/usecases/ws/send-dm-ws.usecase"
-import { sendTypingStartUseCase } from "@/domain/usecases/presence/send-typing-start.usecase"
-import { getConversationHistoryUseCase } from "@/domain/usecases/dm/get-conversation-history.usecase"
-import { getDmConversationsUseCase } from "@/domain/usecases/dm/get-dm-conversations.usecase"
+import { sendDmWsUseCase } from "@pinai/domain/usecases/ws/send-dm-ws.usecase"
+import { sendTypingStartUseCase } from "@pinai/domain/usecases/presence/send-typing-start.usecase"
+import { getConversationHistoryUseCase } from "@pinai/domain/usecases/dm/get-conversation-history.usecase"
+import { getDmConversationsUseCase } from "@pinai/domain/usecases/dm/get-dm-conversations.usecase"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 import { getDmPort, getE2eePort, getGroupPort, getWsPort } from "@/ioc"
-import { actorUriToAddress, addressToActorUri, asActorUri } from "@/domain/models/identity"
+import { actorUriToAddress, addressToActorUri, asActorUri } from "@pinai/domain/models/identity"
 import type { Message } from "@/lib/types"
-import type { DirectMessage } from "@/domain/models/dm"
+import type { DirectMessage } from "@pinai/domain/models/dm"
 import type {
     ActorUri,
     ApplicationMessage,
     AttachmentBlobKey,
     ReactionBody,
     TextBody,
-} from "@/domain/models/e2ee"
-import type { UserProfile } from "@/domain/models/auth"
+} from "@pinai/domain/models/e2ee"
+import type { UserProfile } from "@pinai/domain/models/auth"
 import type { MessageListHandle } from "@/presentation/organisms/MessageList/MessageList"
 
 /** Placeholder rendered when an MLS ciphertext can't be decrypted. */

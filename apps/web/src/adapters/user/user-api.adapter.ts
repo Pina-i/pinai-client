@@ -1,7 +1,7 @@
 import ky, { HTTPError } from "ky"
-import type { ProfilePatch, UserProfile } from "@/domain/models/auth"
-import type { LocalFile } from "@/domain/models/file"
-import type { IUserPort } from "@/domain/ports/user.port"
+import type { ProfilePatch, UserProfile } from "@pinai/domain/models/auth"
+import type { LocalFile } from "@pinai/domain/models/file"
+import type { IUserPort } from "@pinai/domain/ports/user.port"
 
 export class UserApiAdapter implements IUserPort {
     async uploadAvatar(

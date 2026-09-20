@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 import { Bell, Headphones, Laptop, Lock, MessageSquare, Settings as SettingsIcon, ShieldCheck, Sparkles, Sun } from "lucide-react"
-import type { UserProfile } from "@/domain/models/auth"
+import type { UserProfile } from "@pinai/domain/models/auth"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { DevicesEditor } from "./DevicesEditor/DevicesEditor"

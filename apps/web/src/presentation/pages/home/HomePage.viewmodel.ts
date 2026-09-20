@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react"
 import { useAppStore } from "@/store/store"
-import { sendFriendRequestUseCase } from "@/domain/usecases/social/send-friend-request.usecase"
+import { sendFriendRequestUseCase } from "@pinai/domain/usecases/social/send-friend-request.usecase"
 import { getSocialPort } from "@/ioc"
 import type { Message } from "@/lib/types"
 

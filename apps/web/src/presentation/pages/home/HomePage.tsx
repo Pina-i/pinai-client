@@ -2,7 +2,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { useCallback } from "react"
 import { PageTransition } from "@/presentation/atoms/page-transition/page-transition"
 import { useAppStore } from "@/store/store"
-import { sendFriendRequestUseCase } from "@/domain/usecases/social/send-friend-request.usecase"
+import { sendFriendRequestUseCase } from "@pinai/domain/usecases/social/send-friend-request.usecase"
 import { getSocialPort } from "@/ioc"
 import { FriendsPanel } from "./FriendsPanel/FriendsPanel"
 

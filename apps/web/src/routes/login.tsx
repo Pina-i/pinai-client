@@ -1,8 +1,8 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { LoginPage } from "@/presentation/pages/login/LoginPage"
 import { useAppStore } from "@/store/store"
-import { isTokenValid } from "@/domain/models/auth"
-import { startLoginUseCase } from "@/domain/usecases/auth/startLogin.usecase"
+import { isTokenValid } from "@pinai/domain/models/auth"
+import { startLoginUseCase } from "@pinai/domain/usecases/auth/startLogin.usecase"
 import { getAuthPlatform, getAuthPort } from "@/ioc/index"
 
 export const Route = createFileRoute("/login")({

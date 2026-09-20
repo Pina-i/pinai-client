@@ -1,6 +1,6 @@
 import { type IDBPDatabase, openDB } from "idb"
 
-import type { IKeyValueStore } from "@/domain/ports/key-value-store.port"
+import type { IKeyValueStore } from "@pinai/domain/ports/key-value-store.port"
 
 const DB_NAME = "pinai-e2ee"
 /** v4 added `device_attestation` (Phase 7). */

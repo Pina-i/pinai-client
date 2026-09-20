@@ -3,7 +3,7 @@ import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { Tooltip } from "@/presentation/atoms/Tooltip/Tooltip"
 import { Navbar } from "@/presentation/organisms/Navbar/Navbar"
-import { presenceToUserStatus } from "@/domain/models/presence"
+import { presenceToUserStatus } from "@pinai/domain/models/presence"
 import { useAppStore } from "@/store/store"
 import { Hash, MessageSquare, Pin, UserPlus, Users } from "lucide-react"
 

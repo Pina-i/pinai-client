@@ -1,6 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
-import { isTokenValid } from "@/domain/models/auth"
-import { ensureAuthenticatedUseCase } from "@/domain/usecases/auth/ensureAuthenticated.usecase"
+import { isTokenValid } from "@pinai/domain/models/auth"
+import { ensureAuthenticatedUseCase } from "@pinai/domain/usecases/auth/ensureAuthenticated.usecase"
 import { getAuthPlatform, getAuthPort } from "@/ioc/index"
 import { useAppStore } from "@/store/store"
 import { RecoverySetupPage } from "@/presentation/pages/onboarding/RecoverySetupPage/RecoverySetupPage"

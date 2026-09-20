@@ -1,4 +1,4 @@
-import type { IAuthNavigationPort } from "@/domain/ports/auth.port"
+import type { IAuthNavigationPort } from "@pinai/domain/ports/auth.port"
 
 /**
  * Browser implementation of {@link IAuthNavigationPort}: the IdP hand-off is

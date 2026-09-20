@@ -1,7 +1,7 @@
 import ky, { HTTPError } from "ky"
-import type { Attachment, DirectMessage, DmConversationSummary } from "@/domain/models/dm"
-import type { LocalFile } from "@/domain/models/file"
-import type { DmCursor, IDmPort, UploadProgress } from "@/domain/ports/dm.port"
+import type { Attachment, DirectMessage, DmConversationSummary } from "@pinai/domain/models/dm"
+import type { LocalFile } from "@pinai/domain/models/file"
+import type { DmCursor, IDmPort, UploadProgress } from "@pinai/domain/ports/dm.port"
 
 export class DmApiAdapter implements IDmPort {
     async listConversations(idpUrl: string, accessToken: string): Promise<DmConversationSummary[]> {

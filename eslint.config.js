@@ -86,8 +86,25 @@ export default defineConfig([
     },
   },
 
+  {
+    // The domain compiles with `DOM` in lib because `URL`, `URLSearchParams`,
+    // `AbortSignal` and `atob` have no smaller lib to come from — see
+    // packages/domain/tsconfig.json. These are the globals that admission
+    // must not let in: everything here is browser-only and absent on Hermes.
+    files: ['packages/domain/**/*.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        ...['window', 'document', 'localStorage', 'sessionStorage', 'indexedDB', 'navigator', 'XMLHttpRequest', 'alert']
+          .map((name) => ({ name, message: 'Browser-only, and absent on Hermes. Take it as a port parameter instead.' })),
+        { name: 'process', message: 'Node-only. Use injected configuration.' },
+        { name: 'Buffer', message: 'Node-only. Use Uint8Array.' },
+      ],
+    },
+  },
+
   boundary(
-    [app('domain')],
+    [app('domain'), 'packages/domain/**/*.ts'],
     OUTWARD('adapters', 'store', 'presentation', 'routes', 'ioc', 'lib'),
     'The domain depends on nothing. Take what you need as a port parameter ' +
       '(see domain/ports/) and let the IoC container inject the implementation.',

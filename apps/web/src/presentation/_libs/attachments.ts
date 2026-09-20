@@ -1,5 +1,5 @@
-import type { Attachment } from "@/domain/models/dm"
-import type { AttachmentBlobKey } from "@/domain/models/e2ee"
+import type { Attachment } from "@pinai/domain/models/dm"
+import type { AttachmentBlobKey } from "@pinai/domain/models/e2ee"
 
 /**
  * True for any image/* MIME type. Prefers the decrypted `attachmentKey.mime_type`

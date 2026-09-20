@@ -16,14 +16,14 @@ import type {
     DeviceId,
     Fingerprint,
     KeyPackageStatusResponse,
-} from "@/domain/models/e2ee"
-import type { IE2eePort } from "@/domain/ports/e2ee.port"
-import type { IHistoryArchivePort } from "@/domain/ports/history-archive.port"
+} from "@pinai/domain/models/e2ee"
+import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
+import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
 
 import type { HistoryArchiveAdapter } from "./history-archive.adapter"
 import type { IdentityAdapter } from "./identity.adapter"
 import type { IKeyDirectoryAdapter } from "./key-directory.adapter"
-import type { IMlsEngine } from "@/domain/ports/mls-engine.port"
+import type { IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
 import { PairingInitiator, PairingResponder } from "./pairing.adapter"
 import type { RecoveryAdapter } from "./recovery.adapter"
 import type { DeviceAttestation, E2eeStorage } from "./sealed-storage"

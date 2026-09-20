@@ -1,4 +1,4 @@
-import type { LocalFile } from "@/domain/models/file"
+import type { LocalFile } from "@pinai/domain/models/file"
 
 /**
  * Browser `File`/`Blob` → the domain's {@link LocalFile}.

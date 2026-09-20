@@ -1,7 +1,7 @@
 import { UserMinus } from "lucide-react"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { cn } from "@/presentation/_libs/utils"
-import { userStatusLabel } from "@/domain/models/presence"
+import { userStatusLabel } from "@pinai/domain/models/presence"
 import type { Friend } from "../FriendsPanel.viewmodel"
 
 interface FriendRowProps {

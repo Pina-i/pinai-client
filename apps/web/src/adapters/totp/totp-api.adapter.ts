@@ -3,7 +3,7 @@ import type {
     ITotpPort,
     TotpEnrollResponse,
     TotpEnrollVerifyResponse,
-} from "@/domain/ports/totp.port"
+} from "@pinai/domain/ports/totp.port"
 
 function base(idpUrl: string): string {
     return idpUrl.replace(/\/$/, "")

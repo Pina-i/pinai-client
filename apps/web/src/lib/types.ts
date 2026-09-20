@@ -1,6 +1,6 @@
-import type { UserStatus } from "@/domain/models/presence"
-import type { Attachment } from "@/domain/models/dm"
-import type { AttachmentBlobKey } from "@/domain/models/e2ee"
+import type { UserStatus } from "@pinai/domain/models/presence"
+import type { Attachment } from "@pinai/domain/models/dm"
+import type { AttachmentBlobKey } from "@pinai/domain/models/e2ee"
 
 export interface Message {
     id: string

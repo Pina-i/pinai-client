@@ -1,13 +1,13 @@
 import { useState, type ReactNode } from "react"
 import { AtSign, Bell, Check, ChevronRight, Hash, LogOut, Moon, Pencil, UserPen } from "lucide-react"
 import { useAppStore } from "@/store/store"
-import { logoutUseCase } from "@/domain/usecases/auth/logout.usecase"
-import { setPresenceUseCase } from "@/domain/usecases/presence/set-presence.usecase"
+import { logoutUseCase } from "@pinai/domain/usecases/auth/logout.usecase"
+import { setPresenceUseCase } from "@pinai/domain/usecases/presence/set-presence.usecase"
 import { getAuthPlatform, getWsPort } from "@/ioc"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { Popover } from "@/presentation/molecules/Popover/Popover"
 import { cn } from "@/presentation/_libs/utils"
-import type { UserStatus } from "@/domain/models/presence"
+import type { UserStatus } from "@pinai/domain/models/presence"
 
 interface StatusMeta {
     id: UserStatus

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
 
-import { restoreHistoryFromPassphraseUseCase } from "@/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
+import { restoreHistoryFromPassphraseUseCase } from "@pinai/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
 import { getE2eePort } from "@/ioc"
 import type { RecoveryPassphraseInputHandle } from "@/presentation/molecules/RecoveryPassphraseInput/RecoveryPassphraseInput"
 import {

@@ -4,7 +4,7 @@ import type {
     ApplicationMessage,
     EditBody,
     ReactionBody,
-} from "@/domain/models/e2ee"
+} from "@pinai/domain/models/e2ee"
 import { getDmPort, getE2eePort } from "@/ioc"
 import type { Message } from "@/lib/types"
 

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 
-import type { DeviceKind, DeviceListEntry } from "@/domain/models/device"
+import type { DeviceKind, DeviceListEntry } from "@pinai/domain/models/device"
 import { getDeviceDirectoryPort, getE2eePort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 

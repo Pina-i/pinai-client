@@ -9,7 +9,7 @@ import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { Popover } from "@/presentation/molecules/Popover/Popover"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import { cn } from "@/presentation/_libs/utils"
-import type { WsNotification, WsNotificationEventType } from "@/domain/models/ws"
+import type { WsNotification, WsNotificationEventType } from "@pinai/domain/models/ws"
 
 type FilterPill = "all" | "unread" | "mentions"
 

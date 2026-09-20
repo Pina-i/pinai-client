@@ -1,5 +1,5 @@
-import type { UserProfile } from "@/domain/models/auth"
-import type { UserStatus } from "@/domain/models/presence"
+import type { UserProfile } from "@pinai/domain/models/auth"
+import type { UserStatus } from "@pinai/domain/models/presence"
 import type { StateCreator } from "zustand"
 import type { AppStore } from "../store"
 

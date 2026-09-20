@@ -16,7 +16,7 @@ import type {
     DeviceId,
     IdentityPublicKeys,
     KeyPackageStatusResponse,
-} from "@/domain/models/e2ee"
+} from "@pinai/domain/models/e2ee"
 
 export interface CommitView {
     id: string

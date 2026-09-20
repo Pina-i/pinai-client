@@ -4,13 +4,12 @@
 
 This project follows a **hexagonal architecture** (Clean Architecture) with strict separation between layers:
 
+The business core is no longer here — it lives in `packages/domain`
+(`@pinai/domain`), which this app depends on like any other package.
+
 ```
 locales/              # Translation files
 src/ <- this folder
-├── domain/           # Business core (use cases, ports, models)
-│   ├── models/       # Business entities
-│   ├── ports/        # Interfaces for adapters
-│   └── usecases/     # Business logic
 ├── adapters/         # Technical implementations (InMemory, API, etc.)
 ├── presentation/     # UI layer (Atomic Design)
 │   ├── atoms/        # Basic building blocks (Button, Input, Label, etc.)
@@ -25,7 +24,8 @@ src/ <- this folder
 
 ### Dependency principle
 
-- The **domain** depends on nothing (pure TypeScript)
+- The **domain** depends on nothing (pure TypeScript) — now enforced by it
+  being a package with no dependencies, not just by lint
 - The **adapters** depend on the domain (implement ports)
 - The **presentation** (pages) uses the domain via IoC
 

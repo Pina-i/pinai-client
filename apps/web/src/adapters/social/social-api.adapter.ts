@@ -1,6 +1,6 @@
 import ky, { HTTPError } from "ky"
-import type { FriendListEntry, FriendRequestResponse, PendingFriendRequest } from "@/domain/models/social"
-import type { ISocialPort } from "@/domain/ports/social.port"
+import type { FriendListEntry, FriendRequestResponse, PendingFriendRequest } from "@pinai/domain/models/social"
+import type { ISocialPort } from "@pinai/domain/ports/social.port"
 
 export class SocialApiAdapter implements ISocialPort {
     async sendFriendRequest(idpUrl: string, accessToken: string, address: string): Promise<FriendRequestResponse> {

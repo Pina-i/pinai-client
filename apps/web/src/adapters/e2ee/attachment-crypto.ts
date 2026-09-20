@@ -9,9 +9,9 @@
  * sees ciphertext bytes + a placeholder filename / MIME.
  */
 
-import type { AttachmentBlobKey } from "@/domain/models/e2ee"
-import type { LocalFile } from "@/domain/models/file"
-import type { IAttachmentCryptoPort } from "@/domain/ports/attachment-crypto.port"
+import type { AttachmentBlobKey } from "@pinai/domain/models/e2ee"
+import type { LocalFile } from "@pinai/domain/models/file"
+import type { IAttachmentCryptoPort } from "@pinai/domain/ports/attachment-crypto.port"
 
 const AES_ALGORITHM: AesKeyAlgorithm = { name: "AES-GCM", length: 256 }
 const KEY_USAGES: KeyUsage[] = ["encrypt", "decrypt"]

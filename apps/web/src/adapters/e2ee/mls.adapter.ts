@@ -22,13 +22,13 @@ import init, {
     start as wasmStart,
 } from "openmls-wasm"
 
-import type { ActorUri, ConversationId, DeviceId } from "@/domain/models/e2ee"
+import type { ActorUri, ConversationId, DeviceId } from "@pinai/domain/models/e2ee"
 import type {
     AddMemberOutput,
     IMlsEngine,
     MlsCiphertext,
     ProcessOutcome,
-} from "@/domain/ports/mls-engine.port"
+} from "@pinai/domain/ports/mls-engine.port"
 
 export type { AddMemberOutput, MlsCiphertext, ProcessOutcome }
 

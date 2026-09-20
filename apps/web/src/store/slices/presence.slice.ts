@@ -1,5 +1,5 @@
 import type { StateCreator } from "zustand"
-import type { PresenceState } from "@/domain/models/presence"
+import type { PresenceState } from "@pinai/domain/models/presence"
 import type { AppStore } from "../store"
 
 export interface TypingEntry {

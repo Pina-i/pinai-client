@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import type { IDeviceKeyPort } from "@/domain/ports/device-key.port"
+import type { IDeviceKeyPort } from "@pinai/domain/ports/device-key.port"
 import { devtools, persist } from "zustand/middleware"
 // This file is a composition root, like `ioc/index.ts`: it is where the
 // platform's persistence is wired into the store. The slices under

@@ -1,0 +1,12 @@
+import type { DirectMessage } from "../../models/dm"
+import type { DmCursor, IDmPort } from "../../ports/dm.port"
+
+export async function getConversationHistoryUseCase(
+    idpUrl: string,
+    accessToken: string,
+    conversationId: string,
+    port: IDmPort,
+    cursor?: DmCursor,
+): Promise<DirectMessage[]> {
+    return port.getConversation(idpUrl, accessToken, conversationId, cursor)
+}

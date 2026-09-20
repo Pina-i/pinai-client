@@ -12,11 +12,11 @@
  */
 import { describe, expect, it, vi } from "vitest"
 
-import type { ActorUri } from "@/domain/models/e2ee"
-import { asActorUri } from "@/domain/models/identity"
-import type { KeyPackageStatusResponse } from "@/domain/models/e2ee"
-import type { IE2eePort } from "@/domain/ports/e2ee.port"
-import { bootstrapFirstDeviceUseCase } from "@/domain/usecases/e2ee/bootstrap-first-device.usecase"
+import type { ActorUri } from "@pinai/domain/models/e2ee"
+import { asActorUri } from "@pinai/domain/models/identity"
+import type { KeyPackageStatusResponse } from "@pinai/domain/models/e2ee"
+import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
+import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstrap-first-device.usecase"
 
 const IDP_URL = "https://idp.example"
 const TOKEN = "test-token"

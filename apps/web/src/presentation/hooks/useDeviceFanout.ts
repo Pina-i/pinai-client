@@ -1,9 +1,9 @@
 import { useCallback, useEffect } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 
-import type { ActorUri, ConversationId } from "@/domain/models/e2ee"
-import type { DeviceJoinedPayload } from "@/domain/models/ws"
-import type { IE2eePort } from "@/domain/ports/e2ee.port"
+import type { ActorUri, ConversationId } from "@pinai/domain/models/e2ee"
+import type { DeviceJoinedPayload } from "@pinai/domain/models/ws"
+import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
 import { getDeviceDirectoryPort, getE2eePort } from "@/ioc"
 import { devicesQueryKey } from "@/presentation/hooks/useDevices"
 import { useAppStore } from "@/store/store"

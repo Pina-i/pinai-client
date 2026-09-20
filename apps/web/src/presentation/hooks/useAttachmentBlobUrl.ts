@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 
-import type { AttachmentBlobKey } from "@/domain/models/e2ee"
+import type { AttachmentBlobKey } from "@pinai/domain/models/e2ee"
 import { getAttachmentCryptoPort, getDmPort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 
