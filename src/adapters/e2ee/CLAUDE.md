@@ -21,10 +21,11 @@ collaborators it composes.
   `exportSecret`. All bytes-in / bytes-out.
 - **`device-key.adapter.ts`** — `WebCryptoDeviceKeyAdapter`, the WebCrypto
   implementation of `IDeviceKeyPort`. Wraps the non-extractable
-  AES-256-GCM `CryptoKey` that `storage.adapter.ts` mints, and is the only
-  thing outside that file which touches it — `getOrCreateDeviceKey` has no
-  callers beyond this adapter, so no `CryptoKey` ever crosses out of
-  `adapters/`. Covered by `test/device-key.spec.ts`.
+  AES-256-GCM `CryptoKey` that `storage.adapter.ts` mints, and is the single
+  place at-rest sealing happens: both the E2EE stores and the zustand persist
+  middleware go through it, and `getOrCreateDeviceKey` has no caller besides
+  it, so no `CryptoKey` crosses out of `adapters/`. Every encrypted row on
+  disk is a `SealedBytes`. Covered by `test/device-key.spec.ts`.
 - **`identity.adapter.ts`** — `NobleIdentityAdapter`.
   MSK/SSK/USK Ed25519 generation via `@noble/curves`; SSK + USK signed
   by MSK with domain-separation tags. Computes the 60-char base32

@@ -16,7 +16,8 @@
  * - DB: `pinai-zustand-store` (v1)
  * - Object store: `slices`
  * - Key: zustand's `name` field (one entry per partialized state)
- * - Value: `{ ciphertext, iv }` — see `SealedSlice` for why those names
+ * - Value: a `SealedBytes` — the same at-rest shape `storage.adapter.ts`
+ *   writes, so there is one sealed-row format in the app
  *
  * Inner serialization is **msgpack** (`msgpackr`), not JSON. JSON has
  * no native binary type — a `Uint8Array` round-trips through it as an
@@ -37,23 +38,11 @@ import { type IDBPDatabase, openDB } from "idb"
 import { pack, unpack } from "msgpackr"
 import type { PersistStorage, StorageValue } from "zustand/middleware"
 
-import type { IDeviceKeyPort } from "@/domain/ports/device-key.port"
+import type { IDeviceKeyPort, SealedBytes } from "@/domain/ports/device-key.port"
 
 const DB_NAME = "pinai-zustand-store"
 const DB_VERSION = 1
 const SLICES_STORE = "slices"
-
-/**
- * On-disk row. The field names predate the device-key port and are kept as
- * they are — `iv` rather than `nonce`, and a `ciphertext` that may be an
- * `ArrayBuffer` on rows written before the port existed. Renaming or
- * re-typing them would make every already-persisted conversation cache
- * undecodable, costing users their offline history for nothing.
- */
-interface SealedSlice {
-    ciphertext: ArrayBuffer | Uint8Array
-    iv: Uint8Array
-}
 
 let dbPromise: Promise<IDBPDatabase> | null = null
 
@@ -70,10 +59,6 @@ function openSlicesDb(): Promise<IDBPDatabase> {
     return dbPromise
 }
 
-function toBytes(value: ArrayBuffer | Uint8Array): Uint8Array {
-    return value instanceof Uint8Array ? value : new Uint8Array(value)
-}
-
 /**
  * Build a `PersistStorage` for use with Zustand's `persist` middleware.
  *
@@ -85,17 +70,13 @@ export function createEncryptedIdbStorage<T>(deviceKey: IDeviceKeyPort): Persist
     return {
         async getItem(name: string): Promise<StorageValue<T> | null> {
             const db = await openSlicesDb()
-            const sealed = (await db.get(SLICES_STORE, name)) as SealedSlice | undefined
+            const sealed = (await db.get(SLICES_STORE, name)) as SealedBytes | undefined
             if (!sealed) return null
             try {
-                const plaintext = await deviceKey.open({
-                    ciphertext: toBytes(sealed.ciphertext),
-                    nonce: sealed.iv,
-                })
-                return unpack(plaintext) as StorageValue<T>
+                return unpack(await deviceKey.open(sealed)) as StorageValue<T>
             } catch (e) {
-                // Corrupt or wrong key (or a pre-msgpack-era JSON
-                // blob from before the format swap) — drop the row
+                // Corrupt, wrong key, or a row from an older on-disk
+                // format — drop it
                 // so the next save starts clean. Returning null
                 // makes Zustand boot with the slice's default state,
                 // which is the right failure mode (vs. blowing up
@@ -110,9 +91,9 @@ export function createEncryptedIdbStorage<T>(deviceKey: IDeviceKeyPort): Persist
         },
 
         async setItem(name: string, value: StorageValue<T>): Promise<void> {
-            const { ciphertext, nonce } = await deviceKey.seal(pack(value))
+            const sealed = await deviceKey.seal(pack(value))
             const db = await openSlicesDb()
-            await db.put(SLICES_STORE, { ciphertext, iv: nonce } satisfies SealedSlice, name)
+            await db.put(SLICES_STORE, sealed satisfies SealedBytes, name)
         },
 
         async removeItem(name: string): Promise<void> {

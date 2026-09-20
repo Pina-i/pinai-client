@@ -20,6 +20,10 @@
 
 import { type IDBPDatabase, openDB } from "idb"
 
+import type { IDeviceKeyPort, SealedBytes } from "@/domain/ports/device-key.port"
+
+import { WebCryptoDeviceKeyAdapter } from "./device-key.adapter"
+
 import type {
     ActorUri,
     ConversationId,
@@ -46,7 +50,6 @@ const DEVICE_ATTESTATION_KEY = "current"
 
 const AES_ALGORITHM: AesKeyAlgorithm = { name: "AES-GCM", length: 256 }
 const AES_KEY_USAGES: KeyUsage[] = ["encrypt", "decrypt"]
-const IV_BYTES = 12
 
 interface MetaRow {
     device_id: DeviceId
@@ -58,10 +61,12 @@ interface MetaRow {
     bound_actor_uri?: ActorUri
 }
 
-interface SealedRow {
-    ciphertext: ArrayBuffer
-    iv: Uint8Array
-}
+/**
+ * Every encrypted row on disk is a {@link SealedBytes} — the same shape the
+ * device-key port speaks, so there is one at-rest format in the app rather
+ * than one per store.
+ */
+type SealedRow = SealedBytes
 
 /**
  * Plaintext shape we serialise to JSON before encrypting. JSON keeps
@@ -156,6 +161,23 @@ export interface E2eeStorage {
 export class IndexedDbStorageAdapter implements E2eeStorage {
     private db: IDBPDatabase | null = null
 
+    /**
+     * At-rest sealing goes through the port, not through `crypto.subtle`
+     * directly: one implementation of AES-GCM-under-the-device-key for the
+     * whole app, and the `CryptoKey` stays inside `getOrCreateDeviceKey`.
+     * Constructing it with `this` is safe — it only ever calls back lazily.
+     */
+    private readonly deviceKey: IDeviceKeyPort = new WebCryptoDeviceKeyAdapter(this)
+
+    private async seal(value: object): Promise<SealedRow> {
+        return this.deviceKey.seal(new TextEncoder().encode(JSON.stringify(value)))
+    }
+
+    private async open<T>(sealed: SealedRow): Promise<T> {
+        const plaintext = await this.deviceKey.open(sealed)
+        return JSON.parse(new TextDecoder().decode(plaintext)) as T
+    }
+
     private async openIfNeeded(): Promise<IDBPDatabase> {
         if (this.db) return this.db
         this.db = await openDB(DB_NAME, DB_VERSION, {
@@ -211,8 +233,7 @@ export class IndexedDbStorageAdapter implements E2eeStorage {
     }
 
     async saveIdentityKeypair(keypair: IdentityKeypair): Promise<void> {
-        const meta = await this.getOrCreateMeta()
-        const sealed = await sealWith(meta.device_key, keypairToJson(keypair))
+        const sealed = await this.seal(keypairToJson(keypair))
         const db = await this.openIfNeeded()
         await db.put(IDENTITY_STORE, sealed, IDENTITY_KEY)
     }
@@ -223,13 +244,12 @@ export class IndexedDbStorageAdapter implements E2eeStorage {
         const db = await this.openIfNeeded()
         const sealed = (await db.get(IDENTITY_STORE, IDENTITY_KEY)) as SealedRow | undefined
         if (!sealed) return null
-        const json = await openSealed<IdentityKeypairJson>(meta.device_key, sealed)
+        const json = await this.open<IdentityKeypairJson>(sealed)
         return keypairFromJson(json)
     }
 
     async saveMlsSnapshot(snapshot: MlsSnapshot): Promise<void> {
-        const meta = await this.getOrCreateMeta()
-        const sealed = await sealWith(meta.device_key, mlsSnapshotToJson(snapshot))
+        const sealed = await this.seal(mlsSnapshotToJson(snapshot))
         const db = await this.openIfNeeded()
         await db.put(MLS_SNAPSHOT_STORE, sealed, MLS_SNAPSHOT_KEY)
     }
@@ -243,7 +263,7 @@ export class IndexedDbStorageAdapter implements E2eeStorage {
             | undefined
         if (!sealed) return null
         try {
-            const json = await openSealed<MlsSnapshotJson>(meta.device_key, sealed)
+            const json = await this.open<MlsSnapshotJson>(sealed)
             return mlsSnapshotFromJson(json)
         } catch (e) {
             // Corrupt or wrong key (e.g. user wiped meta but not the
@@ -257,8 +277,7 @@ export class IndexedDbStorageAdapter implements E2eeStorage {
     }
 
     async saveRecoveryPassphrase(words: string[]): Promise<void> {
-        const meta = await this.getOrCreateMeta()
-        const sealed = await sealWith(meta.device_key, { words })
+        const sealed = await this.seal({ words })
         const db = await this.openIfNeeded()
         await db.put(RECOVERY_PASSPHRASE_STORE, sealed, RECOVERY_PASSPHRASE_KEY)
     }
@@ -273,7 +292,7 @@ export class IndexedDbStorageAdapter implements E2eeStorage {
         )) as SealedRow | undefined
         if (!sealed) return null
         try {
-            const json = await openSealed<{ words: string[] }>(meta.device_key, sealed)
+            const json = await this.open<{ words: string[] }>(sealed)
             return Array.isArray(json.words) ? json.words : null
         } catch (e) {
             // Corrupt or wrong key. Drop it and behave as "not stored"
@@ -294,8 +313,7 @@ export class IndexedDbStorageAdapter implements E2eeStorage {
     }
 
     async saveDeviceAttestation(att: DeviceAttestation): Promise<void> {
-        const meta = await this.getOrCreateMeta()
-        const sealed = await sealWith(meta.device_key, deviceAttestationToJson(att))
+        const sealed = await this.seal(deviceAttestationToJson(att))
         const db = await this.openIfNeeded()
         await db.put(DEVICE_ATTESTATION_STORE, sealed, DEVICE_ATTESTATION_KEY)
     }
@@ -309,7 +327,7 @@ export class IndexedDbStorageAdapter implements E2eeStorage {
             | undefined
         if (!sealed) return null
         try {
-            const json = await openSealed<DeviceAttestationJson>(meta.device_key, sealed)
+            const json = await this.open<DeviceAttestationJson>(sealed)
             return deviceAttestationFromJson(json)
         } catch (e) {
             // Corrupt or wrong key — drop the row; next register-device call
@@ -392,28 +410,6 @@ function deviceAttestationFromJson(j: DeviceAttestationJson): DeviceAttestation 
         expires_at: j.expires_at,
         signed_message: new Uint8Array(j.signed_message),
     }
-}
-
-async function sealWith(key: CryptoKey, value: object): Promise<SealedRow> {
-    const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES))
-    const plaintext = new TextEncoder().encode(JSON.stringify(value))
-    const ciphertext = await crypto.subtle.encrypt(
-        { name: "AES-GCM", iv },
-        key,
-        // Cast: subtle.encrypt accepts any BufferSource; TS's lib.dom
-        // narrows to `BufferSource` which is what Uint8Array satisfies.
-        plaintext as BufferSource,
-    )
-    return { ciphertext, iv }
-}
-
-async function openSealed<T>(key: CryptoKey, sealed: SealedRow): Promise<T> {
-    const plaintext = await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: sealed.iv as BufferSource },
-        key,
-        sealed.ciphertext,
-    )
-    return JSON.parse(new TextDecoder().decode(plaintext)) as T
 }
 
 /**
