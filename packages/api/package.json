@@ -1,0 +1,19 @@
+{
+  "name": "@pinai/api",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pinai/domain": "workspace:*",
+    "ky": "^1.14.3"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  }
+}

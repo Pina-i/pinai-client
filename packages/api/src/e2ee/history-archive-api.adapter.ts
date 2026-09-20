@@ -6,7 +6,7 @@ import type {
     ArchivePageCursor,
     IHistoryArchivePort,
 } from "@pinai/domain/ports/history-archive.port"
-import { base64ToBytes, bytesToBase64 } from "@/lib/utils-bytes"
+import { base64ToBytes, bytesToBase64 } from "@pinai/domain/lib/bytes"
 
 const BATCH_MAX = 50
 

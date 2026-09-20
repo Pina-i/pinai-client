@@ -1,7 +1,7 @@
 import { ed25519 } from "@noble/curves/ed25519.js"
 
-import type { JwksCacheAdapter } from "@/adapters/jwks/jwks-cache.adapter"
-import { base64ToBytes } from "@/lib/utils-bytes"
+import type { IJwksCachePort } from "@pinai/domain/ports/jwks-cache.port"
+import { base64ToBytes } from "@pinai/domain/lib/bytes"
 
 const CLOCK_SKEW_MS = 5 * 60 * 1000 // 5 minutes
 
@@ -39,7 +39,7 @@ function originOf(url: string): string | null {
  */
 export async function verifyLeafCredential(
     credentialBytes: Uint8Array,
-    jwks: JwksCacheAdapter,
+    jwks: IJwksCachePort,
 ): Promise<VerifyResult> {
     let cred: LeafCredentialV1
     try {

@@ -5,7 +5,8 @@
  * rotation safety.
  */
 
-import { base64urlToBytes } from "@/lib/utils-bytes"
+import { base64urlToBytes } from "@pinai/domain/lib/bytes"
+import type { Ed25519PublicKey, IJwksCachePort } from "@pinai/domain/ports/jwks-cache.port"
 
 interface JwksKey {
     kty: string
@@ -24,9 +25,9 @@ const TTL_MS = 60 * 60 * 1000 // 1 hour
 const STORAGE_PREFIX = "pinai.jwks."
 
 /** Raw 32-byte Ed25519 public key. `null` when no matching `kid` exists. */
-export type Ed25519PublicKey = Uint8Array
+export type { Ed25519PublicKey } from "@pinai/domain/ports/jwks-cache.port"
 
-export class JwksCacheAdapter {
+export class JwksCacheAdapter implements IJwksCachePort {
     private inflight = new Map<string, Promise<CachedJwks>>()
 
     async getKey(issuer: string, kid: string): Promise<Ed25519PublicKey | null> {

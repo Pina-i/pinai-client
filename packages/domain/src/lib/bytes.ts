@@ -1,6 +1,11 @@
 /**
  * Base64 byte-encoding helpers. `base64url` for JWS/JWK; plain `base64`
  * (with `=` padding) elsewhere.
+ *
+ * In the domain because base64 is the wire format for every binary field the
+ * protocol carries — decoding it is part of speaking the protocol, not a
+ * detail of any one transport. `atob`/`btoa` are among the four globals this
+ * package assumes; see tsconfig.json.
  */
 
 export function base64urlToBytes(s: string): Uint8Array {
