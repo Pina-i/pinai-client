@@ -126,8 +126,21 @@ pinai-client/                 # pnpm workspace root
             └── lib/          # Layer-neutral helpers + view-model types
 ```
 
-Still to lift: the store slices with the view models. What
-stays in `apps/web` for good is the platform-specific remainder — WASM,
+Nothing further is queued for `packages/`. The line was drawn deliberately:
+what is shared is the part where a second implementation would introduce
+bugs — the protocol, the crypto, the business rules. What is not shared is
+the frontend — the zustand slices, the view models and the components stay
+in `apps/web`, because a mobile client will not have the same screens or the
+same state shape, and the state container is the first thing a stack change
+would replace. Duplicating a store slice is cheap; duplicating the MLS
+ratchet is not.
+
+If any of that ever does want sharing, the thing to lift is the *rules* —
+reaction folding, optimistic reconciliation, typing expiry — as pure
+functions in `@pinai/domain`, not as slices. Pure functions survive a change
+of state container; a slice does not.
+
+What stays in `apps/web` for good is the platform-specific remainder — WASM,
 WebCrypto, IndexedDB, web storage and navigation. `apps/mobile/` is
 deliberately absent until that work begins.
 

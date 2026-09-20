@@ -23,6 +23,35 @@ because Hermes has no WebAssembly.
   port even though the wasm calls underneath are synchronous — see the port
   for why that was decided before the native binding exists.
 
+## When to split this package
+
+One package, one file per implementation, is deliberate while there is only
+one implementation: `leaf-credential.ts` is shared by all of them, and they
+stay pinned to one openmls version and one ciphersuite because they are
+installed together.
+
+The trigger to split is concrete — **the moment the native side needs a
+non-TypeScript file of its own.** It will: a compiled Rust library per
+architecture, an Expo config plugin to wire the build, probably a podspec and
+a Gradle hook. That is build machinery the web app has no use for, and by
+then `@pinai/web` would be installing it.
+
+The split at that point is three packages:
+
+- `@pinai/mls` — `leaf-credential.ts` and the conformance suite. Depends on
+  `@pinai/domain` and nothing else.
+- `@pinai/mls-wasm` — the current adapter plus `openmls-wasm`.
+- `@pinai/mls-native` — the uniffi binding plus its native artifacts.
+
+Doing it before then would be three packages for twenty shared lines, and the
+shape of the native one is not knowable until the spike says what it ships.
+
+A third implementation worth having eventually is a **fake** in-memory engine,
+so tests above this layer need not compile a 2 MB wasm bundle. It belongs
+here with the others, for the same reason the package exists — it has to
+encode leaf credentials the same way. Keep it out of the E2EE specs, which
+earn their keep by driving the real engine.
+
 ## Adding the native implementation
 
 The crate is at `crypto/openmls-wasm/` (root of the repo, not inside the web
