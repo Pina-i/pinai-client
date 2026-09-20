@@ -30,4 +30,11 @@
         },
     },
     "include": ["src", "test"],
+    /* Vendored React Aria registry output — source someone pastes in and then
+       owns, not a library. It predates this project's `verbatimModuleSyntax`
+       and `noUnusedLocals`, and the registry CLI rewrites it, so fixing it in
+       place would lose the fixes on the next `add`. Adopt a component by
+       moving it into `presentation/` and bringing it up to house style; that
+       copy is checked like everything else. */
+    "exclude": ["src/components/ui"],
 }

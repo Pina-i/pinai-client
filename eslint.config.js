@@ -48,7 +48,7 @@ export default defineConfig([
   // exist). It is neither built nor type-checked, so linting it only produces
   // noise. Delete it, or wire it in and drop this ignore.
   // `crypto/openmls-pkg` is wasm-pack output — generated, never committed.
-  globalIgnores(['**/dist', 'components', 'crypto/openmls-pkg']),
+  globalIgnores(['**/dist', 'apps/web/src/components/ui', 'crypto/openmls-pkg']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

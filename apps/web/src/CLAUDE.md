@@ -23,6 +23,8 @@ src/ <- this folder
 │   ├── organisms/    # Complex UI sections (Header, Form, DataTable, etc.)
 │   ├── templates/    # Page layouts and structural components
 │   └── pages/        # Application pages (rendered by Tanstack router routes)
+├── components/ui/    # Vendored React Aria registry output — staging area,
+│                     #   not a library. Unadopted; see its own CLAUDE.md.
 ├── ioc/              # Dependency injection configuration
 └── config/           # Global configurations
 └── routes/           # Tanstack Router routes

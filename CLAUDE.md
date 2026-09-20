@@ -111,6 +111,7 @@ pinai-client/                 # pnpm workspace root
 └── apps/
     └── web/                  # The browser client (@pinai/web)
         ├── index.html, vite.config.ts, vitest.config.ts, tsconfig*.json
+        ├── components.json    # React Aria registry config for the CLI
         ├── public/
         ├── test/             # Vitest specs (jsdom env). `test/setup/wasm.ts`
         │                     #   compiles the real bundle the app loads, resolved
@@ -123,7 +124,10 @@ pinai-client/                 # pnpm workspace root
             │                 #   is the reusable part.
             ├── routes/       # TanStack Router routes
             ├── ioc/          # Dependency injection configuration
-            └── lib/          # Layer-neutral helpers + view-model types
+            ├── lib/          # Layer-neutral helpers + view-model types
+            └── components/ui # Vendored React Aria registry output. Unadopted
+                              #   and unreferenced; excluded from tsc and
+                              #   eslint. See its CLAUDE.md before using it.
 ```
 
 Nothing further is queued for `packages/`. The line was drawn deliberately:
