@@ -34,6 +34,16 @@ Pure TypeScript — no framework dependencies.
 - Bytes in, bytes out — every implementation must agree byte-for-byte;
   the specs in `test/` are the contract.
 
+### ports/device-key.port.ts
+- `IDeviceKeyPort` — at-rest `seal` / `open` bound to this device, plus
+  `SealedBytes`
+- Exposes **operations, never the key**: the web's non-extractable
+  `CryptoKey` and a device's Keychain reference cannot both be named in
+  shared code, and a port returning a key handle would force one on the
+  other
+- What it seals never leaves the device, so implementations need not agree
+  on a format — unlike the protocol-level crypto, which must
+
 ### ports/attachment-crypto.port.ts
 - `IAttachmentCryptoPort` — per-attachment AES-256-GCM seal/open. Protocol
   visible: the key, nonce and AAD travel to the peer in the MLS body, so

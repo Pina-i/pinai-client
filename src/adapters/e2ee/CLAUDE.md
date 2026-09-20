@@ -19,6 +19,12 @@ collaborators it composes.
   `createGroup`/`joinGroup`, `addMember`/`removeMember`/`update`,
   `mergePendingCommit`, `encryptApplication`, `processMessage`,
   `exportSecret`. All bytes-in / bytes-out.
+- **`device-key.adapter.ts`** — `WebCryptoDeviceKeyAdapter`, the WebCrypto
+  implementation of `IDeviceKeyPort`. Wraps the non-extractable
+  AES-256-GCM `CryptoKey` that `storage.adapter.ts` mints, and is the only
+  thing outside that file which touches it — `getOrCreateDeviceKey` has no
+  callers beyond this adapter, so no `CryptoKey` ever crosses out of
+  `adapters/`. Covered by `test/device-key.spec.ts`.
 - **`identity.adapter.ts`** — `NobleIdentityAdapter`.
   MSK/SSK/USK Ed25519 generation via `@noble/curves`; SSK + USK signed
   by MSK with domain-separation tags. Computes the 60-char base32

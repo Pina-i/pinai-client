@@ -34,10 +34,11 @@ These are **enforced by ESLint** (`no-restricted-imports` blocks in
 would have to be duplicated into the planned React Native app, so if a rule
 fires, take the dependency as a port parameter instead of reaching for it.
 
-Two exceptions are marked in `store/` with `eslint-disable` and a TODO: the
-store still constructs the IndexedDB storage adapter directly. Removing them
-needs the device key behind an encrypt/decrypt port and IndexedDB behind a
-key-value port.
+`store/store.ts` is exempt from the store rule, and only that file: it is a
+composition root, the place this platform's persistence is wired into the
+store. The slices under `store/slices/` are the part a React Native app
+reuses, so they are what the rule enforces. There are no `eslint-disable`
+boundary escapes left.
 
 `lib/` is layer-neutral: `utils-bytes.ts` (base64 helpers, used by adapters)
 and `types.ts` (view models shared by store + presentation).

@@ -96,12 +96,19 @@ export default defineConfig([
       'state, the UI itself, or the container that wires them.',
   ),
 
-  boundary(
-    ['src/store/**/*.{ts,tsx}'],
-    OUTWARD('presentation', 'routes', 'ioc', 'adapters'),
-    'UI state may depend on the domain, not on the UI or on a concrete ' +
-      'adapter — the mobile app will reuse these slices with its own adapters.',
-  ),
+  // `store/store.ts` is exempt on purpose: it is a composition root, the
+  // place where this platform's persistence is wired into the store, and it
+  // gets a sibling rather than a copy in a React Native app. The slices are
+  // the part that moves to a shared package, so they are what is enforced.
+  {
+    ...boundary(
+      ['src/store/**/*.{ts,tsx}'],
+      OUTWARD('presentation', 'routes', 'ioc', 'adapters'),
+      'UI state may depend on the domain, not on the UI or on a concrete ' +
+        'adapter — the mobile app will reuse these slices with its own adapters.',
+    ),
+    ignores: ['src/store/store.ts'],
+  },
 
   boundary(
     ['src/presentation/**/*.{ts,tsx}', 'src/routes/**/*.{ts,tsx}'],
