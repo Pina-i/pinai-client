@@ -27,4 +27,11 @@ export interface SealedBytes {
 export interface IDeviceKeyPort {
     seal(plaintext: Uint8Array): Promise<SealedBytes>
     open(sealed: SealedBytes): Promise<Uint8Array>
+
+    /**
+     * Forget the key. Everything sealed under it becomes unreadable, which is
+     * the point: a device wipe is irreversible without having to overwrite
+     * every row that was sealed. The next `seal` mints a fresh key.
+     */
+    wipe(): Promise<void>
 }

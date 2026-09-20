@@ -43,7 +43,7 @@ The user configures their identity provider URL (e.g. `idp.alice.com`) and the c
 | Auth | OIDC Authorization Code + PKCE (no implicit flow) |
 | Routing | Tanstack Router |
 | E2EE | MLS (RFC 9420) via `openmls 0.8.1` WASM bundle (`crypto/openmls-wasm/`); identity + recovery via `@noble/curves` + `@noble/hashes` + `@noble/ciphers` |
-| At-rest persistence | IndexedDB (`idb`) + AES-256-GCM under a non-extractable device key, inner format is **msgpack** (`msgpackr`) — preserves `Uint8Array` round-trip natively |
+| At-rest persistence | `SealedStorage` (schema + sealing) over an `IKeyValueStore`; on the web that is IndexedDB (`idb`), with AES-256-GCM under a non-extractable device key behind `IDeviceKeyPort`. The zustand cache's inner format is **msgpack** (`msgpackr`) — preserves `Uint8Array` round-trip natively |
 
 ## Related Repository
 

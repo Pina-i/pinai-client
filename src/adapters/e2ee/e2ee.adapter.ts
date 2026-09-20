@@ -26,7 +26,7 @@ import type { IKeyDirectoryAdapter } from "./key-directory.adapter"
 import type { IMlsEngine } from "@/domain/ports/mls-engine.port"
 import { PairingInitiator, PairingResponder } from "./pairing.adapter"
 import type { RecoveryAdapter } from "./recovery.adapter"
-import type { DeviceAttestation, E2eeStorage } from "./storage.adapter"
+import type { DeviceAttestation, E2eeStorage } from "./sealed-storage"
 
 /** Renew the Device Root Key attestation silently when within this window of expiry. */
 const ATTESTATION_RENEWAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000 // 30 days

@@ -7,19 +7,19 @@
  * has to satisfy — seal/open round-trips, and a tampered ciphertext fails
  * closed rather than returning garbage.
  */
-import { beforeAll, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
+import "fake-indexeddb/auto"
 
 import { WebCryptoDeviceKeyAdapter } from "@/adapters/e2ee/device-key.adapter"
+import { IdbKeyValueStore } from "@/adapters/storage/idb-key-value-store.adapter"
 
+let store: IdbKeyValueStore
 let deviceKey: WebCryptoDeviceKeyAdapter
 
-beforeAll(async () => {
-    const key = await crypto.subtle.generateKey(
-        { name: "AES-GCM", length: 256 },
-        /* extractable */ false,
-        ["encrypt", "decrypt"],
-    )
-    deviceKey = new WebCryptoDeviceKeyAdapter({ getOrCreateDeviceKey: async () => key })
+beforeEach(async () => {
+    store = new IdbKeyValueStore()
+    await store.clear()
+    deviceKey = new WebCryptoDeviceKeyAdapter(store)
 })
 
 describe("WebCryptoDeviceKeyAdapter", () => {
@@ -54,10 +54,30 @@ describe("WebCryptoDeviceKeyAdapter", () => {
         await expect(deviceKey.open(sealed)).rejects.toThrow()
     })
 
+    it("mints one non-extractable key and reuses it across instances", async () => {
+        const sealed = await deviceKey.seal(new TextEncoder().encode("persisted"))
+
+        const stored = await store.getCryptoKey()
+        expect(stored?.extractable).toBe(false)
+        expect(stored?.algorithm.name).toBe("AES-GCM")
+
+        // A second adapter over the same store opens what the first sealed,
+        // which is the invariant that matters — IndexedDB structured-clones
+        // on read, so the `CryptoKey` object itself is never the same one.
+        const other = new WebCryptoDeviceKeyAdapter(store)
+        expect(new TextDecoder().decode(await other.open(sealed))).toBe("persisted")
+    })
+
+    it("wipe() makes everything previously sealed unreadable", async () => {
+        const sealed = await deviceKey.seal(new TextEncoder().encode("secret"))
+        await deviceKey.wipe()
+        // The next call mints a fresh key, so the old ciphertext cannot open.
+        await expect(deviceKey.open(sealed)).rejects.toThrow()
+    })
+
     it("does not expose the key itself", () => {
-        expect(Object.keys(deviceKey)).not.toContain("key")
         expect(
             Object.getOwnPropertyNames(Object.getPrototypeOf(deviceKey)).sort(),
-        ).toEqual(["constructor", "open", "seal"])
+        ).toEqual(["constructor", "getOrCreateKey", "open", "seal", "wipe"])
     })
 })

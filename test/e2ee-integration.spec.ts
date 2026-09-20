@@ -35,7 +35,7 @@ import type {
 } from "@/adapters/e2ee/key-directory.adapter"
 import { MlsAdapter } from "@/adapters/e2ee/mls.adapter"
 import { NobleRecoveryAdapter } from "@/adapters/e2ee/recovery.adapter"
-import type { DeviceAttestation, E2eeStorage, MlsSnapshot } from "@/adapters/e2ee/storage.adapter"
+import type { DeviceAttestation, E2eeStorage, MlsSnapshot } from "@/adapters/e2ee/sealed-storage"
 import type { LocalFile } from "@/domain/models/file"
 import { asActorUri } from "@/domain/models/identity"
 import type {
@@ -277,7 +277,6 @@ class InMemoryKeyDirectory implements IKeyDirectoryAdapter {
 
 class InMemoryE2eeStorage implements E2eeStorage {
     private deviceId: DeviceId | null = null
-    private deviceKey: CryptoKey | null = null
     private keypair: IdentityKeypair | null = null
     private snapshot: MlsSnapshot | null = null
     private recoveryPassphrase: string[] | null = null
@@ -287,16 +286,6 @@ class InMemoryE2eeStorage implements E2eeStorage {
     async getOrCreateDeviceId(): Promise<DeviceId> {
         if (!this.deviceId) this.deviceId = crypto.randomUUID()
         return this.deviceId
-    }
-    async getOrCreateDeviceKey(): Promise<CryptoKey> {
-        if (!this.deviceKey) {
-            this.deviceKey = await crypto.subtle.generateKey(
-                { name: "AES-GCM", length: 256 },
-                false,
-                ["encrypt", "decrypt"],
-            )
-        }
-        return this.deviceKey
     }
     async saveIdentityKeypair(k: IdentityKeypair): Promise<void> {
         this.keypair = k
@@ -333,7 +322,6 @@ class InMemoryE2eeStorage implements E2eeStorage {
     }
     async clear(): Promise<void> {
         this.deviceId = null
-        this.deviceKey = null
         this.keypair = null
         this.snapshot = null
         this.recoveryPassphrase = null

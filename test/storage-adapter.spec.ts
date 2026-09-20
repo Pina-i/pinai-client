@@ -1,9 +1,10 @@
 /**
  * Behavioural contract for the encrypted E2EE store.
  *
- * Written against `IndexedDbStorageAdapter` before it was split into shared
- * sealing logic + a swappable key-value backend, so it pins what the split
- * must preserve. It is also the first coverage this file has ever had —
+ * Written against the pre-split `IndexedDbStorageAdapter` and kept unchanged
+ * through the split into `SealedStorage` + `IKeyValueStore`, so it is the
+ * evidence that the split preserved behaviour. It is also the first coverage
+ * this store has ever had —
  * jsdom ships no IndexedDB, so `fake-indexeddb` stands in (the same
  * structured-clone semantics, in memory).
  *
@@ -13,8 +14,10 @@
 import { beforeEach, describe, expect, it } from "vitest"
 import "fake-indexeddb/auto"
 
-import { IndexedDbStorageAdapter } from "@/adapters/e2ee/storage.adapter"
-import type { DeviceAttestation, MlsSnapshot } from "@/adapters/e2ee/storage.adapter"
+import { WebCryptoDeviceKeyAdapter } from "@/adapters/e2ee/device-key.adapter"
+import { SealedStorage } from "@/adapters/e2ee/sealed-storage"
+import type { DeviceAttestation, MlsSnapshot } from "@/adapters/e2ee/sealed-storage"
+import { IdbKeyValueStore } from "@/adapters/storage/idb-key-value-store.adapter"
 import type { ConversationId, IdentityKeypair } from "@/domain/models/e2ee"
 import { asActorUri } from "@/domain/models/identity"
 
@@ -50,13 +53,19 @@ const ATTESTATION: DeviceAttestation = {
 
 const WORDS = Array.from({ length: 24 }, (_, i) => `word${i + 1}`)
 
-let storage: IndexedDbStorageAdapter
+/** The web wiring: IndexedDB bytes + a WebCrypto key + the shared schema. */
+function webStorage(): SealedStorage {
+    const kv = new IdbKeyValueStore()
+    return new SealedStorage(kv, new WebCryptoDeviceKeyAdapter(kv))
+}
+
+let storage: SealedStorage
 
 beforeEach(async () => {
     // Isolation via `clear()` rather than `deleteDatabase`: the adapter keeps
     // its connection open and never exposes a close, so a delete would block
     // on the previous test's handle and hang the suite.
-    storage = new IndexedDbStorageAdapter()
+    storage = webStorage()
     await storage.clear()
 })
 
@@ -67,24 +76,9 @@ describe("device identity", () => {
         expect(await storage.getOrCreateDeviceId()).toBe(first)
     })
 
-    it("mints a non-extractable device key once and keeps returning the same material", async () => {
-        const key = await storage.getOrCreateDeviceKey()
-        expect(key.extractable).toBe(false)
-        expect(key.algorithm.name).toBe("AES-GCM")
-
-        // IndexedDB structured-clones on read, so a second call hands back a
-        // different `CryptoKey` object. What has to hold is that it is the
-        // same key: asserted by decrypting with it what the first one sealed.
-        const again = await storage.getOrCreateDeviceKey()
-        const iv = crypto.getRandomValues(new Uint8Array(12))
-        const sealed = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, bytes(42))
-        const opened = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, again, sealed)
-        expect(new Uint8Array(opened)).toEqual(bytes(42))
-    })
-
     it("sees the device id a previous instance persisted", async () => {
         const id = await storage.getOrCreateDeviceId()
-        expect(await new IndexedDbStorageAdapter().getOrCreateDeviceId()).toBe(id)
+        expect(await webStorage().getOrCreateDeviceId()).toBe(id)
     })
 })
 

@@ -34,6 +34,15 @@ Pure TypeScript — no framework dependencies.
 - Bytes in, bytes out — every implementation must agree byte-for-byte;
   the specs in `test/` are the contract.
 
+### ports/key-value-store.port.ts
+- `IKeyValueStore` — durable opaque byte blobs in named collections; the
+  smallest thing that can carry the E2EE store
+- Bytes, not arbitrary values: that is the intersection of what IndexedDB,
+  SQLite and MMKV can all hold. The device key genuinely cannot be bytes,
+  which is why it is a separate port rather than another row here.
+- Async throughout, like the MLS engine, because async wraps sync and not
+  the reverse
+
 ### models/file.ts
 - `LocalFile` — `{ name, mimeType, bytes }`, what the domain needs to send a
   file somewhere. The browser has `File`, React Native's pickers return

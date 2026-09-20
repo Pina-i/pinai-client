@@ -26,13 +26,24 @@ collaborators it composes.
   middleware go through it, and `getOrCreateDeviceKey` has no caller besides
   it, so no `CryptoKey` crosses out of `adapters/`. Every encrypted row on
   disk is a `SealedBytes`. Covered by `test/device-key.spec.ts`.
+- **`../storage/idb-key-value-store.adapter.ts`** — `IdbKeyValueStore`, the
+  web `IKeyValueStore`. Also holds the one thing the port cannot carry: the
+  non-extractable `CryptoKey` itself, which IndexedDB can structured-clone.
+  That is an extra method on the class, not on the port — no other backend
+  has the capability.
 - **`identity.adapter.ts`** — `NobleIdentityAdapter`.
   MSK/SSK/USK Ed25519 generation via `@noble/curves`; SSK + USK signed
   by MSK with domain-separation tags. Computes the 60-char base32
   fingerprint (SHA-512 of MSK public, sliced). `recoverFromMsk`
   rebuilds an `IdentityKeypair` from a recovered MSK private (used by
   the Recovery Key flow on a fresh device).
-- **`storage.adapter.ts`** — `IndexedDbStorageAdapter`. Stores:
+- **`sealed-storage.ts`** — `SealedStorage`. Schema + sealing only, with no
+  idea where the bytes land: it takes an `IKeyValueStore` and an
+  `IDeviceKeyPort`, so a React Native build reuses it whole over SQLite or
+  MMKV plus a Keychain key. The backend only ever sees ciphertext; the device
+  id and bound actor URI are stored in the clear because reading them must
+  not require the key. `clear()` wipes the rows *and* the key, which is what
+  makes a device wipe irreversible. Stores:
   `meta` (device UUID + non-extractable AES-GCM CryptoKey),
   `identity` (encrypted MSK/SSK/USK bundle), `mls_snapshot`
   (encrypted snapshot of the openmls provider state +
