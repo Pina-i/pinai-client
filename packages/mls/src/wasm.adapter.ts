@@ -1,5 +1,11 @@
 /**
- * Thin TypeScript wrapper around the openmls WASM bundle.
+ * The WASM implementation of `IMlsEngine`: a thin TypeScript wrapper around
+ * the openmls bundle.
+ *
+ * One of the engine implementations, not the engine. A React Native build
+ * supplies a sibling over the same Rust crate compiled natively (Hermes has
+ * no WebAssembly) and shares `leaf-credential.ts` with this one. This file is
+ * the only place `openmls-wasm` is imported.
  *
  * Holds:
  * - One {@link Provider} per session (in-memory keystore + RNG;
@@ -23,6 +29,11 @@ import init, {
 } from "openmls-wasm"
 
 import type { ActorUri, ConversationId, DeviceId } from "@pinai/domain/models/e2ee"
+import {
+    decodeLeafCredential,
+    encodeLeafCredential,
+    type LeafCredential,
+} from "./leaf-credential"
 import type {
     AddMemberOutput,
     IMlsEngine,
@@ -31,33 +42,6 @@ import type {
 } from "@pinai/domain/ports/mls-engine.port"
 
 export type { AddMemberOutput, MlsCiphertext, ProcessOutcome }
-
-/**
- * MLS leaf credentials embed the user's `actor_uri` AND the leaf's
- * `device_id` so device-revocation can find the right leaf to remove.
- * Both fields go into the BasicCredential bytes as JSON; receivers
- * decode the credential the same way to know who owns each leaf.
- */
-interface LeafCredential {
-    actor_uri: ActorUri
-    device_id: DeviceId
-}
-
-function encodeLeafCredential(c: LeafCredential): Uint8Array {
-    return new TextEncoder().encode(JSON.stringify(c))
-}
-
-function decodeLeafCredential(bytes: Uint8Array): LeafCredential | null {
-    try {
-        const obj = JSON.parse(new TextDecoder().decode(bytes)) as Partial<LeafCredential>
-        if (typeof obj?.actor_uri === "string" && typeof obj?.device_id === "string") {
-            return obj as LeafCredential
-        }
-    } catch {
-        /* fall through */
-    }
-    return null
-}
 
 export class MlsAdapter implements IMlsEngine {
     /** Set after {@link MlsAdapter.init}. */

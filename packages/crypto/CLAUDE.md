@@ -20,9 +20,9 @@ key directory's contract is `IKeyDirectoryPort` in the domain.
 
 Three collaborators could not come, and the shape of each is the mobile work:
 
-- **`mls.adapter.ts`** — imports `openmls-wasm`, and Hermes has no
-  WebAssembly. A native build over the same crate implements the same
-  `IMlsEngine`; this file is the only place the bundle is imported.
+- The MLS engine — now `@pinai/mls`, which keeps one implementation per
+  platform. The wasm one cannot be shared; `leaf-credential.ts` beside it
+  must be.
 - **`device-key.adapter.ts`** — a non-extractable `CryptoKey`, which has no
   equivalent value on a device. `IDeviceKeyPort` is the seam; the Keychain is
   the other implementation.

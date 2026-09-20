@@ -1,0 +1,19 @@
+{
+  "name": "@pinai/mls",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pinai/domain": "workspace:*",
+    "openmls-wasm": "link:../../crypto/openmls-pkg"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  }
+}

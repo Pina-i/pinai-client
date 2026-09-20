@@ -37,6 +37,7 @@ const artifact = join(outDir, "openmls_wasm_bg.wasm")
  * package manager produced the tree.
  */
 const installCandidates = [
+    join(root, "packages", "mls", "node_modules", "openmls-wasm"),
     join(root, "apps", "web", "node_modules", "openmls-wasm"),
     join(root, "node_modules", "openmls-wasm"),
 ]

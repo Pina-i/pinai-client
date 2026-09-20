@@ -94,6 +94,11 @@ pinai-client/                 # pnpm workspace root
 ├── packages/
 │   ├── api/                  # @pinai/api — the IdP's HTTP + WebSocket surface.
 │   │                         #   Depends on domain + ky. Nothing browser-only.
+│   ├── mls/                  # @pinai/mls — the MLS engine, one implementation
+│   │                         #   per platform. `leaf-credential.ts` is shared by
+│   │                         #   all of them (those bytes travel to peers);
+│   │                         #   `wasm.adapter.ts` is the only importer of
+│   │                         #   openmls-wasm. The native binding lands here.
 │   ├── crypto/               # @pinai/crypto — the E2EE core: MLS orchestration,
 │   │                         #   identity, recovery, pairing, attestation,
 │   │                         #   attachment sealing, the sealed store's schema.
@@ -121,8 +126,7 @@ pinai-client/                 # pnpm workspace root
             └── lib/          # Layer-neutral helpers + view-model types
 ```
 
-Still to lift: the MLS engine (into `@pinai/mls`, which is also where the
-native binding will land) and the store slices with the view models. What
+Still to lift: the store slices with the view models. What
 stays in `apps/web` for good is the platform-specific remainder — WASM,
 WebCrypto, IndexedDB, web storage and navigation. `apps/mobile/` is
 deliberately absent until that work begins.

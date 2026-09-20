@@ -211,6 +211,9 @@ importers:
       '@pinai/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@pinai/mls':
+        specifier: workspace:*
+        version: link:../../packages/mls
       '@scure/bip39':
         specifier: ^2.2.0
         version: 2.4.0
@@ -250,9 +253,6 @@ importers:
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      openmls-wasm:
-        specifier: link:../../crypto/openmls-pkg
-        version: link:../../crypto/openmls-pkg
       qrcode.react:
         specifier: ^4.2.0
         version: 4.2.0(react@19.3.0)
@@ -317,6 +317,9 @@ importers:
       jsdom:
         specifier: ^29.1.1
         version: 29.1.1(@noble/hashes@2.4.0)
+      openmls-wasm:
+        specifier: link:../../crypto/openmls-pkg
+        version: link:../../crypto/openmls-pkg
       typescript:
         specifier: ~5.9.3
         version: 5.9.3
@@ -363,6 +366,19 @@ importers:
         version: 5.9.3
 
   packages/domain:
+    devDependencies:
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+
+  packages/mls:
+    dependencies:
+      '@pinai/domain':
+        specifier: workspace:*
+        version: link:../domain
+      openmls-wasm:
+        specifier: link:../../crypto/openmls-pkg
+        version: link:../../crypto/openmls-pkg
     devDependencies:
       typescript:
         specifier: ~5.9.3

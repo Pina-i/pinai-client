@@ -32,7 +32,7 @@ import type {
     RecoveryBlobResponse,
     WelcomeView,
 } from "@pinai/domain/ports/key-directory.port"
-import { MlsAdapter } from "@/adapters/e2ee/mls.adapter"
+import { MlsAdapter } from "@pinai/mls/wasm.adapter"
 import { NobleRecoveryAdapter } from "@pinai/crypto/recovery.adapter"
 import type { DeviceAttestation, E2eeStorage, MlsSnapshot } from "@pinai/crypto/sealed-storage"
 import type { LocalFile } from "@pinai/domain/models/file"
