@@ -201,10 +201,14 @@ Two things the workspace layout forces on whoever writes it:
 ## Environment Variables
 
 ```env
-VITE_APP_NAME=Pina-i
-VITE_DEFAULT_IDP_URL=https://idp.example.com   # optional default, user can override
+VITE_DEFAULT_IDP_URL=https://idp.example.com   # optional; pre-fills the landing
+                                               #   page field, defaults to
+                                               #   http://localhost:8080
 VITE_KLIPY_API_KEY=                            # optional; enables the GIF picker (Klipy)
 ```
+
+(`VITE_APP_NAME` used to be listed here. Nothing reads it — the document title
+is hardcoded in `apps/web/index.html`.)
 
 Note: no secrets belong in the frontend environment. All sensitive config is user-provided at runtime.
 
