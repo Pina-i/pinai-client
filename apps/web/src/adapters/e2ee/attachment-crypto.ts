@@ -1,6 +1,12 @@
 /**
  * Per-attachment AES-256-GCM encryption (`specs/05-e2ee.md § 7`).
  *
+ * `@noble/ciphers` rather than WebCrypto, deliberately: this key is
+ * protocol-visible — it travels to the peer inside the MLS body — so every
+ * platform has to produce and accept the same bytes, and `crypto.subtle` does
+ * not exist on React Native. The wire format is unchanged either way: both
+ * emit `ciphertext || tag(16)` and bind the same AAD.
+ *
  * Each attachment gets a fresh 32-byte AES key + 12-byte nonce. The
  * AAD is the attachment's UUID — bound at upload time so the
  * receiving IdP can't swap one ciphertext for another's. The key +
@@ -9,12 +15,13 @@
  * sees ciphertext bytes + a placeholder filename / MIME.
  */
 
+import { gcm } from "@noble/ciphers/aes.js"
+
 import type { AttachmentBlobKey } from "@pinai/domain/models/e2ee"
 import type { LocalFile } from "@pinai/domain/models/file"
 import type { IAttachmentCryptoPort } from "@pinai/domain/ports/attachment-crypto.port"
 
-const AES_ALGORITHM: AesKeyAlgorithm = { name: "AES-GCM", length: 256 }
-const KEY_USAGES: KeyUsage[] = ["encrypt", "decrypt"]
+const KEY_BYTES = 32
 const NONCE_BYTES = 12
 
 /**
@@ -33,26 +40,14 @@ export async function encryptForUpload(file: LocalFile): Promise<{
 }> {
     const id = crypto.randomUUID()
     const nonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES))
-    const cryptoKey = await crypto.subtle.generateKey(
-        AES_ALGORITHM,
-        /* extractable */ true,
-        KEY_USAGES,
-    )
-
-    const plaintext = file.bytes
+    const key = crypto.getRandomValues(new Uint8Array(KEY_BYTES))
     const aad = new TextEncoder().encode(id)
-    const ciphertextAb = await crypto.subtle.encrypt(
-        { name: "AES-GCM", iv: nonce, additionalData: aad as BufferSource },
-        cryptoKey,
-        plaintext as BufferSource,
-    )
-    const rawKeyAb = await crypto.subtle.exportKey("raw", cryptoKey)
 
     return {
-        ciphertext: new Uint8Array(ciphertextAb),
+        ciphertext: gcm(key, nonce, aad).encrypt(file.bytes),
         key: {
             id,
-            key: new Uint8Array(rawKeyAb),
+            key,
             nonce,
             original_filename: file.name,
             mime_type: file.mimeType || "application/octet-stream",
@@ -73,20 +68,8 @@ export async function decryptDownloaded(
     ciphertext: Uint8Array,
     blobKey: AttachmentBlobKey,
 ): Promise<Uint8Array> {
-    const cryptoKey = await crypto.subtle.importKey(
-        "raw",
-        blobKey.key as BufferSource,
-        AES_ALGORITHM,
-        /* extractable */ false,
-        KEY_USAGES,
-    )
     const aad = new TextEncoder().encode(blobKey.id)
-    const plaintextAb = await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: blobKey.nonce as BufferSource, additionalData: aad as BufferSource },
-        cryptoKey,
-        ciphertext as BufferSource,
-    )
-    return new Uint8Array(plaintextAb)
+    return gcm(blobKey.key, blobKey.nonce, aad).decrypt(ciphertext)
 }
 
 /**
