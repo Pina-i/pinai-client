@@ -26,13 +26,17 @@ const boundary = (files, groups, message) => ({
 const OUTWARD = (...layers) =>
   layers.flatMap((l) => [`@/${l}`, `@/${l}/**`, `**/${l}/**`])
 
+/** Layer paths, wherever the app lives in the workspace. */
+const app = (layer) => `apps/*/src/${layer}/**/*.{ts,tsx}`
+
 export default defineConfig([
   // `components/` is an unreferenced React Aria registry dump: nothing under
   // `src` imports it, and its own `@/lib/react-aria-utils` import does not
   // resolve (the Vite alias points `@` at `src/`, where that file does not
   // exist). It is neither built nor type-checked, so linting it only produces
   // noise. Delete it, or wire it in and drop this ignore.
-  globalIgnores(['dist', 'components']),
+  // `crypto/openmls-pkg` is wasm-pack output — generated, never committed.
+  globalIgnores(['**/dist', 'components', 'crypto/openmls-pkg']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -69,7 +73,7 @@ export default defineConfig([
     // whole project, including `src`. Nothing under `src` ships to Node: it
     // runs in a browser today and on Hermes tomorrow, where none of these
     // exist. The type checker can no longer say so, so the linter does.
-    files: ['src/**/*.{ts,tsx}'],
+    files: ['apps/*/src/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-globals': [
         'error',
@@ -83,14 +87,14 @@ export default defineConfig([
   },
 
   boundary(
-    ['src/domain/**/*.{ts,tsx}'],
+    [app('domain')],
     OUTWARD('adapters', 'store', 'presentation', 'routes', 'ioc', 'lib'),
     'The domain depends on nothing. Take what you need as a port parameter ' +
       '(see domain/ports/) and let the IoC container inject the implementation.',
   ),
 
   boundary(
-    ['src/adapters/**/*.{ts,tsx}'],
+    [app('adapters')],
     OUTWARD('store', 'presentation', 'routes', 'ioc'),
     'Adapters implement domain ports; they may not reach outward into UI ' +
       'state, the UI itself, or the container that wires them.',
@@ -102,16 +106,16 @@ export default defineConfig([
   // the part that moves to a shared package, so they are what is enforced.
   {
     ...boundary(
-      ['src/store/**/*.{ts,tsx}'],
+      [app('store')],
       OUTWARD('presentation', 'routes', 'ioc', 'adapters'),
       'UI state may depend on the domain, not on the UI or on a concrete ' +
         'adapter — the mobile app will reuse these slices with its own adapters.',
     ),
-    ignores: ['src/store/store.ts'],
+    ignores: ['apps/*/src/store/store.ts'],
   },
 
   boundary(
-    ['src/presentation/**/*.{ts,tsx}', 'src/routes/**/*.{ts,tsx}'],
+    [app('presentation'), app('routes')],
     OUTWARD('adapters'),
     'Reach for a port via @/ioc rather than importing an adapter directly.',
   ),

@@ -17,10 +17,9 @@
  * - SPAKE2 pairing — separate turn.
  */
 
-import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
-
 import { beforeAll, describe, expect, it } from "vitest"
+
+import { loadWasmModule } from "./setup/wasm"
 
 import { NobleIdentityAdapter } from "@/adapters/e2ee/identity.adapter"
 import { MlsAdapter } from "@/adapters/e2ee/mls.adapter"
@@ -37,9 +36,7 @@ import { DEFAULT_ARGON2_PARAMS, NobleRecoveryAdapter } from "@/adapters/e2ee/rec
 let wasmModule: WebAssembly.Module
 
 beforeAll(async () => {
-    const wasmPath = resolve(process.cwd(), "crypto/openmls-pkg/openmls_wasm_bg.wasm")
-    const bytes = readFileSync(wasmPath)
-    wasmModule = await WebAssembly.compile(bytes)
+    wasmModule = await loadWasmModule()
 })
 
 async function makeAdapter(actorUri: string): Promise<MlsAdapter> {

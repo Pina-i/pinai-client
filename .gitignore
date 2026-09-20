@@ -26,5 +26,9 @@ docs
 .zed
 
 # TanStack Router generated file
-src/routeTree.gen.ts
-.tanstack/*
+apps/*/src/routeTree.gen.ts
+**/.tanstack/*
+
+# Turborepo
+.turbo
+**/.turbo

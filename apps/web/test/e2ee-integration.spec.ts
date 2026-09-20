@@ -17,10 +17,9 @@
  *      ciphertext using the per-attachment key carried in the MLS body.
  */
 
-import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
-
 import { beforeAll, describe, expect, it } from "vitest"
+
+import { loadWasmModule } from "./setup/wasm"
 
 import { decryptDownloaded, encryptForUpload } from "@/adapters/e2ee/attachment-crypto"
 import { E2eeAdapter } from "@/adapters/e2ee/e2ee.adapter"
@@ -55,9 +54,7 @@ import type {
 let wasmModule: WebAssembly.Module
 
 beforeAll(async () => {
-    const wasmPath = resolve(process.cwd(), "crypto/openmls-pkg/openmls_wasm_bg.wasm")
-    const bytes = readFileSync(wasmPath)
-    wasmModule = await WebAssembly.compile(bytes)
+    wasmModule = await loadWasmModule()
 })
 
 // ─── In-memory key directory (single backend, two identities) ────────
