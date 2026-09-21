@@ -1,0 +1,10 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# msgpackr ships an optional native accelerator for Node. Everything here runs
+# in a browser, where msgpackr uses its JavaScript path regardless, so the
+# build is declined rather than approved — it would add a toolchain
+# requirement for no effect.
+allowBuilds:
+  msgpackr-extract: false

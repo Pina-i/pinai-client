@@ -1,0 +1,22 @@
+{
+  "name": "@pinai/crypto",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@noble/ciphers": "^2.2.0",
+    "@noble/curves": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
+    "@pinai/domain": "workspace:*",
+    "@scure/bip39": "^2.2.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  }
+}

@@ -33,7 +33,8 @@ The user configures their identity provider URL (e.g. `idp.alice.com`) and the c
 |-------|-----------|
 | Language | TypeScript |
 | Framework | React 19+ |
-| Package manager | **Bun** (`bun.lock` is the committed lockfile; do not add `package-lock.json`) |
+| Package manager | **pnpm** workspaces (`pnpm-lock.yaml` is the committed lockfile; do not add `package-lock.json` or `bun.lock`) |
+| Monorepo | **Turborepo** — `pnpm run build` / `test` / `typecheck` fan out to the workspace members; `pnpm run lint` runs once from the root over everything |
 | Build tool | Vite |
 | UI Components | React Aria based |
 | Styling | Tailwind CSS with Shadcn-style token system |
@@ -43,7 +44,7 @@ The user configures their identity provider URL (e.g. `idp.alice.com`) and the c
 | Auth | OIDC Authorization Code + PKCE (no implicit flow) |
 | Routing | Tanstack Router |
 | E2EE | MLS (RFC 9420) via `openmls 0.8.1` WASM bundle (`crypto/openmls-wasm/`); identity + recovery via `@noble/curves` + `@noble/hashes` + `@noble/ciphers` |
-| At-rest persistence | IndexedDB (`idb`) + AES-256-GCM under a non-extractable device key, inner format is **msgpack** (`msgpackr`) — preserves `Uint8Array` round-trip natively |
+| At-rest persistence | `SealedStorage` (schema + sealing) over an `IKeyValueStore`; on the web that is IndexedDB (`idb`), with AES-256-GCM under a non-extractable device key behind `IDeviceKeyPort`. The zustand cache's inner format is **msgpack** (`msgpackr`) — preserves `Uint8Array` round-trip natively |
 
 ## Related Repository
 
@@ -65,59 +66,88 @@ against that service.
 This project follows a hexagonal architecture (Clean Architecture) with strict separation between layers:
 
 ```
-web-client/
-├── public/
-├── locales/              # Translation files
-├── crypto/                # Out-of-app crypto bundles (E2EE Phase 4+)
-│   ├── openmls-wasm/      # Standalone Cargo project: `openmls` WASM wrapper.
-│   │                      #   Pinned to openmls 0.8.1; single ciphersuite
-│   │                      #   (MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519).
-│   │                      #   Built automatically: the `dev` and `build` scripts
-│   │                      #   chain scripts/build-wasm.mjs, which rebuilds only
-│   │                      #   when src/, Cargo.toml or Cargo.lock are newer than
-│   │                      #   the output. `bun run wasm -- --force` to force.
-│   │                      #   Directly: `./build.sh`.
-│   │                      #   `cargo test` runs native unit tests (happy paths only;
-│   │                      #   browser-only checks land in 4b under wasm-bindgen-test).
-│   └── openmls-pkg/       # Generated npm package — wasm-pack output.
-│                          #   ~1.5–2 MiB .wasm (size depends on whether
-│                          #   wasm-opt is enabled in the release profile)
-│                          #   + JS glue + .d.ts. Imported via a `file:`
-│                          #   dependency. Never committed — wasm-pack writes a
-│                          #   `.gitignore` of `*` into it, so a fresh clone MUST
-│                          #   build before the client will start.
-├── scripts/
-│   └── build-wasm.mjs     # Staleness-checked wasm build. Invokes `wasm-pack`
-│                          #   from PATH, so it needs a Rust toolchain in
-│                          #   whichever environment runs it. wasm-pack adds the
-│                          #   wasm32-unknown-unknown target itself. Also
-│                          #   re-syncs node_modules/openmls-wasm: Bun installs
-│                          #   `file:` deps as hardlinked copies (npm symlinks),
-│                          #   so a rebuild would otherwise leave a stale copy
-│                          #   and the app would load old MLS code silently.
-src/
-├── domain/           # Business core (use cases, ports, models)
-│   ├── models/       # Business entities
-│   ├── ports/        # Interfaces for adapters
-│   └── usecases/     # Business logic
-├── adapters/         # Technical implementations (InMemory, API, etc.)
-├── presentation/     # UI layer (Atomic Design)
-│   ├── atoms/        # Basic building blocks (Button, Input, Label, etc.)
-│   ├── molecules/    # Combinations of atoms (FormField, SearchBar, etc.)
-│   ├── organisms/    # Complex UI sections (Header, Form, DataTable, etc.)
-│   ├── templates/    # Page layouts and structural components
-│   └── pages/        # Application pages
-├── store/            # UI state management (Zustand). Includes
-│                     #   `encrypted-idb-storage.ts` — the AES-GCM + msgpack
-│                     #   `PersistStorage` backing the persisted slices.
-├── ioc/              # Dependency injection configuration
-├── translation/      # Translation system
-└── config/           # Global configurations
-test/                 # Vitest specs (jsdom env). Loads the real
-                      #   `openmls-wasm` bundle off disk via `WebAssembly.compile`
-                      #   so the MLS path runs against the same code the
-                      #   browser does.
+pinai-client/                 # pnpm workspace root
+├── pnpm-workspace.yaml       # members: apps/*, packages/*
+├── turbo.json                # build / test / typecheck fan-out
+├── eslint.config.js          # one config for the whole workspace — the layer
+│                             #   rules are cross-cutting, so they live here
+├── crypto/                   # Out-of-app crypto bundles (E2EE Phase 4+).
+│   ├── openmls-wasm/         #   Standalone Cargo project: `openmls` WASM wrapper.
+│   │                         #   Pinned to openmls 0.8.1; single ciphersuite
+│   │                         #   (MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519).
+│   │                         #   Built automatically: apps/web's `dev`, `build`,
+│   │                         #   `test` and `typecheck` scripts chain
+│   │                         #   scripts/build-wasm.mjs, which rebuilds only when
+│   │                         #   src/, Cargo.toml or Cargo.lock are newer than the
+│   │                         #   output. `pnpm run wasm --force` to force.
+│   │                         #   Directly: `./build.sh`. `cargo test` runs native
+│   │                         #   unit tests.
+│   │                         #   Lives at the root, not inside apps/web: the native
+│   │                         #   build for React Native will consume the same crate.
+│   └── openmls-pkg/          #   Generated npm package — wasm-pack output.
+│                             #   ~1.5–2 MiB .wasm + JS glue + .d.ts. Never
+│                             #   committed — wasm-pack writes a `.gitignore` of `*`
+│                             #   into it, so a fresh clone MUST build before the
+│                             #   client will start.
+├── scripts/build-wasm.mjs    # Staleness-checked wasm build. Needs `wasm-pack` on
+│                             #   PATH, so it needs a Rust toolchain wherever it runs.
+├── packages/
+│   ├── api/                  # @pinai/api — the IdP's HTTP + WebSocket surface.
+│   │                         #   Depends on domain + ky. Nothing browser-only.
+│   ├── mls/                  # @pinai/mls — the MLS engine, one implementation
+│   │                         #   per platform. `leaf-credential.ts` is shared by
+│   │                         #   all of them (those bytes travel to peers);
+│   │                         #   `wasm.adapter.ts` is the only importer of
+│   │                         #   openmls-wasm. The native binding lands here.
+│   ├── crypto/               # @pinai/crypto — the E2EE core: MLS orchestration,
+│   │                         #   identity, recovery, pairing, attestation,
+│   │                         #   attachment sealing, the sealed store's schema.
+│   │                         #   All @noble, never crypto.subtle.
+│   └── domain/               # @pinai/domain — models, ports, use cases.
+│                             #   No dependencies at all, so an import of
+│                             #   anything outside fails to resolve. Consumed
+│                             #   as source TS; `exports` maps
+│                             #   `@pinai/domain/<path>` to `src/<path>.ts`.
+└── apps/
+    └── web/                  # The browser client (@pinai/web)
+        ├── index.html, vite.config.ts, vitest.config.ts, tsconfig*.json
+        ├── components.json    # React Aria registry config for the CLI
+        ├── public/
+        ├── test/             # Vitest specs (jsdom env). `test/setup/wasm.ts`
+        │                     #   compiles the real bundle the app loads, resolved
+        │                     #   through node_modules/openmls-wasm.
+        └── src/
+            ├── adapters/     # Technical implementations (API, crypto, storage)
+            ├── presentation/ # UI layer (Atomic Design)
+            ├── store/        # Zustand. `store.ts` is the composition root that
+            │                 #   wires this platform's persistence in; `slices/`
+            │                 #   is the reusable part.
+            ├── routes/       # TanStack Router routes
+            ├── ioc/          # Dependency injection configuration
+            ├── lib/          # Layer-neutral helpers + view-model types
+            └── components/ui # Vendored React Aria registry output. Unadopted
+                              #   and unreferenced; excluded from tsc and
+                              #   eslint. See its CLAUDE.md before using it.
 ```
+
+Nothing further is queued for `packages/`. The line was drawn deliberately:
+what is shared is the part where a second implementation would introduce
+bugs — the protocol, the crypto, the business rules. What is not shared is
+the frontend — the zustand slices, the view models and the components stay
+in `apps/web`, because a mobile client will not have the same screens or the
+same state shape, and the state container is the first thing a stack change
+would replace. Duplicating a store slice is cheap; duplicating the MLS
+ratchet is not.
+
+If any of that ever does want sharing, the thing to lift is the *rules* —
+reaction folding, optimistic reconciliation, typing expiry — as pure
+functions in `@pinai/domain`, not as slices. Pure functions survive a change
+of state container; a slice does not.
+
+What stays in `apps/web` for good is the platform-specific remainder — WASM,
+WebCrypto, IndexedDB, web storage and navigation. `apps/mobile/` is
+deliberately absent until that work begins.
+
 
 ### Dependency principle
 
@@ -127,20 +157,23 @@ test/                 # Vitest specs (jsdom env). Loads the real
 
 ## Deployment
 
-This repo ships its own `Dockerfile` and `docker-compose.yml`. The production build is a static Vite output served by nginx.
+**Not built yet.** There is no `Dockerfile` and no compose file in this repo —
+this section describes the intent, not something that exists.
 
-```yaml
-# docker/docker-compose.yml
-services:
-  web:
-    build: ..
-    ports:
-      - "80:80"
-    environment:
-      VITE_DEFAULT_IDP_URL: https://idp.example.com
-```
+The production artefact is `apps/web/dist`, a static Vite build served by
+nginx, whose config has to fall every path back to `index.html` for SPA
+routing.
 
-The `Dockerfile` runs `vite build` and copies the output into an nginx image. The `nginx.conf` must handle SPA routing (all paths fall back to `index.html`).
+Two things the workspace layout forces on whoever writes it:
+
+- The **build context is the repo root**, not `apps/web`. The build needs
+  `packages/*`, `pnpm-workspace.yaml` and the lockfile, and it needs
+  `crypto/openmls-wasm` because `openmls-pkg` is generated rather than
+  committed.
+- The image therefore needs a **Rust toolchain and `wasm-pack`** at build
+  time, or a prior stage that produces `crypto/openmls-pkg` and copies it in.
+  `pnpm --filter @pinai/web build` runs `scripts/build-wasm.mjs` first and
+  will fail without them.
 
 ## OIDC Authentication Flow
 
@@ -162,16 +195,20 @@ The `Dockerfile` runs `vite build` and copies the output into an nginx image. Th
 - **Multi-IdP aware** — the client is not hardcoded to a single IdP; the user's configured IdP URL is stored in `localStorage` only (not the token)
 - **Two separate WebSocket connections**: one to the identity-provider (for DMs), one to the active chat-server (for channels)
 - **JWT never sent to wrong backend** — the chat-server JWT and IdP session are kept strictly separate in the store
-- **MLS E2EE is end-to-end client-driven**: encryption/decryption happens in `adapters/e2ee/`, server is opaque to message content. Per-device identity (Phase 7) — each device generates a Device Root Key (Ed25519) signed by the IdP into an attestation; peers verify via the issuer's JWKS. DRK + MLS provider state + per-device 24-word recovery passphrase all live in IndexedDB, encrypted at rest under a per-device non-extractable AES-256-GCM `CryptoKey`. The same device key encrypts the persisted message-plaintext cache (`pinai-zustand-store` IDB) so MLS forward secrecy doesn't blank conversation history on reload. The recovery passphrase derives a History Archive Key (Argon2id) used to encrypt every decrypted plaintext for opt-out server-side history backup. See `adapters/e2ee/CLAUDE.md` and `identity-provider/specs/05-e2ee.md` in the `pinai` monorepo.
+- **MLS E2EE is end-to-end client-driven**: encryption/decryption happens in `packages/crypto/`, server is opaque to message content. Per-device identity (Phase 7) — each device generates a Device Root Key (Ed25519) signed by the IdP into an attestation; peers verify via the issuer's JWKS. DRK + MLS provider state + per-device 24-word recovery passphrase all live in IndexedDB, encrypted at rest under a per-device non-extractable AES-256-GCM `CryptoKey`. The same device key encrypts the persisted message-plaintext cache (`pinai-zustand-store` IDB) so MLS forward secrecy doesn't blank conversation history on reload. The recovery passphrase derives a History Archive Key (Argon2id) used to encrypt every decrypted plaintext for opt-out server-side history backup. See `packages/crypto/CLAUDE.md` and `identity-provider/specs/05-e2ee.md` in the `pinai` monorepo.
 - **Persistence inner format is msgpack** (not JSON). `Uint8Array` fields (`AttachmentBlobKey.key` / `.nonce`, identity bytes) round-trip natively — JSON would turn them into indexed-property objects that Web Crypto APIs reject.
 
 ## Environment Variables
 
 ```env
-VITE_APP_NAME=Pina-i
-VITE_DEFAULT_IDP_URL=https://idp.example.com   # optional default, user can override
+VITE_DEFAULT_IDP_URL=https://idp.example.com   # optional; pre-fills the landing
+                                               #   page field, defaults to
+                                               #   http://localhost:8080
 VITE_KLIPY_API_KEY=                            # optional; enables the GIF picker (Klipy)
 ```
+
+(`VITE_APP_NAME` used to be listed here. Nothing reads it — the document title
+is hardcoded in `apps/web/index.html`.)
 
 Note: no secrets belong in the frontend environment. All sensitive config is user-provided at runtime.
 

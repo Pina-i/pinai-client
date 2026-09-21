@@ -22,7 +22,7 @@
  */
 
 import { spawnSync } from "node:child_process"
-import { cpSync, lstatSync, readdirSync, rmSync, statSync } from "node:fs"
+import { cpSync, lstatSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs"
 import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -30,7 +30,17 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..")
 const crate = join(root, "crypto", "openmls-wasm")
 const outDir = join(root, "crypto", "openmls-pkg")
 const artifact = join(outDir, "openmls_wasm_bg.wasm")
-const installed = join(root, "node_modules", "openmls-wasm")
+/**
+ * Where a consumer's install of the package may sit. pnpm links it into the
+ * workspace member that depends on it; npm and bun may hoist it to the root
+ * instead. Both are checked so the staleness guard keeps working whichever
+ * package manager produced the tree.
+ */
+const installCandidates = [
+    join(root, "packages", "mls", "node_modules", "openmls-wasm"),
+    join(root, "apps", "web", "node_modules", "openmls-wasm"),
+    join(root, "node_modules", "openmls-wasm"),
+]
 
 /** Inputs that invalidate the build. Deliberately not the crate root — that
  *  would sweep in `target/`, whose mtime moves on every build. */
@@ -67,22 +77,21 @@ function packageIsCurrent() {
 }
 
 /**
- * npm installs a `file:` dependency as a symlink, so it tracks the built
- * package for free. Bun materialises it as hardlinked copies instead — and a
- * build that recreates `openmls-pkg/` allocates new inodes, orphaning what
- * sits in `node_modules`. Vite resolves the bare `openmls-wasm` import through
- * `node_modules`, so the app would go on loading stale MLS code with nothing
- * reported anywhere. A symlinked install is always current; a copied one has
- * to be compared and refreshed.
+ * A dependency that resolves to the built package itself tracks it for free.
+ * A copy does not: rebuilding `openmls-pkg/` allocates new inodes, orphaning
+ * whatever `node_modules` holds. Vite resolves the bare `openmls-wasm` import
+ * through `node_modules`, so the app would go on loading stale MLS code with
+ * nothing reported anywhere — the worst failure mode available here.
+ *
+ * Package managers differ: pnpm's `link:` points straight at the directory,
+ * its `file:` copies into the store *behind* a symlink, npm symlinks, and bun
+ * hardlink-copies. So the test is what the path resolves to, not whether it
+ * happens to be a symlink.
  */
 function installedIsCurrent() {
-    let st
-    try {
-        st = lstatSync(installed)
-    } catch {
-        return true // not installed yet; the next install will pick it up
-    }
-    if (st.isSymbolicLink()) return true
+    const installed = installCandidates.find((p) => lstatSync(p, { throwIfNoEntry: false }))
+    if (!installed) return true // not installed yet; the next install will pick it up
+    if (realpathSync(installed) === realpathSync(outDir)) return true
 
     const source = statSync(artifact, { throwIfNoEntry: false })
     const copy = statSync(join(installed, "openmls_wasm_bg.wasm"), {
@@ -99,18 +108,16 @@ function installedIsCurrent() {
 }
 
 function refreshInstalled() {
-    let st
-    try {
-        st = lstatSync(installed)
-    } catch {
-        return
-    }
-    if (st.isSymbolicLink()) return
+    const found = installCandidates.find((p) => lstatSync(p, { throwIfNoEntry: false }))
+    if (!found) return
+    // Refresh whatever the entry really points at, not the link itself.
+    const installed = realpathSync(found)
+    if (installed === realpathSync(outDir)) return
 
     rmSync(installed, { recursive: true, force: true })
     // preserveTimestamps keeps the mtime comparison above meaningful.
     cpSync(outDir, installed, { recursive: true, preserveTimestamps: true })
-    console.log("[wasm] refreshed node_modules/openmls-wasm (copied install)")
+    console.log(`[wasm] refreshed ${relative(root, installed)} (copied install)`)
 }
 
 function hasWasmPack() {

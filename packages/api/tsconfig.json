@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    /* The domain assumes exactly four things from its host: `atob`, `URL`,
+       `URLSearchParams` and `AbortSignal`. All four exist in browsers, on
+       Hermes and in Node, so they are fair to depend on — but TypeScript has
+       no lib for "web APIs without the DOM", and the alternative (hand-rolled
+       global declarations) collides with `lib.dom` wherever both are in
+       scope. So `DOM` is admitted here and the real restriction is enforced
+       by `no-restricted-globals` in eslint.config.js, which blocks `window`,
+       `document`, storage and the rest for this package. Re-run
+       `tsc --noEmit` with `"lib": ["ES2022"]` to re-derive the list above:
+       the errors are the platform surface. */
+    "lib": ["ES2022", "DOM"],
+    "types": [],
+
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "skipLibCheck": true,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["src"]
+}
