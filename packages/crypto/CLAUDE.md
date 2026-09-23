@@ -146,8 +146,8 @@ above, the sections above win.
 ## Phase 5b cleanup additions
 
 - **Zustand persist** for the message-plaintext cache. `apps/web/src/adapters/storage/encrypted-idb-storage.adapter.ts`
-  builds a `PersistStorage<T>` backed by a separate `pinai-zustand-store`
-  IndexedDB database, encrypting each slice value with the same
+  builds a `PersistStorage<T>` backed by a separate per-account
+  `pinai-zustand-store:<actor URI>` IndexedDB database, encrypting each slice value with the same
   non-extractable AES-256-GCM `CryptoKey` the E2EE storage adapter
   manages (exposed via `E2eeStorage.getOrCreateDeviceKey()`). The
   store partializes to `dmMessages` + `dmUnread` only — auth /

@@ -1,10 +1,7 @@
 import { useEffect } from "react"
-import { createFileRoute, Outlet, redirect } from "@tanstack/react-router"
+import { createFileRoute, Outlet } from "@tanstack/react-router"
+import { requireSession } from "@/routes/-require-session"
 import { AnimatePresence, motion } from "motion/react"
-import { useAppStore } from "@/store/store"
-import { isTokenValid } from "@pinai/domain/models/auth"
-import { ensureAuthenticatedUseCase } from "@pinai/domain/usecases/auth/ensureAuthenticated.usecase"
-import { getAuthPlatform, getAuthPort } from "@/ioc/index"
 import { useConsumeMlsWelcomes } from "@/presentation/hooks/useConsumeMlsWelcomes"
 import { useDeviceFanout } from "@/presentation/hooks/useDeviceFanout"
 import { useHistoryArchiveFlusher } from "@/presentation/hooks/useHistoryArchiveFlusher"
@@ -132,13 +129,6 @@ function OnboardingGateError({ onRetry }: { onRetry: () => void }) {
 }
 
 export const Route = createFileRoute("/_authenticated")({
-    beforeLoad: async () => {
-        const { accessToken, idpUrl } = useAppStore.getState()
-        try {
-            await ensureAuthenticatedUseCase(isTokenValid(accessToken), idpUrl, getAuthPort(), getAuthPlatform())
-        } catch {
-            throw redirect({ to: "/" })
-        }
-    },
+    beforeLoad: requireSession,
     component: AuthenticatedLayout,
 })

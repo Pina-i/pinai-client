@@ -78,6 +78,18 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - Async throughout, like the MLS engine, because async wraps sync and not
   the reverse
 
+### ports/account-storage.port.ts
+- `IAccountStoragePort` — which account's device storage is open. Device
+  state is kept per account, so a second account signing in on the same
+  device keeps both instead of erasing the first
+- `switchTo` may not return: on the web the storage is chosen at page load,
+  so switching reloads
+
+### usecases/e2ee/open-account-storage.usecase.ts
+- Switches to the signed-in account's storage unless it is already open
+- Run by the route guard before anything reads device storage — the
+  authenticated layout's hooks read it as soon as they mount
+
 ### models/file.ts
 - `LocalFile` — `{ name, mimeType, bytes }`, what the domain needs to send a
   file somewhere. The browser has `File`, React Native's pickers return

@@ -19,10 +19,11 @@ import { IdpWsAdapter } from "@pinai/api/ws/idp-ws.adapter"
 import { PresenceApiAdapter } from "@pinai/api/presence/presence-api.adapter"
 import { TotpApiAdapter } from "@pinai/api/totp/totp-api.adapter"
 import { UserApiAdapter } from "@pinai/api/user/user-api.adapter"
-import { getSharedE2eeStorage, useAppStore } from "@/store/store"
+import { getAccountStorage, getSharedE2eeStorage, useAppStore } from "@/store/store"
 import type { ArchiveEnvelope, AttachmentBlobKey, TextBody } from "@pinai/domain/models/e2ee"
 import type { Message } from "@/lib/types"
 import type { IAttachmentCryptoPort } from "@pinai/domain/ports/attachment-crypto.port"
+import type { IAccountStoragePort } from "@pinai/domain/ports/account-storage.port"
 import type { AuthPlatform, IAuthPort, IAuthSessionStore } from "@pinai/domain/ports/auth.port"
 import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
@@ -185,6 +186,10 @@ export function getUserPort(): IUserPort {
 
 export function getE2eePort(): IE2eePort {
     return e2eePort
+}
+
+export function getAccountStoragePort(): IAccountStoragePort {
+    return getAccountStorage()
 }
 
 export function getDeviceDirectoryPort(): IDeviceDirectoryPort {

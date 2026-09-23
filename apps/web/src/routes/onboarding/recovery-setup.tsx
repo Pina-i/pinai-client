@@ -1,8 +1,5 @@
-import { createFileRoute, redirect } from "@tanstack/react-router"
-import { isTokenValid } from "@pinai/domain/models/auth"
-import { ensureAuthenticatedUseCase } from "@pinai/domain/usecases/auth/ensureAuthenticated.usecase"
-import { getAuthPlatform, getAuthPort } from "@/ioc/index"
-import { useAppStore } from "@/store/store"
+import { createFileRoute } from "@tanstack/react-router"
+import { requireSession } from "@/routes/-require-session"
 import { RecoverySetupPage } from "@/presentation/pages/onboarding/RecoverySetupPage/RecoverySetupPage"
 
 export const Route = createFileRoute("/onboarding/recovery-setup")({
@@ -12,13 +9,6 @@ export const Route = createFileRoute("/onboarding/recovery-setup")({
     // IdP session cookie when the in-memory access token is gone;
     // only falls through to the landing redirect when no IdP URL is
     // configured (true fresh-install case).
-    beforeLoad: async () => {
-        const { accessToken, idpUrl } = useAppStore.getState()
-        try {
-            await ensureAuthenticatedUseCase(isTokenValid(accessToken), idpUrl, getAuthPort(), getAuthPlatform())
-        } catch {
-            throw redirect({ to: "/" })
-        }
-    },
+    beforeLoad: requireSession,
     component: RecoverySetupPage,
 })

@@ -58,12 +58,10 @@ export function useIdentityOnboardingGate(): GateResult {
             try {
                 const port = getE2eePort()
                 if (await port.hasLocalIdentity()) {
-                    // Cross-account contamination check. If the stored
-                    // identity is bound to a different actor URI (e.g.
-                    // a previous user signed out without clearing IDB),
-                    // wipe everything so the new user gets the standard
-                    // onboarding flow rather than silently inheriting
-                    // someone else's keys.
+                    // Storage is opened per account by the route guard, so a
+                    // different binding means this store was bound to the
+                    // wrong account. Wipe it rather than serve someone
+                    // else's keys.
                     const bound = await port.getBoundActorUri()
                     if (bound === null || bound === ownActorUri) {
                         if (!cancelled) setStatus("ready")

@@ -17,7 +17,7 @@ import "fake-indexeddb/auto"
 import { WebCryptoDeviceKeyAdapter } from "@/adapters/e2ee/device-key.adapter"
 import { SealedStorage } from "@pinai/crypto/sealed-storage"
 import type { DeviceAttestation, MlsSnapshot } from "@pinai/crypto/sealed-storage"
-import { IdbKeyValueStore } from "@/adapters/storage/idb-key-value-store.adapter"
+import { IdbKeyValueStore, e2eeDatabaseName } from "@/adapters/storage/idb-key-value-store.adapter"
 import type { ConversationId, IdentityKeypair } from "@pinai/domain/models/e2ee"
 import { asActorUri } from "@pinai/domain/models/identity"
 
@@ -53,9 +53,12 @@ const ATTESTATION: DeviceAttestation = {
 
 const WORDS = Array.from({ length: 24 }, (_, i) => `word${i + 1}`)
 
+const ALICE = asActorUri("https://idp.example/users/alice")
+const PIERRE = asActorUri("https://idp.example/users/pierre")
+
 /** The web wiring: IndexedDB bytes + a WebCrypto key + the shared schema. */
-function webStorage(): SealedStorage {
-    const kv = new IdbKeyValueStore()
+function webStorage(account = ALICE): SealedStorage {
+    const kv = new IdbKeyValueStore(e2eeDatabaseName(account))
     return new SealedStorage(kv, new WebCryptoDeviceKeyAdapter(kv))
 }
 
@@ -135,7 +138,7 @@ describe("sealed rows", () => {
         const db = await indexedDB.databases?.().then(() => undefined)
         void db
         const raw = await new Promise<unknown>((resolve, reject) => {
-            const req = indexedDB.open("pinai-e2ee")
+            const req = indexedDB.open(e2eeDatabaseName(ALICE))
             req.onerror = () => reject(req.error)
             req.onsuccess = () => {
                 const get = req.result
@@ -150,6 +153,26 @@ describe("sealed rows", () => {
             }
         })
         expect(JSON.stringify(raw)).not.toContain("word1")
+    })
+})
+
+describe("per-account stores", () => {
+    it("keeps each account's device when another account uses the same browser", async () => {
+        const pierre = webStorage(PIERRE)
+        await pierre.clear()
+        await storage.saveIdentityKeypair(KEYPAIR)
+        await storage.setBoundActorUri(ALICE)
+
+        expect(await pierre.loadIdentityKeypair()).toBeNull()
+        await pierre.saveIdentityKeypair({ ...KEYPAIR, msk_public: bytes(42) })
+        await pierre.clear()
+
+        expect(await webStorage(ALICE).loadIdentityKeypair()).toEqual(KEYPAIR)
+        expect(await webStorage(ALICE).getBoundActorUri()).toBe(ALICE)
+    })
+
+    it("opens nothing before an account has signed in", async () => {
+        await expect(new IdbKeyValueStore(null).get("meta", "device_id")).rejects.toThrow(/sign in/)
     })
 })
 

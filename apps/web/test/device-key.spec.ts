@@ -17,7 +17,7 @@ let store: IdbKeyValueStore
 let deviceKey: WebCryptoDeviceKeyAdapter
 
 beforeEach(async () => {
-    store = new IdbKeyValueStore()
+    store = new IdbKeyValueStore("pinai-e2ee-device-key-spec")
     await store.clear()
     deviceKey = new WebCryptoDeviceKeyAdapter(store)
 })

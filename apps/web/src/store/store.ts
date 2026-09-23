@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import type { IAccountStoragePort } from "@pinai/domain/ports/account-storage.port"
 import type { IDeviceKeyPort } from "@pinai/domain/ports/device-key.port"
 import { devtools, persist } from "zustand/middleware"
 // This file is a composition root, like `ioc/index.ts`: it is where the
@@ -7,8 +8,9 @@ import { devtools, persist } from "zustand/middleware"
 // app reuses, while this file gets a sibling that wires SQLite or MMKV.
 import { WebCryptoDeviceKeyAdapter } from "@/adapters/e2ee/device-key.adapter"
 import { SealedStorage } from "@pinai/crypto/sealed-storage"
-import { createEncryptedIdbStorage } from "@/adapters/storage/encrypted-idb-storage.adapter"
-import { IdbKeyValueStore } from "@/adapters/storage/idb-key-value-store.adapter"
+import { BrowserAccountStorageAdapter } from "@/adapters/storage/account-storage-browser.adapter"
+import { createEncryptedIdbStorage, slicesDatabaseName } from "@/adapters/storage/encrypted-idb-storage.adapter"
+import { IdbKeyValueStore, e2eeDatabaseName } from "@/adapters/storage/idb-key-value-store.adapter"
 import { createAuthSlice, type AuthSlice } from "./slices/auth.slice"
 import { createUiSlice, type UiSlice } from "./slices/ui.slice"
 import { createDataSlice, type DataSlice } from "./slices/data.slice"
@@ -50,11 +52,19 @@ type PersistedAppState = {
     dmUnread: DataSlice["dmUnread"]
 }
 
+// Device storage is per account, and this page load opens the account the
+// last sign-in recorded — the route guard switches it before anything reads.
+const accountStorage = new BrowserAccountStorageAdapter()
+export function getAccountStorage(): IAccountStoragePort {
+    return accountStorage
+}
+const openAccount = accountStorage.openAccount()
+
 // The three pieces of this platform's persistence, wired together once:
 // IndexedDB for the bytes, WebCrypto for the at-rest key, and the
 // backend-agnostic schema on top. A React Native container swaps the first
 // two and keeps `SealedStorage` as it is.
-const keyValueStore = new IdbKeyValueStore()
+const keyValueStore = new IdbKeyValueStore(openAccount ? e2eeDatabaseName(openAccount) : null)
 
 // The `CryptoKey` itself never leaves the adapter layer — this port exposes
 // only seal/open/wipe, which is the shape a Keychain-backed implementation
@@ -86,7 +96,10 @@ export const useAppStore = create<AppStore>()(
             }),
             {
                 name: "pinai-app-state",
-                storage: createEncryptedIdbStorage<PersistedAppState>(deviceKeyPort),
+                storage: createEncryptedIdbStorage<PersistedAppState>(
+                    deviceKeyPort,
+                    openAccount ? slicesDatabaseName(openAccount) : null,
+                ),
                 partialize: (s): PersistedAppState => ({
                     dmMessages: s.dmMessages,
                     appliedReactionIds: s.appliedReactionIds,

@@ -10,8 +10,9 @@ HTTP and WebSocket surface) and `@pinai/crypto` (the E2EE core).
 
 What remains under `adapters/` is the part that is genuinely this platform's:
 the WASM MLS engine, the WebCrypto device key, IndexedDB, `sessionStorage`
-for the PKCE round-trip, `localStorage` for the JWKS TTL, and browser
-navigation. That list is the mobile port's inventory.
+for the PKCE round-trip, `localStorage` for the JWKS TTL and for which
+account's storage is open, and browser navigation. That list is the mobile
+port's inventory.
 
 ```
 locales/              # Translation files
@@ -76,8 +77,8 @@ If possible, keep them concise, bullet points, not essays. Aim for under ~50 lin
 ## Dependency Injection (IoC)
 
 There is no container. `ioc/index.ts` constructs the adapters as module-scope
-singletons and exposes one accessor per port — fifteen of them, all shaped
-`getXxxPort()`. Presentation calls those; it never constructs an adapter.
+singletons and exposes one accessor per port — sixteen of them, nearly all
+shaped `getXxxPort()`. Presentation calls those; it never constructs an adapter.
 
 ```typescript
 // ioc/index.ts
@@ -110,6 +111,7 @@ pass stubs positionally, no container to configure.
 ### The second composition root
 
 `store/store.ts` is the other place implementations are wired: it builds the
+account storage, which decides whose databases this page load opens, then the
 key-value store, the device key and `SealedStorage`, and hands the persist
 middleware its storage. It is separate because the IoC imports the store, so
 the store cannot import the IoC.

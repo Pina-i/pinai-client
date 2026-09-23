@@ -1,10 +1,18 @@
 import { type IDBPDatabase, openDB } from "idb"
 
+import type { ActorUri } from "@pinai/domain/models/e2ee"
 import type { IKeyValueStore } from "@pinai/domain/ports/key-value-store.port"
 
-const DB_NAME = "pinai-e2ee"
+const DB_PREFIX = "pinai-e2ee"
 /** v4 added `device_attestation` (Phase 7). */
 const DB_VERSION = 4
+
+/** The one store every account shared before device storage was split per account. */
+export const LEGACY_E2EE_DATABASE = DB_PREFIX
+
+export function e2eeDatabaseName(account: ActorUri): string {
+    return `${DB_PREFIX}:${account}`
+}
 
 /**
  * Collections the E2EE store keeps. They are object stores here; a SQLite
@@ -22,6 +30,16 @@ export const COLLECTIONS = [
 /** Slot the web keeps its `CryptoKey` in — see {@link IdbKeyValueStore.putCryptoKey}. */
 const CRYPTO_KEY_SLOT = "device_key"
 
+export function openE2eeDatabase(name: string): Promise<IDBPDatabase> {
+    return openDB(name, DB_VERSION, {
+        upgrade(db) {
+            for (const collection of COLLECTIONS) {
+                if (!db.objectStoreNames.contains(collection)) db.createObjectStore(collection)
+            }
+        },
+    })
+}
+
 /**
  * IndexedDB implementation of {@link IKeyValueStore}.
  *
@@ -33,18 +51,24 @@ const CRYPTO_KEY_SLOT = "device_key"
  * and implements `IKeyValueStore` alone.
  */
 export class IdbKeyValueStore implements IKeyValueStore {
+    private readonly name: string | null
     private db: IDBPDatabase | null = null
+
+    /** `null` before any account has signed in: every call rejects rather than open a store no account owns. */
+    constructor(name: string | null) {
+        this.name = name
+    }
 
     private async openIfNeeded(): Promise<IDBPDatabase> {
         if (this.db) return this.db
-        this.db = await openDB(DB_NAME, DB_VERSION, {
-            upgrade(db) {
-                for (const name of COLLECTIONS) {
-                    if (!db.objectStoreNames.contains(name)) db.createObjectStore(name)
-                }
-            },
-        })
+        if (this.name === null) throw new Error("No account storage is open — sign in first")
+        this.db = await openE2eeDatabase(this.name)
         return this.db
+    }
+
+    close(): void {
+        this.db?.close()
+        this.db = null
     }
 
     async get(collection: string, key: string): Promise<Uint8Array | undefined> {

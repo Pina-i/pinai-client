@@ -13,7 +13,7 @@
  * over SQLite or MMKV and hands the result to the same `persist` middleware.
  *
  * Storage layout
- * - DB: `pinai-zustand-store` (v1)
+ * - DB: `pinai-zustand-store:<actor URI>` (v1), one per account
  * - Object store: `slices`
  * - Key: zustand's `name` field (one entry per partialized state)
  * - Value: a `SealedBytes` — the same at-rest shape `storage.adapter.ts`
@@ -38,25 +38,28 @@ import { type IDBPDatabase, openDB } from "idb"
 import { pack, unpack } from "msgpackr"
 import type { PersistStorage, StorageValue } from "zustand/middleware"
 
+import type { ActorUri } from "@pinai/domain/models/e2ee"
 import type { IDeviceKeyPort, SealedBytes } from "@pinai/domain/ports/device-key.port"
 
-const DB_NAME = "pinai-zustand-store"
+const DB_PREFIX = "pinai-zustand-store"
 const DB_VERSION = 1
 const SLICES_STORE = "slices"
 
-let dbPromise: Promise<IDBPDatabase> | null = null
+/** The one cache every account shared before device storage was split per account. */
+export const LEGACY_SLICES_DATABASE = DB_PREFIX
 
-function openSlicesDb(): Promise<IDBPDatabase> {
-    if (!dbPromise) {
-        dbPromise = openDB(DB_NAME, DB_VERSION, {
-            upgrade(db) {
-                if (!db.objectStoreNames.contains(SLICES_STORE)) {
-                    db.createObjectStore(SLICES_STORE)
-                }
-            },
-        })
-    }
-    return dbPromise
+export function slicesDatabaseName(account: ActorUri): string {
+    return `${DB_PREFIX}:${account}`
+}
+
+export function openSlicesDatabase(name: string): Promise<IDBPDatabase> {
+    return openDB(name, DB_VERSION, {
+        upgrade(db) {
+            if (!db.objectStoreNames.contains(SLICES_STORE)) {
+                db.createObjectStore(SLICES_STORE)
+            }
+        },
+    })
 }
 
 /**
@@ -66,7 +69,16 @@ function openSlicesDb(): Promise<IDBPDatabase> {
  * adapters, so the cached plaintexts are sealed under the device's one key
  * rather than a parallel one.
  */
-export function createEncryptedIdbStorage<T>(deviceKey: IDeviceKeyPort): PersistStorage<T> {
+export function createEncryptedIdbStorage<T>(
+    deviceKey: IDeviceKeyPort,
+    dbName: string | null,
+): PersistStorage<T> {
+    // Before the first sign-in there is no account to cache for.
+    if (dbName === null) {
+        return { getItem: async () => null, setItem: async () => undefined, removeItem: async () => undefined }
+    }
+    let dbPromise: Promise<IDBPDatabase> | null = null
+    const openSlicesDb = () => (dbPromise ??= openSlicesDatabase(dbName))
     return {
         async getItem(name: string): Promise<StorageValue<T> | null> {
             const db = await openSlicesDb()
