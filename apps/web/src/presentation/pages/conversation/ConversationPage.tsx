@@ -84,6 +84,7 @@ export function ConversationPage({ name }: ConversationPageProps) {
                     messages={deferredMessages}
                     conversationKey={vm.conversationKey}
                     recipientAddress={vm.recipientAddress}
+                    isGroup={vm.isGroup}
                     onReply={vm.handleReply}
                     onRetry={vm.retrySend}
                     hasPendingIntent={vm.hasPendingIntent}

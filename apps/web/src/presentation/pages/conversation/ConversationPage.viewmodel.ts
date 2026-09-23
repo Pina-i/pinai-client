@@ -713,6 +713,7 @@ export function useConversationPageViewModel(name: string) {
     // isn't refreshed by the sender's own WS echo and is empty
     // immediately after a first send.
     const recipientAddress = dmData?.address ?? name
+    const isGroup = dmData?.kind === "group"
 
     return {
         user,
@@ -720,6 +721,7 @@ export function useConversationPageViewModel(name: string) {
         displayName,
         conversationKey,
         recipientAddress,
+        isGroup,
         messages,
         messageListHandleRef,
         replyingTo,

@@ -40,6 +40,8 @@ interface MessageItemProps {
      *  yet (e.g. immediately after a first message — the sender's
      *  own WS echo skips the conversation-list invalidation). */
     recipientAddress: string
+    /** Groups send reactions to the group endpoint, not to `recipientAddress`. */
+    isGroup: boolean
     /** First message in a same-author sequence: renders the avatar
      *  + author/time header. Continuation rows hide both and indent
      *  the body to align with the text column. */
@@ -62,6 +64,7 @@ export function MessageItem({
     message,
     conversationKey,
     recipientAddress,
+    isGroup,
     first,
     onReply,
     onRetry,
@@ -74,6 +77,7 @@ export function MessageItem({
         message,
         conversationKey,
         recipientAddress,
+        isGroup,
         onReply,
         onRetry,
         hasPendingIntent,

@@ -5,7 +5,8 @@ import type {
     EditBody,
     ReactionBody,
 } from "@pinai/domain/models/e2ee"
-import { getDmPort, getE2eePort } from "@/ioc"
+import { sendReactionUseCase, type ConversationRoute } from "@pinai/domain/usecases/dm/send-reaction.usecase"
+import { getDmPort, getE2eePort, getGroupPort } from "@/ioc"
 import type { Message } from "@/lib/types"
 
 /**
@@ -23,6 +24,7 @@ export function useMessageItemViewModel(
     message: Message,
     conversationKey: string,
     recipientAddress: string,
+    isGroup: boolean,
     onReply: (messageId: string) => void,
     onRetry: (messageId: string) => void,
     hasPendingIntent: (messageId: string) => boolean,
@@ -135,11 +137,11 @@ export function useMessageItemViewModel(
 
             if (!accessToken || !idpUrl) return
 
-            // Routing: we use the `recipientAddress` passed in by the
-            // conversation viewmodel (same source `sendMessage` uses —
-            // `dmData?.address ?? name`). Looking it up via
-            // `localDmConvos` here used to fail right after a
-            // first-send because Bob's own WS echo skips the
+            // Routing: a group goes to its own endpoint; a 1:1 uses the
+            // `recipientAddress` passed in by the conversation viewmodel
+            // (same source `sendMessage` uses — `dmData?.address ?? name`).
+            // Looking it up via `localDmConvos` here used to fail right
+            // after a first-send because Bob's own WS echo skips the
             // conversation-list refetch (`isOwn` short-circuit), so
             // his store stayed empty.
             //
@@ -151,7 +153,12 @@ export function useMessageItemViewModel(
             // arrives with a gap, and once the gap exceeds openmls's
             // out-of-order tolerance window all later decrypts fail
             // with "secret deleted".
-            if (!recipientAddress) {
+            const route: ConversationRoute | null = isGroup
+                ? { kind: "group", conversationId: conversationKey }
+                : recipientAddress
+                  ? { kind: "dm", recipientAddress }
+                  : null
+            if (!route) {
                 // eslint-disable-next-line no-console
                 console.warn("Cannot send reaction: recipient address unknown")
                 applyReaction(
@@ -168,9 +175,9 @@ export function useMessageItemViewModel(
                 return
             }
 
-            // Encrypt + send via the regular DM REST path. Server
-            // stores another `direct_messages` row; receivers'
-            // `tryDecryptApp` projects it as a reaction.
+            // Server stores another `direct_messages` row in the
+            // conversation; receivers' `tryDecryptApp` projects it as a
+            // reaction.
             const reactionMessage: ApplicationMessage<ReactionBody> = {
                 version: 1,
                 kind: "reaction",
@@ -181,14 +188,13 @@ export function useMessageItemViewModel(
                     conversationKey,
                     reactionMessage,
                 )
-                await getDmPort().sendMessage(
+                await sendReactionUseCase(
                     idpUrl,
                     accessToken,
-                    recipientAddress,
+                    route,
                     bytesToB64(ciphertext),
-                    undefined,
-                    undefined,
-                    undefined,
+                    getDmPort(),
+                    getGroupPort(),
                 )
             } catch (e) {
                 // eslint-disable-next-line no-console
@@ -207,7 +213,7 @@ export function useMessageItemViewModel(
                 )
             }
         },
-        [user, message, conversationKey, accessToken, idpUrl, applyReaction],
+        [user, message, conversationKey, recipientAddress, isGroup, accessToken, idpUrl, applyReaction],
     )
 
     // ─── Delete ───────────────────────────────────────────────────────────────

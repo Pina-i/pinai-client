@@ -1,4 +1,4 @@
-import { BellOff, LogOut, MessageSquare, Phone, Video } from "lucide-react"
+import { BellOff, LogOut, Phone, Video } from "lucide-react"
 import { ContextMenuList, type ContextMenuItem } from "@/presentation/molecules/ContextMenu/ContextMenuList"
 
 const iconClass = "h-4 w-4"
@@ -9,11 +9,11 @@ interface GroupContextMenuProps {
     onClose: () => void
 }
 
-// Group variant of UserContextMenu — no identity actions (profile/verify/copy).
+// Group variant of UserContextMenu — no identity actions (profile/verify/copy),
+// and no "Send message", which is for starting a DM with a person.
 // Actions aren't wired up yet.
 export function GroupContextMenu({ displayName, onClose }: GroupContextMenuProps) {
     const items: ContextMenuItem[] = [
-        { key: "message", label: "Send message", icon: <MessageSquare className={iconClass} />, hint: "↵" },
         { key: "call", label: "Start a call", icon: <Phone className={iconClass} /> },
         { key: "video", label: "Start a video call", icon: <Video className={iconClass} /> },
         { type: "separator", key: "sep-talk" },

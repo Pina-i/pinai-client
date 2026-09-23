@@ -21,6 +21,7 @@ interface MessageListProps {
     messages: Message[]
     conversationKey: string
     recipientAddress: string
+    isGroup: boolean
     onReply: (messageId: string) => void
     onRetry: (messageId: string) => void
     hasPendingIntent: (messageId: string) => boolean
@@ -76,6 +77,7 @@ export function MessageList({
     messages,
     conversationKey,
     recipientAddress,
+    isGroup,
     onReply,
     onRetry,
     hasPendingIntent,
@@ -235,6 +237,7 @@ export function MessageList({
                                     message={item.message}
                                     conversationKey={conversationKey}
                                     recipientAddress={recipientAddress}
+                                    isGroup={isGroup}
                                     first={item.first}
                                     onReply={onReply}
                                     onRetry={onRetry}
