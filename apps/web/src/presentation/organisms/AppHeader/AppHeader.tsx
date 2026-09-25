@@ -5,80 +5,56 @@ import { Tooltip } from "@/presentation/atoms/Tooltip/Tooltip"
 import { Navbar } from "@/presentation/organisms/Navbar/Navbar"
 import { presenceToUserStatus } from "@pinai/domain/models/presence"
 import { useAppStore } from "@/store/store"
-import { Hash, MessageSquare, Pin, UserPlus, Users } from "lucide-react"
+import { Hash, MessageSquare, Pin, UserPlus, Users, Volume2 } from "lucide-react"
 
 export function AppHeader() {
-    const {
-        view,
-        activeServer,
-        activeChannel,
-        activeDm,
-        channelsByServer,
-        localDmConvos,
-        showPinned,
-        setShowPinned,
-        showMembers,
-        setShowMembers,
-        openGroupComposer,
-    } = useAppStore()
+    const view = useAppStore((s) => s.view)
+    const activeDm = useAppStore((s) => s.activeDm)
+    const showPinned = useAppStore((s) => s.showPinned)
+    const setShowPinned = useAppStore((s) => s.setShowPinned)
+    const showMembers = useAppStore((s) => s.showMembers)
+    const setShowMembers = useAppStore((s) => s.setShowMembers)
+    const openGroupComposer = useAppStore((s) => s.openGroupComposer)
+    // Select the one channel / conversation / presence the header shows, not
+    // the maps: presence and avatar updates for everyone else must not re-render it.
+    const currentChannel = useAppStore((s) =>
+        (s.channelsByServer[s.activeServer] ?? []).find((c) => c.id === s.activeChannel),
+    )
+    const activeDmData = useAppStore((s) => s.localDmConvos.find((d) => d.id === s.activeDm))
+    const activeDmPresence = useAppStore((s) =>
+        activeDmData?.kind === "dm" ? s.presenceByAddress[activeDmData.address] : undefined,
+    )
+    const activeDmAvatarUrl = useAppStore((s) =>
+        activeDmData?.kind === "dm" ? s.avatarsByAddress[activeDmData.address] ?? null : null,
+    )
 
-    const presenceByAddress = useAppStore((s) => s.presenceByAddress)
-    const avatarsByAddress = useAppStore((s) => s.avatarsByAddress)
-
-    const currentChannel = (channelsByServer[activeServer] ?? []).find((c) => c.id === activeChannel)
-    const activeDmData = localDmConvos.find((d) => d.id === activeDm)
     const activeDmAddress = activeDmData?.address ?? activeDm ?? ""
-    const activeDmAvatarUrl =
-        activeDmData?.kind === "dm" ? avatarsByAddress[activeDmData.address] ?? null : null
 
     const title = view === "dms"
         ? (activeDm ? (activeDmData?.displayName ?? activeDmAddress.split("@")[0] ?? activeDmAddress) : "Friends")
         : (currentChannel?.name ?? "")
 
     const description = view === "dms"
-        ? (activeDm ? activeDmAddress : "Manage your friends")
+        ? (activeDm
+            ? (activeDmData?.kind === "group"
+                ? `${activeDmData.memberCount} ${activeDmData.memberCount === 1 ? "member" : "members"}`
+                : activeDmAddress)
+            : "Manage your friends")
         : currentChannel?.description
 
     const dmStatus =
         view === "dms" && activeDmData?.kind === "dm"
-            ? presenceToUserStatus(presenceByAddress[activeDmData.address])
+            ? presenceToUserStatus(activeDmPresence)
             : undefined
 
-    return (
-        <Navbar>
-            <span className="shrink-0">
-                {view === "dms" && !activeDm ? (
-                    <Users className="h-5 w-5 text-muted-foreground" />
-                ) : view === "dms" && activeDmData ? (
-                    <Avatar
-                        initials={activeDmData.avatar}
-                        imageUrl={activeDmAvatarUrl}
-                        color={activeDmData.color}
-                        size="md"
-                        status={dmStatus}
-                        statusBorderClass="border-background"
-                    />
-                ) : view === "dms" ? (
-                    <MessageSquare className="h-5 w-5 text-muted-foreground" />
-                ) : (
-                    <Hash className="h-5 w-5 text-muted-foreground" />
-                )}
-            </span>
+    const isVoiceChannel = view === "server" && currentChannel?.type === "voice"
 
-            <div className="flex min-w-0 flex-col">
-                <span className="title truncate text-[17px] font-medium leading-tight text-foreground">
-                    {title}
-                </span>
-                {description && (
-                    <span className="mt-0.5 truncate font-mono text-[11px] uppercase tracking-[0.04em] text-muted-foreground">
-                        {description}
-                    </span>
-                )}
-            </div>
-
+    const actions = (
+        <>
             {view === "dms" && activeDmData?.kind === "dm" && (
                 <Tooltip content="Add people" placement="bottom" delay={300}>
                     <IconButton
+                        variant="ghost"
                         onPress={() =>
                             openGroupComposer({
                                 prefillAddresses: [activeDmData.address],
@@ -86,34 +62,72 @@ export function AppHeader() {
                             })
                         }
                         aria-label="Add people to start a group"
-                        className="ml-auto shrink-0 p-1 text-muted-foreground hover:text-foreground"
                     >
-                        <UserPlus className="h-5 w-5" />
+                        <UserPlus className="h-[18px] w-[18px]" />
                     </IconButton>
                 </Tooltip>
             )}
             {view === "server" && (
-                <div className="ml-auto flex shrink-0 items-center gap-2">
-                    <Tooltip content="Pinned Messages" placement="bottom" delay={300}>
-                        <IconButton
-                            onPress={() => setShowPinned((p) => !p)}
-                            aria-label="Toggle pinned messages"
-                            className={cn("p-1", showPinned ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
-                        >
-                            <Pin className="h-5 w-5" />
-                        </IconButton>
-                    </Tooltip>
-                    <Tooltip content="Member List" placement="bottom" delay={300}>
-                        <IconButton
-                            onPress={() => setShowMembers((p) => !p)}
-                            aria-label="Toggle member list"
-                            className={cn("p-1", showMembers ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
-                        >
-                            <Users className="h-5 w-5" />
-                        </IconButton>
-                    </Tooltip>
-                </div>
+                <Tooltip content="Member List" placement="bottom" delay={300}>
+                    <IconButton
+                        variant="ghost"
+                        isActive={showMembers}
+                        onPress={() => setShowMembers((p) => !p)}
+                        aria-label="Toggle member list"
+                    >
+                        <Users className="h-[18px] w-[18px]" />
+                    </IconButton>
+                </Tooltip>
             )}
+            <Tooltip content="Pinned Messages" placement="bottom" delay={300}>
+                <IconButton
+                    variant="ghost"
+                    isActive={showPinned}
+                    onPress={() => setShowPinned((p) => !p)}
+                    aria-label="Toggle pinned messages"
+                >
+                    <Pin className="h-[18px] w-[18px]" />
+                </IconButton>
+            </Tooltip>
+        </>
+    )
+
+    return (
+        <Navbar actions={actions}>
+            <span className="flex shrink-0">
+                {view === "dms" && !activeDm ? (
+                    <Users className="h-5 w-5" />
+                ) : view === "dms" && activeDmData ? (
+                    <Avatar
+                        initials={activeDmData.avatar}
+                        imageUrl={activeDmAvatarUrl}
+                        seed={activeDmData.address}
+                        tone={activeDmData.kind === "group" ? "sec" : undefined}
+                        size="md"
+                        status={dmStatus}
+                    />
+                ) : view === "dms" ? (
+                    <MessageSquare className="h-5 w-5" />
+                ) : isVoiceChannel ? (
+                    <Volume2 className="h-5 w-5 text-sec" />
+                ) : (
+                    <Hash className="h-5 w-5" />
+                )}
+            </span>
+
+            <div className="flex min-w-0 flex-1 flex-col">
+                <span className="title truncate text-[19px] font-semibold text-foreground">{title}</span>
+                {description && (
+                    <span
+                        className={cn(
+                            "truncate",
+                            view === "dms" && activeDm ? "fact fact-plain" : "text-[11px] text-muted-foreground",
+                        )}
+                    >
+                        {description}
+                    </span>
+                )}
+            </div>
         </Navbar>
     )
 }

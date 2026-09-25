@@ -4,7 +4,7 @@ import { cn } from "@/presentation/_libs/utils"
 export interface StackedAvatar {
     initials: string
     imageUrl?: string | null
-    color?: string
+    seed?: string
 }
 
 interface AvatarStackProps {
@@ -36,7 +36,7 @@ export function AvatarStack({ people, size = "sm", max = 3, ringClass = "border-
                     className={cn("rounded-full border-2", ringClass, i > 0 && overlapClass[size])}
                     style={{ zIndex: shown.length - i }}
                 >
-                    <Avatar initials={person.initials} imageUrl={person.imageUrl} color={person.color} size={size} />
+                    <Avatar initials={person.initials} imageUrl={person.imageUrl} seed={person.seed} size={size} />
                 </div>
             ))}
             {extra > 0 && (

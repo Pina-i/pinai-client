@@ -1,5 +1,5 @@
 import { Plus, Reply, Send, Smile, X } from "lucide-react"
-import { useEffect, useRef, useState, type RefObject } from "react"
+import { memo, useEffect, useRef, useState, type RefObject } from "react"
 import { Input, TextField } from "react-aria-components"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { EmojiPickerPopover } from "@/presentation/molecules/EmojiPickerPopover/EmojiPickerPopover"
@@ -30,10 +30,8 @@ interface MessageInputProps {
     handleRef?: RefObject<MessageInputHandle | null>
 }
 
-const FOOTER_HINTS_CLASS =
-    "mt-1.5 flex gap-3.5 px-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground"
-
-export function MessageInput({
+// Memoised: the page re-renders on every incoming message; the composer's props don't change then.
+export const MessageInput = memo(function MessageInput({
     placeholder,
     onSend,
     onType,
@@ -99,158 +97,160 @@ export function MessageInput({
         ? `Uploading ${inFlightCount} file${inFlightCount === 1 ? "" : "s"}…`
         : placeholder
 
+    const hasTray = !!replyTo || stripMode !== "none"
+
     return (
-        <div className="shrink-0 px-6 pb-5">
-            {replyTo && (
-                <div className="mb-2 flex items-center gap-2 rounded-md border-l-2 border-chat bg-accent/40 px-3 py-2 text-xs text-muted-foreground">
-                    <Reply className="h-3 w-3 shrink-0" />
-                    <span className="font-medium text-foreground">{replyTo.author}</span>
-                    <span className="flex-1 truncate">{replyTo.content}</span>
-                    <IconButton
-                        aria-label="Cancel reply"
-                        onPress={onCancelReply}
-                        className="shrink-0 hover:text-foreground"
-                    >
-                        <X className="h-3.5 w-3.5" />
-                    </IconButton>
+        <div className="shrink-0">
+            {/* Hidden file input — triggered by the plus icon. */}
+            <input
+                ref={pickedFileInputRef}
+                type="file"
+                multiple
+                onChange={vm.onFileInputChange}
+                className="hidden"
+            />
+
+            {/* A pill can't hold rows, so the reply and the attachments sit
+                in a tray above it. */}
+            {hasTray && (
+                <div className="mb-2 flex flex-col gap-2 rounded-[18px] border border-line bg-surf p-2.5 backdrop-blur-[14px]">
+                    {replyTo && (
+                        <div className="flex items-center gap-2 rounded-[12px] bg-surf2 px-3 py-2 text-[12px] text-muted-foreground">
+                            <Reply className="h-3.5 w-3.5 shrink-0 text-acc" />
+                            <span className="title shrink-0 text-[13px] font-semibold text-foreground">{replyTo.author}</span>
+                            <span className="flex-1 truncate">{replyTo.content}</span>
+                            <IconButton variant="ghost" aria-label="Cancel reply" onPress={onCancelReply} className="h-6 w-6">
+                                <X className="h-3.5 w-3.5" />
+                            </IconButton>
+                        </div>
+                    )}
+
+                    {stripMode === "uploading" && (
+                        <div className="flex flex-col gap-1.5">
+                            {vm.pending.map((p) => (
+                                <ComposerUploadRow
+                                    key={p.localId}
+                                    pending={p}
+                                    onRemove={() => vm.onRemovePending(p.localId)}
+                                />
+                            ))}
+                        </div>
+                    )}
+
+                    {stripMode === "ready" && (
+                        <div className="flex flex-wrap gap-1.5">
+                            {vm.pending.map((p) => (
+                                <ComposerChipRow
+                                    key={p.localId}
+                                    pending={p}
+                                    onRemove={() => vm.onRemovePending(p.localId)}
+                                />
+                            ))}
+                            {vm.pending.length < MAX_ATTACHMENTS_PER_MESSAGE && (
+                                <button
+                                    type="button"
+                                    onClick={vm.onPickClick}
+                                    className={cn(
+                                        "cursor-pointer rounded-full border border-dashed border-line2 bg-transparent px-3 py-1",
+                                        "font-mono text-[10.5px] tracking-[0.04em] text-muted-foreground hover:text-foreground",
+                                    )}
+                                >
+                                    + add file
+                                </button>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
 
-            <div className="rounded-[var(--radius-lg)] border border-border-strong bg-card p-2.5">
-                {/* Hidden file input — triggered by the plus icon. */}
-                <input
-                    ref={pickedFileInputRef}
-                    type="file"
-                    multiple
-                    onChange={vm.onFileInputChange}
-                    className="hidden"
+            <div className="flex items-center gap-3 rounded-full border border-line bg-surf px-4 py-3 text-[14px] text-muted-foreground backdrop-blur-[14px]">
+                <IconButton
+                    variant="ghost"
+                    onPress={vm.onPickClick}
+                    aria-label="Attach files"
+                    isDisabled={vm.pending.length >= MAX_ATTACHMENTS_PER_MESSAGE}
+                >
+                    <Plus className="h-[18px] w-[18px]" />
+                </IconButton>
+
+                <TextField
+                    value={vm.value}
+                    onChange={vm.setValue}
+                    aria-label="Message"
+                    className="min-w-0 flex-1"
+                >
+                    <Input
+                        ref={textInputRef}
+                        placeholder={composerPlaceholder}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault()
+                                void vm.onSubmit()
+                            }
+                        }}
+                        className="w-full bg-transparent text-foreground placeholder:text-muted-foreground outline-none"
+                    />
+                </TextField>
+
+                <EmojiPickerPopover
+                    placement="top end"
+                    offset={8}
+                    isOpen={emojiOpen}
+                    onOpenChange={setEmojiOpen}
+                    trigger={
+                        <IconButton variant="ghost" isActive={emojiOpen} aria-label="Emoji">
+                            <Smile className="h-[18px] w-[18px]" />
+                        </IconButton>
+                    }
+                    onEmojiSelect={(emoji) => {
+                        vm.onEmojiSelect(emoji)
+                        setEmojiOpen(false)
+                    }}
                 />
 
-                {stripMode === "uploading" && (
-                    <div className="mb-2 flex flex-col gap-1.5 border-b border-border pb-2.5">
-                        {vm.pending.map((p) => (
-                            <ComposerUploadRow
-                                key={p.localId}
-                                pending={p}
-                                onRemove={() => vm.onRemovePending(p.localId)}
-                            />
-                        ))}
-                    </div>
-                )}
-
-                {stripMode === "ready" && (
-                    <div className="mb-2 flex flex-wrap gap-1.5 border-b border-border pb-2.5">
-                        {vm.pending.map((p) => (
-                            <ComposerChipRow
-                                key={p.localId}
-                                pending={p}
-                                onRemove={() => vm.onRemovePending(p.localId)}
-                            />
-                        ))}
-                        {vm.pending.length < MAX_ATTACHMENTS_PER_MESSAGE && (
-                            <button
-                                type="button"
-                                onClick={vm.onPickClick}
-                                className={cn(
-                                    "cursor-pointer rounded-full border border-dashed border-border-strong",
-                                    "bg-transparent px-3 py-1 font-mono text-[11px] tracking-[0.04em] text-muted-foreground hover:text-foreground",
-                                )}
-                            >
-                                + add file
-                            </button>
-                        )}
-                    </div>
-                )}
-
-                <div className="flex items-center gap-2">
-                    <IconButton
-                        onPress={vm.onPickClick}
-                        aria-label="Attach files"
-                        isDisabled={vm.pending.length >= MAX_ATTACHMENTS_PER_MESSAGE}
-                        className="text-muted-foreground hover:text-foreground"
-                    >
-                        <Plus className="h-5 w-5" />
-                    </IconButton>
-
-                    <TextField
-                        value={vm.value}
-                        onChange={vm.setValue}
-                        aria-label="Message"
-                        className="flex-1"
-                    >
-                        <Input
-                            ref={textInputRef}
-                            placeholder={composerPlaceholder}
-                            onKeyDown={(e) => {
-                                if (e.key === "Enter" && !e.shiftKey) {
-                                    e.preventDefault()
-                                    void vm.onSubmit()
-                                }
-                            }}
-                            className="w-full bg-transparent py-1 text-[13.5px] text-foreground placeholder:text-muted-foreground outline-none"
-                        />
-                    </TextField>
-
-                    <EmojiPickerPopover
-                        placement="top end"
-                        offset={8}
-                        isOpen={emojiOpen}
-                        onOpenChange={setEmojiOpen}
-                        trigger={
-                            <IconButton aria-label="Emoji" className="text-muted-foreground hover:text-foreground">
-                                <Smile className="h-5 w-5" />
-                            </IconButton>
-                        }
-                        onEmojiSelect={(emoji) => {
-                            vm.onEmojiSelect(emoji)
-                            setEmojiOpen(false)
+                <Popover
+                    placement="top end"
+                    offset={8}
+                    isOpen={gifOpen}
+                    onOpenChange={setGifOpen}
+                    trigger={
+                        <IconButton
+                            aria-label="GIF"
+                            className={cn(
+                                "shrink-0 rounded-full bg-surf3 px-[9px] py-[5px]",
+                                "font-mono text-[9px] font-bold tracking-[0.06em] text-muted-foreground",
+                                "hover:text-foreground aria-expanded:text-foreground",
+                            )}
+                        >
+                            GIF
+                        </IconButton>
+                    }
+                    className="overflow-visible"
+                >
+                    <GifPopover
+                        onPickGif={(file) => {
+                            vm.onAddFiles([file])
+                            setGifOpen(false)
                         }}
                     />
+                </Popover>
 
-                    <Popover
-                        placement="top end"
-                        offset={8}
-                        isOpen={gifOpen}
-                        onOpenChange={setGifOpen}
-                        trigger={
-                            <IconButton
-                                aria-label="GIF"
-                                className={cn(
-                                    "h-[30px] w-[30px] cursor-pointer rounded-[var(--radius-sm)] border border-border bg-transparent",
-                                    "font-mono text-[9.5px] font-semibold tracking-[0.06em] text-muted-foreground",
-                                    "hover:text-foreground",
-                                )}
-                            >
-                                GIF
-                            </IconButton>
-                        }
-                        className="overflow-visible"
-                    >
-                        <GifPopover
-                            onPickGif={(file) => {
-                                vm.onAddFiles([file])
-                                setGifOpen(false)
-                            }}
-                        />
-                    </Popover>
-
-                    <IconButton
-                        onPress={() => void vm.onSubmit()}
-                        aria-label="Send message"
-                        isDisabled={!vm.canSend}
-                        className={cn(
-                            "h-7 w-8 rounded-[var(--radius-sm)] transition-opacity",
-                            vm.canSend
-                                ? "bg-chat text-primary-foreground hover:opacity-90"
-                                : "bg-accent text-muted-foreground opacity-60",
-                        )}
-                    >
-                        <Send className="h-4 w-4" />
-                    </IconButton>
-                </div>
+                <IconButton
+                    onPress={() => void vm.onSubmit()}
+                    aria-label="Send message"
+                    isDisabled={!vm.canSend}
+                    className={cn(
+                        "h-[30px] w-[34px] shrink-0 rounded-full transition-opacity duration-150 disabled:opacity-100",
+                        vm.canSend
+                            ? "bg-action text-action-foreground shadow-[0_6px_20px_-6px_color-mix(in_oklab,var(--action)_70%,transparent)] hover:opacity-90"
+                            : "bg-surf3 text-muted-foreground",
+                    )}
+                >
+                    <Send className="h-[15px] w-[15px]" />
+                </IconButton>
             </div>
 
-            <div className={FOOTER_HINTS_CLASS}>
+            <div className="mx-3.5 mb-0.5 mt-[9px] flex gap-4 font-mono text-[9.5px] uppercase tracking-[0.08em] text-muted-foreground">
                 <span>⏎ send</span>
                 <span>⇧⏎ new line</span>
                 <span>/ commands</span>
@@ -258,4 +258,4 @@ export function MessageInput({
             </div>
         </div>
     )
-}
+})

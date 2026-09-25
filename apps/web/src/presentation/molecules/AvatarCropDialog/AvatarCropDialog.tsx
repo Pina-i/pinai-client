@@ -1,8 +1,13 @@
 import { useRef, useState } from "react"
 import AvatarEditor, { type AvatarEditorRef } from "react-avatar-editor"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
+import { modalSurface } from "@/presentation/molecules/Modal/modal-surface"
+import { Button } from "@/presentation/atoms/Button/Button"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { cn } from "@/presentation/_libs/utils"
+
+const rotateClass =
+    "h-7 w-7 rounded-full border border-line2 text-[12px] text-foreground hover:bg-surf2"
 
 interface AvatarCropDialogProps {
     isOpen: boolean
@@ -44,15 +49,15 @@ export function AvatarCropDialog({ isOpen, file, onClose, onSave }: AvatarCropDi
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} isDismissable={!isSaving} label="Crop avatar">
-            <div className="flex w-[360px] flex-col gap-4 rounded-[var(--radius-md)] border border-border bg-card p-5 shadow-2xl">
+            <div className={cn(modalSurface, "w-[360px] gap-4 p-5")}>
                 <div>
-                    <p className="mono-eyebrow tracking-[0.14em] text-muted-foreground">Editing · Avatar</p>
-                    <h3 className="title text-[18px] font-normal leading-tight tracking-[-0.01em] text-foreground">
+                    <p className="mono-eyebrow mb-[5px]">Editing · Avatar</p>
+                    <h3 className="title text-[20px] font-normal leading-tight tracking-[-0.01em] text-foreground">
                         Frame your avatar.
                     </h3>
                 </div>
 
-                <div className="flex justify-center">
+                <div className="flex justify-center overflow-hidden rounded-[14px] border border-line bg-background">
                     <AvatarEditor
                         ref={editorRef}
                         image={file}
@@ -60,15 +65,17 @@ export function AvatarCropDialog({ isOpen, file, onClose, onSave }: AvatarCropDi
                         height={OUTPUT_SIZE}
                         border={20}
                         borderRadius={OUTPUT_SIZE}
-                        color={[18, 18, 18, 0.6]}
+                        color={[14, 17, 22, 0.6]}
                         scale={scale}
                         rotate={rotate}
                     />
                 </div>
 
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-3">
                     <div>
-                        <label className="mono-eyebrow mb-1 block text-muted-foreground">Zoom</label>
+                        <label className="mb-[5px] block font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted-foreground">
+                            Zoom
+                        </label>
                         <input
                             type="range"
                             min={1}
@@ -76,43 +83,37 @@ export function AvatarCropDialog({ isOpen, file, onClose, onSave }: AvatarCropDi
                             step={0.01}
                             value={scale}
                             onChange={(e) => setScale(Number(e.target.value))}
-                            className="w-full accent-[color:var(--chat)]"
+                            className="w-full cursor-pointer accent-[color:var(--acc)]"
                         />
                     </div>
                     <div className="flex items-center gap-2">
-                        <span className="mono-eyebrow text-muted-foreground">Rotate</span>
+                        <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted-foreground">
+                            Rotate
+                        </span>
                         <IconButton
+                            aria-label="Rotate left"
                             onPress={() => setRotate((r) => (r - 90 + 360) % 360)}
-                            className="rounded-[5px] border border-border-strong px-2 py-[3px] text-[11.5px] text-foreground hover:bg-accent/40"
+                            className={rotateClass}
                         >
                             ⟲
                         </IconButton>
                         <IconButton
+                            aria-label="Rotate right"
                             onPress={() => setRotate((r) => (r + 90) % 360)}
-                            className="rounded-[5px] border border-border-strong px-2 py-[3px] text-[11.5px] text-foreground hover:bg-accent/40"
+                            className={rotateClass}
                         >
                             ⟳
                         </IconButton>
                     </div>
                 </div>
 
-                <div className="flex justify-end gap-2 border-t border-border pt-3">
-                    <IconButton
-                        onPress={onClose}
-                        isDisabled={isSaving}
-                        className="rounded-[5px] border border-border-strong px-3 py-2 text-[12px] text-foreground hover:bg-accent/40"
-                    >
+                <div className="flex justify-end gap-2 border-t border-line pt-3.5">
+                    <Button variant="secondary" size="inline" onPress={onClose} isDisabled={isSaving}>
                         Cancel
-                    </IconButton>
-                    <IconButton
-                        onPress={handleSave}
-                        isDisabled={isSaving}
-                        className={cn(
-                            "rounded-[5px] bg-chat px-4 py-2 text-[12px] font-semibold text-primary-foreground hover:opacity-90",
-                        )}
-                    >
+                    </Button>
+                    <Button variant="primary" size="inline" onPress={handleSave} isDisabled={isSaving}>
                         {isSaving ? "Saving…" : "Save"}
-                    </IconButton>
+                    </Button>
                 </div>
             </div>
         </Modal>

@@ -4,11 +4,13 @@ import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { getSocialPort } from "@/ioc"
 import { useAppStore } from "@/store/store"
-import { Button } from "@/presentation/atoms/Button/Button"
+import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
-import { Popover } from "@/presentation/molecules/Popover/Popover"
+import { Popover, PopoverCaret } from "@/presentation/molecules/Popover/Popover"
+import { popoverSurface } from "@/presentation/molecules/Popover/popover-surface"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import { cn } from "@/presentation/_libs/utils"
+import { actorUriToAddress } from "@pinai/domain/models/identity"
 import type { WsNotification, WsNotificationEventType } from "@pinai/domain/models/ws"
 
 type FilterPill = "all" | "unread" | "mentions"
@@ -19,23 +21,15 @@ interface KindMeta {
 }
 
 const kindByEvent: Record<WsNotificationEventType, KindMeta> = {
-    friend_request: { label: "FRIEND", color: "var(--chat)" },
-    friend_accepted: { label: "FRIEND", color: "var(--chat)" },
-    friend_removed: { label: "FRIEND", color: "var(--muted-foreground)" },
+    friend_request: { label: "Friend", color: "var(--acc)" },
+    friend_accepted: { label: "Friend", color: "var(--acc)" },
+    friend_removed: { label: "Friend", color: "var(--muted-foreground)" },
 }
 
 const sentenceByEvent: Record<WsNotificationEventType, string> = {
     friend_request: "sent you a friend request.",
     friend_accepted: "accepted your friend request.",
     friend_removed: "removed you as a friend.",
-}
-
-/** Stable hash → hue, gives every actor a predictable, distinct avatar tint. */
-function colorFor(seed: string): string {
-    let hash = 0
-    for (let i = 0; i < seed.length; i++) hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0
-    const hue = Math.abs(hash) % 360
-    return `oklch(0.74 0.07 ${hue})`
 }
 
 function timeAgo(date: Date): string {
@@ -72,29 +66,21 @@ function isThisWeek(date: Date): boolean {
     return date >= sevenDaysAgo
 }
 
-interface AvatarProps {
-    name: string
-    size: number
-}
-
-/** Initials avatar matching the design's NAvatar (serif initial on a tinted disk). */
-function NotifAvatar({ name, size }: AvatarProps) {
-    const initial = name.charAt(0).toUpperCase()
+function NotifAvatar({ notification, size }: { notification: WsNotification; size: "sm" | "md" }) {
     return (
-        <div
-            className="title flex shrink-0 items-center justify-center rounded-full font-semibold"
-            style={{
-                width: size,
-                height: size,
-                background: colorFor(name),
-                color: "oklch(0.18 0.008 60)",
-                fontSize: size * 0.42,
-            }}
-        >
-            {initial}
-        </div>
+        <Avatar
+            initials={notification.displayName.slice(0, 2).toUpperCase()}
+            seed={actorUriToAddress(notification.actorUri)}
+            size={size}
+        />
     )
 }
+
+const pillButtonClass =
+    "inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border px-[13px] py-1.5 text-[11.5px] outline-none transition-[opacity,background-color,color] duration-150 focus-visible:ring-2 focus-visible:ring-ring"
+
+const popLinkClass =
+    "inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-transparent bg-transparent px-2.5 py-[5px] text-[11.5px] text-muted-foreground outline-none transition-colors duration-150 hover:bg-surf2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
 
 interface KindChipProps {
     label: string
@@ -104,7 +90,7 @@ interface KindChipProps {
 function KindChip({ label, color }: KindChipProps) {
     return (
         <span
-            className="rounded-sm px-1.5 py-px font-mono text-[9.5px] uppercase tracking-[0.1em]"
+            className="inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.1em]"
             style={{
                 color,
                 background: `color-mix(in oklab, ${color} 14%, transparent)`,
@@ -131,43 +117,40 @@ function TodayRow({ notification, isUnread, onAccept, onReject }: NotificationRo
     return (
         <div
             className={cn(
-                "relative flex gap-[11px] rounded-sm px-2.5 py-2.5",
-                isHighlighted && "bg-[color-mix(in_oklab,var(--chat)_8%,transparent)]",
+                "relative flex gap-[11px] rounded-[14px] px-3 py-2.5",
+                isHighlighted && "bg-[color-mix(in_oklab,var(--acc)_9%,transparent)]",
             )}
         >
-            {isUnread && (
-                <span className="absolute left-[2px] top-[18px] h-[5px] w-[5px] rounded-full bg-chat" />
-            )}
-            <NotifAvatar name={notification.displayName} size={36} />
+            {isUnread && <span className="absolute left-[3px] top-[22px] h-[5px] w-[5px] rounded-full bg-acc" />}
+            <NotifAvatar notification={notification} size="md" />
             <div className="min-w-0 flex-1">
-                <div className="mb-0.5 flex items-center gap-1.5">
+                <div className="mb-[3px] flex items-center gap-1.5">
                     <KindChip label={kind.label} color={kind.color} />
                     <span className="ml-auto font-mono text-[10px] text-muted-foreground">
                         {timeAgo(new Date(notification.receivedAt))}
                     </span>
                 </div>
                 <p className="text-[13px] leading-[1.4] text-foreground">
-                    <span className="title font-medium">{notification.displayName}</span>{" "}
+                    <span className="title text-[14px] font-semibold">{notification.displayName}</span>{" "}
                     {sentence}
                 </p>
-                <p className="mt-0.5 block font-mono text-[10.5px] text-muted-foreground">
-                    {notification.actorUri}
-                </p>
+                <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{notification.actorUri}</p>
                 {isFriendRequest && (
                     <div className="mt-[9px] flex gap-1.5">
-                        <Button
-                            onPress={() => onAccept(notification)}
-                            className="w-auto rounded-[5px] px-3 py-[5px] text-[11.5px] tracking-normal shadow-none"
+                        <button
+                            type="button"
+                            onClick={() => onAccept(notification)}
+                            className={cn(pillButtonClass, "border-transparent bg-action font-bold text-action-foreground hover:opacity-90")}
                         >
                             Accept
-                        </Button>
-                        <Button
-                            variant="secondary"
-                            onPress={() => onReject(notification)}
-                            className="w-auto rounded-[5px] border-border-strong px-2.5 py-[5px] text-[11.5px] text-muted-foreground hover:text-foreground"
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => onReject(notification)}
+                            className={cn(pillButtonClass, "border-line2 bg-transparent text-muted-foreground hover:bg-surf2 hover:text-foreground")}
                         >
                             Decline
-                        </Button>
+                        </button>
                     </div>
                 )}
             </div>
@@ -178,11 +161,11 @@ function TodayRow({ notification, isUnread, onAccept, onReject }: NotificationRo
 function EarlierRow({ notification }: { notification: WsNotification }) {
     const sentence = sentenceByEvent[notification.eventType]
     return (
-        <div className="flex gap-[11px] rounded-sm px-2.5 py-2 opacity-85">
-            <NotifAvatar name={notification.displayName} size={32} />
+        <div className="flex gap-[11px] rounded-[14px] px-3 py-2 opacity-85">
+            <NotifAvatar notification={notification} size="sm" />
             <div className="min-w-0 flex-1">
                 <p className="text-[12.5px] leading-[1.4] text-foreground">
-                    <span className="title font-medium">{notification.displayName}</span>{" "}
+                    <span className="title text-[14px] font-semibold">{notification.displayName}</span>{" "}
                     {sentence}
                 </p>
                 <span className="font-mono text-[10px] text-muted-foreground">
@@ -272,109 +255,91 @@ export function NotificationsPopover() {
             offset={12}
             trigger={
                 <IconButton
+                    variant="ghost"
+                    isActive={isOpen}
                     aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
-                    className={cn(
-                        "relative h-[34px] w-[34px] rounded-[var(--radius-sm)] border border-border-strong text-foreground transition-colors",
-                        isOpen ? "bg-accent" : "bg-card hover:bg-accent/40",
-                    )}
+                    className={cn("relative h-[34px] w-[34px]", isOpen && "bg-surf3")}
                 >
                     <Bell className="h-[18px] w-[18px]" />
                     {unreadCount > 0 && (
-                        <span className="absolute right-1.5 top-1.5 h-[7px] w-[7px] rounded-full border-2 border-card bg-voice" />
+                        <span className="absolute right-1 top-1 h-2 w-2 rounded-full border-2 border-background bg-sec" />
                     )}
                 </IconButton>
             }
-            className="relative w-[400px] overflow-hidden rounded-[var(--radius-lg)] border border-border-strong bg-popover shadow-[0_24px_60px_-16px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.02)]"
+            className={cn(popoverSurface, "relative w-[400px]")}
         >
-            {/* Caret */}
-            <div className="pointer-events-none absolute -top-[7px] right-[14px] h-[14px] w-[14px] rotate-45 border-t border-l border-border-strong bg-popover" />
+            <PopoverCaret side="up" className="right-2.5" />
 
-            {/* Header */}
-            <div className="border-b border-border px-4 pt-[14px] pb-2.5">
-                <div className="flex items-baseline justify-between">
-                    <div className="flex items-baseline gap-2">
-                        <h3 className="title text-[17px] font-medium text-foreground">Notifications</h3>
-                        {unreadCount > 0 && (
-                            <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                                {unreadCount} new
-                            </span>
+            <div className="relative overflow-hidden rounded-[17px]">
+                <div className="border-b border-line px-4 pb-2.5 pt-3.5">
+                    <div className="flex items-baseline justify-between gap-2.5">
+                        <div className="flex items-baseline gap-2">
+                            <h3 className="title text-[18px] font-normal tracking-[-0.005em] text-foreground">Notifications</h3>
+                            {unreadInPanel.size > 0 && <span className="fact">{unreadInPanel.size} new</span>}
+                        </div>
+                        {notifications.length > 0 && (
+                            <button type="button" onClick={handleMarkAllRead} className={popLinkClass}>
+                                Mark all read
+                            </button>
                         )}
                     </div>
-                    {notifications.length > 0 && (
-                        <button
-                            type="button"
-                            onClick={handleMarkAllRead}
-                            className="rounded-[5px] bg-transparent px-2 py-1 text-[11px] text-muted-foreground transition-colors cursor-pointer hover:text-foreground"
-                        >
-                            Mark all read
-                        </button>
-                    )}
+
+                    <div className="mt-2.5 flex gap-1">
+                        {(["all", "unread", "mentions"] as const).map((pill) => {
+                            const active = filter === pill
+                            const label = pill === "all" ? "All" : pill === "unread" ? "Unread" : "Mentions"
+                            return (
+                                <button
+                                    key={pill}
+                                    type="button"
+                                    onClick={() => setFilter(pill)}
+                                    className={cn(
+                                        "cursor-pointer rounded-full border px-3 py-[5px] text-[11.5px] outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring",
+                                        active
+                                            ? "border-line2 bg-surf2 font-medium text-foreground"
+                                            : "border-transparent text-muted-foreground hover:text-foreground",
+                                    )}
+                                >
+                                    {label}
+                                </button>
+                            )
+                        })}
+                    </div>
                 </div>
 
-                <div className="mt-2.5 flex gap-1">
-                    {(["all", "unread", "mentions"] as const).map((pill) => {
-                        const active = filter === pill
-                        const label = pill === "all" ? "All" : pill === "unread" ? "Unread" : "Mentions"
-                        return (
-                            <button
-                                key={pill}
-                                type="button"
-                                onClick={() => setFilter(pill)}
-                                className={cn(
-                                    "rounded-full px-2.5 py-1 text-[11px] transition-colors cursor-pointer",
-                                    active
-                                        ? "border border-border-strong bg-accent font-medium text-foreground"
-                                        : "border border-transparent text-muted-foreground hover:text-foreground",
-                                )}
-                            >
-                                {label}
-                            </button>
-                        )
-                    })}
-                </div>
-            </div>
+                {today.length > 0 && (
+                    <div className="px-2 pt-2">
+                        <p className="eye px-3 py-1.5">Today</p>
+                        {today.map((n) => (
+                            <TodayRow
+                                key={n.id}
+                                notification={n}
+                                isUnread={unreadInPanel.has(n.id)}
+                                onAccept={handleAccept}
+                                onReject={handleReject}
+                            />
+                        ))}
+                    </div>
+                )}
 
-            {/* Today */}
-            {today.length > 0 && (
-                <div className="px-2 pt-2">
-                    <span className="block px-2.5 py-1.5 font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted-foreground">
-                        Today
-                    </span>
-                    {today.map((n) => (
-                        <TodayRow
-                            key={n.id}
-                            notification={n}
-                            isUnread={unreadInPanel.has(n.id)}
-                            onAccept={handleAccept}
-                            onReject={handleReject}
-                        />
-                    ))}
-                </div>
-            )}
+                {earlier.length > 0 && (
+                    <div className="px-2 pb-1.5 pt-1">
+                        <p className="eye px-3 pb-1 pt-2">Earlier this week</p>
+                        {earlier.map((n) => (
+                            <EarlierRow key={n.id} notification={n} />
+                        ))}
+                    </div>
+                )}
 
-            {/* Earlier this week */}
-            {earlier.length > 0 && (
-                <div className="px-2 pt-1 pb-1.5">
-                    <span className="block px-2.5 pt-2 pb-1 font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted-foreground">
-                        Earlier this week
-                    </span>
-                    {earlier.map((n) => (
-                        <EarlierRow key={n.id} notification={n} />
-                    ))}
-                </div>
-            )}
+                {!hasAny && (
+                    <p className="px-4 py-10 text-center text-[13px] text-muted-foreground">
+                        {filter === "all" ? "No notifications" : `No ${filter} notifications`}
+                    </p>
+                )}
 
-            {!hasAny && (
-                <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-                    {filter === "all" ? "No notifications" : `No ${filter} notifications`}
+                <div className="flex items-center gap-2 border-t border-line bg-surf px-3.5 py-[9px]">
+                    <span className="fact flex-1">↑↓ navigate · ↵ open</span>
                 </div>
-            )}
-
-            {/* Footer */}
-            <div className="flex items-center gap-2.5 border-t border-border bg-[color-mix(in_oklab,var(--card)_60%,transparent)] px-3.5 py-2.5">
-                <span className="flex-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                    ↑↓ navigate · ↵ open
-                </span>
             </div>
         </Popover>
     )

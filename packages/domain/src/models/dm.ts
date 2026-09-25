@@ -56,3 +56,84 @@ export interface DmConversationSummary {
     last_message_at: string | null
 }
 
+
+/** Anything placed on a conversation's timeline. */
+export interface TimelineEntry {
+    id: string
+    /** ISO 8601 instant. */
+    createdAt: string
+}
+
+/**
+ * Merge server history (oldest-first) into a conversation's cached timeline.
+ * The cache is persisted, so history can hold entries newer than it, not only
+ * older ones: sort instead of prepending. Sorting the whole list also repairs
+ * a cache an earlier prepend left out of order. A cached entry wins over its
+ * history copy — it is the one already decrypted.
+ */
+export function mergeMessageHistory<T extends TimelineEntry>(cached: T[], history: T[]): T[] {
+    const cachedIds = new Set(cached.map((m) => m.id))
+    const incoming = history.filter((m) => !cachedIds.has(m.id))
+    // Stable sort: on a tie, history stays ahead of the cache.
+    return [...incoming, ...cached].sort((a, b) => timeOf(a) - timeOf(b))
+}
+
+// An entry from before `createdAt` existed has no usable time; it is old by definition.
+function timeOf(entry: TimelineEntry): number {
+    const t = Date.parse(entry.createdAt)
+    return Number.isNaN(t) ? -Infinity : t
+}
+
+/**
+ * Where an own message stands. `failed`: the IdP never accepted it, so it is
+ * sent again in place. `undelivered`: the IdP stored it but could not reach
+ * the recipient's IdP; the row stays as the record of that attempt, and the
+ * message is sent again as a new one.
+ */
+export type SendStatus = "sending" | "sent" | "failed" | "undelivered"
+
+/** The send-lifecycle fields of an own message. */
+export interface SendState {
+    status?: SendStatus
+    /** ISO instant of the last `status` change. */
+    statusAt?: string
+    /** An undelivered message that was already sent again as a new one. */
+    resent?: boolean
+}
+
+/**
+ * Apply the IdP's delivery outcome to an own message. A failed delivery is
+ * final — the IdP never retries it — so it overrides the status the client
+ * recorded when the send returned. Returns the same object when nothing changes.
+ */
+export function applyFederationStatus<T extends SendState>(
+    message: T,
+    federationStatus: DirectMessage["federation_status"],
+    at: string,
+): T {
+    if (federationStatus !== "failed" || message.status === "undelivered") return message
+    return { ...message, status: "undelivered", statusAt: at }
+}
+
+/** Whether an own message is still waiting to be sent again. */
+export function awaitsResend(message: SendState): boolean {
+    return message.status === "failed" || (message.status === "undelivered" && !message.resent)
+}
+
+/** The fields a route needs to name a row of the conversation list. */
+export interface ConversationRef {
+    id: string
+    kind: "dm" | "group"
+    /** For a group, its first other member's address. */
+    address: string
+}
+
+/**
+ * The conversation a route param names: a conversation id, or a peer's
+ * address — which designates the 1:1 with them, never a group. A group also
+ * carries a member's address, so matching groups by address would open the
+ * group instead of the private conversation.
+ */
+export function findConversation<T extends ConversationRef>(conversations: T[], ref: string): T | undefined {
+    return conversations.find((c) => c.id === ref) ?? conversations.find((c) => c.kind === "dm" && c.address === ref)
+}

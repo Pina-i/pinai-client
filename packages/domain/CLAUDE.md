@@ -131,6 +131,26 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - Hands control to the IdP `/logout` endpoint with a `post_logout_redirect_uri`,
   both supplied by `IAuthNavigationPort`
 
+### models/dm.ts
+- `mergeMessageHistory(cached, history)` — the one rule for folding REST
+  history into a cached timeline: dedupe by id (the cached copy wins, it is
+  the decrypted one), then order by `createdAt`. History is not "always
+  older": the timeline cache is persisted, so a message sent while this
+  device was away comes back through history and is the newest of all.
+  Generic over `TimelineEntry` so each client keeps its own message shape.
+- `findConversation(list, ref)` — what a route param names: a conversation
+  id, or a peer's address, which designates the 1:1 with them only. A group
+  carries its first member's address too, so a plain address match would open
+  the group instead of the private conversation.
+- `SendStatus` — an own message's lifecycle. `failed`: the IdP never accepted
+  it, retried in place. `undelivered`: the IdP stored it but couldn't reach the
+  recipient's IdP; the row stays as the record of that attempt and the retry
+  goes out as a new message (`resent` then hides the retry).
+- `applyFederationStatus(message, federationStatus, at)` — the IdP's delivery
+  outcome (`dm_delivery_failed` live, `federation_status` from history)
+  overrides the client's status: the IdP never retries, so it is final.
+- `awaitsResend(message)` — whether an own message still offers a retry.
+
 ### models/identity.ts
 - `actorUriToAddress(uri)` — only sanctioned converter between
   `http(s)://<host>/users/<handle>` (canonical AP/backend form) and

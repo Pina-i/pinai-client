@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Button } from "@/presentation/atoms/Button/Button"
-import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
+import { modalSurface } from "@/presentation/molecules/Modal/modal-surface"
 import { ContextMenu } from "@/presentation/molecules/ContextMenu/ContextMenu"
 import { UserContextMenu } from "@/presentation/molecules/UserContextMenu/UserContextMenu"
 import { cn } from "@/presentation/_libs/utils"
@@ -36,18 +36,18 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
     const onlineCount = friends.filter((f) => f.status === "online").length
 
     return (
-        <div className="flex flex-1 flex-col">
-            {/* Filter row + Add Friend */}
-            <div className="flex items-center justify-between gap-4 px-8 pb-3 pt-5">
-                <div className="flex gap-1 rounded-md bg-muted p-[3px]">
+        <div className="relative flex min-h-0 flex-1 flex-col px-1.5">
+            <div className="flex items-start justify-between gap-3 px-1.5 pt-1">
+                <div className="flex min-w-0 flex-wrap gap-1 self-start rounded-[22px] bg-surf2 p-1">
                     {friendTabs.map((tab) => (
                         <button
                             key={tab}
+                            type="button"
                             onClick={() => setActiveTab(tab)}
                             className={cn(
-                                "cursor-pointer rounded px-3.5 py-1.5 text-xs transition-colors",
+                                "flex-none cursor-pointer rounded-full px-4 py-[7px] text-[12.5px] transition-colors duration-150 max-[1180px]:px-[11px]",
                                 activeTab === tab
-                                    ? "bg-card font-medium text-foreground shadow-sm"
+                                    ? "bg-acc font-bold text-acc-ink"
                                     : "text-muted-foreground hover:text-foreground",
                             )}
                         >
@@ -61,60 +61,59 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
                 />
             </div>
 
-            {/* Mono section eyebrow */}
-            <div className="flex items-center justify-between border-b border-border px-8 pb-2 pt-1 mono-eyebrow">
-                <span>Online — {onlineCount}</span>
-                <span>Showing {activeTab.toLowerCase()}</span>
+            <div className="mx-2 mb-2 mt-3.5 flex justify-between">
+                <span className="eye">
+                    Online <span className="fact ml-0.5">{onlineCount}</span>
+                </span>
+                <span className="eye">Showing {activeTab.toLowerCase()}</span>
             </div>
 
-            {/* Friends list */}
-            <ScrollArea className="flex-1 px-4 py-2">
-                {isLoading && <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>}
-                {error && <p className="py-8 text-center text-sm text-destructive">{error}</p>}
-                <div className="flex flex-col">
-                    {filteredFriends.map((friend) => (
-                        <ContextMenu
-                            key={friend.id}
-                            trigger={(isOpen) => (
-                                <FriendRow
-                                    friend={friend}
-                                    isActive={isOpen}
-                                    onOpen={onStartDm}
-                                    onRemove={(f) => setFriendToRemove({ id: f.id, name: f.name })}
-                                />
-                            )}
-                        >
-                            {(close) => <UserContextMenu displayName={friend.name} onClose={close} />}
-                        </ContextMenu>
-                    ))}
-                </div>
-            </ScrollArea>
+            <div className="min-h-0 flex-1 overflow-y-auto pb-3">
+                {isLoading && (
+                    <p className="title py-8 text-center text-[13px] italic text-muted-foreground">Loading friends…</p>
+                )}
+                {error && <p className="py-8 text-center text-[13px] text-dnd">{error}</p>}
+                {filteredFriends.map((friend) => (
+                    <ContextMenu
+                        key={friend.id}
+                        trigger={(isOpen) => (
+                            <FriendRow
+                                friend={friend}
+                                isActive={isOpen}
+                                onOpen={onStartDm}
+                                onRemove={(f) => setFriendToRemove({ id: f.id, name: f.name })}
+                            />
+                        )}
+                    >
+                        {(close) => (
+                            <UserContextMenu
+                                displayName={friend.name}
+                                onClose={close}
+                                onMessage={() => onStartDm(friend.address)}
+                                onRemove={() => setFriendToRemove({ id: friend.id, name: friend.name })}
+                            />
+                        )}
+                    </ContextMenu>
+                ))}
+            </div>
 
             <Modal
                 isOpen={!!friendToRemove}
                 onClose={() => setFriendToRemove(null)}
                 label="Confirm remove friend"
             >
-                <div className="w-[420px] rounded-[var(--radius-lg)] border border-border-strong bg-popover p-6 shadow-[0_24px_60px_-16px_rgba(0,0,0,0.55)]">
-                    <h3 className="title text-base font-medium text-foreground">Remove friend?</h3>
-                    <p className="mt-2 text-sm text-muted-foreground">
+                <div className={cn(modalSurface, "w-[420px] p-6")}>
+                    <h3 className="title text-[20px] font-normal text-foreground">Remove friend?</h3>
+                    <p className="mt-2 text-[13.5px] leading-[1.55] text-muted-foreground">
                         Are you sure you want to remove{" "}
                         <span className="font-medium text-foreground">{friendToRemove?.name}</span>{" "}
                         from your friends? This cannot be undone.
                     </p>
                     <div className="mt-6 flex justify-end gap-2">
-                        <Button
-                            variant="secondary"
-                            onPress={() => setFriendToRemove(null)}
-                            className="w-auto px-4"
-                        >
+                        <Button variant="secondary" size="inline" onPress={() => setFriendToRemove(null)}>
                             Cancel
                         </Button>
-                        <Button
-                            variant="destructive"
-                            onPress={handleConfirmRemove}
-                            className="w-auto px-4"
-                        >
+                        <Button variant="destructive" size="inline" onPress={handleConfirmRemove} className="font-semibold">
                             Remove
                         </Button>
                     </div>

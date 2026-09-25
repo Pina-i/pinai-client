@@ -51,17 +51,17 @@ export function ImageLightboxDialog({
     const initials = (senderDisplayName ?? "?").slice(0, 2).toUpperCase()
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} variant="fullscreen" isDismissable label="Image viewer">
+        <Modal isOpen={isOpen} onClose={onClose} variant="fullscreen" overlayClassName="bg-transparent" isDismissable label="Image viewer">
             <div
                 className="flex flex-1 flex-col"
-                style={{ background: "oklch(0.10 0.005 60 / 0.82)", backdropFilter: "blur(8px)" }}
+                style={{ background: "color-mix(in oklab, var(--background) 82%, transparent)", backdropFilter: "blur(8px)" }}
             >
                 {/* Top bar */}
-                <div className="flex items-center gap-3.5 px-5 pt-3.5 pb-2 text-foreground">
-                    <Avatar initials={initials} imageUrl={avatarUrl} color="var(--chat)" size="xs" />
+                <div className="flex items-center gap-3 px-5 pb-2 pt-3.5 text-foreground">
+                    <Avatar initials={initials} imageUrl={avatarUrl} seed={senderAddress} size="sm" />
                     <div className="min-w-0 flex-1">
-                        <div className="truncate text-[12.5px] font-medium">{senderDisplayName ?? "—"}</div>
-                        <div className="truncate font-mono text-[10.5px] tracking-[0.04em] text-muted-foreground">
+                        <div className="title truncate text-[15px] font-semibold">{senderDisplayName ?? "—"}</div>
+                        <div className="truncate font-mono text-[10px] tracking-[0.03em] text-muted-foreground">
                             {filename} · {formatBytes(byteSize)}
                             {timeLabel && ` · ${timeLabel}`}
                         </div>
@@ -69,31 +69,21 @@ export function ImageLightboxDialog({
                     <IconButton
                         isDisabled={!url}
                         onPress={() => url && downloadAttachment(url, filename)}
-                        className={cn(
-                            "rounded-md border border-border-strong px-3 py-1.5",
-                            "font-mono text-[10.5px] uppercase tracking-[0.06em] text-foreground",
-                            "hover:bg-accent/40",
-                        )}
+                        className="rounded-full border border-line2 px-3.5 py-1.5 text-[12px] text-foreground hover:bg-surf2"
                     >
                         Download
                     </IconButton>
                     <IconButton
                         onPress={onClose}
                         aria-label="Close lightbox"
-                        className={cn(
-                            "h-8 w-8 rounded-[var(--radius-sm)] border border-border-strong",
-                            "text-foreground hover:bg-accent/40",
-                        )}
+                        className="h-8 w-8 rounded-full border border-line2 text-muted-foreground hover:bg-surf2 hover:text-foreground"
                     >
                         <X className="h-4 w-4" />
                     </IconButton>
                 </div>
 
-                {/* Image stage — clicking the empty space around the image
-                  * dismisses the lightbox. The Modal molecule's fullscreen
-                  * variant makes the Dialog fill the whole overlay, which
-                  * masks React Aria's `isDismissable` backdrop — so we
-                  * implement the outside-click ourselves here. */}
+                {/* The fullscreen Dialog covers React Aria's dismissable backdrop,
+                    so clicking around the image closes it by hand. */}
                 <div
                     className="flex flex-1 items-center justify-center px-8 pb-4"
                     onClick={onClose}
@@ -112,8 +102,8 @@ export function ImageLightboxDialog({
                                 }
                             }}
                             className={cn(
-                                "max-h-full rounded-[var(--radius-lg)] border border-border bg-muted object-contain",
-                                "shadow-[0_24px_60px_oklch(0.05_0.005_60_/_0.5)]",
+                                "max-h-full rounded-[18px] border border-line bg-surf2 object-contain",
+                                "shadow-[0_24px_60px_-16px_rgba(0,0,0,0.55)]",
                             )}
                             style={{
                                 width: "100%",
@@ -127,8 +117,8 @@ export function ImageLightboxDialog({
                 {/* Footnote */}
                 <div
                     className={cn(
-                        "flex gap-4.5 px-5 pb-4 pt-2.5",
-                        "font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground",
+                        "flex gap-4 px-5 pb-4 pt-2.5",
+                        "font-mono text-[9.5px] uppercase tracking-[0.08em] text-muted-foreground",
                     )}
                 >
                     <span>esc · close</span>

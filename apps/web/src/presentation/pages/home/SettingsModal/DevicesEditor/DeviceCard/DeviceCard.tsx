@@ -49,57 +49,55 @@ export function DeviceCard({ device, onRevoke, isRevoking }: DeviceCardProps) {
     return (
         <div
             className={cn(
-                "rounded-[10px] px-3.5 py-3 transition-opacity",
+                "rounded-[14px] border px-3.5 py-3 transition-opacity",
                 isCurrent
-                    ? "border bg-[color-mix(in_oklab,var(--chat)_8%,var(--background))] border-[color-mix(in_oklab,var(--chat)_30%,var(--border))]"
-                    : "border border-border bg-background",
+                    ? "border-[color-mix(in_oklab,var(--acc)_30%,var(--line2))] bg-[color-mix(in_oklab,var(--acc)_8%,var(--background))]"
+                    : "border-line bg-background",
                 isRevoked && "opacity-60",
             )}
         >
             <div className="flex items-center gap-[11px]">
                 <span
                     className={cn(
-                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-[7px]",
-                        isCurrent
-                            ? "bg-chat text-primary-foreground"
-                            : "bg-muted text-foreground",
+                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px]",
+                        isCurrent ? "bg-acc text-acc-ink" : "bg-surf3 text-foreground",
                     )}
                 >
                     {kindIcon(device.kind)}
                 </span>
                 <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-[7px]">
-                        <span className="truncate font-serif text-[13.5px] font-medium text-foreground">
+                        <span className="title truncate text-[13.5px] font-medium text-foreground">
                             {device.display_name}
                         </span>
                         {isCurrent && (
-                            <span className="rounded-[4px] bg-[color-mix(in_oklab,var(--chat)_22%,transparent)] px-1.5 py-px font-mono text-[9px] uppercase tracking-[0.08em] text-chat">
+                            <span className="rounded-full bg-[color-mix(in_oklab,var(--acc)_22%,transparent)] px-[7px] py-px font-mono text-[9px] uppercase tracking-[0.08em] text-acc">
                                 this device
                             </span>
                         )}
                         {isRevoked && (
-                            <span className="rounded-[4px] bg-muted px-1.5 py-px font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground">
+                            <span className="rounded-full bg-surf3 px-[7px] py-px font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground">
                                 signed out
                             </span>
                         )}
                     </div>
-                    <div className="mt-[3px] flex items-center gap-2">
+                    <div className="mt-[3px] flex flex-wrap items-center gap-2">
                         <span
                             className={cn(
                                 "flex items-center gap-[5px] text-[11px]",
-                                showLivePulse ? "text-success" : "text-muted-foreground",
+                                showLivePulse ? "text-on" : "text-muted-foreground",
                             )}
                         >
                             {showLivePulse && (
-                                <span className="inline-block h-[5px] w-[5px] animate-pulse rounded-full bg-success" />
+                                <span className="inline-block h-[5px] w-[5px] animate-[pn-pulse_1.6s_ease-in-out_infinite] rounded-full bg-on" />
                             )}
                             {lastSeenLabel}
                         </span>
-                        <span className="text-border-strong">·</span>
+                        <span className="text-line2">·</span>
                         <span className="font-mono text-[10.5px] text-muted-foreground">
                             paired {pairedDateLabel(device.paired_at)}
                         </span>
-                        <span className="text-border-strong">·</span>
+                        <span className="text-line2">·</span>
                         <span className="font-mono text-[10.5px] text-muted-foreground">
                             {deviceFingerprint(device.device_id)}
                         </span>
@@ -111,9 +109,9 @@ export function DeviceCard({ device, onRevoke, isRevoking }: DeviceCardProps) {
                         onClick={onRevoke}
                         disabled={isRevoking}
                         className={cn(
-                            "h-7 shrink-0 cursor-pointer rounded-[6px] border border-destructive bg-transparent px-2.5",
-                            "font-sans text-[11px] text-destructive",
-                            "hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50",
+                            "h-7 shrink-0 cursor-pointer rounded-full border border-dnd bg-transparent px-[11px]",
+                            "font-sans text-[11px] text-dnd transition-colors duration-150",
+                            "hover:bg-[color-mix(in_oklab,var(--dnd)_10%,transparent)] disabled:cursor-not-allowed disabled:opacity-50",
                         )}
                     >
                         {isRevoking ? "Revoking…" : "Revoke"}

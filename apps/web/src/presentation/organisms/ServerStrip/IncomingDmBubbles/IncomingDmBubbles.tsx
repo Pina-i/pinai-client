@@ -13,9 +13,8 @@ export function IncomingDmBubbles() {
     const switchToDms = useAppStore((s) => s.switchToDms)
     const navigate = useNavigate()
 
-    // A bubble represents an unread conversation the user isn't currently
-    // viewing. Opening that conversation already clears its unread count
-    // (see ConversationPage.viewmodel), so the bubble disappears naturally.
+    // Opening a conversation clears its unread count (ConversationPage.viewmodel),
+    // so its bubble disappears on its own.
     const pending = localDmConvos.filter(
         (dm) => (dmUnread[dm.id] ?? 0) > 0 && activeDm !== dm.id,
     )
@@ -47,16 +46,17 @@ export function IncomingDmBubbles() {
                             <IconButton
                                 onPress={() => handleOpen(dm.address)}
                                 aria-label={`Open conversation with ${dm.displayName}`}
-                                className="relative h-10 w-10 rounded-full hover:rounded-md transition-all"
+                                className="relative h-[42px] w-[42px] rounded-full"
                             >
                                 <Avatar
                                     initials={dm.avatar}
                                     imageUrl={avatarUrl}
-                                    color={dm.color}
+                                    seed={dm.address}
+                                    tone={dm.kind === "group" ? "sec" : undefined}
                                     size="md"
                                 />
                                 <span
-                                    className="absolute -bottom-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-background bg-chat px-1 font-mono text-[10px] font-bold text-primary-foreground"
+                                    className="absolute -bottom-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-background bg-acc px-1 font-mono text-[9.5px] font-bold text-acc-ink"
                                     aria-hidden
                                 >
                                     {count > 9 ? "9+" : count}

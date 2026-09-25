@@ -19,7 +19,7 @@ export interface DmEventPayload {
      *  (which doesn't carry attachment_ids). The REST `POST /api/dm` path
      *  does, and inbound federation DMs preserve them. */
     attachments?: Attachment[]
-    /** Echoed back only on the sender's own optimistic WS sends. */
+    /** Echoed back only to the sender, on WS and REST sends alike. */
     client_id?: string | null
 }
 
@@ -48,6 +48,16 @@ export interface MessageEditedPayload {
     /** Replacement TLS MLSMessage, base64. */
     new_mls_ciphertext: string
     edited_at: string
+}
+
+/**
+ * `dm_delivery_failed` — this user's IdP could not deliver one of their DMs
+ * to the recipient's IdP, and will not retry. Always arrives after the
+ * `new_dm` echo of the same message.
+ */
+export interface DmDeliveryFailedPayload {
+    message_id: string
+    conversation_id: string
 }
 
 /**
@@ -123,6 +133,7 @@ export interface TypingEventDataPayload {
 export type WsServerEvent =
     | { type: "new_dm"; data: DmEventPayload }
     | { type: "message_edited"; data: MessageEditedPayload }
+    | { type: "dm_delivery_failed"; data: DmDeliveryFailedPayload }
     | { type: "friend_request"; data: FriendEventPayload }
     | { type: "friend_accepted"; data: FriendEventPayload }
     | { type: "friend_removed"; data: FriendEventPayload }

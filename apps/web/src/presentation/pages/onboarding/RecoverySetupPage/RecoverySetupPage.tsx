@@ -1,5 +1,8 @@
 import { AnimatePresence, motion } from "motion/react"
+import { ArrowRight, Copy } from "lucide-react"
 import { cn } from "@/presentation/_libs/utils"
+import { Backdrop } from "@/presentation/atoms/backdrop/backdrop"
+import { Button } from "@/presentation/atoms/Button/Button"
 import { PageTransition } from "@/presentation/atoms/page-transition/page-transition"
 import { RecoveryPassphraseDisplay } from "@/presentation/molecules/RecoveryPassphraseDisplay/RecoveryPassphraseDisplay"
 import { useMinimumLoadingDuration } from "@/presentation/hooks/useMinimumLoadingDuration"
@@ -7,22 +10,10 @@ import { useRecoverySetupPageViewModel } from "./RecoverySetupPage.viewmodel"
 
 const SETUP_LOADER_MIN_MS = 600
 
-/**
- * Pixel-equivalent of `web-client/design/screens/security.jsx::SecRecoveryKey`.
- *
- * The design uses plain `<button>` elements with inline-style sizing
- * (compact, side-by-side). Using our `Button` atom here would inject
- * `w-full` from its `primary` variant and stretch the buttons across
- * the row — fighting the prototype's layout. So we mirror the raw
- * markup.
- */
 export function RecoverySetupPage() {
     const vm = useRecoverySetupPageViewModel()
 
-    // Same smoothing as the gate's "Preparing your encrypted space…"
-    // loader — keep the "Setting up your recovery passphrase…" card
-    // visible long enough to register as intentional even when the
-    // bootstrap finishes fast.
+    // Same smoothing as the gate loader, so a fast bootstrap still reads as intentional.
     const showSetupLoader = useMinimumLoadingDuration(
         vm.status === "running",
         SETUP_LOADER_MIN_MS,
@@ -31,48 +22,24 @@ export function RecoverySetupPage() {
     const ctaDisabled = vm.status !== "done" || showSetupLoader
 
     return (
-        <div className="flex min-h-screen items-center justify-center overflow-auto bg-background">
-            <PageTransition
-                className={cn(
-                    "grid w-full grid-cols-[1.1fr_1fr] gap-9",
-                    "px-14 py-10",
-                    "max-w-[1200px]",
-                )}
-            >
-                {/* LEFT — copy */}
+        <div className="relative flex min-h-screen items-center justify-center overflow-auto bg-background">
+            <Backdrop />
+            <PageTransition className="relative z-[2] grid w-full max-w-[1200px] grid-cols-[1.1fr_1fr] gap-9 px-14 py-10">
                 <div>
-                    {/* Breadcrumb */}
-                    <div className="mb-3.5 flex items-center gap-[7px] text-[12px] text-muted-foreground">
-                        <span>Onboarding</span>
-                        <span className="text-border-strong">›</span>
-                        <span className="font-medium text-foreground">Recovery passphrase</span>
-                    </div>
+                    <Breadcrumb trail={["Onboarding"]} current="Recovery passphrase" />
 
-                    {/* H1 */}
-                    <h1
-                        className={cn(
-                            "m-0 mb-3.5 block font-serif text-[42px] font-normal",
-                            "leading-[1.05] tracking-[-0.02em] text-foreground",
-                        )}
-                    >
-                        Bring your history{" "}
-                        <em className="italic text-chat">with you.</em>
+                    <h1 className="title m-0 mb-3.5 text-[42px] font-normal leading-[1.05] tracking-[-0.02em] text-foreground">
+                        Bring your history <em className="italic text-acc">with you.</em>
                     </h1>
 
-                    {/* Lede */}
-                    <p
-                        className={cn(
-                            "mt-0 mb-3.5 max-w-[520px] text-[14px] leading-[1.65] text-foreground",
-                        )}
-                    >
+                    <p className="mb-3.5 mt-0 max-w-[520px] text-[14px] leading-[1.6] text-muted-foreground">
                         When you sign in on a new phone or laptop, this passphrase restores
                         your conversation history end-to-end. Without it, switching devices
                         means starting fresh — past messages stay encrypted on devices you've
                         already paired, but a brand-new device can't read them.
                     </p>
 
-                    {/* Fact rows */}
-                    <div className="mt-[18px] flex max-w-[540px] flex-col gap-[10px]">
+                    <div className="mt-[18px] flex max-w-[540px] flex-col gap-2.5">
                         <RowFact
                             glyph="↺"
                             title="Switching devices"
@@ -91,81 +58,28 @@ export function RecoverySetupPage() {
                         />
                     </div>
 
-                    {/* Action row */}
-                    <div className="mt-7 flex items-center gap-[10px]">
-                        <button
-                            type="button"
-                            onClick={vm.onCopy}
-                            disabled={ctaDisabled}
-                            className={cn(
-                                "inline-flex h-[46px] items-center gap-2 rounded-[10px]",
-                                "border border-chat bg-transparent px-[18px] py-3",
-                                "text-[13.5px] font-semibold text-chat",
-                                "cursor-pointer transition-colors hover:bg-chat/10",
-                                "disabled:cursor-not-allowed disabled:opacity-50",
-                            )}
-                        >
-                            <svg
-                                width="16"
-                                height="16"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden
-                            >
-                                <rect x="9" y="9" width="13" height="13" rx="2" />
-                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                            </svg>
+                    <div className="mt-7 flex items-center gap-2.5">
+                        <Button variant="secondary" size="inline" onPress={vm.onCopy} isDisabled={ctaDisabled}>
+                            <Copy className="h-[15px] w-[15px]" />
                             Copy passphrase
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={vm.onContinue}
-                            disabled={ctaDisabled}
-                            className={cn(
-                                "inline-flex h-[46px] items-center gap-2 rounded-[10px]",
-                                "border-0 bg-chat px-[22px] py-3",
-                                "text-[13.5px] font-semibold text-primary-foreground",
-                                "cursor-pointer transition-opacity hover:opacity-90",
-                                "shadow-[0_8px_18px_-8px_color-mix(in_oklab,var(--chat)_70%,transparent)]",
-                                "disabled:cursor-not-allowed disabled:opacity-50",
-                            )}
-                        >
-                            Continue →
-                        </button>
-
+                        </Button>
+                        <Button size="inline" onPress={vm.onContinue} isDisabled={ctaDisabled}>
+                            Continue
+                            <ArrowRight className="h-[15px] w-[15px]" />
+                        </Button>
                         <span className="flex-1" />
-
-                        <button
-                            type="button"
-                            onClick={vm.onSkip}
-                            disabled={ctaDisabled}
-                            className={cn(
-                                "h-[42px] cursor-pointer rounded-[8px] border-0 bg-transparent px-[14px] py-[10px]",
-                                "text-[12.5px] text-muted-foreground underline underline-offset-[3px]",
-                                "opacity-55 transition-opacity hover:opacity-90",
-                                "disabled:cursor-not-allowed disabled:opacity-30",
-                            )}
+                        <Button
+                            variant="ghost"
+                            onPress={vm.onSkip}
+                            isDisabled={ctaDisabled}
+                            className="text-[12.5px] underline-offset-[3px]"
                         >
                             Skip for now
-                        </button>
+                        </Button>
                     </div>
                 </div>
 
-                {/* RIGHT — passphrase card or loading/error state.
-                  * `checking` renders nothing — that path is the
-                  * "already-onboarded, fast-path hydrate" flow which
-                  * resolves in a single tick, so a loader there would
-                  * just flash. The "Setting up your recovery
-                  * passphrase…" loader is reserved for the *actual*
-                  * bootstrap work (status === "running"), and held
-                  * visible for at least 600 ms via
-                  * `useMinimumLoadingDuration` so the cross-fade to
-                  * the word grid feels intentional. */}
+                {/* `checking` renders nothing: the fast-path hydrate resolves in a tick, a loader would flash. */}
                 <div>
                     <AnimatePresence mode="wait">
                         {showSetupLoader && (
@@ -211,6 +125,25 @@ export function RecoverySetupPage() {
     )
 }
 
+interface BreadcrumbProps {
+    trail: string[]
+    current: string
+}
+
+function Breadcrumb({ trail, current }: BreadcrumbProps) {
+    return (
+        <div className="mb-3.5 flex items-center gap-[7px] text-[12px] text-muted-foreground">
+            {trail.map((step) => (
+                <span key={step} className="contents">
+                    <span>{step}</span>
+                    <span className="text-line2">›</span>
+                </span>
+            ))}
+            <span className="font-medium text-foreground">{current}</span>
+        </div>
+    )
+}
+
 interface RowFactProps {
     glyph: string
     title: string
@@ -219,31 +152,20 @@ interface RowFactProps {
 }
 
 function RowFact({ glyph, title, body, tone = "muted" }: RowFactProps) {
-    const colourClass =
-        tone === "warning"
-            ? "bg-[color-mix(in_oklab,var(--warning)_18%,transparent)] text-warning"
-            : "bg-[color-mix(in_oklab,var(--muted-foreground)_18%,transparent)] text-muted-foreground"
+    const warning = tone === "warning"
     return (
         <div className="flex items-start gap-[11px]">
             <span
                 className={cn(
-                    "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[5px]",
-                    "font-mono text-[13px] font-semibold",
-                    colourClass,
+                    "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[7px] font-mono text-[12px] font-medium",
+                    warning ? "bg-[color-mix(in_oklab,var(--idle)_16%,transparent)] text-idle" : "bg-surf3 text-muted-foreground",
                 )}
                 aria-hidden
             >
                 {glyph}
             </span>
             <div className="flex-1 text-[12.5px] leading-[1.55]">
-                <div
-                    className={cn(
-                        "mb-[2px] font-mono text-[9.5px] uppercase tracking-[0.12em] font-semibold",
-                        tone === "warning" ? "text-warning" : "text-muted-foreground",
-                    )}
-                >
-                    {title}
-                </div>
+                <p className={cn("fact mb-0.5", warning && "text-idle")}>{title}</p>
                 <span className="text-muted-foreground">{body}</span>
             </div>
         </div>
@@ -252,21 +174,17 @@ function RowFact({ glyph, title, body, tone = "muted" }: RowFactProps) {
 
 function SetupLoading() {
     return (
-        <div
-            className={cn(
-                "flex flex-col items-center justify-center gap-3 rounded-[var(--radius)]",
-                "border border-border-strong bg-card px-6 py-12",
-                "shadow-[0_12px_30px_-10px_rgba(0,0,0,0.4)]",
-            )}
-        >
-            <div className="flex items-center gap-2">
-                <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-chat [animation-delay:0ms]" />
-                <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-chat [animation-delay:150ms]" />
-                <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-chat [animation-delay:300ms]" />
+        <div className="flex flex-col items-center justify-center gap-3.5 rounded-[18px] border border-line bg-surf px-6 py-12 backdrop-blur-[14px]">
+            <div className="flex items-center gap-2.5">
+                {[0, 1, 2].map((i) => (
+                    <span
+                        key={i}
+                        className="h-[5px] w-[5px] rounded-full bg-acc"
+                        style={{ animation: `pn-bounce 1.1s ${i * 0.15}s ease-in-out infinite` }}
+                    />
+                ))}
             </div>
-            <p className="font-mono text-[11px] text-muted-foreground">
-                Setting up your recovery passphrase…
-            </p>
+            <p className="fact">Setting up your recovery passphrase…</p>
         </div>
     )
 }
@@ -278,26 +196,12 @@ interface SetupErrorProps {
 
 function SetupError({ message, onRetry }: SetupErrorProps) {
     return (
-        <div
-            className={cn(
-                "flex flex-col items-center gap-3 rounded-[var(--radius)]",
-                "border border-destructive/40 bg-card px-6 py-12 text-center",
-            )}
-        >
-            <p className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-destructive">
-                Setup failed
-            </p>
-            <p className="max-w-[300px] text-[12.5px] text-muted-foreground">{message}</p>
-            <button
-                type="button"
-                onClick={onRetry}
-                className={cn(
-                    "mt-2 cursor-pointer rounded-[8px] border-0 bg-chat px-4 py-2",
-                    "text-[12.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90",
-                )}
-            >
+        <div className="flex flex-col items-center gap-3 rounded-[18px] border border-[color-mix(in_oklab,var(--dnd)_40%,var(--line))] bg-surf px-6 py-12 text-center backdrop-blur-[14px]">
+            <p className="fact text-dnd">Setup failed</p>
+            <p className="max-w-[300px] text-[12.5px] leading-[1.55] text-muted-foreground">{message}</p>
+            <Button size="inline" onPress={onRetry} className="mt-2">
                 Try again
-            </button>
+            </Button>
         </div>
     )
 }

@@ -5,45 +5,37 @@ import { logoutUseCase } from "@pinai/domain/usecases/auth/logout.usecase"
 import { setPresenceUseCase } from "@pinai/domain/usecases/presence/set-presence.usecase"
 import { getAuthPlatform, getWsPort } from "@/ioc"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
-import { Popover } from "@/presentation/molecules/Popover/Popover"
+import { Popover, PopoverCaret } from "@/presentation/molecules/Popover/Popover"
+import { popoverSurface } from "@/presentation/molecules/Popover/popover-surface"
 import { cn } from "@/presentation/_libs/utils"
 import type { UserStatus } from "@pinai/domain/models/presence"
 
 interface StatusMeta {
     id: UserStatus
     label: string
-    /** Optional one-liner shown under the label. Only set where the
-     *  side-effect is non-obvious from the label alone. */
+    /** Only set where the side-effect is non-obvious from the label alone. */
     subtitle?: string
-    dotClass: string
+    /** CSS colour — also drives the chip tint and the selected ring. */
+    dot: string
 }
 
 const STATUSES: StatusMeta[] = [
-    { id: "online", label: "Online", dotClass: "bg-online" },
-    { id: "idle", label: "Idle", dotClass: "bg-idle" },
-    { id: "dnd", label: "Do not disturb", subtitle: "You will not receive any notifications.", dotClass: "bg-dnd" },
-    { id: "invisible", label: "Invisible", subtitle: "Your friends will see you offline.", dotClass: "bg-muted-foreground" },
+    { id: "online", label: "Online", dot: "var(--on)" },
+    { id: "idle", label: "Idle", dot: "var(--idle)" },
+    { id: "dnd", label: "Do not disturb", subtitle: "You will not receive any notifications.", dot: "var(--dnd)" },
+    { id: "invisible", label: "Invisible", subtitle: "Your friends will see you offline.", dot: "var(--muted-foreground)" },
 ]
 
-const STATUS_PILL: Record<UserStatus, { label: string; className: string }> = {
-    online: { label: "online", className: "bg-online/20 text-online" },
-    idle: { label: "idle", className: "bg-idle/20 text-idle" },
-    dnd: { label: "do not disturb", className: "bg-dnd/20 text-dnd" },
-    invisible: { label: "invisible", className: "bg-muted text-muted-foreground" },
-    offline: { label: "offline", className: "bg-muted text-muted-foreground" },
+const STATUS_PILL: Record<UserStatus, string> = {
+    online: "online",
+    idle: "idle",
+    dnd: "do not disturb",
+    invisible: "invisible",
+    offline: "offline",
 }
 
-function Dot({ className, ring = false }: { className: string; ring?: boolean }) {
-    return (
-        <span
-            className={cn(
-                "h-2.5 w-2.5 shrink-0 rounded-full",
-                className,
-                ring && "shadow-[0_0_0_3px_color-mix(in_oklab,currentColor_28%,transparent)]",
-            )}
-        />
-    )
-}
+const popLinkClass =
+    "inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-transparent px-2.5 py-[5px] text-[11.5px] text-muted-foreground outline-none transition-colors duration-150 hover:bg-surf2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
 
 interface UserBarPopoverProps {
     trigger: ReactNode
@@ -78,7 +70,6 @@ export function UserBarPopover({ trigger, isOpen, onOpenChange }: UserBarPopover
 
     const displayName = user.display_name ?? user.preferred_username
     const initials = displayName.slice(0, 2).toUpperCase()
-    const pill = STATUS_PILL[myStatus]
     const activePresence = STATUSES.find((s) => s.id === myStatus) ?? STATUSES[0]
     const pronounsLabel = user.pronouns
         ? user.pronouns === "he"
@@ -119,200 +110,179 @@ export function UserBarPopover({ trigger, isOpen, onOpenChange }: UserBarPopover
             offset={12}
             isOpen={openResolved}
             onOpenChange={setOpen}
-            className="relative w-[500px] overflow-hidden rounded-[var(--radius-lg)] border border-border-strong bg-popover shadow-[0_24px_60px_-16px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.02)]"
+            className={cn(popoverSurface, "relative w-[500px]")}
         >
-            {/* Caret pointing down to the trigger (popover sits above the UserBar) */}
-            <div className="pointer-events-none absolute -bottom-[7px] left-6 h-[14px] w-[14px] rotate-45 border-b border-r border-border-strong bg-popover" />
+            <PopoverCaret side="down" className="left-12" />
 
-            {/* Hero band */}
-            <div className="flex items-start gap-3.5 border-b border-border bg-[color-mix(in_oklab,var(--chat)_10%,transparent)] px-[18px] pt-4 pb-3.5">
-                <button
-                    type="button"
-                    aria-label="Change avatar"
-                    className="group relative shrink-0 cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-chat focus-visible:ring-offset-2 focus-visible:ring-offset-popover"
-                >
-                    <Avatar initials={initials} imageUrl={user.avatar_url} color="var(--chat)" size="lg" />
-                    {/* Hover overlay — soft scrim + edit icon */}
-                    <span
-                        aria-hidden
-                        className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-full bg-[color-mix(in_oklab,var(--background)_70%,transparent)] opacity-0 backdrop-blur-[2px] transition-all duration-200 ease-out group-hover:opacity-100 group-focus-visible:opacity-100"
+            <div className="relative overflow-hidden rounded-[17px]">
+                <div className="flex items-start gap-3.5 border-b border-line bg-[color-mix(in_oklab,var(--acc)_10%,transparent)] px-[18px] pb-3.5 pt-4">
+                    <button
+                        type="button"
+                        aria-label="Change avatar"
+                        className="group relative shrink-0 cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-popover"
                     >
-                        <span className="flex h-7 w-7 items-center justify-center rounded-full border border-border-strong bg-popover/90 text-foreground shadow-[0_4px_12px_-2px_rgba(0,0,0,0.45)] scale-90 transition-transform duration-200 ease-out group-hover:scale-100">
-                            <Pencil className="h-3.5 w-3.5" />
-                        </span>
-                    </span>
-                    <span
-                        className={cn(
-                            "absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full border-[3px] border-popover",
-                            activePresence.dotClass,
-                        )}
-                    />
-                </button>
-                <div className="min-w-0 flex-1 pt-0.5">
-                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                        <h2 className="title text-[17px] font-medium leading-tight text-foreground">{displayName}</h2>
+                        <Avatar initials={initials} imageUrl={user.avatar_url} tone="acc" size="xl" />
                         <span
-                            className={cn(
-                                "rounded px-1.5 py-px font-mono text-[10px] uppercase tracking-[0.08em]",
-                                pill.className,
-                            )}
+                            aria-hidden
+                            className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-full bg-[color-mix(in_oklab,var(--background)_70%,transparent)] opacity-0 backdrop-blur-[2px] transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100"
                         >
-                            {pill.label}
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-line2 bg-background text-foreground">
+                                <Pencil className="h-3.5 w-3.5" />
+                            </span>
                         </span>
-                    </div>
-                    <p className="mt-0.5 truncate font-mono text-[10.5px] text-muted-foreground">
-                        {user.address}
-                        {pronounsLabel && (
-                            <span className="ml-2 text-muted-foreground/80">· {pronounsLabel}</span>
-                        )}
-                    </p>
-                    {user.bio && (
-                        <p className="mt-1.5 break-words font-serif text-[12px] italic leading-snug text-foreground/85">
-                            {user.bio}
+                        <span
+                            className="absolute -bottom-px -right-px h-4 w-4 rounded-full border-[3px] border-popover"
+                            style={{ background: activePresence.dot }}
+                        />
+                    </button>
+                    <div className="min-w-0 flex-1 pt-0.5">
+                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                            <h2 className="title text-[19px] font-semibold leading-[1.15] text-foreground">{displayName}</h2>
+                            <StatusChip color={activePresence.dot}>{STATUS_PILL[myStatus]}</StatusChip>
+                        </div>
+                        <p className="mt-[3px] truncate font-mono text-[10.5px] text-muted-foreground">
+                            {user.address}
+                            {pronounsLabel && <span className="ml-2 opacity-80">· {pronounsLabel}</span>}
                         </p>
-                    )}
+                        {user.bio && (
+                            <p className="title mt-[7px] break-words text-[13px] italic leading-[1.35] text-[color-mix(in_oklab,var(--foreground)_85%,transparent)]">
+                                {user.bio}
+                            </p>
+                        )}
+                    </div>
                 </div>
-            </div>
 
-            {/* Two-column body */}
-            <div className="flex">
-                {/* LEFT — presence */}
-                <div className="flex-1 border-r border-border px-1.5 py-2.5">
-                    <p className="px-2.5 pt-1 pb-1.5 font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted-foreground">
-                        Presence
-                    </p>
-                    {STATUSES.map((s) => {
-                        const active = s.id === myStatus
-                        return (
-                            <button
-                                key={s.id}
-                                type="button"
-                                onClick={() => {
-                                    setMyStatus(s.id)
-                                    setPresenceUseCase(getWsPort(), s.id)
-                                }}
-                                className={cn(
-                                    "flex w-full cursor-pointer gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left transition-colors",
-                                    s.subtitle ? "items-start" : "items-center",
-                                    active ? "bg-accent" : "hover:bg-accent/40",
-                                )}
-                            >
-                                <Dot className={cn(s.dotClass, s.subtitle && "mt-[5px]")} ring={active} />
-                                <div className="flex min-w-0 flex-1 flex-col">
+                <div className="flex">
+                    <div className="flex-1 border-r border-line px-1.5 py-2.5">
+                        <span className="eye block px-2.5 pb-1.5 pt-1">Presence</span>
+                        {STATUSES.map((s) => {
+                            const active = s.id === myStatus
+                            return (
+                                <button
+                                    key={s.id}
+                                    type="button"
+                                    onClick={() => {
+                                        setMyStatus(s.id)
+                                        setPresenceUseCase(getWsPort(), s.id)
+                                    }}
+                                    className={cn(
+                                        "flex w-full cursor-pointer gap-2.5 rounded-[12px] px-2.5 py-[7px] text-left text-foreground outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring",
+                                        s.subtitle ? "items-start" : "items-center",
+                                        active ? "bg-surf2" : "hover:bg-surf",
+                                    )}
+                                >
                                     <span
-                                        className={cn(
-                                            "truncate text-[12.5px] text-foreground",
-                                            active ? "title font-medium" : "font-normal",
+                                        className={cn("h-2.5 w-2.5 shrink-0 rounded-full", s.subtitle && "mt-1")}
+                                        style={{
+                                            background: s.dot,
+                                            boxShadow: active ? `0 0 0 3px color-mix(in oklab, ${s.dot} 28%, transparent)` : "none",
+                                        }}
+                                    />
+                                    <span className="min-w-0 flex-1">
+                                        <span className={cn("text-[12.5px]", active && "font-semibold")}>{s.label}</span>
+                                        {s.subtitle && (
+                                            <span className="mt-0.5 block text-[10.5px] leading-[1.35] text-muted-foreground">
+                                                {s.subtitle}
+                                            </span>
                                         )}
-                                    >
-                                        {s.label}
                                     </span>
-                                    {s.subtitle && (
-                                        <span className="mt-0.5 text-[10.5px] leading-snug text-muted-foreground">
-                                            {s.subtitle}
+                                    {active && <Check className="h-3.5 w-3.5 shrink-0 text-acc" />}
+                                </button>
+                            )
+                        })}
+
+                        <div className="mt-1.5 border-t border-line pt-1.5">
+                            <button
+                                type="button"
+                                className="flex w-full cursor-pointer items-center gap-2.5 rounded-[12px] px-2.5 py-[7px] text-left text-[12.5px] text-muted-foreground outline-none transition-colors duration-150 hover:bg-surf focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                                <Bell className="h-3.5 w-3.5" />
+                                <span className="flex-1">Mute notifications</span>
+                                <ChevronRight className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                                type="button"
+                                className="flex w-full cursor-pointer items-center gap-2.5 rounded-[12px] px-2.5 py-[7px] text-left text-[12.5px] text-muted-foreground outline-none transition-colors duration-150 hover:bg-surf focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                                <Moon className="h-3.5 w-3.5" />
+                                <span className="flex-1">Quiet hours</span>
+                                <span className="font-mono text-[10px]">22–7</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex-[1.1] px-3 py-2.5">
+                        <span className="eye block pb-2 pt-1">Now</span>
+
+                        {viewingChannel ? (
+                            <div className="rounded-[12px] border border-line px-[11px] py-[9px]">
+                                <p className="eye mb-1">Viewing</p>
+                                <div className="flex items-center gap-1.5">
+                                    <Hash className="h-3.5 w-3.5 shrink-0 text-acc" />
+                                    <span className="title truncate text-[15px] font-semibold text-foreground">
+                                        {viewingChannel.name}
+                                    </span>
+                                    {viewingServer && (
+                                        <span className="ml-auto truncate font-mono text-[10px] text-muted-foreground">
+                                            {viewingServer.name}
                                         </span>
                                     )}
                                 </div>
-                                {active && <Check className={cn("h-3.5 w-3.5 text-chat", s.subtitle && "mt-[3px]")} />}
-                            </button>
-                        )
-                    })}
+                            </div>
+                        ) : (
+                            <div className="flex h-[92px] flex-col items-center justify-center rounded-[12px] border border-dashed border-line2 bg-surf px-3 text-center">
+                                <p className="title text-[14px] text-muted-foreground">Quiet · no live session</p>
+                                <p className="mt-1 text-[10.5px] leading-[1.4] text-muted-foreground">
+                                    When you join voice or open a channel,
+                                    <br />
+                                    it will surface here.
+                                </p>
+                            </div>
+                        )}
 
-                    {/* Notification controls */}
-                    <div className="mt-1.5 border-t border-border pt-1.5">
-                        <button
-                            type="button"
-                            className="flex w-full cursor-pointer items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-muted-foreground transition-colors hover:bg-accent/40"
-                        >
-                            <Bell className="h-3.5 w-3.5" />
-                            <span className="flex-1 text-[12.5px]">Mute notifications</span>
-                            <ChevronRight className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                            type="button"
-                            className="flex w-full cursor-pointer items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-muted-foreground transition-colors hover:bg-accent/40"
-                        >
-                            <Moon className="h-3.5 w-3.5" />
-                            <span className="flex-1 text-[12.5px]">Quiet hours</span>
-                            <span className="font-mono text-[10px]">22–7</span>
-                        </button>
+                        <p className="mt-2.5 text-center text-[11px] text-muted-foreground">Friends see your activity</p>
                     </div>
                 </div>
 
-                {/* RIGHT — now / activity */}
-                <div className="flex-[1.1] px-3 py-2.5">
-                    <p className="pt-1 pb-2 font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted-foreground">
-                        Now
-                    </p>
-
-                    {viewingChannel ? (
-                        <div className="rounded-[var(--radius-sm)] border border-border px-2.5 py-2">
-                            <p className="mb-1 font-mono text-[9.5px] uppercase tracking-[0.1em] text-muted-foreground">
-                                Viewing
-                            </p>
-                            <div className="flex items-center gap-1.5">
-                                <Hash className="h-3.5 w-3.5 text-chat" />
-                                <span className="title truncate text-[13px] font-medium text-foreground">
-                                    {viewingChannel.name}
-                                </span>
-                                {viewingServer && (
-                                    <span className="ml-auto truncate font-mono text-[10px] text-muted-foreground">
-                                        {viewingServer.name}
-                                    </span>
-                                )}
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="flex h-[88px] flex-col items-center justify-center rounded-[var(--radius-sm)] border border-dashed border-border bg-[color-mix(in_oklab,var(--card)_50%,transparent)] px-3 text-center">
-                            <p className="title text-[12.5px] text-muted-foreground">Quiet · no live session</p>
-                            <p className="mt-1 text-[10.5px] leading-snug text-muted-foreground/80">
-                                When you join voice or open a channel,
-                                <br />
-                                it will surface here.
-                            </p>
-                        </div>
-                    )}
-
-                    <p className="mt-2.5 text-center font-mono text-[10px] tracking-wide text-muted-foreground">
-                        Friends see your activity
-                    </p>
+                <div className="flex items-center gap-2 border-t border-line bg-surf px-3.5 py-[9px]">
+                    <button type="button" onClick={handleOpenSettings} className={popLinkClass}>
+                        <UserPen className="h-3.5 w-3.5" />
+                        Modify profile
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleCopyAddress}
+                        className={cn(popLinkClass, copied && "text-on hover:text-on")}
+                        aria-label="Copy address"
+                    >
+                        {copied ? <Check className="h-3.5 w-3.5" /> : <AtSign className="h-3.5 w-3.5" />}
+                        {copied ? "Copied" : "Copy address"}
+                    </button>
+                    <span className="flex-1" />
+                    <button
+                        type="button"
+                        onClick={handleSignOut}
+                        className={cn(
+                            popLinkClass,
+                            "border-[color-mix(in_oklab,var(--dnd)_55%,transparent)] text-dnd hover:bg-[color-mix(in_oklab,var(--dnd)_12%,transparent)] hover:text-dnd",
+                        )}
+                    >
+                        <LogOut className="h-3.5 w-3.5" />
+                        Sign out
+                    </button>
                 </div>
             </div>
-
-            {/* Footer */}
-            <div className="flex items-center gap-2 border-t border-border bg-[color-mix(in_oklab,var(--card)_60%,transparent)] px-3.5 py-2">
-                <button
-                    type="button"
-                    onClick={handleOpenSettings}
-                    className="flex cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
-                >
-                    <UserPen className="h-3.5 w-3.5" />
-                    Modify profile
-                </button>
-                <button
-                    type="button"
-                    onClick={handleCopyAddress}
-                    className={cn(
-                        "flex cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 py-1 text-[11px] transition-colors",
-                        copied
-                            ? "text-success"
-                            : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
-                    )}
-                    aria-label="Copy address"
-                >
-                    {copied ? <Check className="h-3.5 w-3.5" /> : <AtSign className="h-3.5 w-3.5" />}
-                    {copied ? "Copied" : "Copy address"}
-                </button>
-                <div className="flex-1" />
-                <button
-                    type="button"
-                    onClick={handleSignOut}
-                    className="flex cursor-pointer items-center gap-1.5 rounded-[5px] border border-destructive px-2.5 py-1 text-[11px] text-destructive transition-colors hover:bg-destructive/10"
-                >
-                    <LogOut className="h-3.5 w-3.5" />
-                    Sign out
-                </button>
-            </div>
         </Popover>
+    )
+}
+
+function StatusChip({ color, children }: { color: string; children: ReactNode }) {
+    return (
+        <span
+            className="inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.1em]"
+            style={{ color, background: `color-mix(in oklab, ${color} 18%, transparent)` }}
+        >
+            {children}
+        </span>
     )
 }

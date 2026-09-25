@@ -26,24 +26,25 @@ export function SearchField({
     onChange,
     ...props
 }: SearchFieldProps) {
-    const iconNode = icon ?? <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+    const iconNode = icon ?? <Search className="h-[15px] w-[15px] shrink-0" />
 
     return (
         <AriaSearchField
             {...props}
             onChange={onChange}
             className={cn(
-                "relative flex h-9 items-center gap-2 rounded-md border border-border bg-input px-3",
+                "relative flex h-[38px] w-full items-center gap-[9px] rounded-full border border-line bg-surf2 px-3.5",
+                "text-[12px] text-muted-foreground",
                 className,
             )}
         >
             {iconNode}
             <Input
                 placeholder={placeholder}
-                className="min-w-0 flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
+                className="min-w-0 flex-1 bg-transparent text-foreground placeholder:text-muted-foreground outline-none [&::-webkit-search-cancel-button]:hidden"
             />
             {shortcutHint && (
-                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                <span className="ml-auto shrink-0 rounded-full bg-surf3 px-[7px] py-0.5 font-mono text-[9px]">
                     {shortcutHint}
                 </span>
             )}

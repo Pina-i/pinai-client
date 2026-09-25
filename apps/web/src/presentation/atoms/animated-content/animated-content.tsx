@@ -5,11 +5,13 @@ interface AnimatedContentProps {
     children: ReactNode
     contentKey?: string | number
     className?: string
+    /** `wait` swaps one after the other; `crossfade` mounts the next at once, over the leaving one. */
+    mode?: "wait" | "crossfade"
 }
 
-export function AnimatedContent({ children, contentKey, className }: AnimatedContentProps) {
+export function AnimatedContent({ children, contentKey, className, mode = "wait" }: AnimatedContentProps) {
     return (
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode={mode === "crossfade" ? "popLayout" : "wait"}>
             <motion.div
                 key={contentKey}
                 initial={{ opacity: 0, y: 8 }}

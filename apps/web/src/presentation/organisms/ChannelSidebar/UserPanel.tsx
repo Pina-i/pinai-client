@@ -1,5 +1,5 @@
 import { Headphones, HeadphoneOff, Mic, MicOff, Settings } from "lucide-react"
-import { useState } from "react"
+import { memo, useState } from "react"
 import { Button } from "react-aria-components"
 import { useAppStore } from "@/store/store"
 import { userStatusLabel } from "@pinai/domain/models/presence"
@@ -17,9 +17,11 @@ const statusDotClass = {
     offline: "bg-muted-foreground",
 } as const
 
-export function UserPanel() {
+// Memoised: the sidebar re-renders on every conversation-list refresh; the user bar has no props.
+export const UserPanel = memo(function UserPanel() {
     const user = useAppStore((s) => s.user)
     const myStatus = useAppStore((s) => s.myStatus)
+    const showSettings = useAppStore((s) => s.showSettings)
     const setShowSettings = useAppStore((s) => s.setShowSettings)
 
     const [isMuted, setIsMuted] = useState(false)
@@ -31,69 +33,59 @@ export function UserPanel() {
     const initials = displayName.slice(0, 2).toUpperCase()
 
     return (
-        <div className="flex items-center gap-2 border-t border-border bg-popover p-2">
+        <div className="relative flex items-center gap-[9px] border-t border-line bg-surf2 p-[11px]">
             <UserBarPopover
                 trigger={
                     <Button
                         aria-label={`Open status menu for ${displayName}`}
-                        className="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-1 py-0.5 text-left outline-none transition-colors hover:bg-accent/40 cursor-pointer aria-expanded:bg-accent/60"
+                        className="-m-1 flex min-w-0 flex-1 cursor-pointer items-center gap-[9px] rounded-full p-1 text-left outline-none transition-colors duration-150 hover:bg-surf3 aria-expanded:bg-surf3 focus-visible:ring-2 focus-visible:ring-ring"
                     >
                         <Avatar
                             initials={initials}
                             imageUrl={user.avatar_url}
                             size="sm"
                             status={myStatus}
-                            statusBorderClass="border-popover"
                         />
-                        <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold text-foreground">{displayName}</p>
-                            <p className="flex items-center gap-1 truncate font-mono text-[10.5px] tracking-[0.04em] text-muted-foreground">
+                        <span className="flex min-w-0 flex-1 flex-col">
+                            <span className="truncate text-[13px] font-bold text-foreground">{displayName}</span>
+                            <span className="flex items-center gap-[5px] truncate font-mono text-[10px] tracking-[0.03em] text-muted-foreground">
                                 <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", statusDotClass[myStatus])} />
                                 <span className="truncate">{userStatusLabel(myStatus).toLowerCase()}</span>
-                            </p>
-                        </div>
+                            </span>
+                        </span>
                     </Button>
                 }
             />
-            <div className="flex items-center gap-0.5">
-                <Tooltip content={isMuted ? "Unmute" : "Mute"} placement="top" delay={300}>
-                    <IconButton
-                        onPress={() => setIsMuted((p) => !p)}
-                        aria-label={isMuted ? "Unmute" : "Mute"}
-                        className={cn(
-                            "p-1.5",
-                            isMuted
-                                ? "bg-destructive/20 text-destructive"
-                                : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                        )}
-                    >
-                        {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                    </IconButton>
-                </Tooltip>
-                <Tooltip content={isDeafened ? "Undeafen" : "Deafen"} placement="top" delay={300}>
-                    <IconButton
-                        onPress={() => setIsDeafened((p) => !p)}
-                        aria-label={isDeafened ? "Undeafen" : "Deafen"}
-                        className={cn(
-                            "p-1.5",
-                            isDeafened
-                                ? "bg-destructive/20 text-destructive"
-                                : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                        )}
-                    >
-                        {isDeafened ? <HeadphoneOff className="h-4 w-4" /> : <Headphones className="h-4 w-4" />}
-                    </IconButton>
-                </Tooltip>
-                <Tooltip content="User Settings" placement="top" delay={300}>
-                    <IconButton
-                        onPress={() => setShowSettings(true)}
-                        aria-label="User Settings"
-                        className="p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                    >
-                        <Settings className="h-4 w-4" />
-                    </IconButton>
-                </Tooltip>
-            </div>
+            <Tooltip content={isMuted ? "Unmute" : "Mute"} placement="top" delay={300}>
+                <IconButton
+                    variant="ghost"
+                    isDanger={isMuted}
+                    onPress={() => setIsMuted((p) => !p)}
+                    aria-label={isMuted ? "Unmute" : "Mute"}
+                >
+                    {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                </IconButton>
+            </Tooltip>
+            <Tooltip content={isDeafened ? "Undeafen" : "Deafen"} placement="top" delay={300}>
+                <IconButton
+                    variant="ghost"
+                    isDanger={isDeafened}
+                    onPress={() => setIsDeafened((p) => !p)}
+                    aria-label={isDeafened ? "Undeafen" : "Deafen"}
+                >
+                    {isDeafened ? <HeadphoneOff className="h-4 w-4" /> : <Headphones className="h-4 w-4" />}
+                </IconButton>
+            </Tooltip>
+            <Tooltip content="User Settings" placement="top" delay={300}>
+                <IconButton
+                    variant="ghost"
+                    isActive={showSettings}
+                    onPress={() => setShowSettings(true)}
+                    aria-label="User Settings"
+                >
+                    <Settings className="h-4 w-4" />
+                </IconButton>
+            </Tooltip>
         </div>
     )
-}
+})

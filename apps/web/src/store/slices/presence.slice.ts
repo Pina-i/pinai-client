@@ -69,7 +69,8 @@ export const createPresenceSlice: StateCreator<
                 for (const [convId, entries] of Object.entries(s.typingByConversation)) {
                     const kept = entries.filter((t) => t.expiresAt > now)
                     if (kept.length !== entries.length) changed = true
-                    if (kept.length > 0) next[convId] = kept
+                    // Untouched conversations keep their array, so their subscribers don't re-render.
+                    if (kept.length > 0) next[convId] = kept.length === entries.length ? entries : kept
                 }
                 return changed ? { typingByConversation: next } : s
             },

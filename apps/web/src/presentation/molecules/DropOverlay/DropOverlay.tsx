@@ -21,7 +21,7 @@ export function DropOverlay({ isVisible }: DropOverlayProps) {
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.18, ease: "easeOut" }}
                     className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center p-8"
-                    style={{ background: "oklch(0.10 0.005 60 / 0.55)", backdropFilter: "blur(2px)" }}
+                    style={{ background: "color-mix(in oklab, var(--background) 55%, transparent)", backdropFilter: "blur(6px)" }}
                 >
                     <motion.div
                         initial={{ opacity: 0, scale: 0.96, y: 6 }}
@@ -30,27 +30,17 @@ export function DropOverlay({ isVisible }: DropOverlayProps) {
                         transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
                         className={cn(
                             "flex h-full w-full flex-col items-center justify-center gap-3",
-                            "rounded-[var(--radius-lg)] border border-dashed border-chat",
+                            "rounded-[22px] border-[1.5px] border-dashed border-acc bg-acc-soft",
                             "text-foreground",
                         )}
-                        style={{
-                            background: "color-mix(in oklab, var(--chat) 8%, transparent)",
-                            borderWidth: 1.5,
-                        }}
                     >
-                        <span
-                            className={cn(
-                                "flex h-14 w-14 items-center justify-center rounded-full text-chat",
-                                "border border-chat",
-                            )}
-                            style={{ borderWidth: 1.5 }}
-                        >
+                        <span className="flex h-14 w-14 items-center justify-center rounded-full border-[1.5px] border-acc text-acc">
                             <Upload className="h-6 w-6" />
                         </span>
-                        <span className="title text-[22px] font-normal tracking-[-0.01em]">
+                        <span className="title text-[24px] font-normal tracking-[-0.01em]">
                             Drop files to attach
                         </span>
-                        <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+                        <span className="fact">
                             up to 5 files · max 50 MB each
                         </span>
                     </motion.div>

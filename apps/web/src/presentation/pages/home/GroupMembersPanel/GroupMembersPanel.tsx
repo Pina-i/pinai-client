@@ -4,9 +4,11 @@ import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { Button } from "@/presentation/atoms/Button/Button"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
+import { membersPanelClass } from "@/presentation/organisms/MembersSidebar/members-panel.styles"
 import { ContextMenuTrigger } from "@/presentation/molecules/ContextMenu/ContextMenuTrigger"
 import type { ContextMenuItem } from "@/presentation/molecules/ContextMenu/ContextMenuList"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
+import { modalSurface } from "@/presentation/molecules/Modal/modal-surface"
 import { cn } from "@/presentation/_libs/utils"
 import { actorUriToAddress } from "@pinai/domain/models/identity"
 import { presenceToUserStatus } from "@pinai/domain/models/presence"
@@ -30,30 +32,27 @@ function GroupMembersPanelContent({ conversationId }: { conversationId: string }
     const [removeTarget, setRemoveTarget] = useState<GroupMember | null>(null)
 
     return (
-        <aside className="flex w-[284px] shrink-0 flex-col border-l border-border bg-background">
-            <div className="flex items-center justify-between px-4 py-3.5">
-                <div className="flex items-baseline gap-2">
-                    <h3 className="title text-base font-medium text-foreground">Members</h3>
-                    <span className="font-mono text-[10.5px] text-muted-foreground">{vm.members.length}</span>
-                </div>
+        // The roster carries actions (add, leave), so unlike the server member
+        // list it stays visible on narrow windows.
+        <aside className={cn(membersPanelClass, "flex w-[236px] flex-col overflow-hidden max-[1100px]:flex")}>
+            <div className="flex items-center justify-between px-4 pb-2 pt-4">
+                <p className="eye">
+                    Members <span className="fact ml-0.5">{vm.members.length}</span>
+                </p>
                 {vm.isAdmin && (
-                    <IconButton
-                        aria-label="Add people"
-                        onPress={vm.openAddPeople}
-                        className="h-[30px] w-[30px] rounded-md border border-border text-chat transition-colors hover:bg-chat/10"
-                    >
+                    <IconButton variant="ghost" aria-label="Add people" onPress={vm.openAddPeople} className="text-acc">
                         <UserPlus className="h-4 w-4" />
                     </IconButton>
                 )}
             </div>
 
-            <ScrollArea className="flex-1 px-2 py-2">
-                {vm.isLoading && <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>}
-                {vm.error && <p className="py-8 text-center text-sm text-destructive">{vm.error}</p>}
+            <ScrollArea className="flex-1 px-2.5 pb-2">
+                {vm.isLoading && <p className="title py-8 text-center text-[12px] italic text-muted-foreground">Loading…</p>}
+                {vm.error && <p className="py-8 text-center text-[12px] text-dnd">{vm.error}</p>}
 
                 {vm.admins.length > 0 && (
                     <>
-                        <p className="px-3 pb-1.5 pt-2 mono-eyebrow">Admin</p>
+                        <p className="eye mb-1.5 mt-2 pl-2">Admin</p>
                         {vm.admins.map((member) => (
                             <RosterRow
                                 key={member.actorUri}
@@ -71,7 +70,7 @@ function GroupMembersPanelContent({ conversationId }: { conversationId: string }
 
                 {vm.regularMembers.length > 0 && (
                     <>
-                        <p className="px-3 pb-1.5 pt-3 mono-eyebrow">Members</p>
+                        <p className="eye mb-1.5 mt-3.5 pl-2">Members</p>
                         {vm.regularMembers.map((member) => (
                             <RosterRow
                                 key={member.actorUri}
@@ -88,39 +87,42 @@ function GroupMembersPanelContent({ conversationId }: { conversationId: string }
                 )}
             </ScrollArea>
 
-            <div className="border-t border-border px-4 py-3">
-                <button
-                    onClick={vm.leaveGroup}
-                    className="flex w-full items-center justify-center gap-2 rounded-[var(--radius)] border border-border py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
-                >
+            <div className="border-t border-line p-3">
+                <Button variant="destructive" size="none" onPress={vm.leaveGroup} className="w-full py-2 text-[12.5px]">
                     <LogOut className="h-4 w-4" /> Leave group
-                </button>
+                </Button>
             </div>
 
             <Modal isOpen={removeTarget !== null} onClose={() => setRemoveTarget(null)} label="Remove member">
                 {removeTarget && (
-                    <div className="w-[400px] max-w-[92vw] rounded-[var(--radius-lg)] border border-border-strong bg-popover p-6 text-center shadow-xl">
+                    <div className={cn(modalSurface, "w-[400px] p-6 text-center")}>
                         <div className="mx-auto mb-3 w-fit">
-                            <Avatar initials={memberInitials(removeTarget)} imageUrl={removeTarget.avatarUrl} size="lg" />
+                            <Avatar
+                                initials={memberInitials(removeTarget)}
+                                imageUrl={removeTarget.avatarUrl}
+                                seed={actorUriToAddress(removeTarget.actorUri)}
+                                size="lg"
+                            />
                         </div>
-                        <h3 className="title text-lg font-medium text-foreground">
+                        <h3 className="title text-[20px] font-normal text-foreground">
                             Remove {removeTarget.displayName ?? "this member"}?
                         </h3>
-                        <p className="mt-2 text-sm text-muted-foreground">
+                        <p className="mt-2 text-[13.5px] leading-[1.55] text-muted-foreground">
                             They'll be removed from the group and won't see new messages. Earlier messages stay with
                             the group.
                         </p>
                         <div className="mt-6 flex justify-center gap-2">
-                            <Button variant="secondary" onPress={() => setRemoveTarget(null)} className="w-auto px-4">
+                            <Button variant="secondary" size="inline" onPress={() => setRemoveTarget(null)}>
                                 Cancel
                             </Button>
                             <Button
                                 variant="destructive"
+                                size="inline"
                                 onPress={() => {
                                     void vm.removeMember(removeTarget.actorUri)
                                     setRemoveTarget(null)
                                 }}
-                                className="w-auto px-4"
+                                className="font-semibold"
                             >
                                 Remove
                             </Button>
@@ -137,7 +139,7 @@ function MemberServerTag({ host, federated }: { host: string; federated: boolean
         <span
             className={cn(
                 "inline-flex items-center gap-1 rounded-full border px-1.5 py-px font-mono text-[9px] tracking-[0.04em]",
-                federated ? "border-chat/30 bg-chat/10 text-chat" : "border-border text-muted-foreground",
+                federated ? "border-acc-line bg-acc-soft text-acc" : "border-line text-muted-foreground",
             )}
         >
             {federated && <Globe className="h-2.5 w-2.5" />}
@@ -201,21 +203,26 @@ function RosterRow({
     }
 
     return (
-        <div className={cn("flex items-center gap-3 rounded-md px-2.5 py-2", pending && "opacity-50")}>
+        <div
+            className={cn(
+                "flex items-center gap-2.5 rounded-full px-2.5 py-2 transition-colors duration-150 hover:bg-surf2",
+                pending && "opacity-50",
+            )}
+        >
             <Avatar
                 initials={memberInitials(member)}
                 imageUrl={member.avatarUrl}
+                seed={address}
                 size="sm"
                 status={presenceToUserStatus(presence)}
-                statusBorderClass="border-background"
             />
             <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
-                    <span className="title truncate text-sm font-medium text-foreground">
+                    <span className="truncate text-[13.5px] font-semibold text-foreground">
                         {isSelf ? "You" : (member.displayName ?? "Unknown")}
                     </span>
                     {member.role === "admin" && (
-                        <span className="flex shrink-0 items-center gap-1 font-mono text-[9px] uppercase tracking-[0.04em] text-voice">
+                        <span className="flex shrink-0 items-center gap-1 font-mono text-[9px] uppercase tracking-[0.04em] text-sec">
                             <Crown className="h-3 w-3" /> admin
                         </span>
                     )}
@@ -231,10 +238,7 @@ function RosterRow({
                     label={`Actions for ${member.displayName ?? "member"}`}
                     items={menuItems}
                     trigger={
-                        <IconButton
-                            aria-label={`Actions for ${member.displayName ?? "member"}`}
-                            className="h-7 w-7 rounded-full text-muted-foreground hover:bg-card hover:text-foreground"
-                        >
+                        <IconButton variant="ghost" aria-label={`Actions for ${member.displayName ?? "member"}`}>
                             <MoreHorizontal className="h-4 w-4" />
                         </IconButton>
                     }

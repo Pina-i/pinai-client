@@ -11,6 +11,8 @@ interface ModalProps {
      *  "fullscreen" fills the entire viewport — use for settings-style overlays. */
     variant?: "centered" | "fullscreen"
     className?: string
+    /** Extra classes for the overlay, e.g. a see-through fullscreen scrim. */
+    overlayClassName?: string
     isDismissable?: boolean
     /** Accessible name for the dialog. React Aria's `Dialog` emits a console
      *  warning when neither this nor a `<Heading slot="title">` child is
@@ -26,6 +28,7 @@ export function Modal({
     children,
     variant = "centered",
     className,
+    overlayClassName,
     isDismissable = true,
     label,
 }: ModalProps) {
@@ -37,8 +40,11 @@ export function Modal({
             onOpenChange={(open) => !open && onClose()}
             isDismissable={isDismissable}
             className={cn(
-                "fixed inset-0 z-[100] flex",
-                isFullscreen ? "bg-sidebar/95" : "items-center justify-center bg-foreground/50",
+                "fixed inset-0 z-(--z-overlay) flex",
+                isFullscreen
+                    ? "bg-background"
+                    : "items-center justify-center bg-[color-mix(in_oklab,var(--background)_55%,transparent)] backdrop-blur-[6px] entering:animate-in entering:fade-in-0 entering:duration-200",
+                overlayClassName,
             )}
         >
             <AriaModal
@@ -53,12 +59,12 @@ export function Modal({
                     className={cn("outline-none", isFullscreen && "flex flex-1")}
                 >
                     <motion.div
-                        initial={isFullscreen ? { opacity: 0, y: 12 } : { opacity: 0, scale: 0.95 }}
+                        initial={isFullscreen ? { opacity: 0, y: 12 } : { opacity: 0, scale: 0.96 }}
                         animate={isFullscreen ? { opacity: 1, y: 0 } : { opacity: 1, scale: 1 }}
                         transition={
                             isFullscreen
                                 ? { duration: 0.3, ease: "easeOut" }
-                                : { duration: 0.18, ease: [0.16, 1, 0.3, 1] }
+                                : { duration: 0.22, ease: [0.16, 1, 0.3, 1] }
                         }
                         className={cn(isFullscreen && "flex flex-1")}
                     >

@@ -1,15 +1,18 @@
-import { ChevronDown, ChevronRight, Hash, Plus, Users, Volume2 } from "lucide-react"
+import { ChevronDown, Hash, Plus, Users, Volume2 } from "lucide-react"
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { Button } from "react-aria-components"
 import { useAppStore } from "@/store/store"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
+import { Motif } from "@/presentation/atoms/motif/motif"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { SearchField } from "@/presentation/atoms/SearchField/SearchField"
 import { Menu, type MenuItemDescriptor } from "@/presentation/molecules/Menu/Menu"
 import { cn } from "@/presentation/_libs/utils"
 import { UserPanel } from "./UserPanel"
 import { DmListItem } from "./DmListItem/DmListItem"
+import { UnreadPill } from "./UnreadPill/UnreadPill"
+import { sidebarRowClass, sidebarRowOnClass } from "./sidebar-row.styles"
 
 export function ChannelSidebar() {
     const view = useAppStore((s) => s.view)
@@ -47,69 +50,70 @@ export function ChannelSidebar() {
     ]
 
     return (
-        <div className="flex w-60 shrink-0 flex-col border-r bg-card">
+        <aside className="relative z-[2] my-3 flex w-[236px] shrink-0 flex-col overflow-hidden rounded-[22px] border border-line bg-surf backdrop-blur-[14px]">
+            <Motif
+                variant="field"
+                className="absolute inset-0 rounded-[22px]"
+                style={{ opacity: "var(--motif-opacity)" }}
+            />
+
             {view === "server" ? (
                 <>
-                    {/* Server name header with dropdown */}
                     <Menu
                         trigger={
                             <Button
                                 aria-label="Server menu"
-                                className="group flex h-12 w-full items-center justify-between border-b border-border px-4 font-semibold text-foreground shadow-sm outline-none transition-colors hover:bg-accent cursor-pointer"
+                                className="group relative flex w-full cursor-pointer items-center justify-between gap-2 border-b border-line p-3 text-left text-foreground outline-none transition-colors duration-150 hover:bg-surf aria-expanded:bg-surf"
                             >
-                                <span className="truncate">{activeServerData?.name}</span>
-                                <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-aria-expanded:rotate-180" />
+                                <span className="title truncate text-[16px] font-semibold">{activeServerData?.name}</span>
+                                <ChevronDown className="h-[15px] w-[15px] shrink-0 transition-transform duration-200 group-aria-expanded:rotate-180" />
                             </Button>
                         }
                         items={serverMenuItems}
                         placement="bottom start"
                         offset={0}
-                        popoverClassName="w-[calc(var(--trigger-width)-1rem)] ml-2"
+                        popoverClassName="ml-2 w-[calc(var(--trigger-width)-1rem)] rounded-[14px]"
                     />
 
-                    {/* Channels grouped by category */}
-                    <ScrollArea className="flex-1 px-2 py-3">
+                    <ScrollArea className="relative flex-1 px-2.5 py-0.5">
                         {categories.map((cat) => {
                             const isCollapsed = collapsedCategories.has(cat)
                             const catChannels = channels.filter((c) => c.category === cat)
                             return (
-                                <div key={cat} className="mb-2">
+                                <div key={cat} className="mb-2.5">
                                     <Button
                                         onPress={() => toggleCategory(cat)}
-                                        className="flex w-full items-center gap-0.5 px-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground outline-none transition-colors hover:text-foreground cursor-pointer"
+                                        aria-expanded={!isCollapsed}
+                                        className="eye mb-[7px] mt-2 block cursor-pointer pl-2 text-left outline-none transition-colors hover:text-foreground"
                                     >
-                                        {isCollapsed ? (
-                                            <ChevronRight className="h-3 w-3" />
-                                        ) : (
-                                            <ChevronDown className="h-3 w-3" />
-                                        )}
                                         {cat}
                                     </Button>
                                     {!isCollapsed &&
-                                        catChannels.map((channel) => (
-                                            <Button
-                                                key={channel.id}
-                                                onPress={() => selectChannel(channel.id)}
-                                                className={cn(
-                                                    "mt-0.5 flex w-full items-center gap-1.5 px-2 py-1.5 text-sm outline-none transition-colors cursor-pointer",
-                                                    activeChannel === channel.id
-                                                        ? "bg-accent text-foreground"
-                                                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                                                )}
-                                            >
-                                                {channel.type === "text" ? (
-                                                    <Hash className="h-4 w-4 shrink-0 opacity-60" />
-                                                ) : (
-                                                    <Volume2 className="h-4 w-4 shrink-0 opacity-60" />
-                                                )}
-                                                <span className="flex-1 truncate text-left">{channel.name}</span>
-                                                {channel.unread > 0 && (
-                                                    <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
-                                                        {channel.unread}
-                                                    </span>
-                                                )}
-                                            </Button>
-                                        ))}
+                                        catChannels.map((channel) => {
+                                            const isVoice = channel.type === "voice"
+                                            const isOn = activeChannel === channel.id
+                                            return (
+                                                <Button
+                                                    key={channel.id}
+                                                    onPress={() => selectChannel(channel.id)}
+                                                    className={cn(
+                                                        sidebarRowClass,
+                                                        isOn &&
+                                                            (isVoice
+                                                                ? "bg-sec-soft text-foreground shadow-[inset_0_0_0_1px_var(--secline)] hover:bg-sec-soft"
+                                                                : sidebarRowOnClass),
+                                                    )}
+                                                >
+                                                    {isVoice ? (
+                                                        <Volume2 className="h-4 w-4 shrink-0 text-sec" />
+                                                    ) : (
+                                                        <Hash className="h-4 w-4 shrink-0" />
+                                                    )}
+                                                    <span className="min-w-0 flex-1 truncate text-[13.5px]">{channel.name}</span>
+                                                    {channel.unread > 0 && <UnreadPill count={channel.unread} />}
+                                                </Button>
+                                            )
+                                        })}
                                 </div>
                             )
                         })}
@@ -117,44 +121,37 @@ export function ChannelSidebar() {
                 </>
             ) : (
                 <>
-                    {/* DM search header */}
-                    <div className="flex h-14 items-center border-b border-border px-3">
+                    <div className="relative p-3">
                         <SearchField
                             aria-label="Find or start a conversation"
                             placeholder="Find or start a conversation"
                             shortcutHint="⌘K"
-                            className="min-w-0 flex-1"
                         />
                     </div>
 
-                    <ScrollArea className="flex-1 px-2 py-2">
-                        {/* Friends button */}
+                    <ScrollArea className="relative flex-1 px-2.5 py-0.5">
                         <Button
                             onPress={() => {
                                 switchToDms()
                                 navigate({ to: "/home" })
                             }}
-                            className={cn(
-                                "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm outline-none transition-colors cursor-pointer",
-                                activeDm === null
-                                    ? "bg-chat/15 text-foreground"
-                                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                            )}
+                            className={cn(sidebarRowClass, "text-[13.5px]", activeDm === null && sidebarRowOnClass)}
                         >
-                            <Users className="h-4 w-4" />
+                            <Users className="h-4 w-4 shrink-0" />
                             Friends
                         </Button>
 
-                        <div className="mb-1 mt-4 flex items-center justify-between px-2 mono-eyebrow">
-                            <span>Direct Messages</span>
+                        <div className="mb-[7px] mt-4 flex items-center justify-between pl-2">
+                            <p className="eye">Direct Messages</p>
                             <IconButton
+                                variant="ghost"
                                 aria-label="New group"
                                 onPress={() => openGroupComposer()}
-                                className="relative h-6 w-6 rounded-md text-muted-foreground hover:text-foreground"
+                                className="relative h-[26px] w-[26px]"
                             >
-                                <Users className="h-[18px] w-[18px]" />
-                                <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-chat text-primary-foreground ring-2 ring-card">
-                                    <Plus className="h-2 w-2" strokeWidth={3.5} />
+                                <Users className="h-4 w-4" />
+                                <span className="absolute bottom-px right-px flex h-3 w-3 items-center justify-center rounded-full bg-acc text-acc-ink shadow-[0_0_0_2px_var(--background)]">
+                                    <Plus className="h-2 w-2" strokeWidth={3} />
                                 </span>
                             </IconButton>
                         </div>
@@ -167,6 +164,6 @@ export function ChannelSidebar() {
             )}
 
             <UserPanel />
-        </div>
+        </aside>
     )
 }

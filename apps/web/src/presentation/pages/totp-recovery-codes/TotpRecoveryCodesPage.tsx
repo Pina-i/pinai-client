@@ -8,7 +8,7 @@ import { useAppStore } from "@/store/store"
 
 const LEFT_HEADLINE = (
     <>
-        Keep these <em className="font-light italic text-chat">safe.</em>
+        Keep these <em className="italic text-acc">safe.</em>
     </>
 )
 const LEFT_DESCRIPTION =
@@ -36,8 +36,8 @@ export function TotpRecoveryCodesPage() {
     return (
         <AuthShell leftHeadline={LEFT_HEADLINE} leftDescription={LEFT_DESCRIPTION}>
             <div className="mb-7">
-                <p className="mono-eyebrow">— 2FA enabled</p>
-                <h2 className="title mt-2 text-[32px] font-normal leading-tight tracking-[-0.015em] text-foreground">
+                <p className="eye">— 2FA enabled</p>
+                <h2 className="title mt-2 text-[32px] font-normal tracking-[-0.015em] text-foreground">
                     Save your recovery codes
                 </h2>
                 <p className="mt-2 max-w-sm text-[13.5px] leading-[1.55] text-muted-foreground">
@@ -49,10 +49,8 @@ export function TotpRecoveryCodesPage() {
             <RecoveryCodesGrid codes={codes} className="mb-6" />
 
             <Button onPress={done}>
-                <span className="inline-flex items-center gap-2">
-                    <ShieldCheck size={16} />
-                    I've saved these — continue
-                </span>
+                <ShieldCheck size={15} />
+                I've saved these — continue
             </Button>
         </AuthShell>
     )

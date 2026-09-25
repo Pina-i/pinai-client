@@ -56,13 +56,9 @@ export function AttachmentFilmstrip({ attachments, attachmentKeys, onImageClick 
                         )
                 })}
             </div>
-            <div
-                className={cn(
-                    "pl-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted-foreground",
-                )}
-            >
+            <p className="fact pl-0.5">
                 {attachments.length} {attachments.length === 1 ? "file" : "files"} · scroll →
-            </div>
+            </p>
         </div>
     )
 }
@@ -84,10 +80,7 @@ function ImageTile({
             type="button"
             onClick={onClick}
             aria-label={`Open ${filename}`}
-            className={cn(
-                "relative flex h-24 w-24 shrink-0 cursor-zoom-in flex-col justify-end overflow-hidden",
-                "rounded-[var(--radius)] border border-border bg-muted p-0",
-            )}
+            className="relative flex h-24 w-24 shrink-0 cursor-zoom-in flex-col justify-end overflow-hidden rounded-[14px] border border-line bg-surf2 p-0"
         >
             {url && (
                 <img
@@ -101,7 +94,7 @@ function ImageTile({
                     "relative z-[1] truncate px-1.5 py-1 text-left",
                     "font-mono text-[9.5px] text-muted-foreground",
                 )}
-                style={{ background: "linear-gradient(to top, oklch(0.18 0.01 60 / 0.85), transparent)" }}
+                style={{ background: "linear-gradient(to top, color-mix(in oklab, var(--background) 85%, transparent), transparent)" }}
             >
                 {filename}
             </div>
@@ -131,22 +124,21 @@ function FileTile({
             title={`${filename} · ${formatBytes(byteSize)}`}
             className={cn(
                 "relative flex h-24 w-24 shrink-0 cursor-pointer flex-col justify-end overflow-hidden",
-                "rounded-[var(--radius)] border border-border bg-muted",
+                "rounded-[14px] border border-line bg-surf2",
                 !url && "pointer-events-none opacity-60",
             )}
         >
             <span
                 className={cn(
-                    "absolute left-2 top-2 flex h-[26px] w-[26px] items-center justify-center rounded-[5px]",
-                    "border border-border-strong bg-card",
-                    "font-mono text-[8.5px] font-semibold text-chat",
+                    "absolute left-2 top-2 flex h-[26px] w-[26px] items-center justify-center rounded-[8px]",
+                    "bg-surf3 font-mono text-[8.5px] font-bold text-acc",
                 )}
             >
                 {ext}
             </span>
             <div
                 className={cn(
-                    "truncate border-t border-border px-1.5 py-1",
+                    "truncate border-t border-line px-1.5 py-1",
                     "font-mono text-[9.5px] text-muted-foreground",
                 )}
             >

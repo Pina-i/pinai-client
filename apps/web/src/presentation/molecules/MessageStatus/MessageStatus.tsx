@@ -4,16 +4,16 @@ import { AlertCircle, Check, Clock, RotateCw } from "lucide-react"
 
 import type { Message } from "@/lib/types"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
-import { cn } from "@/presentation/_libs/utils"
 import { SENT_FADE_MS, shouldShowSentIcon } from "./MessageStatus.helper"
 
 export interface MessageStatusProps {
     status: Message["status"]
     statusAt?: string
+    /** Whether a failed or undelivered message offers a retry button at all. */
+    showRetry: boolean
     /**
-     * Whether the user can retry a failed send. False after a reload
-     * (the in-memory send-intent map is session-only) — the retry
-     * button still renders but is disabled.
+     * Whether that button works. False when this device never had the
+     * message's plaintext — the button still renders, disabled.
      */
     canRetry: boolean
     onRetry: () => void
@@ -21,13 +21,14 @@ export interface MessageStatusProps {
 
 /**
  * Inline status indicator rendered next to a message's timestamp on
- * own messages. Maps the three `Message.status` values to small
- * `lucide-react` icons + (for failed sends) a retry icon-button.
+ * own messages. Maps the `Message.status` values to small
+ * `lucide-react` icons + (for failed or undelivered sends) a retry
+ * icon-button.
  *
- * The "sent" check auto-hides ~3 s after `statusAt`; "sending" and
- * "failed" stay visible until the next status transition.
+ * The "sent" check auto-hides ~3 s after `statusAt`; the other
+ * statuses stay visible until the next status transition.
  */
-export function MessageStatus({ status, statusAt, canRetry, onRetry }: MessageStatusProps) {
+export function MessageStatus({ status, statusAt, showRetry, canRetry, onRetry }: MessageStatusProps) {
     // Force a re-render at the fade boundary so the "sent" check
     // disappears without an interval / animation-frame loop. One
     // setTimeout per "sent" message during its visible window.
@@ -51,7 +52,7 @@ export function MessageStatus({ status, statusAt, canRetry, onRetry }: MessageSt
                 aria-label="Sending"
                 className="inline-flex items-center"
             >
-                <Clock aria-hidden="true" className="h-3 w-3 text-muted-foreground/70" />
+                <Clock aria-hidden="true" className="h-3 w-3 text-muted-foreground" />
             </span>
         )
     }
@@ -65,28 +66,30 @@ export function MessageStatus({ status, statusAt, canRetry, onRetry }: MessageSt
                 aria-label="Sent"
                 className="inline-flex items-center"
             >
-                <Check aria-hidden="true" className="h-3 w-3 text-muted-foreground/70" />
+                <Check aria-hidden="true" className="h-3 w-3 text-on" />
             </span>
         )
     }
 
-    // status === "failed"
+    // status === "failed" | "undelivered"
     return (
         <span
             role="status"
             aria-live="polite"
-            aria-label="Failed to send"
+            aria-label={status === "failed" ? "Failed to send" : "Not delivered to the recipient's server"}
             className="inline-flex items-center gap-1"
         >
-            <AlertCircle aria-hidden="true" className="h-3 w-3 text-destructive" />
-            <IconButton
-                aria-label="Retry sending"
-                isDisabled={!canRetry}
-                onPress={onRetry}
-                className={cn("rounded p-0.5 hover:bg-accent/50")}
-            >
-                <RotateCw aria-hidden="true" className="h-3 w-3 text-destructive" />
-            </IconButton>
+            <AlertCircle aria-hidden="true" className="h-3 w-3 text-dnd" />
+            {showRetry && (
+                <IconButton
+                    aria-label="Retry sending"
+                    isDisabled={!canRetry}
+                    onPress={onRetry}
+                    className="rounded-full p-0.5 text-dnd hover:bg-[color-mix(in_oklab,var(--dnd)_14%,transparent)]"
+                >
+                    <RotateCw aria-hidden="true" className="h-3 w-3" />
+                </IconButton>
+            )}
         </span>
     )
 }

@@ -6,6 +6,8 @@ import {
     type PopoverProps as AriaPopoverProps,
 } from "react-aria-components"
 import { EmojiPicker } from "@/presentation/molecules/EmojiPicker/EmojiPicker"
+import { popoverSurface } from "@/presentation/molecules/Popover/popover-surface"
+import { cn } from "@/presentation/_libs/utils"
 
 interface BaseProps {
     isOpen: boolean
@@ -55,7 +57,7 @@ export function EmojiPickerPopover(props: EmojiPickerPopoverProps) {
 
     const content = (
         <Dialog aria-label="Emoji picker" className="outline-none">
-            <div className="overflow-hidden rounded-lg border border-border-strong bg-popover shadow-xl">
+            <div className={cn(popoverSurface, "overflow-hidden rounded-[14px]")}>
                 <EmojiPicker onEmojiSelect={onEmojiSelect} />
             </div>
         </Dialog>
@@ -68,7 +70,7 @@ export function EmojiPickerPopover(props: EmojiPickerPopoverProps) {
                 <AriaPopover
                     placement={placement}
                     offset={offset}
-                    className="z-50 outline-none"
+                    className="outline-none entering:animate-in entering:fade-in-0 entering:zoom-in-95 entering:duration-150"
                 >
                     {content}
                 </AriaPopover>
@@ -87,7 +89,7 @@ export function EmojiPickerPopover(props: EmojiPickerPopoverProps) {
             onOpenChange={onOpenChange}
             placement={placement}
             offset={offset}
-            className="z-50 outline-none"
+            className="outline-none entering:animate-in entering:fade-in-0 entering:zoom-in-95 entering:duration-150"
         >
             {content}
         </AriaPopover>

@@ -13,9 +13,8 @@ interface TabsProps {
     tabs: TabItem[]
     selectedKey?: string
     onSelectionChange?: (key: string) => void
-    /** Visual style of the tab list. `underline` (default) draws a primary-colour
-     *  underline beneath the active tab. `pill` renders pill segments inside a
-     *  muted track, matching the design's editorial sign-in tabs. */
+    /** `underline` (default) rules the active tab in the accent; `pill` fills
+     *  it inside a rounded track, as on the sign-in screen. */
     variant?: TabsVariant
     className?: string
     tabListClassName?: string
@@ -33,13 +32,13 @@ export function Tabs({
 }: TabsProps) {
     const tabListBase =
         variant === "pill"
-            ? "flex gap-[2px] rounded-sm bg-muted p-[3px]"
-            : "flex border-b border-border"
+            ? "flex gap-1 rounded-full bg-surf2 p-1"
+            : "flex border-b border-line"
 
     const tabBase =
         variant === "pill"
-            ? "flex flex-1 items-center justify-center py-[9px] px-[10px] text-[12.5px] leading-[1.2] tracking-[0.02em] cursor-pointer outline-none rounded-[5px] transition-colors text-muted-foreground hovered:text-foreground selected:bg-card selected:text-foreground selected:font-medium selected:shadow-[0_1px_2px_rgba(0,0,0,0.25)] focus-visible:ring-2 focus-visible:ring-ring"
-            : "flex-1 pb-3 text-sm cursor-pointer outline-none -mb-px border-b-2 border-transparent text-muted-foreground selected:border-primary selected:text-foreground hovered:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+            ? "flex flex-1 items-center justify-center rounded-full p-[9px] text-[12.5px] cursor-pointer outline-none transition-colors text-muted-foreground hovered:text-foreground selected:bg-acc selected:text-acc-ink selected:font-bold focus-visible:ring-2 focus-visible:ring-ring"
+            : "flex-1 pb-3 text-sm cursor-pointer outline-none -mb-px border-b-2 border-transparent text-muted-foreground selected:border-acc selected:text-foreground hovered:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
 
     return (
         <AriaTabs
@@ -58,7 +57,7 @@ export function Tabs({
                 <TabPanel
                     key={tab.id}
                     id={tab.id}
-                    className={cn("pt-5 space-y-4", tabPanelClassName)}
+                    className={cn("pt-[18px] outline-none", tabPanelClassName)}
                 >
                     {tab.content}
                 </TabPanel>

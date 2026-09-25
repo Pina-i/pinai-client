@@ -139,10 +139,11 @@ same state shape, and the state container is the first thing a stack change
 would replace. Duplicating a store slice is cheap; duplicating the MLS
 ratchet is not.
 
-If any of that ever does want sharing, the thing to lift is the *rules* —
-reaction folding, optimistic reconciliation, typing expiry — as pure
-functions in `@pinai/domain`, not as slices. Pure functions survive a change
-of state container; a slice does not.
+The rules *inside* that frontend are not frontend, though. Reaction folding,
+optimistic reconciliation, typing expiry, timeline ordering are business
+rules, so they belong in `@pinai/domain` as pure functions that the slices
+only call. Pure functions survive a change of state container; a slice does
+not. See "Where does a change go?" below.
 
 What stays in `apps/web` for good is the platform-specific remainder — WASM,
 WebCrypto, IndexedDB, web storage and navigation. `apps/mobile/` is
@@ -154,6 +155,33 @@ deliberately absent until that work begins.
 - The **domain** depends on nothing (pure TypeScript)
 - The **adapters** depend on the domain (implement ports)
 - The **presentation** (pages) uses the domain via IoC
+
+### Where does a change go?
+
+Decide the owning layer **before** writing a fix, by what the change *is* —
+not by the file where the symptom shows up, and not by what the neighbouring
+code does. Some existing code breaks this table; it is not a precedent.
+
+| The change is… | It goes in |
+|---|---|
+| A rule about data — ordering, dedupe, folding, reconciliation, validation, expiry | `packages/domain/src/models/*.ts` as a pure function, spec in `apps/web/test/` |
+| A flow that orchestrates ports | `packages/domain/src/usecases/` |
+| The IdP's HTTP / WebSocket contract | `packages/api` |
+| Protocol crypto, MLS | `packages/crypto`, `packages/mls` |
+| Platform-specific code — IndexedDB, WebCrypto, web storage, navigation, WASM loading | `apps/web/src/adapters/` |
+| Transversal UI state | a slice in `apps/web/src/store/slices/`: get/set only, may call a domain rule inside `set` |
+| Screen logic — local state, derived values, handlers | the component's `*.viewmodel.ts` |
+| Rendering and styling | the component; shared UI goes up the atomic folders |
+
+- When the symptom's file and the owning layer differ, the fix goes in the
+  owning layer and the symptom's file only calls it.
+- A domain rule cannot import a web type (`apps/web/src/lib/types.ts`): make
+  it generic over the structural shape it needs, as `TimelineEntry` does in
+  `models/dm.ts`.
+- Still to move: the dedupe, optimistic reconciliation and reaction folding
+  inside `apps/web/src/store/slices/ws.slice.ts`.
+- `.claude/hooks/layer-reminder.mjs` repeats this to Claude Code whenever a
+  slice or a viewmodel is edited.
 
 ## Deployment
 

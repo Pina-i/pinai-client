@@ -1,17 +1,14 @@
+import { ArrowRight, ClipboardPaste, Trash2 } from "lucide-react"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
+import { Backdrop } from "@/presentation/atoms/backdrop/backdrop"
+import { Button } from "@/presentation/atoms/Button/Button"
 import { PageTransition } from "@/presentation/atoms/page-transition/page-transition"
 import { RecoveryPassphraseInput } from "@/presentation/molecules/RecoveryPassphraseInput/RecoveryPassphraseInput"
 import { cn } from "@/presentation/_libs/utils"
 
 import { useRecoveryRestorePageViewModel } from "./RecoveryRestorePage.viewmodel"
 
-/**
- * "Recover history · new device" — mirrors the prototype in
- * `web-client/design/screens/security.jsx::SecRecoverHistory`. Two visual
- * states share the same shell: empty (encouraging copy + Paste CTA) and
- * mid-entry (progress copy + Clear CTA). MSK + Device Root Key are
- * bootstrapped silently so both Restore and Start-fresh exit ready.
- */
+// MSK + Device Root Key are bootstrapped silently, so both Restore and Start fresh exit ready.
 export function RecoveryRestorePage() {
     const vm = useRecoveryRestorePageViewModel()
     const isMidEntry = vm.filledCount > 0
@@ -19,14 +16,9 @@ export function RecoveryRestorePage() {
     const initials = (vm.welcomeName[0] ?? "?").toUpperCase()
 
     return (
-        <div className="flex min-h-screen items-center justify-center overflow-auto bg-background">
-            <PageTransition
-                className={cn(
-                    "grid w-full max-w-[1200px] grid-cols-[1.1fr_1fr] gap-9",
-                    "px-14 py-10",
-                )}
-            >
-                {/* LEFT — copy */}
+        <div className="relative flex min-h-screen items-center justify-center overflow-auto bg-background">
+            <Backdrop />
+            <PageTransition className="relative z-[2] grid w-full max-w-[1200px] grid-cols-[1.1fr_1fr] gap-9 px-14 py-10">
                 <div>
                     <Breadcrumb />
 
@@ -38,7 +30,7 @@ export function RecoveryRestorePage() {
 
                     {isMidEntry ? <HeroMidEntry /> : <HeroEmpty />}
 
-                    <p className="m-0 mb-3.5 max-w-[520px] text-[14px] leading-[1.65] text-foreground">
+                    <p className="m-0 mb-3.5 max-w-[520px] text-[14px] leading-[1.6] text-muted-foreground">
                         {isMidEntry ? (
                             <>
                                 We've matched {vm.filledCount} of your 24 words. {24 - vm.filledCount}{" "}
@@ -92,85 +84,52 @@ export function RecoveryRestorePage() {
                         )}
                     </div>
 
-                    {/* Action row */}
                     <div className={cn("mt-7 flex items-center gap-2.5", isMidEntry && "mt-6")}>
                         {isMidEntry ? (
-                            <button
-                                type="button"
-                                onClick={vm.onClear}
-                                disabled={isRestoring}
-                                className={cn(
-                                    "inline-flex h-[46px] items-center gap-2 rounded-[10px] border border-border-strong bg-transparent px-[18px]",
-                                    "text-[13.5px] font-medium text-foreground",
-                                    "cursor-pointer disabled:cursor-not-allowed disabled:opacity-50",
-                                )}
-                            >
-                                <TrashIcon />
+                            <Button variant="secondary" size="inline" onPress={vm.onClear} isDisabled={isRestoring}>
+                                <Trash2 className="h-[15px] w-[15px]" />
                                 Clear all
-                            </button>
+                            </Button>
                         ) : (
-                            <button
-                                type="button"
-                                onClick={vm.onPaste}
-                                disabled={vm.status === "initializing"}
-                                className={cn(
-                                    "inline-flex h-[46px] items-center gap-2 rounded-[10px] border border-chat bg-transparent px-[18px]",
-                                    "text-[13.5px] font-semibold text-chat",
-                                    "cursor-pointer disabled:cursor-not-allowed disabled:opacity-50",
-                                )}
+                            <Button
+                                variant="secondary"
+                                size="inline"
+                                onPress={vm.onPaste}
+                                isDisabled={vm.status === "initializing"}
                             >
-                                <ClipboardIcon />
+                                <ClipboardPaste className="h-[15px] w-[15px]" />
                                 Paste passphrase
-                            </button>
+                            </Button>
                         )}
 
-                        <button
-                            type="button"
-                            onClick={() => void vm.onRestore()}
-                            disabled={!vm.canRestore || isRestoring}
-                            className={cn(
-                                "inline-flex h-[46px] items-center gap-2 rounded-[10px] border-none px-[22px]",
-                                "text-[13.5px] font-semibold",
-                                vm.canRestore && !isRestoring
-                                    ? "bg-chat text-primary-foreground cursor-pointer hover:opacity-90"
-                                    : "cursor-not-allowed",
-                            )}
-                            style={
-                                vm.canRestore && !isRestoring
-                                    ? undefined
-                                    : {
-                                          background: "color-mix(in oklab, var(--chat) 25%, transparent)",
-                                          color: "color-mix(in oklab, var(--primary-foreground) 50%, transparent)",
-                                      }
-                            }
+                        <Button
+                            size="inline"
+                            onPress={() => void vm.onRestore()}
+                            isDisabled={!vm.canRestore || isRestoring}
                         >
-                            {isRestoring ? "Restoring…" : "Restore →"}
-                        </button>
+                            {isRestoring ? "Restoring…" : "Restore"}
+                            {!isRestoring && <ArrowRight className="h-[15px] w-[15px]" />}
+                        </Button>
 
                         <span className="flex-1" />
 
-                        <button
-                            type="button"
-                            onClick={vm.onStartFresh}
-                            disabled={vm.status === "initializing" || isRestoring}
-                            className={cn(
-                                "inline-flex h-[42px] items-center rounded-[8px] border-none bg-transparent px-[14px]",
-                                "text-[12.5px] text-muted-foreground underline underline-offset-[3px] opacity-65",
-                                "cursor-pointer disabled:cursor-not-allowed disabled:opacity-30",
-                            )}
+                        <Button
+                            variant="ghost"
+                            onPress={vm.onStartFresh}
+                            isDisabled={vm.status === "initializing" || isRestoring}
+                            className="text-[12.5px] underline-offset-[3px]"
                         >
                             Start fresh on this device
-                        </button>
+                        </Button>
                     </div>
 
                     {vm.status === "error" && vm.error && (
-                        <p className="mt-4 text-[12px] text-destructive">
+                        <p className="mt-4 text-[12px] text-dnd">
                             {vm.error}
                         </p>
                     )}
                 </div>
 
-                {/* RIGHT — input card */}
                 <div>
                     <RecoveryPassphraseInput
                         value={vm.words}
@@ -188,9 +147,9 @@ function Breadcrumb() {
     return (
         <div className="mb-3.5 flex items-center gap-[7px] text-[12px] text-muted-foreground">
             <span>Sign in</span>
-            <span className="text-border-strong">›</span>
+            <span className="text-line2">›</span>
             <span>New device</span>
-            <span className="text-border-strong">›</span>
+            <span className="text-line2">›</span>
             <span className="font-medium text-foreground">Recover history</span>
         </div>
     )
@@ -204,26 +163,13 @@ interface WelcomeChipProps {
 
 function WelcomeChip({ name, initials, deviceLabel }: WelcomeChipProps) {
     return (
-        <div
-            className={cn(
-                "mb-3 inline-flex w-fit items-center gap-2.5 rounded-full py-2 pl-2 pr-3",
-            )}
-            style={{
-                background: "color-mix(in oklab, var(--chat) 8%, var(--card))",
-                border: "1px solid color-mix(in oklab, var(--chat) 28%, var(--border))",
-            }}
-        >
-            <Avatar initials={initials} color="var(--chat)" size="sm" />
-            <span className="font-mono text-[11px] tracking-[0.04em] text-foreground">
-                Welcome back, <span className="font-semibold text-chat">{name}</span>
+        <div className="mb-3 inline-flex w-fit items-center gap-2.5 rounded-full border border-[color-mix(in_oklab,var(--acc)_28%,var(--line2))] bg-[color-mix(in_oklab,var(--acc)_8%,var(--surf))] py-1.5 pl-1.5 pr-3">
+            <Avatar initials={initials} tone="acc" size="sm" />
+            <span className="text-[12px] text-foreground">
+                Welcome back, <span className="title text-[14px] font-semibold text-acc">{name}</span>
             </span>
-            <span
-                className="h-[3px] w-[3px] rounded-full"
-                style={{ background: "var(--border-strong)" }}
-            />
-            <span className="font-mono text-[10.5px] tracking-[0.04em] text-muted-foreground">
-                {deviceLabel} · just paired
-            </span>
+            <span className="h-[3px] w-[3px] rounded-full bg-line2" />
+            <span className="fact fact-plain">{deviceLabel} · just paired</span>
         </div>
     )
 }
@@ -232,7 +178,7 @@ function HeroEmpty() {
     return (
         <h1 className="title m-0 mb-3.5 text-[42px] font-normal leading-[1.05] tracking-[-0.02em] text-foreground">
             Pick up where you{" "}
-            <em className="italic text-chat">left off.</em>
+            <em className="italic text-acc">left off.</em>
         </h1>
     )
 }
@@ -240,7 +186,7 @@ function HeroEmpty() {
 function HeroMidEntry() {
     return (
         <h1 className="title m-0 mb-3.5 text-[42px] font-normal leading-[1.05] tracking-[-0.02em] text-foreground">
-            Almost <em className="italic text-chat">there.</em>
+            Almost <em className="italic text-acc">there.</em>
         </h1>
     )
 }
@@ -253,65 +199,22 @@ interface RowFactProps {
 }
 
 function RowFact({ icon, title, body, tone }: RowFactProps) {
-    const color = tone === "warning" ? "var(--warning)" : "var(--muted-foreground)"
+    const warning = tone === "warning"
     return (
         <div className="flex items-start gap-[11px]">
             <span
-                className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[5px] font-mono text-[13px] font-semibold"
-                style={{
-                    background: `color-mix(in oklab, ${color} 18%, transparent)`,
-                    color,
-                }}
+                className={cn(
+                    "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[7px] font-mono text-[12px] font-medium",
+                    warning ? "bg-[color-mix(in_oklab,var(--idle)_16%,transparent)] text-idle" : "bg-surf3 text-muted-foreground",
+                )}
+                aria-hidden
             >
                 {icon}
             </span>
-            <div className="flex-1 text-[12.5px] leading-[1.55] text-foreground">
-                <span
-                    className="mb-0.5 block font-mono text-[9.5px] font-semibold uppercase tracking-[0.12em]"
-                    style={{ color }}
-                >
-                    {title}
-                </span>
+            <div className="flex-1 text-[12.5px] leading-[1.55]">
+                <p className={cn("fact mb-0.5", warning && "text-idle")}>{title}</p>
                 <span className="text-muted-foreground">{body}</span>
             </div>
         </div>
-    )
-}
-
-function ClipboardIcon() {
-    return (
-        <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-        >
-            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
-            <rect x="8" y="2" width="8" height="4" rx="1" />
-            <path d="M9 14h6M9 18h4" />
-        </svg>
-    )
-}
-
-function TrashIcon() {
-    return (
-        <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-        >
-            <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-        </svg>
     )
 }

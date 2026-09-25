@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react"
+import { useEffect, useId, useRef, type ClipboardEvent, type KeyboardEvent } from "react"
 import { cn } from "@/presentation/_libs/utils"
 
 export interface OtpInputProps {
@@ -14,11 +14,7 @@ export interface OtpInputProps {
     className?: string
 }
 
-/**
- * Editorial 6-digit OTP input. Each cell renders a Fraunces serif glyph when
- * filled, a blinking caret when focused, and a small horizontal dash mark when
- * empty. A static dash separates the 3rd and 4th cells (phone-number rhythm).
- */
+/** Six single-digit mono cells; typing advances, paste fans out, backspace walks back. */
 export function OtpInput({
     value,
     onChange,
@@ -33,21 +29,30 @@ export function OtpInput({
 }: OtpInputProps) {
     const id = useId()
     const refs = useRef<Array<HTMLInputElement | null>>([])
-    const [focusIndex, setFocusIndex] = useState<number | null>(autoFocus ? 0 : null)
     const cells = Array.from({ length }, (_, i) => value[i] ?? "")
 
     useEffect(() => {
         if (autoFocus) refs.current[0]?.focus()
     }, [autoFocus])
 
+    // Fired after commit, not from the keystroke: callers read the code from
+    // their own state or the form's hidden input, which only hold all six
+    // digits once the parent has re-rendered.
+    const firedFor = useRef<string | null>(value)
+    useEffect(() => {
+        if (value.length !== length) {
+            firedFor.current = null
+            return
+        }
+        if (firedFor.current === value) return
+        firedFor.current = value
+        onComplete?.(value)
+    }, [value, length, onComplete])
+
     function setDigit(index: number, digit: string) {
         const next = cells.slice()
         next[index] = digit
-        const joined = next.join("")
-        onChange(joined)
-        if (joined.length === length && !joined.includes("") && onComplete) {
-            onComplete(joined)
-        }
+        onChange(next.join(""))
     }
 
     function distributeFrom(start: number, digits: string) {
@@ -57,12 +62,8 @@ export function OtpInput({
             if (i >= length) break
             next[i++] = d
         }
-        const joined = next.join("")
-        onChange(joined)
+        onChange(next.join(""))
         refs.current[Math.min(i, length - 1)]?.focus()
-        if (joined.length === length && !joined.includes("") && onComplete) {
-            onComplete(joined)
-        }
     }
 
     function handleChange(index: number, raw: string) {
@@ -112,124 +113,53 @@ export function OtpInput({
 
     const renderCell = (i: number) => {
         const digit = cells[i]
-        const focused = focusIndex === i
-        const filled = !!digit
         return (
-            <div key={i} className="relative">
-                <input
-                    ref={(el) => {
-                        refs.current[i] = el
-                    }}
-                    id={`${id}-${i}`}
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete={i === 0 ? "one-time-code" : "off"}
-                    maxLength={1}
-                    value={digit}
-                    disabled={disabled}
-                    aria-invalid={!!error}
-                    aria-label={`Digit ${i + 1} of ${length}`}
-                    onChange={(e) => handleChange(i, e.target.value)}
-                    onKeyDown={(e) => handleKeyDown(i, e)}
-                    onPaste={(e) => handlePaste(i, e)}
-                    onFocus={(e) => {
-                        setFocusIndex(i)
-                        e.currentTarget.select()
-                    }}
-                    onBlur={() => setFocusIndex((cur) => (cur === i ? null : cur))}
-                    className={cn(
-                        "h-[54px] w-[46px] rounded-[var(--radius)] border bg-background text-center outline-none transition-[border-color,box-shadow,background] duration-150",
-                        "[font-family:var(--font-serif)] text-[26px] font-normal",
-                        "disabled:cursor-not-allowed disabled:opacity-50",
-                        // The overlay renders the visible glyph — hide the
-                        // native value so the empty/focus/filled treatment is
-                        // consistent across browsers.
-                        "caret-transparent text-transparent",
-                    )}
-                    style={{
-                        borderColor: error
-                            ? "var(--destructive)"
-                            : focused
-                              ? "var(--chat)"
-                              : filled
-                                ? "color-mix(in oklab, var(--chat) 30%, var(--border-strong))"
-                                : "var(--border-strong)",
-                        backgroundColor: error
-                            ? "color-mix(in oklab, var(--destructive) 6%, var(--background))"
-                            : filled
-                              ? "color-mix(in oklab, var(--chat) 5%, var(--background))"
-                              : "var(--background)",
-                        boxShadow: focused
-                            ? "0 0 0 3px color-mix(in oklab, var(--chat) 18%, transparent)"
-                            : "none",
-                    }}
-                />
-                <div
-                    aria-hidden
-                    className="pointer-events-none absolute inset-0 flex items-center justify-center"
-                    style={{
-                        fontFamily: "var(--font-serif)",
-                        fontSize: 26,
-                        color: error ? "var(--destructive)" : "var(--foreground)",
-                    }}
-                >
-                    {filled ? (
-                        digit
-                    ) : focused ? (
-                        <span
-                            className="rounded-[1px]"
-                            style={{
-                                width: 1.5,
-                                height: 24,
-                                background: "var(--chat)",
-                                animation: "pn-blink 1s steps(2) infinite",
-                            }}
-                        />
-                    ) : (
-                        <span
-                            className="rounded-[1px]"
-                            style={{
-                                width: 14,
-                                height: 1.5,
-                                background: "var(--border-strong)",
-                            }}
-                        />
-                    )}
-                </div>
-            </div>
+            <input
+                key={i}
+                ref={(el) => {
+                    refs.current[i] = el
+                }}
+                id={`${id}-${i}`}
+                type="text"
+                inputMode="numeric"
+                autoComplete={i === 0 ? "one-time-code" : "off"}
+                maxLength={1}
+                value={digit}
+                disabled={disabled}
+                aria-invalid={!!error}
+                aria-label={`Digit ${i + 1} of ${length}`}
+                onChange={(e) => handleChange(i, e.target.value)}
+                onKeyDown={(e) => handleKeyDown(i, e)}
+                onPaste={(e) => handlePaste(i, e)}
+                onFocus={(e) => e.currentTarget.select()}
+                className={cn(
+                    "h-[46px] w-10 rounded-[12px] border bg-surf2 text-center font-mono text-[18px] text-foreground outline-none",
+                    "transition-[border-color,box-shadow] duration-150",
+                    "focus:border-acc focus:shadow-[0_0_0_3px_var(--accsoft)]",
+                    "disabled:cursor-not-allowed disabled:opacity-50",
+                    error
+                        ? "border-dnd focus:border-dnd focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--dnd)_18%,transparent)]"
+                        : digit
+                          ? "border-[color-mix(in_oklab,var(--acc)_30%,var(--line2))]"
+                          : "border-line2",
+                )}
+            />
         )
     }
 
     return (
         <div className={cn("w-full", className)}>
             {label && (
-                <label
-                    htmlFor={`${id}-0`}
-                    className="mono-eyebrow mb-2.5 block text-muted-foreground uppercase"
-                >
+                <label htmlFor={`${id}-0`} className="eye mb-1.5 block">
                     {label}
                 </label>
             )}
             <div className="flex items-center gap-2" role="group" aria-label={label ?? "One-time passcode"}>
-                {renderCell(0)}
-                {renderCell(1)}
-                {renderCell(2)}
-                <span
-                    aria-hidden
-                    className="mx-0.5 rounded-[1px]"
-                    style={{
-                        width: 14,
-                        height: 1.5,
-                        background: "var(--border-strong)",
-                    }}
-                />
-                {renderCell(3)}
-                {renderCell(4)}
-                {renderCell(5)}
+                {cells.map((_, i) => renderCell(i))}
             </div>
             {name && <input type="hidden" name={name} value={value} />}
             {error && (
-                <p className="mt-2 text-xs text-destructive" role="alert">
+                <p className="mt-2 text-xs text-dnd" role="alert">
                     {error}
                 </p>
             )}

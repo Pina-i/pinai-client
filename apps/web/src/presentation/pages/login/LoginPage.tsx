@@ -1,4 +1,4 @@
-import { ArrowLeft } from "lucide-react"
+import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { AnimatedContent } from "@/presentation/atoms/animated-content/animated-content"
 import { Tabs, type TabItem } from "@/presentation/molecules/Tabs/Tabs"
 import { AuthShell } from "@/presentation/templates/AuthShell/AuthShell"
@@ -17,7 +17,7 @@ export function LoginPage() {
             content: (
                 <>
                     {error && (
-                        <p className="mb-3 text-xs text-destructive" role="alert">
+                        <p className="mb-3 text-xs text-dnd" role="alert">
                             {error}
                         </p>
                     )}
@@ -31,7 +31,7 @@ export function LoginPage() {
             content: (
                 <>
                     {error && (
-                        <p className="mb-3 text-xs text-destructive" role="alert">
+                        <p className="mb-3 text-xs text-dnd" role="alert">
                             {error}
                         </p>
                     )}
@@ -43,30 +43,25 @@ export function LoginPage() {
 
     return (
         <AuthShell>
-            <div className="mb-7">
-                <div className="flex items-center justify-between gap-3">
-                    <p className="mono-eyebrow">— Welcome back</p>
-                    <button
-                        type="button"
-                        onClick={handleBack}
-                        className="-mr-2 inline-flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:text-foreground"
-                    >
-                        <ArrowLeft className="h-3.5 w-3.5" />
-                        Back
-                    </button>
-                </div>
-                <AnimatedContent contentKey={activeTab}>
-                    <h2 className="title mt-2 text-[32px] font-normal leading-tight tracking-[-0.015em] text-foreground">
-                        {activeTab === "signin" ? "Sign in to continue" : "Create your account"}
-                    </h2>
-                </AnimatedContent>
-                {idpHost && (
-                    <p className="mt-2 font-mono text-[11px] tracking-[0.04em] text-muted-foreground">
-                        <span className="mr-1.5 text-chat">●</span>
-                        Connecting to <span className="text-foreground">{idpHost}</span>
-                    </p>
-                )}
+            <div className="flex items-baseline justify-between">
+                <p className="eye">— Welcome back</p>
+                <IconButton variant="ghost" onPress={handleBack} className="w-auto px-1.5 text-[11px] font-medium">
+                    ← Back
+                </IconButton>
             </div>
+            <AnimatedContent contentKey={activeTab}>
+                <h2 className="title mt-2 text-[32px] font-normal tracking-[-0.015em] text-foreground">
+                    {activeTab === "signin" ? "Sign in to continue" : "Create your account"}
+                </h2>
+            </AnimatedContent>
+            <p className="mb-5 mt-2 text-[12px] text-muted-foreground">
+                {idpHost && (
+                    <>
+                        <span className="mr-1.5 text-acc">●</span>
+                        Connecting to <span className="font-mono text-[11px] text-foreground">{idpHost}</span>
+                    </>
+                )}
+            </p>
 
             <Tabs
                 tabs={tabs}

@@ -21,6 +21,27 @@ interface PopoverProps {
     className?: string
 }
 
+interface PopoverCaretProps {
+    /** `up` when the panel hangs below its trigger, `down` when it sits above. */
+    side: "up" | "down"
+    /** Horizontal placement, e.g. `right-6` or `left-6`. */
+    className?: string
+}
+
+/** Diamond pointing at the trigger; inherits the panel background. */
+export function PopoverCaret({ side, className }: PopoverCaretProps) {
+    return (
+        <div
+            aria-hidden
+            className={cn(
+                "pointer-events-none absolute h-3.5 w-3.5 rotate-45 bg-inherit",
+                side === "up" ? "-top-[7.5px] border-l border-t border-line2" : "-bottom-[7.5px] border-b border-r border-line2",
+                className,
+            )}
+        />
+    )
+}
+
 /** Picks a CSS transform-origin so the entrance scale grows out of the trigger side. */
 function transformOriginFor(placement: AriaPopoverProps["placement"]): string {
     const [main = "bottom", cross] = String(placement ?? "bottom").split(" ")
@@ -53,11 +74,11 @@ export function Popover({
             <AriaPopover
                 placement={placement}
                 offset={offset}
-                className="z-50 outline-none"
+                className="outline-none"
             >
                 <Dialog className="outline-none">
                     <motion.div
-                        initial={{ opacity: 0, scale: 0.95 }}
+                        initial={{ opacity: 0, scale: 0.96 }}
                         animate={{ opacity: 1, scale: 1 }}
                         transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
                         style={{ transformOrigin: transformOriginFor(placement) }}

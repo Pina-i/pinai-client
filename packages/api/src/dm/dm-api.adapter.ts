@@ -53,6 +53,7 @@ export class DmApiAdapter implements IDmPort {
         replyToId?: string,
         attachmentIds?: string[],
         conversationId?: string,
+        clientId?: string,
     ): Promise<DirectMessage> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/dm`
         const json: Record<string, unknown> = {
@@ -62,6 +63,7 @@ export class DmApiAdapter implements IDmPort {
         if (replyToId) json.reply_to_id = replyToId
         if (attachmentIds && attachmentIds.length > 0) json.attachment_ids = attachmentIds
         if (conversationId) json.conversation_id = conversationId
+        if (clientId) json.client_id = clientId
         try {
             return await ky.post(url, {
                 headers: { Authorization: `Bearer ${accessToken}` },

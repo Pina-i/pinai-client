@@ -27,7 +27,7 @@ export function SignInForm({ idpUrl, params }: { idpUrl: string; params: OidcPar
         <form
             action={`${idpUrl}/login`}
             method="POST"
-            className="space-y-4"
+            className="flex flex-col gap-3.5"
             onSubmit={() => setSubmitting(true)}
         >
             <HiddenOidcFields params={params} />
@@ -36,7 +36,7 @@ export function SignInForm({ idpUrl, params }: { idpUrl: string; params: OidcPar
                 type="email"
                 label="Email"
                 autoComplete="email"
-                icon={<Mail size={16} />}
+                icon={<Mail size={15} />}
                 isRequired
             />
             <TextField
@@ -44,7 +44,7 @@ export function SignInForm({ idpUrl, params }: { idpUrl: string; params: OidcPar
                 type="password"
                 label="Password"
                 autoComplete="current-password"
-                icon={<LockKeyhole size={16} />}
+                icon={<LockKeyhole size={15} />}
                 isRequired
             />
             <Button type="submit" isDisabled={submitting} aria-label="Sign in">

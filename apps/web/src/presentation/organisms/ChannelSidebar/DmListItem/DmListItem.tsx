@@ -9,6 +9,8 @@ import { presenceToUserStatus, userStatusLabel } from "@pinai/domain/models/pres
 import { useAppStore } from "@/store/store"
 import type { DmConversation } from "@/lib/types"
 import { lastMessagePreview } from "../_helpers/last-message-preview.helper"
+import { UnreadPill } from "../UnreadPill/UnreadPill"
+import { sidebarRowClass, sidebarRowHotClass, sidebarRowOnClass } from "../sidebar-row.styles"
 
 export function DmListItem({ dm }: { dm: DmConversation }) {
     const navigate = useNavigate()
@@ -20,43 +22,43 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
     const messages = useAppStore((s) => s.dmMessages[dm.id])
     const myAddress = useAppStore((s) => s.user?.address)
 
+    const preview = dm.kind === "dm" ? lastMessagePreview(messages, myAddress) : null
+    // A message preview is prose; a member count or presence label is a machine fact.
     const subline =
         dm.kind === "group"
             ? `${dm.memberCount} ${dm.memberCount === 1 ? "member" : "members"}`
-            : (lastMessagePreview(messages, myAddress) ?? userStatusLabel(presenceToUserStatus(presence)))
+            : (preview ?? userStatusLabel(presenceToUserStatus(presence)).toLowerCase())
+    const sublineIsFact = preview == null
 
     return (
         <ContextMenu
             trigger={(isOpen) => (
                 <Button
                     onPress={() => navigate({ to: "/dm/$name", params: { name: dm.id } })}
-                    className={cn(
-                        "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 outline-none transition-colors cursor-pointer",
-                        isActive && "bg-chat/15 text-foreground",
-                        !isActive && (isOpen ? "bg-accent/60" : "hover:bg-accent/50"),
-                    )}
+                    className={cn(sidebarRowClass, isActive ? sidebarRowOnClass : isOpen && sidebarRowHotClass)}
                 >
                     <Avatar
                         initials={dm.avatar}
                         imageUrl={avatarUrl}
-                        color={dm.color}
+                        seed={dm.address}
+                        tone={dm.kind === "group" ? "sec" : undefined}
                         size="sm"
                         status={dm.kind === "dm" ? presenceToUserStatus(presence) : undefined}
-                        statusBorderClass="border-card"
                     />
-                    <div className="min-w-0 flex-1 text-left">
-                        <p className="title truncate text-[13.5px] font-medium text-foreground">{dm.displayName}</p>
+                    <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="title truncate text-[14px] font-semibold text-foreground">{dm.displayName}</span>
                         {subline && (
-                            <p className="truncate font-mono text-[10.5px] tracking-[0.04em] text-muted-foreground">
+                            <span
+                                className={cn(
+                                    "truncate text-muted-foreground",
+                                    sublineIsFact ? "font-mono text-[10px] tracking-[0.03em]" : "text-[11px]",
+                                )}
+                            >
                                 {subline}
-                            </p>
+                            </span>
                         )}
-                    </div>
-                    {unread > 0 && !isActive && (
-                        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-chat px-1.5 font-mono text-[10px] font-bold text-primary-foreground">
-                            {unread}
-                        </span>
-                    )}
+                    </span>
+                    {unread > 0 && !isActive && <UnreadPill count={unread} />}
                 </Button>
             )}
         >

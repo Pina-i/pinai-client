@@ -24,6 +24,10 @@ export interface IDmPort {
      * `conversations.id` to a UUID it already used as the MLS
      * `group_id`. Required on first message; safely omitted afterwards
      * (server reuses the existing conversation).
+     *
+     * `clientId` is echoed on the sender's own `new_dm`, so the optimistic
+     * message is reconciled from the echo — which the server always sends
+     * before any `dm_delivery_failed` for the same message.
      */
     sendMessage(
         idpUrl: string,
@@ -33,6 +37,7 @@ export interface IDmPort {
         replyToId?: string,
         attachmentIds?: string[],
         conversationId?: string,
+        clientId?: string,
     ): Promise<DirectMessage>
     /**
      * PATCH /api/dm/{messageId}/edit — replace a message's MLS

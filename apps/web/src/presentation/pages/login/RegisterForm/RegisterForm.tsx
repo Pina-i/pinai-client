@@ -27,7 +27,7 @@ export function RegisterForm({ idpUrl, params }: { idpUrl: string; params: OidcP
         <form
             action={`${idpUrl}/register-and-login`}
             method="POST"
-            className="space-y-4"
+            className="flex flex-col gap-3.5"
             onSubmit={() => setSubmitting(true)}
         >
             <HiddenOidcFields params={params} />
@@ -35,7 +35,7 @@ export function RegisterForm({ idpUrl, params }: { idpUrl: string; params: OidcP
                 name="username"
                 label="Username"
                 autoComplete="username"
-                icon={<User size={16} />}
+                icon={<User size={15} />}
                 isRequired
             />
             <TextField
@@ -43,7 +43,7 @@ export function RegisterForm({ idpUrl, params }: { idpUrl: string; params: OidcP
                 type="email"
                 label="Email"
                 autoComplete="email"
-                icon={<Mail size={16} />}
+                icon={<Mail size={15} />}
                 isRequired
             />
             <TextField
@@ -51,7 +51,7 @@ export function RegisterForm({ idpUrl, params }: { idpUrl: string; params: OidcP
                 type="password"
                 label="Password"
                 autoComplete="new-password"
-                icon={<LockKeyhole size={16} />}
+                icon={<LockKeyhole size={15} />}
                 isRequired
             />
             <Button type="submit" isDisabled={submitting} aria-label="Create account">

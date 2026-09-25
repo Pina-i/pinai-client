@@ -35,6 +35,32 @@ Before creating a new reusable component, check if a similar one already exists 
 - Use Shadcn theme tokens architecture for component styling.
 - Create custom declarative props to not coupling the reusable components to specific UI libraries (e.g. React Aria).
 
+## Layering (z-index)
+
+The film grain covers everything, overlays and the splash included. It is one element for the whole document, static in `index.html`, so no page renders it (`Backdrop` is the ambient wash only). The scale lives in `index.css`:
+
+| Token | Value | For |
+|---|---|---|
+| `--z-overlay` | 100000 | Popovers, menus, dropdowns, tooltips, modals |
+| `--z-splash` | 100005 | The splash screen, over the app and its overlays |
+| `--z-grain` | 100010 | The grain |
+| `--z-above-grain` | 100011–100019 | The rare element that must stay clean of the grain (toasts) |
+
+- `--z-overlay` is React Aria's own value: it stamps `zIndex: 100000` inline on every popover and tooltip. Don't give those a z-index class — it would lose to the inline style anyway. Only overlays React Aria doesn't position (`ModalOverlay`, a hand-rolled fixed layer) take `z-(--z-overlay)`.
+- Stacking inside a panel stays local and small (`z-[1]`…`z-40`).
+- When upgrading `react-aria`, check that `useOverlayPosition` still uses 100000.
+
+## Splash screen
+
+A full-page loading state doesn't draw a loader: it holds the splash. A loader inside a panel renders `<RiseLoader title? host? carryOver? />` (atoms), the same loader the splash shows.
+
+- The splash is static markup in `index.html`, outside React, so it is the first paint of every page load: `<RiseLoader />` alone for the app, or inside `<AuthShell>` for the pages that open on one (`/`, the IdP's `/login?client_id`, `/verify-email`, `/login/totp`), so their loader sits where the page's panel will be. `test/rise-loader.spec.ts` fails if either copy drifts from the components; regenerate it from `renderToStaticMarkup` when `AuthShell` changes.
+- Its loop carries across page loads (`pn-splash-t0` in `sessionStorage`): through the sign-in redirect, and from a `<RiseLoader carryOver />` shown right before one (the landing's Continue), whose title it takes over too.
+- `index.html` preloads the faces it paints first, so a page load's first frame doesn't draw in a fallback face.
+- `main.tsx` holds it until the router has rendered the first location. A screen still loading then holds it too, with `useHoldSplashScreen(isLoading)`: `CallbackPage` while the code is exchanged, the `_authenticated` gate while it probes. The last release fades it out (`_libs/splash-screen.ts`).
+- Holds hand over within one commit, so going from one loading screen to the next never uncovers the page.
+- After boot, a hold longer than 150 ms brings the splash back, for at least 600 ms. `reshow: "never"` only extends a splash that is up, for work that also runs long after boot (the deferred message list).
+
 ## ViewModel pattern
 
 When a component has non-trivial logic (state management, data transformation, side effects, computed values), extract it into a dedicated `ComponentName.viewmodel.ts` file alongside the component.

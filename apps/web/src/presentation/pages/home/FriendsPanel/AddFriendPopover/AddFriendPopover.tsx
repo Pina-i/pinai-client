@@ -1,8 +1,9 @@
 import { useState } from "react"
-import { AtSign, Check, Send } from "lucide-react"
+import { AtSign, Check, Plus, Send } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/presentation/atoms/Button/Button"
-import { Popover } from "@/presentation/molecules/Popover/Popover"
+import { Popover, PopoverCaret } from "@/presentation/molecules/Popover/Popover"
+import { popoverSurface } from "@/presentation/molecules/Popover/popover-surface"
 import { cn } from "@/presentation/_libs/utils"
 
 interface AddFriendPopoverProps {
@@ -48,39 +49,31 @@ export function AddFriendPopover({ userAddress, onSendFriendRequest }: AddFriend
             trigger={
                 <Button
                     variant="primary"
-                    className="w-auto rounded-sm py-2 px-4 text-[12.5px] tracking-normal shadow-none aria-expanded:shadow-[0_0_0_3px_color-mix(in_oklab,var(--primary)_22%,transparent)]"
+                    size="inline"
+                    className="flex-none aria-expanded:shadow-[0_0_0_3px_color-mix(in_oklab,var(--action)_25%,transparent)]"
                 >
-                    + Add Friend
+                    <Plus className="h-[15px] w-[15px]" />
+                    Add friend
                 </Button>
             }
-            className="relative w-[380px] rounded-[var(--radius-lg)] border border-border-strong bg-popover px-4 pb-3.5 pt-4 shadow-[0_24px_60px_-16px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.02)]"
+            className={cn(popoverSurface, "relative w-[380px] px-4 pb-3.5 pt-4")}
         >
-            {/* Caret pointing up to the trigger */}
-            <div className="pointer-events-none absolute -top-[7px] right-6 h-[14px] w-[14px] rotate-45 border-t border-l border-border-strong bg-popover" />
+            <PopoverCaret side="up" className="right-[58px]" />
 
-            {/* Header */}
-            <div className="mb-2.5 flex items-baseline justify-between">
-                <h3 className="title text-base font-medium text-foreground">Add a friend</h3>
-                <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                    by address
-                </span>
+            <div className="mb-2.5 flex items-baseline justify-between gap-2.5">
+                <h3 className="title text-[17px] font-normal tracking-[-0.005em] text-foreground">Add a friend</h3>
+                <span className="eye">by address</span>
             </div>
 
-            {/* Address input */}
             <div
                 className={cn(
-                    "flex h-10 items-center gap-2.5 rounded-[var(--radius)] border bg-input px-3 transition-all",
+                    "flex h-[42px] items-center gap-2.5 rounded-[12px] border px-3.5 transition-[border-color,box-shadow] duration-150",
                     looksLikeAddress
-                        ? "border-chat shadow-[0_0_0_3px_color-mix(in_oklab,var(--chat)_16%,transparent)]"
-                        : "border-border",
+                        ? "border-acc bg-surf2 text-acc shadow-[0_0_0_3px_var(--accsoft)]"
+                        : "border-line2 bg-surf2 text-muted-foreground",
                 )}
             >
-                <AtSign
-                    className={cn(
-                        "h-4 w-4 shrink-0",
-                        looksLikeAddress ? "text-chat" : "text-muted-foreground",
-                    )}
-                />
+                <AtSign className="h-4 w-4 shrink-0" />
                 <input
                     autoFocus
                     value={friendInput}
@@ -95,53 +88,45 @@ export function AddFriendPopover({ userAddress, onSendFriendRequest }: AddFriend
                         if (e.key === "Enter") sendFriendRequest()
                     }}
                     placeholder="alice@idp.example.com"
-                    className="min-w-0 flex-1 bg-transparent font-mono text-[13px] text-foreground placeholder:text-muted-foreground outline-none"
+                    className="min-w-0 flex-1 bg-transparent font-mono text-[12.5px] text-foreground placeholder:text-muted-foreground outline-none"
                 />
-                {looksLikeAddress && <Check className="h-4 w-4 shrink-0 text-chat" />}
+                {looksLikeAddress && <Check className="h-4 w-4 shrink-0" />}
             </div>
 
-            {/* Status / resolution caption */}
             {requestStatus === "sent" ? (
-                <p className="mt-1.5 font-mono text-[10.5px] text-success">✓ Friend request sent</p>
+                <p className="mt-1.5 font-mono text-[10.5px] text-on">✓ Friend request sent</p>
             ) : requestStatus === "error" ? (
-                <p className="mt-1.5 font-mono text-[10.5px] text-destructive">{requestError}</p>
+                <p className="mt-1.5 font-mono text-[10.5px] text-dnd">{requestError}</p>
             ) : looksLikeAddress ? (
-                <p className="mt-1.5 font-mono text-[10.5px] text-success">
-                    ✓ resolved · {resolvedHost}
-                </p>
+                <p className="mt-1.5 font-mono text-[10.5px] text-on">✓ resolved · {resolvedHost}</p>
             ) : null}
 
-            {/* Send button */}
             <Button
                 onPress={sendFriendRequest}
                 isDisabled={!friendInput.trim() || requestStatus === "sending"}
-                className="mt-3 gap-2 py-2.5 px-3.5 text-[13px] tracking-normal shadow-none"
+                className="mt-3 px-3.5 py-2.5 text-[13px]"
             >
                 {requestStatus === "sending" ? "Sending…" : "Send request"}
                 <Send className="h-3.5 w-3.5" />
             </Button>
 
-            {/* Divider */}
-            <div className="my-3.5 flex items-center gap-2.5 text-muted-foreground">
-                <div className="h-px flex-1 bg-border" />
-                <span className="font-mono text-[10.5px] uppercase tracking-[0.12em]">
-                    or share yours
-                </span>
-                <div className="h-px flex-1 bg-border" />
+            <div className="my-3.5 flex items-center gap-2.5">
+                <i className="h-px flex-1 bg-line2" />
+                <span className="eye">or share yours</span>
+                <i className="h-px flex-1 bg-line2" />
             </div>
 
-            {/* Your handle chip */}
-            <div className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-dashed border-[color-mix(in_oklab,var(--chat)_35%,var(--border))] bg-[color-mix(in_oklab,var(--chat)_8%,var(--card))] px-2.5 py-2">
+            <div className="flex items-center gap-2 rounded-[12px] border border-dashed border-[color-mix(in_oklab,var(--acc)_40%,var(--line2))] bg-[color-mix(in_oklab,var(--acc)_8%,var(--surf))] py-2 pl-3 pr-2">
                 <span className="min-w-0 flex-1 truncate font-mono text-[11px] font-medium text-foreground">
                     {userAddress}
                 </span>
-                <Button
-                    variant="primary"
-                    onPress={copyAddress}
-                    className="w-auto rounded-[5px] border border-chat bg-transparent px-2.5 py-1 text-[10.5px] font-normal tracking-normal text-chat shadow-none hover:bg-chat/10 hover:opacity-100 pressed:opacity-100"
+                <button
+                    type="button"
+                    onClick={copyAddress}
+                    className="shrink-0 cursor-pointer rounded-full border border-acc bg-transparent px-[11px] py-1 text-[11px] text-acc transition-colors duration-150 hover:bg-acc-soft"
                 >
                     {copied ? "Copied" : "Copy"}
-                </Button>
+                </button>
             </div>
         </Popover>
     )

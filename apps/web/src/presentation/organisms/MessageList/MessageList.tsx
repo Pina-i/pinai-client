@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type RefObject } from "react"
+import { memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type RefObject } from "react"
 import {
     ListBox,
     ListBoxItem,
@@ -10,7 +10,9 @@ import { ReactionPickerContext } from "./MessageList.context"
 import { formatDateDividerLabel } from "@/presentation/molecules/DateDivider/DateDivider.helper"
 import { EmojiPickerPopover } from "@/presentation/molecules/EmojiPickerPopover/EmojiPickerPopover"
 import type { Message } from "@/lib/types"
+import { cn } from "@/presentation/_libs/utils"
 import { MessageItem } from "../MessageItem/MessageItem"
+import { useStickToBottom } from "./MessageList.scroll"
 
 /** Imperative scroll surface — page calls `scrollToBottom()` after a local send. */
 export interface MessageListHandle {
@@ -24,7 +26,7 @@ interface MessageListProps {
     isGroup: boolean
     onReply: (messageId: string) => void
     onRetry: (messageId: string) => void
-    hasPendingIntent: (messageId: string) => boolean
+    canResend: (message: Message) => boolean
     handleRef?: RefObject<MessageListHandle | null>
 }
 
@@ -32,15 +34,13 @@ interface MessageListProps {
 const SEQUENCE_GAP_MS = 5 * 60 * 1000
 
 /**
- * Average row height — virtualizer uses this for scrollbar math before
- * measuring actual rows. 60 px is roughly: 13.5 px line-height × 1.55 +
- * sequence gap. Short text rows sit near this; first-in-sequence or
- * attachment rows are taller, and the virtualizer re-measures once they
- * paint.
+ * Average row height for the virtualizer's scrollbar math before rows are
+ * measured: a header row is ~62px (8px padding each side + name + one line),
+ * a continuation ~38px. Rows carry their own padding, so the list adds none.
  */
-const ESTIMATED_ROW_SIZE = 60
-const LIST_PADDING = 28
-const LIST_GAP = 2
+const ESTIMATED_ROW_SIZE = 56
+const LIST_PADDING = 2
+const LIST_GAP = 0
 
 type RowItem =
     | { kind: "divider"; id: string; label: string }
@@ -50,6 +50,38 @@ type RowItem =
           message: Message
           first: boolean
       }
+
+type DividerRow = Extract<RowItem, { kind: "divider" }>
+type MessageRow = Extract<RowItem, { kind: "message" }>
+
+// React Aria caches each rendered row by the identity of its item object, so
+// rows are reused per message: appending one message then re-renders one row,
+// not the whole list. Messages are replaced, never mutated, so a WeakMap on the
+// message is exact.
+const messageRows = new WeakMap<Message, [rest: MessageRow, first: MessageRow]>()
+const dividerRows = new WeakMap<Message, DividerRow>()
+
+function messageRow(message: Message, first: boolean): MessageRow {
+    let rows = messageRows.get(message)
+    if (!rows) {
+        rows = [
+            { kind: "message", id: message.id, message, first: false },
+            { kind: "message", id: message.id, message, first: true },
+        ]
+        messageRows.set(message, rows)
+    }
+    return rows[first ? 1 : 0]
+}
+
+// Keyed by the message the divider precedes; the label check covers "Today"
+// turning into "Yesterday" at midnight.
+function dividerRow(message: Message, dayKey: string, label: string): DividerRow {
+    const cached = dividerRows.get(message)
+    if (cached?.label === label) return cached
+    const row: DividerRow = { kind: "divider", id: `divider-${dayKey}-${message.id}`, label }
+    dividerRows.set(message, row)
+    return row
+}
 
 interface ReactionPickerState {
     /** Stable id of the message that opened the picker. Threaded down so the
@@ -73,18 +105,18 @@ interface ReactionPickerState {
  * threaded through never updates. Context triggers every consumer to
  * re-render, sidestepping the cache.
  */
-export function MessageList({
+// Memoised: the page also re-renders when the conversation object refreshes, which leaves every prop here unchanged.
+export const MessageList = memo(function MessageList({
     messages,
     conversationKey,
     recipientAddress,
     isGroup,
     onReply,
     onRetry,
-    hasPendingIntent,
+    canResend,
     handleRef,
 }: MessageListProps) {
     const scrollRef = useRef<HTMLDivElement | null>(null)
-    const initialScrolledForKeyRef = useRef<string | null>(null)
 
     // Reaction picker hoisted to this level so the inner Virtualizer +
     // ListBox of the EmojiPicker isn't nested inside the outer one (the
@@ -136,7 +168,7 @@ export function MessageList({
                 // Date dividers carry the message id of the row they
                 // precede so the React key stays stable when older
                 // history loads in above an existing divider.
-                acc.push({ kind: "divider", id: `divider-${dayKey}-${msg.id}`, label: formatDateDividerLabel(date) })
+                acc.push(dividerRow(msg, dayKey, formatDateDividerLabel(date)))
                 lastDayKey = dayKey
                 prevAuthorAddress = undefined
                 prevCreatedAt = undefined
@@ -144,7 +176,7 @@ export function MessageList({
             const sameAuthor = prevAuthorAddress != null && prevAuthorAddress === msg.authorAddress
             const within = prevCreatedAt != null && date.getTime() - prevCreatedAt <= SEQUENCE_GAP_MS
             const first = !sameAuthor || !within
-            acc.push({ kind: "message", id: msg.id, message: msg, first })
+            acc.push(messageRow(msg, first))
             prevAuthorAddress = msg.authorAddress
             prevCreatedAt = date.getTime()
         }
@@ -163,30 +195,7 @@ export function MessageList({
         [],
     )
 
-    // On first paint of a new conversation (or first non-empty render),
-    // anchor the scroll at the bottom — Virtualizer/ListLayout position
-    // items from the top by default, but chat is bottom-anchored. We
-    // poll a few rAFs because variable-height measurement settles over
-    // 1–2 frames.
-    useEffect(() => {
-        if (items.length === 0) return
-        if (initialScrolledForKeyRef.current === conversationKey) return
-        initialScrolledForKeyRef.current = conversationKey
-        let cancelled = false
-        let frames = 0
-        const stick = () => {
-            if (cancelled) return
-            const el = scrollRef.current
-            if (!el) return
-            el.scrollTop = el.scrollHeight
-            frames += 1
-            if (frames < 3) requestAnimationFrame(stick)
-        }
-        requestAnimationFrame(stick)
-        return () => {
-            cancelled = true
-        }
-    }, [conversationKey, items.length])
+    useStickToBottom(scrollRef, conversationKey, items.length)
 
     // Close the reaction picker when the user scrolls — the trigger
     // button can be virtualized-away mid-open and a stale ref would
@@ -221,14 +230,16 @@ export function MessageList({
                     aria-label="Messages"
                     selectionMode="none"
                     items={items}
-                    className="flex-1 overflow-auto outline-none"
+                    // Everything the row renderer closes over: a change re-renders the rows, nothing else does.
+                    dependencies={[conversationKey, recipientAddress, isGroup, onReply, onRetry, canResend, openReactionPicker]}
+                    className="min-h-0 flex-1 overflow-auto outline-none"
                     style={{ display: "block" }}
                 >
                     {(item) => (
                         <ListBoxItem
                             id={item.id}
                             textValue={item.kind === "message" ? item.message.content : item.label}
-                            className="outline-none"
+                            className={cn("px-1.5 outline-none", item.kind === "message" && item.first && "pt-2")}
                         >
                             {item.kind === "divider" ? (
                                 <DateDivider label={item.label} />
@@ -241,7 +252,7 @@ export function MessageList({
                                     first={item.first}
                                     onReply={onReply}
                                     onRetry={onRetry}
-                                    hasPendingIntent={hasPendingIntent}
+                                    canResend={canResend}
                                     onOpenReactionPicker={openReactionPicker}
                                 />
                             )}
@@ -282,4 +293,4 @@ export function MessageList({
             />
         </ReactionPickerContext.Provider>
     )
-}
+})

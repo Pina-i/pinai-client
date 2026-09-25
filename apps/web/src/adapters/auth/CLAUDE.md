@@ -24,7 +24,8 @@ and it is the list a React Native app has to reimplement for auth.
 
 ### auth-session-browser.adapter.ts
 - `BrowserAuthSessionStore` — `IAuthSessionStore` over `sessionStorage`,
-  the only file in `src/` that touches it. `sessionStorage` not
+  the only auth code that touches it (the splash screen keeps its own
+  loop state there, in `presentation/_libs/splash-screen.ts`). `sessionStorage` not
   `localStorage`: the PKCE verifier is single-use and must not outlive
   the tab. No access token ever goes here.
 

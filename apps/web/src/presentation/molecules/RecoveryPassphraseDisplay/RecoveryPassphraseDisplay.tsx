@@ -1,3 +1,4 @@
+import { LockKeyhole } from "lucide-react"
 import { cn } from "@/presentation/_libs/utils"
 
 interface RecoveryPassphraseDisplayProps {
@@ -14,80 +15,37 @@ export function RecoveryPassphraseDisplay({
     badgeTone = "success",
 }: RecoveryPassphraseDisplayProps) {
     return (
-        <div
-            className={cn(
-                // py: 20 / px: 22 in the prototype
-                "rounded-[var(--radius)] border border-border-strong bg-card px-[22px] py-5",
-                "shadow-[0_12px_30px_-10px_rgba(0,0,0,0.4)]",
-            )}
-        >
-            {/* Header row */}
+        <div className="rounded-[18px] border border-[color-mix(in_oklab,var(--acc)_28%,var(--line2))] bg-[linear-gradient(135deg,color-mix(in_oklab,var(--acc)_10%,var(--surf)),var(--surf))] px-5 pb-4 pt-[18px] backdrop-blur-[14px]">
             <div className="mb-3.5 flex items-center justify-between">
-                <span className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground">
-                    Passphrase · {words.length} words
-                </span>
+                <span className="fact">Passphrase · {words.length} words</span>
                 <span
                     className={cn(
-                        // padding 1.5px 7px in the prototype
-                        "rounded-[4px] px-[7px] py-[1.5px]",
-                        "font-mono text-[9.5px] font-semibold uppercase tracking-[0.08em]",
+                        "rounded-full px-2 py-[3px] font-mono text-[8.5px] font-medium uppercase tracking-[0.1em]",
                         badgeTone === "success"
-                            ? "bg-[color-mix(in_oklab,var(--success)_22%,transparent)] text-success"
-                            : "bg-muted text-muted-foreground",
+                            ? "bg-[color-mix(in_oklab,var(--on)_18%,transparent)] text-on"
+                            : "bg-surf3 text-muted-foreground",
                     )}
                 >
                     {badgeLabel}
                 </span>
             </div>
 
-            {/* 3-col word grid */}
-            <div className="grid grid-cols-3 gap-x-[10px] gap-y-2">
+            <div className="grid grid-cols-3 gap-1.5">
                 {words.map((word, i) => (
                     <div
                         key={`${i}-${word}`}
-                        className={cn(
-                            // padding 8px 10px in the prototype
-                            "flex items-center gap-[9px] rounded-[7px] border border-border bg-muted px-[10px] py-2",
-                        )}
+                        className="flex min-w-0 items-center gap-2 rounded-[7px] border border-line bg-background px-2.5 py-2"
                     >
-                        <span
-                            className={cn(
-                                "w-[18px] shrink-0 text-right",
-                                "font-mono text-[10px] tracking-[0.06em] text-muted-foreground",
-                            )}
-                        >
+                        <span className="w-4 shrink-0 text-right font-mono text-[8.5px] tracking-[0.05em] text-muted-foreground">
                             {String(i + 1).padStart(2, "0")}
                         </span>
-                        <span className="font-mono text-[13px] font-medium text-foreground">
-                            {word}
-                        </span>
+                        <span className="truncate font-mono text-[12px] font-medium text-foreground">{word}</span>
                     </div>
                 ))}
             </div>
 
-            {/* Reassurance footer */}
-            <div
-                className={cn(
-                    // 10px 12px in the prototype
-                    "mt-3.5 flex items-center gap-[9px] rounded-[8px] bg-muted px-3 py-2.5",
-                    "text-[11.5px] text-muted-foreground",
-                )}
-            >
-                <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden
-                    className="shrink-0"
-                >
-                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
+            <div className="mt-3.5 flex items-center gap-2 rounded-[10px] border border-line bg-surf2 px-2.5 py-2 text-[11px] leading-[1.4] text-muted-foreground">
+                <LockKeyhole className="h-3 w-3 shrink-0 text-acc" />
                 <span>Made here on your device. We never see it.</span>
             </div>
         </div>

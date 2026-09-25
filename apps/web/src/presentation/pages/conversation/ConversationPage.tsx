@@ -3,9 +3,10 @@ import { PageTransition } from "@/presentation/atoms/page-transition/page-transi
 import { DropOverlay } from "@/presentation/molecules/DropOverlay/DropOverlay"
 import { MessageInput } from "@/presentation/molecules/MessageInput/MessageInput"
 import type { MessageInputHandle } from "@/presentation/molecules/MessageInput/MessageInput.viewmodel"
-import { TypingIndicator } from "@/presentation/molecules/TypingIndicator/TypingIndicator"
 import { MessageList } from "@/presentation/organisms/MessageList/MessageList"
+import { useHoldSplashScreen } from "@/presentation/hooks/use-hold-splash-screen"
 import type { Message } from "@/lib/types"
+import { ConversationTypingIndicator } from "./ConversationTypingIndicator/ConversationTypingIndicator"
 import { useConversationPageViewModel } from "./ConversationPage.viewmodel"
 
 interface ConversationPageProps {
@@ -31,6 +32,8 @@ export function ConversationPage({ name }: ConversationPageProps) {
     // message list has rendered. The deferred render then re-runs in
     // the background with the real cached messages.
     const deferredMessages = useDeferredValue(vm.messages, EMPTY_MESSAGES)
+    // After a hard refresh the page is not loaded until that background render lands.
+    useHoldSplashScreen(deferredMessages !== vm.messages, { reshow: "never" })
 
     const messageInputRef = useRef<MessageInputHandle | null>(null)
 
@@ -72,9 +75,9 @@ export function ConversationPage({ name }: ConversationPageProps) {
     if (!vm.user) return null
 
     return (
-        <PageTransition className="flex min-w-0 flex-1">
+        <PageTransition className="flex min-h-0 min-w-0 flex-1">
             <div
-                className="relative flex min-w-0 flex-1 flex-col"
+                className="relative flex min-h-0 min-w-0 flex-1 flex-col"
                 onDragEnter={handleDragEnter}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
@@ -87,14 +90,10 @@ export function ConversationPage({ name }: ConversationPageProps) {
                     isGroup={vm.isGroup}
                     onReply={vm.handleReply}
                     onRetry={vm.retrySend}
-                    hasPendingIntent={vm.hasPendingIntent}
+                    canResend={vm.canResend}
                     handleRef={vm.messageListHandleRef}
                 />
-                {vm.typing && (
-                    <div className="px-7">
-                        <TypingIndicator name={vm.typing.name} />
-                    </div>
-                )}
+                <ConversationTypingIndicator conversationKey={vm.conversationKey} peerDisplayName={vm.typingPeerName} />
                 <MessageInput
                     placeholder={`Send a message to ${vm.displayName}`}
                     onSend={vm.sendMessage}

@@ -1,5 +1,5 @@
 import { useContext, useRef, useState } from "react"
-import { Check, Copy, Edit, Reply, SmilePlus, Trash2 } from "lucide-react"
+import { Check, Copy, Pencil, Reply, Smile, Trash2 } from "lucide-react"
 import { Button, Input, TextField, ToggleButton } from "react-aria-components"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
@@ -48,7 +48,7 @@ interface MessageItemProps {
     first: boolean
     onReply: (messageId: string) => void
     onRetry: (messageId: string) => void
-    hasPendingIntent: (messageId: string) => boolean
+    canResend: (message: Message) => boolean
     /** Open the page-level reaction picker anchored to the given button
      *  with the given reaction handler. Hosted by `MessageList` so the
      *  picker's own Virtualizer+ListBox isn't nested inside the
@@ -68,7 +68,7 @@ export function MessageItem({
     first,
     onReply,
     onRetry,
-    hasPendingIntent,
+    canResend,
     onOpenReactionPicker,
 }: MessageItemProps) {
     const { openMessageId } = useContext(ReactionPickerContext)
@@ -80,7 +80,7 @@ export function MessageItem({
         isGroup,
         onReply,
         onRetry,
-        hasPendingIntent,
+        canResend,
     )
 
     const avatarUrl = useAppStore((s) =>
@@ -100,23 +100,31 @@ export function MessageItem({
         isImageAttachment(attachments[0], message.attachmentKeys?.[attachments[0].id])
 
     return (
+        // A continuation of the same author's run sits tight under the previous
+        // row; the space between runs comes from the list item wrapping a first row.
         <div
             className={cn(
-                "group relative grid grid-cols-[40px_1fr] items-start gap-x-[14px]",
-                first ? "pt-[14px] pb-[2px]" : "pb-[2px]",
+                "group relative grid grid-cols-[38px_1fr] items-start gap-x-3.5 rounded-[14px] px-1.5 hover:bg-surf",
+                first ? "pt-2 pb-0.5" : "py-0.5",
             )}
         >
             {first ? (
-                <Avatar initials={message.avatar} imageUrl={avatarUrl} size="md" />
+                <Avatar
+                    initials={message.avatar}
+                    imageUrl={avatarUrl}
+                    size="md"
+                    seed={message.authorAddress ?? message.author}
+                    tone={vm.isOwn ? "neutral" : undefined}
+                />
             ) : (
                 <span aria-hidden />
             )}
 
             <div className="min-w-0">
                 {message.replyTo && (
-                    <div className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <div className="mb-1 flex items-center gap-1.5 text-[12px] text-muted-foreground">
                         <Reply className="h-3 w-3 shrink-0" />
-                        <span className="font-medium text-primary">
+                        <span className="title shrink-0 text-[13px] font-semibold text-acc">
                             {message.replyTo.author}
                         </span>
                         <span className="truncate">{message.replyTo.content}</span>
@@ -124,35 +132,34 @@ export function MessageItem({
                 )}
 
                 {first && (
-                    <div className="mb-[3px] flex items-baseline gap-2">
+                    <div className="flex items-baseline">
                         <span
                             className={cn(
-                                "title font-medium",
-                                vm.isOwn ? "text-chat" : "text-foreground",
+                                "title text-[15px] font-semibold",
+                                vm.isOwn ? "text-acc" : "text-foreground",
                             )}
-                            style={{ fontSize: 14.5 }}
                         >
                             {message.author}
                         </span>
-                        <span
-                            className="font-mono text-muted-foreground"
-                            style={{ fontSize: 10.5 }}
-                        >
+                        <span className="ml-[9px] font-mono text-[10px] text-muted-foreground">
                             {message.timestamp}
                         </span>
                         {vm.isOwn && (
-                            <MessageStatus
-                                status={message.status}
-                                statusAt={message.statusAt}
-                                canRetry={vm.canRetry}
-                                onRetry={vm.retrySend}
-                            />
+                            <span className="ml-2 self-center">
+                                <MessageStatus
+                                    status={message.status}
+                                    statusAt={message.statusAt}
+                                    showRetry={vm.showRetry}
+                                    canRetry={vm.canRetry}
+                                    onRetry={vm.retrySend}
+                                />
+                            </span>
                         )}
                     </div>
                 )}
 
                 {vm.isEditing ? (
-                    <div className="mt-1 flex gap-2">
+                    <div className="mt-1 flex items-center gap-2">
                         <TextField
                             value={vm.editInput}
                             onChange={vm.setEditInput}
@@ -164,39 +171,34 @@ export function MessageItem({
                                     if (e.key === "Enter") vm.commitEdit()
                                     if (e.key === "Escape") vm.cancelEdit()
                                 }}
-                                className="w-full border border-border bg-input px-2 py-1 text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+                                className="w-full rounded-[12px] border border-line bg-surf2 px-3 py-1.5 text-[14px] text-foreground outline-none transition-colors focus:border-acc"
                                 autoFocus
                             />
                         </TextField>
                         <Button
                             onPress={vm.commitEdit}
-                            className="text-xs text-primary outline-none cursor-pointer hover:underline"
+                            className="cursor-pointer rounded-full bg-action px-3 py-1.5 text-[11.5px] font-bold text-action-foreground outline-none hover:opacity-90"
                         >
-                            save
+                            Save
                         </Button>
                         <Button
                             onPress={vm.cancelEdit}
-                            className="text-xs text-muted-foreground outline-none cursor-pointer hover:underline"
+                            className="cursor-pointer rounded-full border border-line2 px-3 py-1.5 text-[11.5px] text-muted-foreground outline-none hover:bg-surf2 hover:text-foreground"
                         >
-                            cancel
+                            Cancel
                         </Button>
                     </div>
                 ) : (
                     message.content && (
-                        <p
-                            className="text-foreground"
-                            style={{ fontSize: 13.5, lineHeight: 1.55, textWrap: "pretty" }}
-                        >
+                        <p className={cn("text-[14px] leading-[1.58] text-foreground [text-wrap:pretty]", first && "mt-1")}>
                             {message.content}
                             {message.edited && (
-                                <span className="ml-1 text-xs text-muted-foreground">(edited)</span>
+                                <span className="ml-1 text-[11px] text-muted-foreground">(edited)</span>
                             )}
                         </p>
                     )
                 )}
 
-                {/* Attachments — single image gets the click-to-expand layout,
-                    everything else renders as a horizontal filmstrip. */}
                 {attachments.length > 0 && (
                     isLoneImage ? (
                         <SingleImageAttachment
@@ -213,9 +215,8 @@ export function MessageItem({
                     )
                 )}
 
-                {/* Reactions */}
                 {message.reactions && message.reactions.length > 0 && (
-                    <div className="mb-0.5 mt-1.5 flex flex-wrap gap-1.5">
+                    <div className="mt-2 flex flex-wrap gap-1.5">
                         {message.reactions.map((r) => (
                             <ToggleButton
                                 key={r.emoji}
@@ -223,10 +224,11 @@ export function MessageItem({
                                 onChange={() => vm.handleReaction(r.emoji)}
                                 aria-label={`React with ${r.emoji}`}
                                 className={cn(
-                                    "inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] text-muted-foreground outline-none transition-colors",
+                                    "inline-flex cursor-pointer items-center gap-[7px] rounded-full border px-[11px] py-[3px] text-[11.5px] outline-none transition-colors duration-150",
+                                    "focus-visible:ring-2 focus-visible:ring-ring",
                                     r.reacted
-                                        ? "border-chat/45 bg-[color-mix(in_oklab,var(--chat)_10%,var(--muted))]"
-                                        : "border-border bg-muted hover:border-border-strong",
+                                        ? "border-acc-line bg-acc-soft text-foreground"
+                                        : "border-transparent bg-surf2 text-muted-foreground hover:border-line2",
                                 )}
                             >
                                 <span>{legacyEmojiKeyMap[r.emoji] ?? r.emoji}</span>
@@ -237,25 +239,22 @@ export function MessageItem({
                 )}
             </div>
 
-            {/* Hover action bar — floating pill toolbar (variant A in
-                design/screens/message-actions.jsx). The reaction picker
-                itself is rendered up in `MessageList` so the inner
-                EmojiPicker's Virtualizer+ListBox isn't nested inside
-                the outer message-list collection. */}
+            {/* The reaction picker lives in `MessageList` so its ListBox isn't
+                nested in the message ListBox; while it's open the bar stays
+                shown, or the trigger's rect collapses and the popover anchors
+                to (0, 0). */}
             <div
                 className={cn(
-                    "absolute -top-3.5 right-3.5 z-[2] items-center gap-px rounded-full",
-                    "border border-border-strong bg-popover px-1 py-[3px]",
-                    "shadow-[0_10px_24px_oklch(0.05_0.005_60_/_0.45),0_2px_4px_oklch(0.05_0.005_60_/_0.4)]",
-                    // Pinned visible while this message's reaction
-                    // picker is open — otherwise `display:none` would
-                    // collapse the trigger button's bounding rect and
-                    // the popover would anchor to (0, 0).
+                    "absolute -top-3 right-3 z-[2] items-center gap-0.5 rounded-full",
+                    "border border-line2 bg-surf2 px-[5px] py-[3px] backdrop-blur-[10px]",
+                    "shadow-[0_8px_22px_-10px_rgba(0,0,0,0.6)]",
                     isReactionPickerOpen ? "flex" : "hidden group-hover:flex",
                 )}
             >
                 <IconButton
                     ref={reactionButtonRef}
+                    variant="ghost"
+                    isActive={isReactionPickerOpen}
                     onPress={() => {
                         if (reactionButtonRef.current) {
                             onOpenReactionPicker(
@@ -266,49 +265,37 @@ export function MessageItem({
                         }
                     }}
                     aria-label="Add reaction"
-                    className="h-7 w-7 rounded-[var(--radius-sm)] text-muted-foreground hover:bg-accent hover:text-foreground"
                 >
-                    <SmilePlus className="h-4 w-4" />
+                    <Smile className="h-4 w-4" />
                 </IconButton>
-                <IconButton
-                    onPress={vm.handleReply}
-                    aria-label="Reply"
-                    className="h-7 w-7 rounded-[var(--radius-sm)] text-muted-foreground hover:bg-accent hover:text-foreground"
-                >
+                <IconButton variant="ghost" onPress={vm.handleReply} aria-label="Reply">
                     <Reply className="h-4 w-4" />
                 </IconButton>
                 <IconButton
+                    variant="ghost"
                     onPress={() => {
                         navigator.clipboard.writeText(message.content)
                         setCopied(true)
                         setTimeout(() => setCopied(false), 1500)
                     }}
                     aria-label="Copy text"
-                    className="h-7 w-7 rounded-[var(--radius-sm)] text-muted-foreground hover:bg-accent hover:text-foreground"
+                    className={copied ? "text-on hover:text-on" : undefined}
                 >
-                    <span className={cn("transition-all duration-200", copied ? "scale-110 text-green-500" : "")}>
-                        {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    </span>
+                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 </IconButton>
                 {vm.isOwn && (
-                    <IconButton
-                        onPress={vm.startEdit}
-                        aria-label="Edit message"
-                        className="h-7 w-7 rounded-[var(--radius-sm)] text-muted-foreground hover:bg-accent hover:text-foreground"
-                    >
-                        <Edit className="h-4 w-4" />
+                    <IconButton variant="ghost" onPress={vm.startEdit} aria-label="Edit message">
+                        <Pencil className="h-4 w-4" />
                     </IconButton>
                 )}
                 {vm.isOwn && (
                     <>
-                        {/* Vertical separator before the destructive
-                            action — mirrors the design's `VSep` rhythm
-                            between primary and destructive groups. */}
-                        <div className="mx-px my-1 w-px self-stretch bg-border" />
+                        <i aria-hidden className="mx-0.5 my-1 w-px self-stretch bg-line2" />
                         <IconButton
+                            variant="ghost"
                             onPress={vm.handleDelete}
                             aria-label="Delete message"
-                            className="h-7 w-7 rounded-[var(--radius-sm)] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                            className="hover:text-dnd"
                         >
                             <Trash2 className="h-4 w-4" />
                         </IconButton>
@@ -316,17 +303,18 @@ export function MessageItem({
                 )}
             </div>
 
-            <ImageLightboxDialog
-                isOpen={!!lightboxAttachment}
-                onClose={() => setLightboxAttachment(null)}
-                attachment={lightboxAttachment}
-                attachmentKey={
-                    lightboxAttachment ? message.attachmentKeys?.[lightboxAttachment.id] : undefined
-                }
-                senderAddress={message.authorAddress}
-                senderDisplayName={message.author}
-                timeLabel={message.timestamp}
-            />
+            {/* Mounted only while open: one idle lightbox per row would subscribe every row to the avatar map. */}
+            {lightboxAttachment && (
+                <ImageLightboxDialog
+                    isOpen
+                    onClose={() => setLightboxAttachment(null)}
+                    attachment={lightboxAttachment}
+                    attachmentKey={message.attachmentKeys?.[lightboxAttachment.id]}
+                    senderAddress={message.authorAddress}
+                    senderDisplayName={message.author}
+                    timeLabel={message.timestamp}
+                />
+            )}
         </div>
     )
 }

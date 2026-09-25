@@ -3,6 +3,7 @@ import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { AvatarCropDialog } from "@/presentation/molecules/AvatarCropDialog/AvatarCropDialog"
 import { cn } from "@/presentation/_libs/utils"
+import { editorFrame, editorTitle, fieldLabel, pill } from "../editor-styles"
 import { PRONOUN_OPTIONS, useProfileEditorViewModel } from "./ProfileEditor.viewmodel"
 
 interface ProfileEditorProps {
@@ -10,12 +11,10 @@ interface ProfileEditorProps {
 }
 
 const inputClass = cn(
-    "h-9 w-full rounded-[var(--radius-sm)] border border-border bg-input px-3",
-    "text-[13px] text-foreground outline-none transition-colors",
-    "focus-visible:border-ring",
+    "h-9 w-full rounded-[12px] border border-line bg-surf2 px-3",
+    "font-sans text-[13px] text-foreground outline-none transition-colors duration-150",
+    "focus-visible:border-acc",
 )
-
-const fieldLabelClass = "mono-eyebrow mb-[5px] block text-muted-foreground"
 
 export function ProfileEditor({ user }: ProfileEditorProps) {
     // See VerifyEmailPage: a ref inside the viewmodel object taints every
@@ -24,16 +23,13 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
     const initials = vm.draft.displayName.slice(0, 2).toUpperCase() || "?"
 
     return (
-        <div className="flex flex-1 flex-col bg-card px-8 py-[30px]">
-            <p className="mono-eyebrow mb-[5px] tracking-[0.14em] text-muted-foreground">Editing · Profile</p>
-            <h2 className="title text-[24px] font-normal leading-tight tracking-[-0.01em] text-foreground">
-                The face you put forward.
-            </h2>
+        <div className={editorFrame}>
+            <p className="mono-eyebrow mb-[5px]">Editing · Profile</p>
+            <h2 className={editorTitle}>The face you put forward.</h2>
 
-            {/* Avatar upload row */}
-            <div className="mt-[22px] flex items-center gap-3.5">
-                <Avatar initials={initials} imageUrl={vm.avatarUrl} color="var(--chat)" size="lg" />
-                <div className="flex-1">
+            <div className="mt-[22px] flex flex-wrap items-center gap-3.5">
+                <Avatar initials={initials} imageUrl={vm.avatarUrl} tone="acc" size="lg" />
+                <div className="flex-[1_1_180px]">
                     <input
                         ref={fileInputRef}
                         type="file"
@@ -41,11 +37,11 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
                         onChange={vm.onFileChange}
                         className="hidden"
                     />
-                    <div className="flex items-center gap-2">
+                    <div className="flex gap-2">
                         <IconButton
                             isDisabled={vm.isAvatarBusy}
                             onPress={vm.onPickAvatarClick}
-                            className="rounded-[5px] border border-border-strong px-3 py-[5px] text-[11.5px] text-foreground hover:bg-accent/40"
+                            className={pill({ variant: "outline" })}
                         >
                             {vm.avatarUrl ? "Change avatar" : "Upload avatar"}
                         </IconButton>
@@ -53,7 +49,7 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
                             <IconButton
                                 isDisabled={vm.isAvatarBusy}
                                 onPress={vm.onRemoveAvatar}
-                                className="rounded-[5px] px-3 py-[5px] text-[11.5px] text-muted-foreground hover:text-foreground"
+                                className={pill({ variant: "bare" })}
                             >
                                 Remove
                             </IconButton>
@@ -70,10 +66,9 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
                 onSave={vm.onCropSave}
             />
 
-            {/* Fields */}
             <div className="mt-[18px] flex flex-col gap-3.5">
                 <div>
-                    <label className={fieldLabelClass}>Display name</label>
+                    <label className={fieldLabel}>Display name</label>
                     <input
                         className={inputClass}
                         value={vm.draft.displayName}
@@ -81,9 +76,9 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
                     />
                 </div>
                 <div>
-                    <label className={fieldLabelClass}>Pronouns</label>
+                    <label className={fieldLabel}>Pronouns</label>
                     <select
-                        className={cn(inputClass, "appearance-none cursor-pointer")}
+                        className={cn(inputClass, "cursor-pointer appearance-none")}
                         value={vm.draft.pronouns}
                         onChange={(e) => vm.setPronouns(e.target.value as "" | Pronouns)}
                     >
@@ -95,17 +90,17 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
                     </select>
                 </div>
                 <div>
-                    <label className={fieldLabelClass}>Bio</label>
+                    <label className={fieldLabel}>Bio</label>
                     <div
                         className={cn(
-                            "min-h-[72px] rounded-[var(--radius-sm)] border border-border bg-input p-[10px_12px]",
-                            "transition-colors focus-within:border-ring",
+                            "min-h-[72px] rounded-[12px] border border-line bg-surf2 px-3 py-2.5",
+                            "transition-colors duration-150 focus-within:border-acc",
                         )}
                     >
                         <textarea
                             className={cn(
-                                "w-full resize-none bg-transparent text-[13px] italic leading-[1.5] text-foreground outline-none",
-                                "font-serif placeholder:not-italic placeholder:text-muted-foreground/70",
+                                "title w-full resize-none bg-transparent text-[13px] italic leading-[1.5] text-foreground outline-none",
+                                "placeholder:not-italic placeholder:text-muted-foreground",
                             )}
                             rows={3}
                             placeholder="A few words about yourself…"
@@ -119,28 +114,22 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
                 </div>
             </div>
 
-            {/* Footer */}
-            <div className="flex-1" />
-            <div className="flex gap-2 border-t border-border pt-3.5">
+            <div className="mt-[22px] flex items-center gap-2 border-t border-line pt-3.5">
                 <IconButton
                     isDisabled={!vm.isDirty || vm.isSaving}
                     onPress={vm.reset}
-                    className="rounded-[5px] px-3 py-2 text-[12px] text-muted-foreground hover:text-foreground"
+                    className={pill({ variant: "bare" })}
                 >
                     Reset
                 </IconButton>
                 <span className="flex-1" />
-                <IconButton
-                    isDisabled={vm.isSaving}
-                    onPress={vm.reset}
-                    className="rounded-[5px] border border-border-strong px-3 py-2 text-[12px] text-foreground hover:bg-accent/40"
-                >
+                <IconButton isDisabled={vm.isSaving} onPress={vm.reset} className={pill({ variant: "cancel" })}>
                     Cancel
                 </IconButton>
                 <IconButton
                     isDisabled={!vm.isDirty || vm.isSaving}
                     onPress={vm.save}
-                    className="rounded-[5px] bg-chat px-4 py-2 text-[12px] font-semibold text-primary-foreground hover:opacity-90"
+                    className={pill({ variant: "save" })}
                 >
                     {vm.isSaving ? "Saving…" : "Save"}
                 </IconButton>

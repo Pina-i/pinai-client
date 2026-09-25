@@ -1,6 +1,7 @@
 import type { StateCreator } from "zustand"
 import type { Member } from "@/lib/types"
 import type { AppStore } from "../store"
+import { findConversation } from "@pinai/domain/models/dm"
 
 export interface UiSlice {
     view: "server" | "dms"
@@ -94,7 +95,7 @@ export const createUiSlice: StateCreator<AppStore, [["zustand/devtools", never]]
     setActiveDm: (dmId) => set({ activeDm: dmId }, false, "ui/setActiveDm"),
     openDmWith: (name) => {
         const { localDmConvos } = get()
-        const existing = localDmConvos.find((d) => d.address === name)
+        const existing = findConversation(localDmConvos, name)
         set({ view: "dms", activeDm: existing?.id ?? null }, false, "ui/openDmWith")
     },
 })

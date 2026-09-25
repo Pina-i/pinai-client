@@ -1,5 +1,7 @@
 import { useCallback, useImperativeHandle, useMemo, useRef, type RefObject } from "react"
 
+import { Check, LockKeyhole } from "lucide-react"
+
 import { cn } from "@/presentation/_libs/utils"
 import {
     RECOVERY_WORD_COUNT,
@@ -29,14 +31,8 @@ function statusFor(word: string): SlotStatus {
 }
 
 /**
- * 24-slot input for the "Recover history" onboarding view. Mirrors
- * the `WordSlot` design in `web-client/design/screens/security.jsx`:
- * mono-font slots, leading 2-digit index, per-word BIP-39 validation
- * (warning badge on unknown, check on ok).
- *
- * Paste support: when the user pastes whitespace-separated text into
- * any slot, the input fans it out across all slots (up to 24). This
- * matches the "Paste passphrase" CTA on the page — most password
+ * 24-slot recovery input with per-word BIP-39 validation. A whitespace-separated
+ * paste into any slot fans out across the following slots — most password
  * managers paste all 24 at once.
  */
 export function RecoveryPassphraseInput({
@@ -106,68 +102,40 @@ export function RecoveryPassphraseInput({
     )
 
     return (
-        <div
-            className={cn(
-                "rounded-[var(--radius)] border border-border-strong bg-card px-5 py-4",
-                "shadow-[0_12px_30px_-10px_rgba(0,0,0,0.4)]",
-            )}
-        >
+        <div className="rounded-[18px] border border-line bg-surf px-5 pb-4 pt-[18px] backdrop-blur-[14px]">
             <div className="mb-3.5 flex items-center justify-between">
-                <span className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground">
-                    Your passphrase · {RECOVERY_WORD_COUNT} words
-                </span>
+                <span className="fact">Your passphrase · {RECOVERY_WORD_COUNT} words</span>
                 <span
                     className={cn(
-                        "rounded-[4px] px-1.5 py-[1.5px] font-mono text-[9.5px] font-semibold uppercase tracking-[0.08em]",
+                        "rounded-full px-2 py-[3px] font-mono text-[8.5px] font-medium uppercase tracking-[0.1em]",
                         filledCount === RECOVERY_WORD_COUNT
-                            ? "bg-[color-mix(in_oklab,var(--success)_22%,transparent)] text-success"
-                            : "bg-muted text-muted-foreground",
+                            ? "bg-[color-mix(in_oklab,var(--on)_18%,transparent)] text-on"
+                            : "bg-surf3 text-muted-foreground",
                     )}
                 >
                     {filledCount} / {RECOVERY_WORD_COUNT}
                 </span>
             </div>
 
-            <div className="grid grid-cols-3 gap-x-2.5 gap-y-2">
-                {slots.map((word, i) => {
-                    const status = statusFor(word)
-                    return (
-                        <WordInputSlot
-                            key={i}
-                            index={i}
-                            value={word}
-                            status={status}
-                            disabled={disabled}
-                            inputRef={(el) => {
-                                inputRefs.current[i] = el
-                            }}
-                            onChange={(raw) => updateSlot(i, raw)}
-                            onPaste={(e) => handlePaste(e, i)}
-                        />
-                    )
-                })}
+            <div className="grid grid-cols-3 gap-1.5">
+                {slots.map((word, i) => (
+                    <WordInputSlot
+                        key={i}
+                        index={i}
+                        value={word}
+                        status={statusFor(word)}
+                        disabled={disabled}
+                        inputRef={(el) => {
+                            inputRefs.current[i] = el
+                        }}
+                        onChange={(raw) => updateSlot(i, raw)}
+                        onPaste={(e) => handlePaste(e, i)}
+                    />
+                ))}
             </div>
 
-            <div
-                className={cn(
-                    "mt-3.5 flex items-center gap-2 rounded-[8px] bg-muted px-3 py-2.5",
-                    "font-mono text-[11.5px] text-muted-foreground",
-                )}
-            >
-                <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden
-                >
-                    <rect x="4" y="11" width="16" height="10" rx="2" />
-                    <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-                </svg>
+            <div className="mt-3.5 flex items-center gap-2 rounded-[10px] border border-line bg-surf2 px-2.5 py-2 text-[11px] leading-[1.4] text-muted-foreground">
+                <LockKeyhole className="h-3 w-3 shrink-0 text-acc" />
                 <span>Words are checked here on this device. We never see them.</span>
             </div>
         </div>
@@ -193,34 +161,20 @@ function WordInputSlot({
     onChange,
     onPaste,
 }: WordInputSlotProps) {
-    const borderClass =
-        status === "unknown"
-            ? "border-warning"
-            : status === "ok"
-              ? "border-[color-mix(in_oklab,var(--chat)_30%,var(--border))]"
-              : "border-border focus-within:border-chat"
-    const bgClass =
-        status === "unknown"
-            ? "bg-[color-mix(in_oklab,var(--warning)_8%,var(--background))]"
-            : status === "ok"
-              ? "bg-[color-mix(in_oklab,var(--chat)_5%,var(--background))]"
-              : "bg-background"
     return (
         <div
             className={cn(
-                "relative flex items-center gap-2 rounded-[7px] border px-2.5 py-2",
-                "focus-within:shadow-[0_0_0_3px_color-mix(in_oklab,var(--chat)_16%,transparent)]",
-                borderClass,
-                bgClass,
+                "relative flex min-w-0 items-center gap-2 rounded-[7px] border px-2.5 py-2 transition-[border-color,box-shadow] duration-150",
+                "focus-within:shadow-[0_0_0_3px_var(--accsoft)]",
+                status === "unknown"
+                    ? "border-idle bg-[color-mix(in_oklab,var(--idle)_8%,var(--background))]"
+                    : status === "ok"
+                      ? "border-[color-mix(in_oklab,var(--acc)_30%,var(--line))] bg-[color-mix(in_oklab,var(--acc)_5%,var(--background))]"
+                      : "border-line bg-background focus-within:border-acc",
                 disabled && "opacity-50",
             )}
         >
-            <span
-                className={cn(
-                    "w-[18px] shrink-0 text-right",
-                    "font-mono text-[10px] tracking-[0.06em] text-muted-foreground",
-                )}
-            >
+            <span className="w-4 shrink-0 text-right font-mono text-[8.5px] tracking-[0.05em] text-muted-foreground">
                 {String(index + 1).padStart(2, "0")}
             </span>
             <input
@@ -236,39 +190,17 @@ function WordInputSlot({
                 onPaste={onPaste}
                 aria-label={`Recovery word ${index + 1}`}
                 placeholder="—"
-                className={cn(
-                    "min-w-0 flex-1 bg-transparent outline-none",
-                    "font-mono text-[13px] font-medium text-foreground",
-                    "placeholder:italic placeholder:text-[color-mix(in_oklab,var(--muted-foreground)_60%,transparent)]",
-                )}
+                className="min-w-0 flex-1 bg-transparent font-mono text-[12px] font-medium text-foreground outline-none placeholder:text-muted-foreground/60"
             />
             {status === "unknown" && (
                 <span
-                    className={cn(
-                        "absolute -right-[5px] -top-[5px] flex h-[14px] w-[14px] items-center justify-center rounded-full",
-                        "bg-warning text-background font-mono text-[10px] font-bold",
-                    )}
+                    className="absolute -right-[5px] -top-[5px] flex h-3.5 w-3.5 items-center justify-center rounded-full bg-idle font-mono text-[10px] font-bold text-background"
                     aria-label="Not a valid BIP-39 word"
                 >
                     !
                 </span>
             )}
-            {status === "ok" && (
-                <svg
-                    width="11"
-                    height="11"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="var(--chat)"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="shrink-0"
-                    aria-hidden
-                >
-                    <path d="M5 12l5 5 9-11" />
-                </svg>
-            )}
+            {status === "ok" && <Check className="h-[11px] w-[11px] shrink-0 text-acc" strokeWidth={3} aria-hidden />}
         </div>
     )
 }

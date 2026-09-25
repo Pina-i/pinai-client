@@ -7,6 +7,7 @@ import {
 } from "react-aria-components"
 import type { ReactNode } from "react"
 import { cn } from "@/presentation/_libs/utils"
+import { popoverSurface } from "@/presentation/molecules/Popover/popover-surface"
 
 export interface MenuItemDescriptor {
     key: string
@@ -54,8 +55,9 @@ export function Menu({
                 placement={placement}
                 offset={offset}
                 className={cn(
-                    "z-50 border border-border bg-popover shadow-xl outline-none",
-                    isHorizontal ? "p-1.5" : "p-1.5",
+                    popoverSurface,
+                    "p-1.5 outline-none",
+                    "entering:animate-in entering:fade-in-0 entering:zoom-in-95 entering:duration-150",
                     popoverClassName,
                 )}
             >
@@ -75,12 +77,12 @@ export function Menu({
                             className={cn(
                                 "cursor-pointer outline-none transition-colors",
                                 isHorizontal
-                                    ? "p-1 text-base rounded hover:bg-accent focus:bg-accent"
+                                    ? "rounded-[8px] p-1 text-base hover:bg-surf2 focus:bg-surf2"
                                     : cn(
-                                          "flex w-full items-center gap-2 px-2 py-1.5 text-sm",
+                                          "flex w-full items-center gap-2.5 rounded-[10px] px-3 py-2 text-[13px]",
                                           item.variant === "destructive"
-                                              ? "text-destructive hover:bg-destructive/10 focus:bg-destructive/10"
-                                              : "text-muted-foreground hover:bg-accent hover:text-foreground focus:bg-accent focus:text-foreground",
+                                              ? "text-dnd hover:bg-[color-mix(in_oklab,var(--dnd)_12%,transparent)] focus:bg-[color-mix(in_oklab,var(--dnd)_12%,transparent)]"
+                                              : "text-muted-foreground hover:bg-surf2 hover:text-foreground focus:bg-surf2 focus:text-foreground",
                                       ),
                                 "disabled:opacity-50 disabled:cursor-not-allowed",
                                 itemClassName,

@@ -2,6 +2,7 @@ import { Check, GitBranch, Globe, Search, X } from "lucide-react"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { Button } from "@/presentation/atoms/Button/Button"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
+import { modalSurface } from "@/presentation/molecules/Modal/modal-surface"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { cn } from "@/presentation/_libs/utils"
 import { useAppStore } from "@/store/store"
@@ -35,57 +36,52 @@ function GroupComposerContent({
     const vm = useGroupComposerViewModel(composer, onClose)
 
     return (
-        <div className="flex max-h-[80vh] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-[var(--radius-lg)] border border-border-strong bg-popover shadow-xl">
-            {/* Header */}
-            <div className="flex items-start justify-between gap-3 border-b border-border px-6 pb-4 pt-5">
+        <div className={cn(modalSurface, "max-h-[80vh] w-[560px]")}>
+            <div className="flex items-start justify-between gap-3 border-b border-line px-6 pb-4 pt-5">
                 <div>
-                    <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                        {vm.isAddMode ? "Add to group" : "New group"}
-                    </p>
-                    <h2 className="title mt-1 text-xl font-medium text-foreground">
+                    <p className="eye">{vm.isAddMode ? "Add to group" : "New group"}</p>
+                    <h2 className="title mt-1 text-[24px] font-normal tracking-[-0.01em] text-foreground">
                         {vm.isAddMode ? "Add people" : "Who's in?"}
                     </h2>
                 </div>
                 <button
+                    type="button"
                     onClick={onClose}
                     aria-label="Close"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:text-foreground"
+                    className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-line2 text-muted-foreground transition-colors duration-150 hover:bg-surf2 hover:text-foreground"
                 >
                     <X className="h-4 w-4" />
                 </button>
             </div>
 
-            {/* Fork explainer — adding to a 1:1 starts a brand-new group */}
             {vm.isFork && (
-                <div className="flex items-start gap-3 border-b border-border bg-chat/10 px-6 py-3.5">
-                    <span className="mt-0.5 text-chat">
+                <div className="flex items-start gap-3 border-b border-line bg-[color-mix(in_oklab,var(--acc)_9%,transparent)] px-6 py-3.5">
+                    <span className="mt-0.5 text-acc">
                         <GitBranch className="h-4 w-4" />
                     </span>
-                    <p className="text-xs leading-relaxed text-muted-foreground">
+                    <p className="text-[12px] leading-relaxed text-muted-foreground">
                         This starts a <span className="font-medium text-foreground">new group</span>. Your private
                         one-to-one conversation stays exactly as it is.
                     </p>
                 </div>
             )}
 
-            {/* Search */}
-            <div className="flex items-center gap-2.5 border-b border-border px-5 py-3">
-                <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <div className="flex items-center gap-2.5 border-b border-line px-5 py-3 text-muted-foreground">
+                <Search className="h-4 w-4 shrink-0" />
                 <input
                     value={vm.query}
                     onChange={(e) => vm.setQuery(e.target.value)}
                     placeholder="Search friends"
-                    className="min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
+                    className="min-w-0 flex-1 bg-transparent text-[14px] text-foreground placeholder:text-muted-foreground outline-none"
                 />
             </div>
 
-            {/* Friend list */}
-            <ScrollArea className="min-h-[160px] flex-1 px-2 py-2">
+            <ScrollArea className="min-h-[160px] flex-1 p-2">
                 {vm.isLoading && (
-                    <p className="py-8 text-center text-sm text-muted-foreground">Loading friends…</p>
+                    <p className="title py-8 text-center text-[13px] italic text-muted-foreground">Loading friends…</p>
                 )}
                 {!vm.isLoading && vm.friends.length === 0 && (
-                    <p className="py-8 text-center text-sm text-muted-foreground">No friends found.</p>
+                    <p className="py-8 text-center text-[13px] text-muted-foreground">No friends found.</p>
                 )}
                 {vm.friends.map((friend) => (
                     <ComposerFriendRow
@@ -98,49 +94,46 @@ function GroupComposerContent({
                 ))}
             </ScrollArea>
 
-            {/* Optional name (create only) */}
             {!vm.isAddMode && (
-                <div className="border-t border-border px-6 py-4">
+                <div className="border-t border-line px-6 py-4">
                     <div className="mb-2 flex items-baseline justify-between">
-                        <label htmlFor="group-name" className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                        <label htmlFor="group-name" className="eye">
                             Group name
                         </label>
-                        <span className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground">
-                            Optional
-                        </span>
+                        <span className="eye">Optional</span>
                     </div>
                     <input
                         id="group-name"
                         value={vm.name}
                         onChange={(e) => vm.setName(e.target.value)}
                         placeholder="Leave blank to use members' names"
-                        className="h-10 w-full border border-border-strong bg-input px-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-ring"
+                        className="h-10 w-full rounded-[12px] border border-line2 bg-surf2 px-3.5 text-[13px] text-foreground placeholder:text-muted-foreground outline-none transition-colors duration-150 focus:border-acc"
                     />
                 </div>
             )}
 
-            {/* Footer */}
-            <div className="border-t border-border px-6 py-4">
-                {vm.error && <p className="mb-3 text-xs text-destructive">{vm.error}</p>}
+            <div className="border-t border-line px-6 py-4">
+                {vm.error && <p className="mb-3 text-[12px] text-dnd">{vm.error}</p>}
                 {vm.hasFederatedSelection && (
-                    <div className="mb-3 flex items-center gap-2 text-[11px] text-muted-foreground">
-                        <Globe className="h-3.5 w-3.5" />
+                    <div className="mb-3 flex items-center gap-2 text-[11.5px] text-muted-foreground">
+                        <Globe className="h-3.5 w-3.5 shrink-0" />
                         <span>Some members are on other servers — they'll join over federation.</span>
                     </div>
                 )}
                 <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs text-muted-foreground">
-                        {vm.selectedFriends.length} selected
+                    <span className="text-[12px] text-muted-foreground">
+                        <span className="font-mono">{vm.selectedFriends.length}</span> selected
                     </span>
                     <div className="flex gap-2">
-                        <Button variant="secondary" onPress={onClose} className="w-auto px-4">
+                        <Button variant="secondary" size="inline" onPress={onClose}>
                             Cancel
                         </Button>
                         <Button
                             variant="primary"
+                            size="inline"
                             onPress={vm.submit}
                             isDisabled={!vm.canSubmit}
-                            className="w-auto px-5"
+                            className="px-5 disabled:opacity-45"
                         >
                             {vm.isSubmitting
                                 ? "Working…"
@@ -173,28 +166,34 @@ function ComposerFriendRow({
 
     return (
         <button
+            type="button"
             onClick={onToggle}
             disabled={disabled}
             className={cn(
-                "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left transition-colors",
-                disabled ? "cursor-default opacity-55" : "cursor-pointer hover:bg-accent",
-                selected && !disabled && "bg-accent/60",
+                "flex w-full items-center gap-3 rounded-full px-3 py-2 text-left transition-colors duration-150",
+                disabled ? "cursor-default opacity-55" : "cursor-pointer hover:bg-surf",
+                selected && !disabled && "bg-surf2 hover:bg-surf2",
             )}
         >
-            <Avatar initials={initials} imageUrl={friend.avatarUrl} size="sm" status={friend.status} />
-            <div className="min-w-0 flex-1">
-                <p className="title truncate text-sm font-medium text-foreground">{friend.name}</p>
-                <p className="truncate font-mono text-[10.5px] text-muted-foreground">{friend.address}</p>
-            </div>
+            <Avatar
+                initials={initials}
+                imageUrl={friend.avatarUrl}
+                seed={friend.address}
+                size="sm"
+                status={friend.status}
+                statusBorderClass="border-popover"
+            />
+            <span className="min-w-0 flex-1">
+                <span className="title block truncate text-[15px] font-semibold text-foreground">{friend.name}</span>
+                <span className="block truncate font-mono text-[10.5px] text-muted-foreground">{friend.address}</span>
+            </span>
             {disabled ? (
-                <span className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground">
-                    in group
-                </span>
+                <span className="fact">in group</span>
             ) : (
                 <span
                     className={cn(
-                        "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border",
-                        selected ? "border-primary bg-primary text-primary-foreground" : "border-border-strong",
+                        "flex h-5 w-5 shrink-0 items-center justify-center rounded-[7px] border",
+                        selected ? "border-acc bg-acc text-acc-ink" : "border-line2",
                     )}
                 >
                     {selected && <Check className="h-3 w-3" />}

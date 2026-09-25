@@ -22,27 +22,20 @@ export function TextField({ label, placeholder, error, icon, className, ...props
             isInvalid={props.isInvalid ?? !!error}
             className={cn("group w-full", className)}
         >
-            {label && (
-                <Label className="mono-eyebrow mb-1.5 block text-muted-foreground uppercase">
-                    {label}
-                </Label>
-            )}
+            {label && <Label className="eye mb-1.5 block">{label}</Label>}
             <div
                 className={cn(
-                    "flex h-[42px] items-center gap-2.5 rounded-[var(--radius)] border border-border bg-input px-3 transition-colors",
-                    "group-focus-within:border-ring",
+                    "flex h-[42px] items-center gap-[9px] rounded-[12px] border border-line bg-surf2 px-3.5",
+                    "text-[12px] text-muted-foreground transition-colors duration-150",
+                    "group-focus-within:border-acc",
                     "group-data-[invalid]:border-destructive",
                     "group-data-[disabled]:cursor-not-allowed group-data-[disabled]:opacity-50",
                 )}
             >
-                {icon && (
-                    <span className="shrink-0 text-muted-foreground pointer-events-none">
-                        {icon}
-                    </span>
-                )}
+                {icon && <span className="pointer-events-none flex shrink-0">{icon}</span>}
                 <Input
                     placeholder={placeholder}
-                    className="min-w-0 flex-1 bg-transparent text-[13.5px] text-foreground placeholder:text-muted-foreground outline-none"
+                    className="min-w-0 flex-1 bg-transparent text-foreground placeholder:text-muted-foreground outline-none"
                 />
             </div>
             {error && (

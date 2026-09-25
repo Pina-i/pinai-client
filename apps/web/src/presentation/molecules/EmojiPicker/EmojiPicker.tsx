@@ -134,7 +134,7 @@ const categories: CategoryDef[] = [
 // the values must be Size objects, and recreating them per render thrashes
 // the layout-invalidation check.
 const LAYOUT_OPTIONS = {
-    minItemSize: new Size(32, 32),
+    minItemSize: new Size(34, 34),
     minSpace: new Size(4, 4),
 }
 
@@ -178,7 +178,7 @@ export function EmojiPicker({ onEmojiSelect }: EmojiPickerProps) {
 
     if (!items) {
         return (
-            <div className="flex h-[348px] w-80 items-center justify-center p-2 text-xs text-muted-foreground">
+            <div className="flex h-[339px] w-80 items-center justify-center p-2 text-[12px] text-muted-foreground">
                 Loading emojis…
             </div>
         )
@@ -187,7 +187,7 @@ export function EmojiPicker({ onEmojiSelect }: EmojiPickerProps) {
     return (
         <div className="flex w-80 flex-col gap-2 p-2">
             {/* Category strip */}
-            <div className="flex gap-0.5 border-b border-border pb-1.5">
+            <div className="flex gap-0.5 border-b border-line pb-1.5">
                 {categories.map((cat) => {
                     const isActive = activeGroup === cat.group && !searchText
                     return (
@@ -200,11 +200,9 @@ export function EmojiPicker({ onEmojiSelect }: EmojiPickerProps) {
                             title={cat.label}
                             aria-pressed={isActive}
                             className={cn(
-                                "flex h-7 flex-1 items-center justify-center rounded text-base outline-none transition-colors cursor-pointer",
+                                "flex h-7 flex-1 cursor-pointer items-center justify-center rounded-[8px] text-[15px] outline-none transition-colors",
                                 "focus-visible:ring-2 focus-visible:ring-ring",
-                                isActive
-                                    ? "bg-accent"
-                                    : "opacity-60 hover:bg-accent/50 hover:opacity-100",
+                                isActive ? "bg-surf2" : "opacity-60 hover:bg-surf hover:opacity-100",
                             )}
                         >
                             {cat.icon}
@@ -221,12 +219,12 @@ export function EmojiPicker({ onEmojiSelect }: EmojiPickerProps) {
                 <SearchField
                     aria-label="Search emojis"
                     autoFocus
-                    className="flex h-9 items-center gap-2 rounded-md border border-border bg-input px-3"
+                    className="flex h-9 items-center gap-[9px] rounded-[10px] border border-line bg-surf2 px-3.5 text-[12px] text-muted-foreground"
                 >
-                    <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <Search className="h-[15px] w-[15px] shrink-0" />
                     <Input
                         placeholder="Search emoji…"
-                        className="min-w-0 flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
+                        className="min-w-0 flex-1 bg-transparent text-foreground placeholder:text-muted-foreground outline-none [&::-webkit-search-cancel-button]:hidden"
                     />
                 </SearchField>
                 <Virtualizer layout={GridLayout} layoutOptions={LAYOUT_OPTIONS}>
@@ -236,17 +234,17 @@ export function EmojiPicker({ onEmojiSelect }: EmojiPickerProps) {
                         items={visibleItems}
                         onAction={(key) => onEmojiSelect(String(key))}
                         renderEmptyState={() => (
-                            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                            <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">
                                 No emoji found
                             </div>
                         )}
-                        className="h-64 overflow-auto outline-none"
+                        className="h-[236px] overflow-auto outline-none"
                     >
                         {(item) => (
                             <ListBoxItem
                                 id={item.id}
                                 textValue={item.searchText}
-                                className="flex items-center justify-center text-xl cursor-pointer outline-none rounded transition-colors hover:bg-accent focus:bg-accent"
+                                className="flex cursor-pointer items-center justify-center rounded-[8px] text-[20px] outline-none transition-colors hover:bg-surf2 focus:bg-surf2"
                             >
                                 {item.emoji}
                             </ListBoxItem>

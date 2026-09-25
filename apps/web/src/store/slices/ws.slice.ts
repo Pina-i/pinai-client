@@ -1,5 +1,6 @@
 import type { StateCreator } from "zustand"
 import type { WsConnectionStatus, WsNotification } from "@pinai/domain/models/ws"
+import { mergeMessageHistory } from "@pinai/domain/models/dm"
 import type { Message } from "@/lib/types"
 import type { AppStore } from "../store"
 
@@ -37,7 +38,7 @@ export interface WsSlice {
      */
     reconcileDmMessage: (conversationKey: string, clientId: string, message: Message) => void
     updateDmConversation: (conversationKey: string, updater: (msgs: Message[]) => Message[]) => void
-    /** Prepend historical messages (API-loaded) before any live WS messages, deduplicating by id. */
+    /** Merge API-loaded history into the cached messages in time order, deduplicating by id. */
     seedDmMessages: (conversationKey: string, messages: Message[]) => void
     /** Update a single message by id across all conversations. */
     updateMessageById: (messageId: string, updater: (msg: Message) => Message) => void
@@ -149,12 +150,10 @@ export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]]
         set(
             (s) => {
                 const existing = s.dmMessages[conversationKey] ?? []
-                const existingIds = new Set(existing.map((m) => m.id))
-                const historical = messages.filter((m) => !existingIds.has(m.id))
                 return {
                     dmMessages: {
                         ...s.dmMessages,
-                        [conversationKey]: [...historical, ...existing],
+                        [conversationKey]: mergeMessageHistory(existing, messages),
                     },
                 }
             },

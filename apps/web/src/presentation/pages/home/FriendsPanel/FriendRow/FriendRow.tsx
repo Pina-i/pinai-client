@@ -1,5 +1,8 @@
-import { UserMinus } from "lucide-react"
+import { EllipsisVertical, MessageSquare } from "lucide-react"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
+import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
+import { ContextMenuTrigger } from "@/presentation/molecules/ContextMenu/ContextMenuTrigger"
+import { buildUserContextMenuItems } from "@/presentation/molecules/UserContextMenu/UserContextMenu.items"
 import { cn } from "@/presentation/_libs/utils"
 import { userStatusLabel } from "@pinai/domain/models/presence"
 import type { Friend } from "../FriendsPanel.viewmodel"
@@ -18,6 +21,11 @@ export function FriendRow({ friend, isActive, onOpen, onRemove }: FriendRowProps
         .map((n) => n[0])
         .join("")
 
+    const menuItems = buildUserContextMenuItems({
+        onMessage: () => onOpen(friend.address),
+        onRemove: () => onRemove(friend),
+    })
+
     return (
         <div
             onClick={() => onOpen(friend.address)}
@@ -25,39 +33,48 @@ export function FriendRow({ friend, isActive, onOpen, onRemove }: FriendRowProps
             tabIndex={0}
             onKeyDown={(e) => e.key === "Enter" && onOpen(friend.address)}
             className={cn(
-                "group flex cursor-pointer items-center gap-4 rounded-md border-b border-border/40 px-4 py-3 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                isActive ? "bg-accent/60" : "hover:bg-accent/40",
+                "flex cursor-pointer items-center gap-3 rounded-full px-3.5 py-2.5 outline-none transition-colors duration-150",
+                "focus-visible:ring-2 focus-visible:ring-ring",
+                isActive ? "bg-surf2" : "hover:bg-surf has-[[aria-expanded=true]]:bg-surf2",
             )}
         >
             <Avatar
                 initials={initials}
                 imageUrl={friend.avatarUrl}
+                seed={friend.address}
                 size="md"
                 status={friend.status}
-                statusBorderClass="border-background"
             />
-            <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2">
-                    <span className="title text-[15px] font-medium text-foreground">{friend.name}</span>
-                    <span className="font-mono text-[11px] tracking-[0.02em] text-muted-foreground">
-                        {friend.address}
-                    </span>
-                </div>
-                <p className="mt-0.5 font-mono text-[11px] tracking-[0.04em] text-muted-foreground">
-                    <span className={cn("mr-1", `text-${friend.status === "online" ? "success" : friend.status === "idle" ? "warning" : "muted-foreground"}`)}>●</span>
-                    {userStatusLabel(friend.status)}
-                </p>
-            </div>
-            <button
-                aria-label={`Remove ${friend.name}`}
-                onClick={(e) => {
-                    e.stopPropagation()
-                    onRemove(friend)
-                }}
-                className="cursor-pointer rounded-md p-2 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+            <span className="min-w-0 flex-1 overflow-hidden">
+                <span className="title block truncate text-[15px] font-semibold text-foreground">{friend.name}</span>
+                <span className="block truncate font-mono text-[10px] text-muted-foreground">{friend.address}</span>
+            </span>
+            <span className="min-w-0 shrink truncate text-[12px] text-muted-foreground max-[1180px]:hidden">
+                {userStatusLabel(friend.status)}
+            </span>
+            {/* The menu portals, but React still bubbles its presses up the tree — stop them before the row. */}
+            <span
+                className="flex shrink-0 items-center gap-3"
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
             >
-                <UserMinus className="h-4 w-4" />
-            </button>
+                <IconButton variant="ghost" aria-label={`Message ${friend.name}`} onPress={() => onOpen(friend.address)}>
+                    <MessageSquare className="h-[17px] w-[17px]" />
+                </IconButton>
+                <ContextMenuTrigger
+                    label={`Actions for ${friend.name}`}
+                    items={menuItems}
+                    trigger={
+                        <IconButton
+                            variant="ghost"
+                            aria-label={`Actions for ${friend.name}`}
+                            className="aria-expanded:bg-surf3 aria-expanded:text-foreground"
+                        >
+                            <EllipsisVertical className="h-[17px] w-[17px]" />
+                        </IconButton>
+                    }
+                />
+            </span>
         </div>
     )
 }

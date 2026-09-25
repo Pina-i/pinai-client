@@ -8,11 +8,7 @@ export interface RecoveryCodesGridProps {
     className?: string
 }
 
-/**
- * Renders the 10 one-time recovery codes in a 2-column grid with a copy-all
- * button. Plaintext is shown exactly once — this is the only place the
- * client surfaces them.
- */
+/** The one place the client ever shows the plaintext recovery codes. */
 export function RecoveryCodesGrid({ codes, className }: RecoveryCodesGridProps) {
     const [copied, setCopied] = useState(false)
 
@@ -22,25 +18,30 @@ export function RecoveryCodesGrid({ codes, className }: RecoveryCodesGridProps) 
             setCopied(true)
             setTimeout(() => setCopied(false), 2000)
         } catch {
-            // Clipboard API can be blocked by perms — fall back silently; the
-            // user can still copy via select-all on the grid.
+            // Clipboard can be blocked by permissions; select-all on the grid still works.
         }
     }
 
     return (
-        <div className={cn("space-y-3", className)}>
-            <div className="grid grid-cols-2 gap-2 rounded-[var(--radius)] border border-border bg-input/40 p-4 font-mono text-[13px] text-foreground">
-                {codes.map((c) => (
-                    <code key={c} className="select-all tracking-[0.06em]">
-                        {c}
-                    </code>
+        <div className={cn("flex flex-col gap-3", className)}>
+            <div className="grid grid-cols-2 gap-1.5 rounded-[18px] border border-line bg-surf p-3.5 backdrop-blur-[14px]">
+                {codes.map((c, i) => (
+                    <div
+                        key={c}
+                        className="flex min-w-0 items-center gap-2 rounded-[7px] border border-line bg-background px-2.5 py-2"
+                    >
+                        <span className="shrink-0 font-mono text-[8.5px] tracking-[0.05em] text-muted-foreground">
+                            {String(i + 1).padStart(2, "0")}
+                        </span>
+                        <code className="select-all truncate font-mono text-[12px] font-medium tracking-[0.06em] text-foreground">
+                            {c}
+                        </code>
+                    </div>
                 ))}
             </div>
             <Button variant="secondary" onPress={copyAll}>
-                <span className="inline-flex items-center gap-2">
-                    {copied ? <Check size={16} /> : <Copy size={16} />}
-                    {copied ? "Copied" : "Copy all codes"}
-                </span>
+                {copied ? <Check size={15} /> : <Copy size={15} />}
+                {copied ? "Copied" : "Copy all codes"}
             </Button>
         </div>
     )

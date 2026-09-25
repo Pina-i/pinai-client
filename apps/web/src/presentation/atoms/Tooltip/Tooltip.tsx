@@ -26,9 +26,11 @@ export function Tooltip({
             {children}
             <AriaTooltip
                 placement={placement}
+                offset={8}
                 className={cn(
-                    "z-50 border border-border bg-popover px-2.5 py-1.5",
-                    "text-xs font-medium text-popover-foreground shadow-sm",
+                    "rounded-full border border-line2 bg-popover px-2.5 py-1",
+                    "text-[11.5px] font-medium text-popover-foreground",
+                    "shadow-[0_8px_22px_-10px_rgba(0,0,0,0.6)]",
                     "entering:animate-in entering:fade-in-0",
                     "exiting:animate-out exiting:fade-out-0",
                 )}

@@ -9,8 +9,8 @@ const DEFAULT_IDP_URL =
  * `form`        — the IdP picker is visible and editable.
  * `connecting`  — Continue was pressed; we're discovering the IdP and about to
  *                 hand off the browser to its `/authorize` endpoint. The right
- *                 column shows a loader so the imminent OIDC redirect doesn't
- *                 feel like an abrupt page reload.
+ *                 column shows the Rise loader so the imminent OIDC redirect
+ *                 doesn't feel like an abrupt page reload.
  */
 export type LandingView = "form" | "connecting"
 
@@ -38,5 +38,14 @@ export function useLandingPageViewModel() {
     }
 
     const loading = view === "connecting"
-    return { idpUrl, setIdpUrl, view, loading, error, handleLogin }
+    return { idpUrl, setIdpUrl, idpHost: prettyHost(idpUrl), view, loading, error, handleLogin }
+}
+
+/** Strip protocol + trailing slashes for the loader's host line. */
+function prettyHost(url: string): string {
+    try {
+        return new URL(url).host
+    } catch {
+        return url.replace(/^https?:\/\//, "").replace(/\/+$/, "")
+    }
 }

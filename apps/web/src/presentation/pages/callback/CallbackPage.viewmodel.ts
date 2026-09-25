@@ -3,11 +3,14 @@ import { useNavigate } from "@tanstack/react-router"
 import { handleCallbackUseCase } from "@pinai/domain/usecases/auth/handleCallback.usecase"
 import { useAppStore } from "@/store/store"
 import { getAuthPlatform, getAuthPort, getAuthSessionStore } from "@/ioc/index"
+import { useHoldSplashScreen } from "@/presentation/hooks/use-hold-splash-screen"
 
 export function useCallbackPageViewModel() {
     const [error, setError] = useState<string | null>(null)
     const setSession = useAppStore((s) => s.setSession)
     const navigate = useNavigate()
+    // Held through the navigation that follows: the next screen takes over the hold in the same commit.
+    useHoldSplashScreen(error === null)
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search)

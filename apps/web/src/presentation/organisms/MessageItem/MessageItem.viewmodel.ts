@@ -8,6 +8,7 @@ import type {
 import { sendReactionUseCase, type ConversationRoute } from "@pinai/domain/usecases/dm/send-reaction.usecase"
 import { getDmPort, getE2eePort, getGroupPort } from "@/ioc"
 import type { Message } from "@/lib/types"
+import { awaitsResend } from "@pinai/domain/models/dm"
 
 /**
  * Decode a base64 string to bytes / encode bytes to base64. Same
@@ -27,7 +28,7 @@ export function useMessageItemViewModel(
     isGroup: boolean,
     onReply: (messageId: string) => void,
     onRetry: (messageId: string) => void,
-    hasPendingIntent: (messageId: string) => boolean,
+    canResend: (message: Message) => boolean,
 ) {
     const user = useAppStore((s) => s.user)
     const accessToken = useAppStore((s) => s.accessToken)
@@ -228,17 +229,16 @@ export function useMessageItemViewModel(
         onReply(message.id)
     }, [message.id, onReply])
 
-    // ─── Retry (for status: "failed") ─────────────────────────────────────────
+    // ─── Retry (for status: "failed" / "undelivered") ─────────────────────────
 
     const retrySend = useCallback(() => {
         onRetry(message.id)
     }, [message.id, onRetry])
 
-    // Retry only works while the conversation viewmodel still holds
-    // the send-intent in its in-memory map. After a reload the map is
-    // empty → retry button stays rendered (status === "failed") but
-    // disabled, telling the user the message couldn't be auto-resent.
-    const canRetry = message.status === "failed" && hasPendingIntent(message.id)
+    // Hidden once an undelivered message was sent again; disabled when this
+    // device never had the plaintext to resend.
+    const showRetry = awaitsResend(message)
+    const canRetry = showRetry && canResend(message)
 
     return {
         isOwn,
@@ -252,6 +252,7 @@ export function useMessageItemViewModel(
         handleDelete,
         handleReply,
         retrySend,
+        showRetry,
         canRetry,
     }
 }

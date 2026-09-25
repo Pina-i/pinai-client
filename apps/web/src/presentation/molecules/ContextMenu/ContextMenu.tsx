@@ -5,6 +5,7 @@ import {
     type PopoverProps as AriaPopoverProps,
 } from "react-aria-components"
 import { motion } from "motion/react"
+import { popoverSurface } from "@/presentation/molecules/Popover/popover-surface"
 import { cn } from "@/presentation/_libs/utils"
 
 interface ContextMenuProps {
@@ -80,18 +81,15 @@ export function ContextMenu({
                     }}
                     placement={placement}
                     offset={offset}
-                    className="z-50 outline-none"
+                    className="outline-none"
                 >
                     <Dialog aria-label={label} className="outline-none">
                         <motion.div
-                            initial={{ opacity: 0, scale: 0.95 }}
+                            initial={{ opacity: 0, scale: 0.96 }}
                             animate={{ opacity: 1, scale: 1 }}
                             transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
                             style={{ transformOrigin: transformOriginFor(placement) }}
-                            className={cn(
-                                "overflow-hidden rounded-[var(--radius-lg)] border border-border-strong bg-popover text-popover-foreground shadow-xl",
-                                className,
-                            )}
+                            className={cn("overflow-hidden", popoverSurface, className)}
                         >
                             {typeof children === "function" ? children(close) : children}
                         </motion.div>

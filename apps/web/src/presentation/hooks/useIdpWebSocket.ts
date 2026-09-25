@@ -13,6 +13,7 @@ import type {
 import type { WsConnectionStatus, WsServerEvent } from "@pinai/domain/models/ws"
 import type { Message } from "@/lib/types"
 import { actorUriToAddress } from "@pinai/domain/models/identity"
+import { applyFederationStatus } from "@pinai/domain/models/dm"
 import { TYPING_INDICATOR_TTL_MS } from "@/store/slices/presence.slice"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
@@ -272,6 +273,10 @@ export function useIdpWebSocket(): void {
                                 status: "sent",
                                 statusAt: new Date().toISOString(),
                                 ...(optimistic?.replyTo ? { replyTo: optimistic.replyTo } : {}),
+                                // REST sends echo too, and this echo can beat their response.
+                                ...(optimistic?.attachmentKeys
+                                    ? { attachmentKeys: optimistic.attachmentKeys }
+                                    : {}),
                             },
                         )
 
@@ -323,9 +328,8 @@ export function useIdpWebSocket(): void {
                     }
                     if (isOwn) {
                         // Own message echoed back without a `client_id`
-                        // (REST send path; the server's `POST /api/dm`
-                        // doesn't propagate the client UUID today — see
-                        // the Phase 6 follow-up). The REST response
+                        // (group sends, which don't propagate the client
+                        // UUID, and broker replays). The REST response
                         // already reconciled the optimistic row to
                         // `"sent"`. If the row is still `"sending"` or
                         // `"failed"` (REST never returned / network
@@ -481,6 +485,13 @@ export function useIdpWebSocket(): void {
                         content: newText,
                         edited: true,
                     }))
+                    break
+                }
+                case "dm_delivery_failed": {
+                    const at = new Date().toISOString()
+                    actionsRef.current.updateMessageById(event.data.message_id, (m) =>
+                        applyFederationStatus(m, "failed", at),
+                    )
                     break
                 }
                 case "mls_welcome_ready": {

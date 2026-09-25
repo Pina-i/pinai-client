@@ -31,8 +31,8 @@ export function SingleImageAttachment({ attachment, attachmentKey, onExpand }: S
             onClick={onExpand}
             aria-label={`Open ${filename} in lightbox`}
             className={cn(
-                "group relative mt-1.5 block max-w-full cursor-zoom-in overflow-hidden",
-                "rounded-[var(--radius)] border border-border bg-muted p-0 text-left",
+                "group relative mt-2 block max-w-full cursor-zoom-in overflow-hidden",
+                "rounded-[14px] border border-line bg-surf2 p-0 text-left",
             )}
         >
             {url ? (
@@ -49,28 +49,24 @@ export function SingleImageAttachment({ attachment, attachmentKey, onExpand }: S
                 </div>
             )}
 
-            {/* "Click to expand" pill — fades in on hover so it doesn't
-                fight with the image when the user is just looking. */}
             <span
                 className={cn(
-                    "pointer-events-none absolute right-2.5 top-2.5 rounded-md px-2 py-1",
+                    "pointer-events-none absolute right-2.5 top-2.5 rounded-full px-2.5 py-1",
                     "font-mono text-[9.5px] uppercase tracking-[0.06em] text-foreground",
-                    "bg-[oklch(0.18_0.01_60_/_0.6)] backdrop-blur-[6px]",
+                    "bg-[color-mix(in_oklab,var(--background)_60%,transparent)] backdrop-blur-[6px]",
                     "opacity-0 transition-opacity group-hover:opacity-100",
                 )}
             >
                 Click to expand
             </span>
 
-            {/* Filename + size strip — overlays the bottom of the image,
-                also hover-revealed. */}
             <div
                 className={cn(
                     "absolute inset-x-0 bottom-0 flex w-full justify-between gap-3 px-3.5 py-2.5",
-                    "font-mono text-[11px] text-muted-foreground",
+                    "font-mono text-[10.5px] text-muted-foreground",
                     "opacity-0 transition-opacity group-hover:opacity-100",
                 )}
-                style={{ background: "linear-gradient(to top, oklch(0.18 0.01 60 / 0.85), transparent)" }}
+                style={{ background: "linear-gradient(to top, color-mix(in oklab, var(--background) 85%, transparent), transparent)" }}
             >
                 <span className="truncate">{filename}</span>
                 <span className="shrink-0">{formatBytes(byteSize)}</span>

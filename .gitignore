@@ -32,3 +32,5 @@ apps/*/src/routeTree.gen.ts
 # Turborepo
 .turbo
 **/.turbo
+
+tmp

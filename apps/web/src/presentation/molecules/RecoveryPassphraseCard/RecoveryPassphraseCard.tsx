@@ -3,6 +3,18 @@ import { AlertTriangle, Check, Copy, Eye, EyeOff, Trash2 } from "lucide-react"
 
 import { cn } from "@/presentation/_libs/utils"
 
+const cardClass = cn(
+    "rounded-[14px] border px-3.5 pb-3 pt-3.5",
+    "border-[color-mix(in_oklab,var(--acc)_28%,var(--line2))]",
+    "bg-[linear-gradient(135deg,color-mix(in_oklab,var(--acc)_10%,var(--surf)),var(--surf))]",
+)
+
+const actionClass = cn(
+    "inline-flex h-[26px] cursor-pointer items-center gap-[5px] rounded-full border px-2.5",
+    "font-sans text-[11px] transition-[background-color,color,opacity] duration-150",
+    "disabled:cursor-not-allowed disabled:opacity-50",
+)
+
 interface RecoveryPassphraseCardProps {
     /** The 24-word mnemonic, or null when not stored on this device. */
     words: string[] | null
@@ -37,15 +49,8 @@ export function RecoveryPassphraseCard({
 
     if (!words) {
         return (
-            <div
-                className={cn(
-                    "rounded-[10px] border border-border bg-card px-3.5 py-3",
-                    "text-[12px] text-muted-foreground",
-                )}
-            >
-                <span className="mono-eyebrow mb-1 block text-muted-foreground">
-                    Recovery passphrase
-                </span>
+            <div className={cn(cardClass, "text-[12px] text-muted-foreground")}>
+                <span className="mono-eyebrow mb-1 block lowercase">recovery passphrase</span>
                 <p className="leading-[1.5]">
                     No passphrase stored on this device. Reveal it from the device
                     that generated it, or generate a new one to replace it.
@@ -76,41 +81,33 @@ export function RecoveryPassphraseCard({
     }
 
     return (
-        <div
-            className={cn(
-                "rounded-[10px] border px-3.5 pb-3 pt-3.5",
-                "bg-[linear-gradient(135deg,color-mix(in_oklab,var(--chat)_10%,var(--card)),var(--card))]",
-                "border-[color-mix(in_oklab,var(--chat)_28%,var(--border))]",
-            )}
-        >
+        <div className={cardClass}>
             <div className="mb-2.5 flex items-start justify-between gap-2.5">
                 <div className="min-w-0">
-                    <span className="mono-eyebrow mb-[3px] block text-muted-foreground">
+                    <span className="mono-eyebrow block lowercase">
                         recovery passphrase · {words.length} words
                     </span>
-                    <span className="font-serif text-[14.5px] font-medium tracking-[-0.005em] text-foreground">
+                    <span className="title text-[14.5px] font-medium tracking-[-0.005em] text-foreground">
                         {title}
-                        <em className="not-italic text-chat">.</em>
+                        <em className="not-italic text-acc">.</em>
                     </span>
                 </div>
                 <div
                     className={cn(
                         "flex shrink-0 items-center gap-1.5 rounded-full px-2 py-[3px]",
-                        revealed
-                            ? "bg-[color-mix(in_oklab,var(--chat)_18%,transparent)]"
-                            : "bg-muted",
+                        revealed ? "bg-[color-mix(in_oklab,var(--acc)_18%,transparent)]" : "bg-surf3",
                     )}
                 >
                     <span
                         className={cn(
                             "inline-block h-[5px] w-[5px] rounded-full",
-                            revealed ? "animate-pulse bg-chat" : "bg-muted-foreground",
+                            revealed ? "animate-[pn-pulse_1.6s_ease-in-out_infinite] bg-acc" : "bg-muted-foreground",
                         )}
                     />
                     <span
                         className={cn(
                             "font-mono text-[8.5px] font-semibold uppercase tracking-[0.1em]",
-                            revealed ? "text-chat" : "text-muted-foreground",
+                            revealed ? "text-acc" : "text-muted-foreground",
                         )}
                     >
                         {revealed ? "revealed" : "hidden"}
@@ -118,19 +115,19 @@ export function RecoveryPassphraseCard({
                 </div>
             </div>
 
-            {/* 6×4 word grid. Always rendered — the blur on the wrapper is
-                the toggle, no remount required. */}
+            {/* Always rendered — the blur is the toggle, so there is no remount. The
+                column count is fluid: a truncated recovery word is worse than a taller card. */}
             <div
                 className={cn(
-                    "grid grid-cols-6 gap-[5px] transition-[filter,opacity] duration-200",
-                    !revealed && "select-none blur-[4px] opacity-80",
+                    "grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-[5px] transition-[filter,opacity] duration-200",
+                    !revealed && "select-none opacity-80 blur-[4px]",
                 )}
                 aria-hidden={!revealed}
             >
                 {words.map((word, i) => (
                     <div
                         key={i}
-                        className="flex min-w-0 items-center gap-[5px] rounded-[5px] border border-border bg-background px-1.5 py-1"
+                        className="flex min-w-0 items-center gap-[5px] rounded-[7px] border border-line bg-background px-1.5 py-1"
                     >
                         <span className="shrink-0 font-mono text-[8.5px] tracking-[0.05em] text-muted-foreground">
                             {String(i + 1).padStart(2, "0")}
@@ -142,17 +139,15 @@ export function RecoveryPassphraseCard({
                 ))}
             </div>
 
-            {/* Action row */}
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 <button
                     type="button"
                     onClick={() => setRevealed((v) => !v)}
                     className={cn(
-                        "inline-flex h-[26px] cursor-pointer items-center gap-[5px] rounded-[5px] px-2.5",
-                        "font-sans text-[11px] font-semibold",
+                        actionClass,
                         revealed
-                            ? "border border-border-strong bg-transparent text-foreground hover:bg-accent/40"
-                            : "border border-chat bg-chat text-primary-foreground hover:opacity-90",
+                            ? "border-line2 bg-transparent text-foreground hover:bg-surf2"
+                            : "border-transparent bg-action font-semibold text-action-foreground hover:opacity-90",
                     )}
                     aria-pressed={revealed}
                 >
@@ -164,12 +159,11 @@ export function RecoveryPassphraseCard({
                     onClick={handleCopy}
                     disabled={!revealed}
                     className={cn(
-                        "inline-flex h-[26px] cursor-pointer items-center gap-[5px] rounded-[5px] border border-border-strong bg-transparent px-2.5",
-                        "font-sans text-[11px] text-foreground hover:bg-accent/40",
-                        "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent",
+                        actionClass,
+                        "border-line2 bg-transparent text-foreground hover:bg-surf2 disabled:hover:bg-transparent",
                     )}
                 >
-                    {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
+                    {copied ? <Check className="h-3 w-3 text-on" /> : <Copy className="h-3 w-3" />}
                     {copied ? "Copied" : "Copy"}
                 </button>
                 <span className="flex-1" />
@@ -178,12 +172,10 @@ export function RecoveryPassphraseCard({
                     onClick={handleClear}
                     disabled={isClearing}
                     className={cn(
-                        "inline-flex h-[26px] cursor-pointer items-center gap-[5px] rounded-[5px] px-2.5",
-                        "font-sans text-[11px]",
+                        actionClass,
                         confirmClear
-                            ? "border border-destructive bg-destructive text-destructive-foreground hover:opacity-90"
-                            : "border border-border-strong bg-transparent text-muted-foreground hover:text-destructive",
-                        "disabled:cursor-not-allowed disabled:opacity-50",
+                            ? "border-dnd bg-dnd text-background hover:opacity-90"
+                            : "border-line2 bg-transparent text-muted-foreground hover:text-dnd",
                     )}
                 >
                     <Trash2 className="h-3 w-3" />
@@ -191,16 +183,14 @@ export function RecoveryPassphraseCard({
                 </button>
             </div>
 
-            {/* Security band */}
             <div
                 className={cn(
-                    "mt-2.5 flex items-center gap-[7px] rounded-[6px] px-2 py-[7px]",
-                    "bg-[color-mix(in_oklab,var(--warning)_7%,transparent)]",
-                    "border border-[color-mix(in_oklab,var(--warning)_22%,var(--border))]",
+                    "mt-2.5 flex items-center gap-[7px] rounded-[10px] px-2 py-[7px]",
+                    "border border-[color-mix(in_oklab,var(--idle)_22%,var(--line))] bg-[color-mix(in_oklab,var(--idle)_7%,transparent)]",
                     "text-[10.5px] leading-[1.4] text-muted-foreground",
                 )}
             >
-                <AlertTriangle className="h-3 w-3 shrink-0 text-warning" />
+                <AlertTriangle className="h-3 w-3 shrink-0 text-idle" />
                 <span>
                     Anyone holding these words can sign in as you. Made here on
                     your device — we never see them.

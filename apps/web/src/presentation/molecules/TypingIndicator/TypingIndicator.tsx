@@ -3,34 +3,20 @@ interface TypingIndicatorProps {
     color?: string
 }
 
-/**
- * Mirrors `TypingRow` in `design/screens/chat.jsx`: three bouncing dots in
- * the peer's accent colour followed by the italic-serif "{name} is writing…"
- * label. The 54px left-padding lines the row up with the message-text
- * column (40px avatar + 14px gap).
- */
-export function TypingIndicator({ name, color }: TypingIndicatorProps) {
-    const dotColor = color ?? "var(--chat)"
+// The 52px indent lines the row up with the message text column.
+export function TypingIndicator({ name, color = "var(--acc)" }: TypingIndicatorProps) {
     return (
         <div
-            className="flex items-center gap-2.5 pl-[54px] pr-0 py-2.5 italic"
-            style={{ fontFamily: "var(--font-serif)", fontSize: 12, color: "var(--muted-foreground)" }}
+            className="title flex items-center gap-2.5 pl-[52px] pt-2 text-[13px] italic text-muted-foreground"
             aria-live="polite"
         >
-            <div className="flex gap-[3px]">
-                {[0, 1, 2].map((i) => (
-                    <span
-                        key={i}
-                        style={{
-                            width: 5,
-                            height: 5,
-                            borderRadius: "50%",
-                            background: dotColor,
-                            animation: `pn-bounce 1.1s ${i * 0.15}s ease-in-out infinite`,
-                        }}
-                    />
-                ))}
-            </div>
+            {[0, 1, 2].map((i) => (
+                <span
+                    key={i}
+                    className="h-[5px] w-[5px] rounded-full"
+                    style={{ background: color, animation: `pn-bounce 1.1s ${i * 0.15}s ease-in-out infinite` }}
+                />
+            ))}
             <span>{name} is writing…</span>
         </div>
     )

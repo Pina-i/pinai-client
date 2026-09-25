@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
 import { sendDmWsUseCase } from "@pinai/domain/usecases/ws/send-dm-ws.usecase"
@@ -9,7 +9,7 @@ import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversat
 import { getDmPort, getE2eePort, getGroupPort, getWsPort } from "@/ioc"
 import { actorUriToAddress, addressToActorUri, asActorUri } from "@pinai/domain/models/identity"
 import type { Message } from "@/lib/types"
-import type { DirectMessage } from "@pinai/domain/models/dm"
+import { applyFederationStatus, findConversation, type DirectMessage } from "@pinai/domain/models/dm"
 import type {
     ActorUri,
     ApplicationMessage,
@@ -195,26 +195,27 @@ async function mapApiMessage(
     return { kind: "message", message: mapped }
 }
 
+// Stable fallback: a fresh `[]` per render would defeat every memo downstream.
+const NO_MESSAGES: Message[] = []
+
 export function useConversationPageViewModel(name: string) {
     const user = useAppStore((s) => s.user)
     const accessToken = useAppStore((s) => s.accessToken)
     const idpUrl = useAppStore((s) => s.idpUrl)
-    const localDmConvos = useAppStore((s) => s.localDmConvos)
-    const dmMessages = useAppStore((s) => s.dmMessages)
     const pushDmMessage = useAppStore((s) => s.pushDmMessage)
     const reconcileDmMessage = useAppStore((s) => s.reconcileDmMessage)
     const updateDmMessage = useAppStore((s) => s.updateDmMessage)
     const seedDmMessages = useAppStore((s) => s.seedDmMessages)
+    const updateDmConversation = useAppStore((s) => s.updateDmConversation)
     const applyReaction = useAppStore((s) => s.applyReaction)
     const setActiveDm = useAppStore((s) => s.setActiveDm)
     const clearDmUnread = useAppStore((s) => s.clearDmUnread)
-    const typingByConversation = useAppStore((s) => s.typingByConversation)
     const wsStatus = useAppStore((s) => s.wsStatus)
 
     // Route param is a conversation UUID (groups, and sidebar clicks) or a
     // `username@host` address (DMing a not-yet-existing conversation). The two
     // never collide, so one lookup serves both; non-friend DMs mint a UUID below.
-    const dmData = localDmConvos.find((d) => d.id === name || d.address === name)
+    const dmData = useAppStore((s) => findConversation(s.localDmConvos, name))
 
     // Subscribe to the same `dm-conversations` query the layout fires
     // so we know when the initial load has settled. This is the only
@@ -364,6 +365,19 @@ export function useConversationPageViewModel(name: string) {
                     .map((r) => r.message)
                 seedDmMessages(conversationKey, textMessages)
 
+                // The cached copy wins the merge, so the IdP's delivery
+                // outcome — which may have landed while no tab was open —
+                // is applied on top of it.
+                const undelivered = new Set(
+                    reversed.filter((m) => m.federation_status === "failed").map((m) => m.id),
+                )
+                if (undelivered.size > 0) {
+                    const at = new Date().toISOString()
+                    updateDmConversation(conversationKey, (list) =>
+                        list.map((m) => (undelivered.has(m.id) ? applyFederationStatus(m, "failed", at) : m)),
+                    )
+                }
+
                 // Second pass: replay reaction-kind rows. The slice
                 // dedup'd via `appliedReactionIds` so re-mounting
                 // never double-counts.
@@ -386,9 +400,10 @@ export function useConversationPageViewModel(name: string) {
             .catch(() => {
                 historyLoadedRef.current = false
             })
-    }, [accessToken, idpUrl, user, name, conversationKey, seedDmMessages, applyReaction, dmData])
+    }, [accessToken, idpUrl, user, name, conversationKey, seedDmMessages, updateDmConversation, applyReaction, dmData])
 
-    const messages = dmMessages[conversationKey] ?? []
+    // This conversation's list only: traffic in other conversations must not re-render the page.
+    const messages = useAppStore((s) => s.dmMessages[conversationKey]) ?? NO_MESSAGES
     // Scroll-to-bottom is an imperative action — page wires a
     // `MessageListHandle` here, viewmodel triggers it after a local
     // send. Old `messagesEndRef.scrollIntoView` only worked when the
@@ -398,10 +413,10 @@ export function useConversationPageViewModel(name: string) {
     const messageListHandleRef = useRef<MessageListHandle | null>(null)
 
     // Send-intent map for failed-message retry. Keyed by the optimistic
-    // UUID we generated at send time. Session-only by design — lost on
-    // reload, which leaves any `status: "failed"` messages visible but
-    // with a disabled retry button (see `MessageStatus`). Lives in a
-    // ref so updates don't re-render the page on every keystroke.
+    // UUID we generated at send time. Session-only — a retry without an
+    // entry rebuilds the intent from the cached message
+    // (`intentFromMessage`). Lives in a ref so updates don't re-render
+    // the page on every keystroke.
     type SendIntent = {
         content: string
         attachmentIds: string[]
@@ -552,6 +567,7 @@ export function useConversationPageViewModel(name: string) {
                         intent.replyTo?.id,
                         intent.attachmentIds.length > 0 ? intent.attachmentIds : undefined,
                         intent.conversationId,
+                        optimisticId,
                     )
                     reconcileToServer(dm)
                 } catch (e) {
@@ -579,6 +595,49 @@ export function useConversationPageViewModel(name: string) {
         [user, accessToken, idpUrl, reconcileDmMessage, updateDmMessage],
     )
 
+    // Optimistic push, then the network half. Shared by a fresh send and by
+    // the resend of an undelivered message, which goes out as a new one.
+    const dispatchSend = useCallback(
+        async (intent: SendIntent) => {
+            if (!user) return
+            // Optimistic push *before* any network work.
+            // `ensureGroupExists` + encrypt + REST can stretch several
+            // hundred ms on first send into a conversation — without
+            // an up-front push the user sees an empty input until
+            // everything returns. `status: "sending"` drives the clock
+            // icon next to the timestamp; `runSend` flips it to "sent"
+            // or "failed" once the network half lands.
+            const optimisticId = crypto.randomUUID()
+            const nowDate = new Date()
+            const nowIso = nowDate.toISOString()
+            const optimisticMsg: Message = {
+                id: optimisticId,
+                author: user.display_name ?? user.preferred_username,
+                authorAddress: user.address,
+                avatar: (user.display_name ?? user.preferred_username).slice(0, 2).toUpperCase(),
+                content: intent.content,
+                timestamp: nowDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                createdAt: nowIso,
+                color: "#a78bfa",
+                status: "sending",
+                statusAt: nowIso,
+            }
+            if (Object.keys(intent.optimisticAttachmentKeys).length > 0) {
+                optimisticMsg.attachmentKeys = intent.optimisticAttachmentKeys
+            }
+            if (intent.replyTo) {
+                optimisticMsg.replyTo = { ...intent.replyTo }
+            }
+            pushDmMessage(intent.conversationId, optimisticMsg)
+            pendingIntentsRef.current.set(optimisticId, intent)
+
+            await runSend(optimisticId, intent)
+
+            setTimeout(() => messageListHandleRef.current?.scrollToBottom(), 50)
+        },
+        [user, pushDmMessage, runSend],
+    )
+
     const sendMessage = useCallback(
         async (
             content: string,
@@ -595,92 +654,94 @@ export function useConversationPageViewModel(name: string) {
             // Groups need only the conversation id; 1:1s need the resolved peer.
             const isGroup = dmData?.kind === "group"
             if (!isGroup && !recipientActorUri) return
-            const recipientAddress = dmData?.address ?? name
             const currentReply = replyingTo
             setReplyingTo(null)
 
-            // Optimistic push *before* any network work.
-            // `ensureGroupExists` + encrypt + REST can stretch several
-            // hundred ms on first send into a conversation — without
-            // an up-front push the user sees an empty input until
-            // everything returns. `status: "sending"` drives the clock
-            // icon next to the timestamp; `runSend` flips it to "sent"
-            // or "failed" once the network half lands.
-            const optimisticId = crypto.randomUUID()
             const optimisticAttachmentKeys: Record<string, AttachmentBlobKey> = {}
             for (const k of attachmentKeys) optimisticAttachmentKeys[k.id] = k
-            const nowDate = new Date()
-            const nowIso = nowDate.toISOString()
-            const optimisticMsg: Message = {
-                id: optimisticId,
-                author: user.display_name ?? user.preferred_username,
-                authorAddress: user.address,
-                avatar: (user.display_name ?? user.preferred_username).slice(0, 2).toUpperCase(),
-                content,
-                timestamp: nowDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-                createdAt: nowIso,
-                color: "#a78bfa",
-                status: "sending",
-                statusAt: nowIso,
-            }
-            if (Object.keys(optimisticAttachmentKeys).length > 0) {
-                optimisticMsg.attachmentKeys = optimisticAttachmentKeys
-            }
-            if (currentReply) {
-                optimisticMsg.replyTo = {
-                    id: currentReply.id,
-                    content: currentReply.content,
-                    author: currentReply.author,
-                }
-            }
-            pushDmMessage(conversationId, optimisticMsg)
 
-            const intent: SendIntent = {
+            await dispatchSend({
                 content,
                 attachmentIds,
                 attachmentKeys,
                 replyTo: currentReply
                     ? { id: currentReply.id, content: currentReply.content, author: currentReply.author }
                     : null,
-                recipientAddress,
+                recipientAddress: dmData?.address ?? name,
                 recipientActorUri,
                 conversationId,
                 kind: isGroup ? "group" : "dm",
                 optimisticAttachmentKeys,
-            }
-            pendingIntentsRef.current.set(optimisticId, intent)
-
-            await runSend(optimisticId, intent)
-
-            setTimeout(() => messageListHandleRef.current?.scrollToBottom(), 50)
+            })
         },
-        [user, dmData, name, conversationId, recipientActorUri, pushDmMessage, replyingTo, accessToken, idpUrl, runSend],
+        [user, dmData, name, conversationId, recipientActorUri, replyingTo, accessToken, idpUrl, dispatchSend],
+    )
+
+    // Rebuilds a send from the cached message, for when the in-memory intent
+    // is gone: after a reload, or once the IdP accepted the message.
+    const intentFromMessage = useCallback(
+        (message: Message): SendIntent | null => {
+            if (!conversationId || message.content === UNDECRYPTABLE_PLACEHOLDER) return null
+            const isGroup = dmData?.kind === "group"
+            if (!isGroup && !recipientActorUri) return null
+            const keys = message.attachmentKeys ?? {}
+            return {
+                content: message.content,
+                // Key ids are the attachment ids: the server row is pinned to the sealed blob's id.
+                attachmentIds: Object.keys(keys),
+                attachmentKeys: Object.values(keys),
+                replyTo: message.replyTo ?? null,
+                recipientAddress: dmData?.address ?? name,
+                recipientActorUri,
+                conversationId,
+                kind: isGroup ? "group" : "dm",
+                optimisticAttachmentKeys: keys,
+            }
+        },
+        [conversationId, dmData, name, recipientActorUri],
     )
 
     const retrySend = useCallback(
-        async (optimisticId: string) => {
-            const intent = pendingIntentsRef.current.get(optimisticId)
+        async (messageId: string) => {
+            const message = useAppStore.getState().dmMessages[conversationKey]?.find((m) => m.id === messageId)
+            if (!message) return
+
+            if (message.status === "undelivered") {
+                const intent = intentFromMessage(message)
+                if (!intent) return
+                // The undelivered row stays as the record of that attempt.
+                updateDmMessage(conversationKey, messageId, { resent: true })
+                await dispatchSend(intent)
+                return
+            }
+
+            const intent = pendingIntentsRef.current.get(messageId) ?? intentFromMessage(message)
             if (!intent) return
-            updateDmMessage(intent.conversationId, optimisticId, {
+            pendingIntentsRef.current.set(messageId, intent)
+            updateDmMessage(conversationKey, messageId, {
                 status: "sending",
                 statusAt: new Date().toISOString(),
             })
-            await runSend(optimisticId, intent)
+            await runSend(messageId, intent)
         },
-        [runSend, updateDmMessage],
+        [conversationKey, intentFromMessage, dispatchSend, runSend, updateDmMessage],
     )
 
-    const hasPendingIntent = useCallback(
-        (id: string) => pendingIntentsRef.current.has(id),
+    // A resend needs the plaintext, which a device that never held it
+    // (another device's echo) only has as the placeholder.
+    const canResend = useCallback(
+        (message: Message) => message.content !== UNDECRYPTABLE_PLACEHOLDER,
         [],
     )
 
+    // Reads the store when pressed rather than closing over the list, so the
+    // callback stays stable and the message rows it is handed to stay cached.
     const handleReply = useCallback(
         (messageId: string) => {
-            const msg = (dmMessages[conversationKey] ?? []).find((m) => m.id === messageId)
+            const msg = useAppStore.getState().dmMessages[conversationKey]?.find((m) => m.id === messageId)
             if (msg) setReplyingTo({ id: msg.id, content: msg.content, author: msg.author })
         },
-        [dmMessages, conversationKey],
+        [conversationKey],
     )
 
     const cancelReply = useCallback(() => setReplyingTo(null), [])
@@ -689,19 +750,6 @@ export function useConversationPageViewModel(name: string) {
         sendTypingStartUseCase(conversationKey, getWsPort())
     }, [conversationKey])
 
-    // Active typers excluding self, projected to the shape the
-    // `TypingIndicator` molecule consumes. `null` when nobody is typing.
-    const typing = useMemo<{ name: string } | null>(() => {
-        const entries = typingByConversation[conversationKey] ?? []
-        const ownAddress = user?.address
-        const others = entries.filter((t) => actorUriToAddress(t.actorUri) !== ownAddress)
-        if (others.length === 0) return null
-        const dmDisplayName = dmData?.kind === "dm" ? dmData.displayName : null
-        if (others.length === 1) {
-            return { name: dmDisplayName ?? "Someone" }
-        }
-        return { name: `${others.length} people` }
-    }, [typingByConversation, conversationKey, user?.address, dmData])
 
     const displayName = dmData?.displayName ?? (name.split("@")[0] ?? name)
 
@@ -727,10 +775,10 @@ export function useConversationPageViewModel(name: string) {
         replyingTo,
         sendMessage,
         retrySend,
-        hasPendingIntent,
+        canResend,
         handleReply,
         handleType,
         cancelReply,
-        typing,
+        typingPeerName: dmData?.kind === "dm" ? dmData.displayName : null,
     }
 }

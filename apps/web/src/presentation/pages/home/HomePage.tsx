@@ -30,7 +30,7 @@ export function HomePage() {
     if (!user) return null
 
     return (
-        <PageTransition className="flex flex-1">
+        <PageTransition className="flex min-h-0 flex-1">
             <FriendsPanel
                 userAddress={user.address}
                 onStartDm={navigateToDm}

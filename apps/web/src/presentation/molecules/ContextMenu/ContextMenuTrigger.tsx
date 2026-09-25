@@ -1,5 +1,7 @@
 import { MenuTrigger, Popover as AriaPopover, type Placement } from "react-aria-components"
 import { motion } from "motion/react"
+import { cn } from "@/presentation/_libs/utils"
+import { popoverSurface } from "@/presentation/molecules/Popover/popover-surface"
 import type { ReactNode } from "react"
 import { ContextMenuList, type ContextMenuItem } from "./ContextMenuList"
 
@@ -29,12 +31,12 @@ export function ContextMenuTrigger({
     return (
         <MenuTrigger>
             {trigger}
-            <AriaPopover placement={placement} offset={offset} className="z-50 outline-none">
+            <AriaPopover placement={placement} offset={offset} className="outline-none">
                 <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
+                    initial={{ opacity: 0, scale: 0.96 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                    className="overflow-hidden rounded-[var(--radius-lg)] border border-border-strong bg-popover text-popover-foreground shadow-xl"
+                    className={cn("overflow-hidden", popoverSurface)}
                 >
                     <ContextMenuList items={items} label={label} width={width} />
                 </motion.div>
