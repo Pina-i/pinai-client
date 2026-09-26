@@ -9,7 +9,7 @@ import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversat
 import { getDmPort, getE2eePort, getGroupPort, getWsPort } from "@/ioc"
 import { actorUriToAddress, addressToActorUri, asActorUri } from "@pinai/domain/models/identity"
 import type { Message } from "@/lib/types"
-import { applyFederationStatus, findConversation, type DirectMessage } from "@pinai/domain/models/dm"
+import { applyFederationStatus, findConversation, SEND_TIMEOUT_MS, settleStaleSend, type DirectMessage } from "@pinai/domain/models/dm"
 import type {
     ActorUri,
     ApplicationMessage,
@@ -402,6 +402,16 @@ export function useConversationPageViewModel(name: string) {
             })
     }, [accessToken, idpUrl, user, name, conversationKey, seedDmMessages, updateDmConversation, applyReaction, dmData])
 
+    // A send left `sending` by a closed page never settles on its own, so
+    // opening the conversation fails it and it offers a retry.
+    useEffect(() => {
+        const now = Date.now()
+        updateDmConversation(conversationKey, (list) => {
+            const settled = list.map((m) => settleStaleSend(m, now))
+            return settled.some((m, i) => m !== list[i]) ? settled : list
+        })
+    }, [conversationKey, updateDmConversation])
+
     // This conversation's list only: traffic in other conversations must not re-render the page.
     const messages = useAppStore((s) => s.dmMessages[conversationKey]) ?? NO_MESSAGES
     // Scroll-to-bottom is an imperative action — page wires a
@@ -428,6 +438,8 @@ export function useConversationPageViewModel(name: string) {
         conversationId: string
         kind: "dm" | "group"
         optimisticAttachmentKeys: Record<string, AttachmentBlobKey>
+        /** Set when this send replaces an undelivered message. */
+        resentFrom?: string
     }
     const pendingIntentsRef = useRef<Map<string, SendIntent>>(new Map())
 
@@ -457,6 +469,7 @@ export function useConversationPageViewModel(name: string) {
                     status: "sent",
                     statusAt: new Date().toISOString(),
                 }
+                if (intent.resentFrom) mapped.resentFrom = intent.resentFrom
                 if (Object.keys(intent.optimisticAttachmentKeys).length > 0) {
                     mapped.attachmentKeys = intent.optimisticAttachmentKeys
                 }
@@ -579,7 +592,8 @@ export function useConversationPageViewModel(name: string) {
                 // the WS handler can reconcile to "sent" via
                 // `isOwnEcho`. WS-send is fire-and-forget — we can't
                 // catch a server-side reject here, so the row stays
-                // at "sending" until the echo flips it.
+                // at "sending" until the echo flips it — or fails once
+                // the echo is overdue, so it can be retried.
                 try {
                     sendDmWsUseCase(
                         intent.recipientAddress,
@@ -589,10 +603,17 @@ export function useConversationPageViewModel(name: string) {
                     )
                 } catch (e) {
                     markFailed(e, "sendDmWsUseCase")
+                    return
                 }
+                setTimeout(() => {
+                    const now = Date.now()
+                    updateDmConversation(optimisticKey, (list) =>
+                        list.map((m) => (m.id === optimisticId ? settleStaleSend(m, now) : m)),
+                    )
+                }, SEND_TIMEOUT_MS)
             }
         },
-        [user, accessToken, idpUrl, reconcileDmMessage, updateDmMessage],
+        [user, accessToken, idpUrl, reconcileDmMessage, updateDmMessage, updateDmConversation],
     )
 
     // Optimistic push, then the network half. Shared by a fresh send and by
@@ -628,6 +649,7 @@ export function useConversationPageViewModel(name: string) {
             if (intent.replyTo) {
                 optimisticMsg.replyTo = { ...intent.replyTo }
             }
+            if (intent.resentFrom) optimisticMsg.resentFrom = intent.resentFrom
             pushDmMessage(intent.conversationId, optimisticMsg)
             pendingIntentsRef.current.set(optimisticId, intent)
 
@@ -711,7 +733,7 @@ export function useConversationPageViewModel(name: string) {
                 if (!intent) return
                 // The undelivered row stays as the record of that attempt.
                 updateDmMessage(conversationKey, messageId, { resent: true })
-                await dispatchSend(intent)
+                await dispatchSend({ ...intent, resentFrom: messageId })
                 return
             }
 

@@ -19,6 +19,7 @@ import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsP
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 import { groupMembersQueryKey } from "@/presentation/pages/home/GroupMembersPanel/GroupMembersPanel.viewmodel"
 import { playDmNotificationSound } from "@/presentation/_libs/notification-sound"
+import { useAppearance } from "@/presentation/providers/AppearanceProvider/AppearanceProvider.context"
 
 const UNDECRYPTABLE_PLACEHOLDER = "[encrypted]"
 
@@ -101,6 +102,7 @@ export function useIdpWebSocket(): void {
     const addTyping = useAppStore((s) => s.addTyping)
     const setAvatarFor = useAppStore((s) => s.setAvatarFor)
     const queryClient = useQueryClient()
+    const { receiveAccountSettings } = useAppearance()
 
     // Use refs for store actions to avoid stale closures in adapter callbacks.
     // The ref is seeded at mount and refreshed in a layout effect rather than
@@ -123,6 +125,7 @@ export function useIdpWebSocket(): void {
         setPresence,
         addTyping,
         setAvatarFor,
+        receiveAccountSettings,
     }
     const actionsRef = useRef(actions)
     useLayoutEffect(() => {
@@ -534,6 +537,10 @@ export function useIdpWebSocket(): void {
                     if (idpUrl) {
                         queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
                     }
+                    break
+                }
+                case "settings_updated": {
+                    actionsRef.current.receiveAccountSettings(event.data.settings)
                     break
                 }
                 case "device_joined": {

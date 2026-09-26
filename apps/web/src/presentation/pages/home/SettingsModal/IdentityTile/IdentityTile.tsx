@@ -12,10 +12,6 @@ interface IdentityTileProps {
     onManageAccount: () => void
 }
 
-// Fades the field out between the edges, so the pattern reads as a top and bottom rule.
-const EDGE_MASK =
-    "linear-gradient(180deg,#000 0,#000 13px,transparent 24px,transparent calc(100% - 24px),#000 calc(100% - 13px),#000 100%)"
-
 export function IdentityTile({ displayName, handle, email, initials, avatarUrl, onManageAccount }: IdentityTileProps) {
     return (
         <div
@@ -25,9 +21,8 @@ export function IdentityTile({ displayName, handle, email, initials, avatarUrl, 
                 "bg-[linear-gradient(135deg,color-mix(in_oklab,var(--acc)_14%,var(--surf)),var(--surf))]",
             )}
         >
-            <div aria-hidden className="pointer-events-none absolute inset-0" style={{ maskImage: EDGE_MASK, WebkitMaskImage: EDGE_MASK }}>
-                <Motif variant="field" className="absolute inset-0" style={{ opacity: "var(--motif-opacity)" }} />
-            </div>
+            {/* The motif spans the whole card, behind the avatar, the name and the button alike. */}
+            <Motif variant="field" className="absolute inset-0" style={{ opacity: "var(--motif-opacity)" }} />
             <div className="relative z-[1] shrink-0">
                 <Avatar initials={initials} imageUrl={avatarUrl} tone="acc" size="lg" />
                 <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-[3px] border-background bg-on" />

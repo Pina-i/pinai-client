@@ -22,6 +22,11 @@ export interface UserProfile {
     avatar_url?: string
     pronouns?: Pronouns | null
     bio?: string | null
+    /**
+     * The account settings document, raw — the IdP stores it without
+     * interpreting it. Read it through `parseAccountSettings`.
+     */
+    settings?: unknown
 }
 
 export interface ProfilePatch {

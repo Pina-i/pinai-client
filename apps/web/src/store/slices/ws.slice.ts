@@ -1,6 +1,6 @@
 import type { StateCreator } from "zustand"
 import type { WsConnectionStatus, WsNotification } from "@pinai/domain/models/ws"
-import { mergeMessageHistory } from "@pinai/domain/models/dm"
+import { mergeMessageHistory, reconcileOptimistic } from "@pinai/domain/models/dm"
 import type { Message } from "@/lib/types"
 import type { AppStore } from "../store"
 
@@ -117,7 +117,7 @@ export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]]
                 const idx = existing.findIndex((m) => m.id === clientId)
                 if (idx !== -1) {
                     const updated = [...existing]
-                    updated[idx] = message
+                    updated[idx] = reconcileOptimistic(existing[idx], message)
                     return {
                         dmMessages: { ...s.dmMessages, [conversationKey]: updated },
                     }

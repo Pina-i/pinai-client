@@ -147,6 +147,8 @@ export type WsServerEvent =
     | { type: "member_removed"; data: MemberRemovedPayload }
     | { type: "member_role_changed"; data: MemberRoleChangedPayload }
     | { type: "group_renamed"; data: GroupRenamedPayload }
+    /** The account settings changed from one of the user's sessions; `settings` is the whole document, raw. */
+    | { type: "settings_updated"; data: { settings: unknown } }
     | { type: "heartbeat_ack"; data?: Record<string, never> }
 
 // ── Client → Server messages ────────────────────────────────────────────────

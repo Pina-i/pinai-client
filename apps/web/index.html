@@ -5,13 +5,31 @@
         <link rel="icon" type="image/svg+xml" href="/pinai-logo.svg" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Pīna'i</title>
-        <!-- The theme next-themes will apply, before anything paints. -->
+        <!-- The theme AppearanceProvider will apply, before anything paints: `data-theme` plus the mode
+             class. Reads the keys adapters/user-settings writes (and next-themes' old `theme` key),
+             validates them like parseAccountSettings / parseDeviceSettings, and resolves `system` like
+             resolveMode — an unknown value falls back to Black Pearl in the OS mode. -->
         <script>
-            try {
-                document.documentElement.classList.add(localStorage.getItem("theme") === "light" ? "light" : "dark")
-            } catch (e) {
-                document.documentElement.classList.add("dark")
-            }
+            ;(function () {
+                var family = "pearl"
+                var preference = "system"
+                function read(key) {
+                    return JSON.parse(localStorage.getItem(key) || "null")
+                }
+                try {
+                    var account = read("pinai.settings.account")
+                    var chosen = account && account.appearance && account.appearance.family
+                    if (["pearl", "lagoon", "jungle", "sand"].indexOf(chosen) !== -1) family = chosen
+                    var device = read("pinai.settings.device")
+                    var legacy = localStorage.getItem("theme")
+                    if (device && ["system", "dark", "light"].indexOf(device.mode) !== -1) preference = device.mode
+                    else if (!device && (legacy === "light" || legacy === "dark")) preference = legacy
+                } catch (e) {}
+                var mode = preference
+                if (mode === "system") mode = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+                document.documentElement.classList.add(mode)
+                document.documentElement.dataset.theme = family + "-" + mode
+            })()
         </script>
         <!-- The faces the splash paints first, fetched alongside the stylesheets so its first frame has
              them: the latin files fonts.googleapis.com serves for the link below (and Instrument Serif's
@@ -112,7 +130,7 @@
                         <div class="my-12 lg:my-0">
                             <h1 class="title m-0 text-[74px] font-normal leading-[0.96] tracking-[-0.025em] text-foreground">Quiet<br/><em class="italic text-acc">rooms</em>,<br/>loud<br/><em class="italic text-sec">voices</em>.</h1>
                             <p class="mt-[26px] max-w-[38ch] text-[14px] leading-[1.6] text-muted-foreground">A community space you host yourself. Federated by design, owned by the people who gather in it.</p>
-                            <div aria-hidden="true" class="pointer-events-none mt-[30px] h-2.5 max-w-[300px] opacity-55" style="background-color:var(--acc);mask-image:url(&quot;/src/assets/motifs/puhoro-band.svg&quot;);-webkit-mask-image:url(&quot;/src/assets/motifs/puhoro-band.svg&quot;);mask-size:40px 16px;-webkit-mask-size:40px 16px;mask-repeat:repeat;-webkit-mask-repeat:repeat"></div>
+                            <div aria-hidden="true" class="pointer-events-none mt-[30px] h-2.5 max-w-[300px] opacity-55" style="background-color:var(--acc);mask-image:url(&quot;/src/assets/motifs/kowhaiwhai.svg&quot;);-webkit-mask-image:url(&quot;/src/assets/motifs/kowhaiwhai.svg&quot;);mask-size:223.21px 15px;-webkit-mask-size:223.21px 15px;mask-repeat:repeat;-webkit-mask-repeat:repeat"></div>
                         </div>
                         <nav class="flex gap-5">
                             <a href="#docs" class="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground no-underline transition-colors hover:text-foreground">↳ Docs</a>

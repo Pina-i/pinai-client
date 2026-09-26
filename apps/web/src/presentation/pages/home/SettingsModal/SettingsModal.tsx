@@ -3,6 +3,7 @@ import { Bell, Headphones, Laptop, Lock, MessageSquare, Settings as SettingsIcon
 import type { UserProfile } from "@pinai/domain/models/auth"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
+import { AppearanceEditor } from "./AppearanceEditor/AppearanceEditor"
 import { DevicesEditor } from "./DevicesEditor/DevicesEditor"
 import { IdentityTile } from "./IdentityTile/IdentityTile"
 import { PlaceholderEditor } from "./PlaceholderEditor/PlaceholderEditor"
@@ -187,6 +188,8 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
                         <SecurityEditor />
                     ) : activeDescriptor.id === "devices" ? (
                         <DevicesEditor />
+                    ) : activeDescriptor.id === "appearance" ? (
+                        <AppearanceEditor />
                     ) : (
                         <PlaceholderEditor
                             sectionLabel={activeDescriptor.label}

@@ -150,6 +150,24 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   outcome (`dm_delivery_failed` live, `federation_status` from history)
   overrides the client's status: the IdP never retries, so it is final.
 - `awaitsResend(message)` — whether an own message still offers a retry.
+- `settleStaleSend(message, now)` — a send `sending` for longer than
+  `SEND_TIMEOUT_MS` becomes `failed`: a WebSocket send is only confirmed by its
+  echo, and a page closed mid-send leaves it `sending` in the cache.
+- `reconcileOptimistic(optimistic, confirmed)` / `resentCopies(messages)` — the
+  `resentFrom` link from a resent copy to the undelivered message it replaced
+  survives reconciliation, and is looked up the other way for "Sent again at".
+
+### models/user-settings.ts + ports/user-settings.port.ts + usecases/user-settings/
+- Two scopes. `AccountSettings` (`appearance: { family, motif }`) follow the
+  account to every device; `DeviceSettings` (`mode`) stay on the device.
+- `ModePreference` is `system | dark | light`; `resolveMode(preference,
+  systemPrefersDark)` gives the painted `ThemeMode`. A theme is the pair
+  `family-mode` (`themeId`) — each palette re-specifies its light values.
+- `parseAccountSettings` / `parseDeviceSettings` validate a stored value field
+  by field; `mergeAccountSettings` applies a partial change per section.
+- `IUserSettingsStorePort` — this device's store: its own settings plus its
+  copy of the account's, raw on read. `load-user-settings` parses both;
+  `update-account-settings` merges and saves; `update-device-settings` saves.
 
 ### models/identity.ts
 - `actorUriToAddress(uri)` — only sanctioned converter between

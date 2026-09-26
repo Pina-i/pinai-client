@@ -5,9 +5,10 @@ import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { AttachmentFilmstrip } from "@/presentation/molecules/AttachmentFilmstrip/AttachmentFilmstrip"
 import { ImageLightboxDialog } from "@/presentation/molecules/ImageLightboxDialog/ImageLightboxDialog"
+import { MessageDeliveryState } from "@/presentation/molecules/MessageDeliveryState/MessageDeliveryState"
 import { MessageStatus } from "@/presentation/molecules/MessageStatus/MessageStatus"
 import { SingleImageAttachment } from "@/presentation/molecules/SingleImageAttachment/SingleImageAttachment"
-import { ReactionPickerContext } from "@/presentation/organisms/MessageList/MessageList.context"
+import { MessageThreadContext, ReactionPickerContext } from "@/presentation/organisms/MessageList/MessageList.context"
 import { isImageAttachment } from "@/presentation/_libs/attachments"
 import { cn } from "@/presentation/_libs/utils"
 import type { Attachment } from "@pinai/domain/models/dm"
@@ -73,6 +74,9 @@ export function MessageItem({
 }: MessageItemProps) {
     const { openMessageId } = useContext(ReactionPickerContext)
     const isReactionPickerOpen = openMessageId === message.id
+    const { resentCopies, flashedMessageId, jumpToMessage } = useContext(MessageThreadContext)
+    const resentCopy = resentCopies.get(message.id)
+    const resentFrom = message.resentFrom
     const vm = useMessageItemViewModel(
         message,
         conversationKey,
@@ -104,8 +108,12 @@ export function MessageItem({
         // row; the space between runs comes from the list item wrapping a first row.
         <div
             className={cn(
-                "group relative grid grid-cols-[38px_1fr] items-start gap-x-3.5 rounded-[14px] px-1.5 hover:bg-surf",
-                first ? "pt-2 pb-0.5" : "py-0.5",
+                "group relative grid grid-cols-[38px_1fr] items-start gap-x-3.5 rounded-[14px] px-1.5",
+                // A message waiting to be sent again stands out as its own tinted card.
+                vm.showRetry
+                    ? "my-0.5 bg-[color-mix(in_oklab,var(--dnd)_7%,transparent)] py-2 hover:bg-[color-mix(in_oklab,var(--dnd)_11%,transparent)]"
+                    : cn("hover:bg-surf", first ? "pt-2 pb-0.5" : "py-0.5"),
+                flashedMessageId === message.id && "animate-[pn-flash_1.6s_ease-out]",
             )}
         >
             {first ? (
@@ -149,9 +157,6 @@ export function MessageItem({
                                 <MessageStatus
                                     status={message.status}
                                     statusAt={message.statusAt}
-                                    showRetry={vm.showRetry}
-                                    canRetry={vm.canRetry}
-                                    onRetry={vm.retrySend}
                                 />
                             </span>
                         )}
@@ -190,7 +195,15 @@ export function MessageItem({
                     </div>
                 ) : (
                     message.content && (
-                        <p className={cn("text-[14px] leading-[1.58] text-foreground [text-wrap:pretty]", first && "mt-1")}>
+                        <p
+                            className={cn(
+                                "text-[14px] leading-[1.58] [text-wrap:pretty]",
+                                vm.isUndelivered ? "text-muted-foreground" : "text-foreground",
+                                vm.isUndelivered && !vm.showRetry && "opacity-75",
+                                message.status === "sending" && "opacity-50",
+                                first && "mt-1",
+                            )}
+                        >
                             {message.content}
                             {message.edited && (
                                 <span className="ml-1 text-[11px] text-muted-foreground">(edited)</span>
@@ -236,6 +249,22 @@ export function MessageItem({
                             </ToggleButton>
                         ))}
                     </div>
+                )}
+
+                {vm.isOwn && (
+                    <MessageDeliveryState
+                        status={message.status}
+                        awaitsResend={vm.showRetry}
+                        canRetry={vm.canRetry}
+                        onRetry={vm.retrySend}
+                        resentAs={
+                            resentCopy && {
+                                timestamp: resentCopy.timestamp,
+                                onJump: () => jumpToMessage(resentCopy.id),
+                            }
+                        }
+                        onJumpToOriginal={resentFrom ? () => jumpToMessage(resentFrom) : undefined}
+                    />
                 )}
             </div>
 
