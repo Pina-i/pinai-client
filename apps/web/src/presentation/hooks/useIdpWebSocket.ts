@@ -542,8 +542,7 @@ export function useIdpWebSocket(): void {
                     break
                 }
                 case "friend_request":
-                case "friend_accepted":
-                case "friend_removed": {
+                case "friend_accepted": {
                     actionsRef.current.addNotification({
                         // Stable composite id prevents duplicates with API-seeded notifications.
                         id: `${event.type}:${event.data.friendship_id}`,
@@ -561,9 +560,15 @@ export function useIdpWebSocket(): void {
                         queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
                         queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
                     }
-                    // When a friend is removed, also refresh.
-                    if (event.type === "friend_removed" && idpUrl) {
+                    break
+                }
+                case "friend_removed": {
+                    // Silent: an unfriend is never announced, the friend just
+                    // leaves the list. The DM conversation stays, but its row
+                    // is refetched with the list it shares a sidebar with.
+                    if (idpUrl) {
                         queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
+                        queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
                     }
                     break
                 }

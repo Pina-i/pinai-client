@@ -23,13 +23,11 @@ interface KindMeta {
 const kindByEvent: Record<WsNotificationEventType, KindMeta> = {
     friend_request: { label: "Friend", color: "var(--acc)" },
     friend_accepted: { label: "Friend", color: "var(--acc)" },
-    friend_removed: { label: "Friend", color: "var(--muted-foreground)" },
 }
 
 const sentenceByEvent: Record<WsNotificationEventType, string> = {
     friend_request: "sent you a friend request.",
     friend_accepted: "accepted your friend request.",
-    friend_removed: "removed you as a friend.",
 }
 
 function timeAgo(date: Date): string {

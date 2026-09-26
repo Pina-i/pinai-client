@@ -168,7 +168,8 @@ export type WsConnectionStatus = "disconnected" | "connecting" | "connected"
 
 // ── Notification model ──────────────────────────────────────────────────────
 
-export type WsNotificationEventType = "friend_request" | "friend_accepted" | "friend_removed"
+/** `friend_removed` is absent on purpose: an unfriend is never announced. */
+export type WsNotificationEventType = "friend_request" | "friend_accepted"
 
 export interface WsNotification {
     id: string
