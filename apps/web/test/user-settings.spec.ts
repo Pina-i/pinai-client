@@ -13,6 +13,7 @@ import {
 import {
     DEFAULT_ACCOUNT_SETTINGS,
     DEFAULT_DEVICE_SETTINGS,
+    hasUnsyncedChange,
     mergeAccountSettings,
     parseAccountSettings,
     parseDeviceSettings,
@@ -28,16 +29,21 @@ import {
     syncAccountSettingsOnSignInUseCase,
 } from "@pinai/domain/usecases/user-settings/sync-account-settings.usecase"
 import type { IAccountSettingsPort } from "@pinai/domain/ports/user-settings.port"
+import { isConversationMuted, setConversationMuted } from "@pinai/domain/models/mute"
 
 const IDP = "http://localhost:8080"
 const ALICE = "https://idp.alice.test/users/alice_xK9mP"
 const BOB = "https://idp.alice.test/users/bob_Qw3rT"
-const LAGOON = { appearance: { family: "lagoon", motif: "raranga" } } as const
-const SAND = { appearance: { family: "sand", motif: "tapa1" } } as const
+const UNMUTED = { muteAll: false, mutedConversations: [] }
+const LAGOON = { appearance: { family: "lagoon", motif: "raranga" }, notifications: UNMUTED } as const
+const SAND = { appearance: { family: "sand", motif: "tapa1" }, notifications: UNMUTED } as const
 
 describe("parseAccountSettings", () => {
-    it("keeps a valid stored appearance", () => {
-        const stored = { appearance: { family: "lagoon", motif: "tapa3" } }
+    it("keeps a valid stored document", () => {
+        const stored = {
+            appearance: { family: "lagoon", motif: "tapa3" },
+            notifications: { muteAll: true, mutedConversations: ["dm-1", "group-1"] },
+        }
 
         expect(parseAccountSettings(stored)).toEqual(stored)
     })
@@ -45,6 +51,17 @@ describe("parseAccountSettings", () => {
     it("falls back field by field, keeping what is still valid", () => {
         expect(parseAccountSettings({ appearance: { family: "coral", motif: "raranga" } })).toEqual({
             appearance: { family: DEFAULT_ACCOUNT_SETTINGS.appearance.family, motif: "raranga" },
+            notifications: UNMUTED,
+        })
+    })
+
+    it("reads a malformed notifications section as unmuted, keeping the conversation ids it can read", () => {
+        expect(parseAccountSettings({ notifications: { muteAll: "yes", mutedConversations: "dm-1" } }).notifications).toEqual(
+            UNMUTED,
+        )
+        expect(parseAccountSettings({ notifications: { mutedConversations: ["dm-1", 42, null] } }).notifications).toEqual({
+            muteAll: false,
+            mutedConversations: ["dm-1"],
         })
     })
 
@@ -73,10 +90,12 @@ describe("resolveMode", () => {
 
 describe("mergeAccountSettings", () => {
     it("changes only the fields the change names", () => {
-        const current = { appearance: { family: "sand", motif: "tapa1" } } as const
+        const notifications = { muteAll: false, mutedConversations: ["dm-1"] }
+        const current = { appearance: { family: "sand", motif: "tapa1" }, notifications } as const
 
         expect(mergeAccountSettings(current, { appearance: { motif: "tapa4" } })).toEqual({
             appearance: { family: "sand", motif: "tapa4" },
+            notifications: { muteAll: false, mutedConversations: ["dm-1"] },
         })
     })
 })
@@ -98,8 +117,11 @@ describe("UserSettingsLocalStorageAdapter", () => {
 
         expect(loadUserSettingsUseCase(store)).toEqual({
             account: {
-                settings: { appearance: { family: "jungle", motif: DEFAULT_ACCOUNT_SETTINGS.appearance.motif } },
-                synced: false,
+                settings: {
+                    appearance: { family: "jungle", motif: DEFAULT_ACCOUNT_SETTINGS.appearance.motif },
+                    notifications: UNMUTED,
+                },
+                unsynced: ["appearance"],
                 owner: ALICE,
             },
             device: { mode: "light" },
@@ -128,11 +150,23 @@ describe("UserSettingsLocalStorageAdapter", () => {
         localStorage.setItem(DEVICE_SETTINGS_KEY, "{not json")
 
         expect(loadUserSettingsUseCase(store)).toEqual({
-            account: { settings: DEFAULT_ACCOUNT_SETTINGS, synced: true, owner: null },
+            account: { settings: DEFAULT_ACCOUNT_SETTINGS, unsynced: [], owner: null },
             device: DEFAULT_DEVICE_SETTINGS,
         })
     })
 })
+
+/** The IdP's `PATCH /api/settings`: each section sent replaces the stored one, the others are kept. */
+function fakeIdp(document: object): IAccountSettingsPort & { document: object } {
+    const idp = {
+        document,
+        update: async (_idp: string, _token: string, sections: object) => {
+            idp.document = { ...idp.document, ...JSON.parse(JSON.stringify(sections)) }
+            return idp.document
+        },
+    }
+    return idp
+}
 
 describe("account settings sync", () => {
     const store = new UserSettingsLocalStorageAdapter()
@@ -148,12 +182,12 @@ describe("account settings sync", () => {
 
     it("marks a change synced once the IdP has it", async () => {
         updateAccountSettingsUseCase(DEFAULT_ACCOUNT_SETTINGS, LAGOON, ALICE, store)
-        expect(copy().synced).toBe(false)
+        expect(hasUnsyncedChange(copy(), ALICE)).toBe(true)
 
         await pushAccountSettingsUseCase(IDP, "tok", copy().settings, ALICE, api, store)
 
         expect(api.update).toHaveBeenCalledWith(IDP, "tok", LAGOON)
-        expect(copy()).toEqual({ settings: LAGOON, synced: true, owner: ALICE })
+        expect(copy()).toEqual({ settings: LAGOON, unsynced: [], owner: ALICE })
     })
 
     it("leaves a newer change unsynced when an older push lands after it", async () => {
@@ -163,7 +197,7 @@ describe("account settings sync", () => {
 
         await inFlight
 
-        expect(copy()).toEqual({ settings: SAND, synced: false, owner: ALICE })
+        expect(copy()).toEqual({ settings: SAND, unsynced: ["appearance", "notifications"], owner: ALICE })
     })
 
     it("keeps a change unsynced when the IdP can't be reached", async () => {
@@ -172,17 +206,17 @@ describe("account settings sync", () => {
 
         await expect(pushAccountSettingsUseCase(IDP, "tok", LAGOON, ALICE, api, store)).rejects.toThrow("offline")
 
-        expect(copy().synced).toBe(false)
+        expect(hasUnsyncedChange(copy(), ALICE)).toBe(true)
     })
 
     it("on sign-in, adopts the account's settings over a synced copy", async () => {
-        store.writeAccount(LAGOON, { synced: true, owner: ALICE })
+        store.writeAccount(LAGOON, { unsynced: [], owner: ALICE })
 
         const settings = await syncAccountSettingsOnSignInUseCase(IDP, "tok", SAND, ALICE, api, store)
 
         expect(settings).toEqual(SAND)
         expect(api.update).not.toHaveBeenCalled()
-        expect(copy()).toEqual({ settings: SAND, synced: true, owner: ALICE })
+        expect(copy()).toEqual({ settings: SAND, unsynced: [], owner: ALICE })
     })
 
     it("on sign-in, sends the change this device couldn't send instead of losing it", async () => {
@@ -205,11 +239,65 @@ describe("account settings sync", () => {
     })
 
     it("adopts another session's change, unless a newer one of its own is pending", () => {
-        store.writeAccount(LAGOON, { synced: true, owner: ALICE })
+        store.writeAccount(LAGOON, { unsynced: [], owner: ALICE })
         expect(receiveAccountSettingsUseCase(SAND, ALICE, store)).toEqual(SAND)
 
         updateAccountSettingsUseCase(SAND, LAGOON, ALICE, store)
         expect(receiveAccountSettingsUseCase(SAND, ALICE, store)).toBeNull()
         expect(copy().settings).toEqual(LAGOON)
+    })
+
+    it("keeps the mutes another device made while this one had a palette change to send", async () => {
+        store.writeAccount(LAGOON, { unsynced: [], owner: ALICE })
+        updateAccountSettingsUseCase(LAGOON, { appearance: { family: "sand" } }, ALICE, store)
+        const idp = fakeIdp({ ...LAGOON, notifications: { muteAll: false, mutedConversations: ["dm-1"] } })
+
+        const settings = await syncAccountSettingsOnSignInUseCase(IDP, "tok", idp.document, ALICE, idp, store)
+
+        const expected = {
+            appearance: { family: "sand", motif: "raranga" },
+            notifications: { muteAll: false, mutedConversations: ["dm-1"] },
+        }
+        expect(settings).toEqual(expected)
+        expect(idp.document).toEqual(expected)
+    })
+
+    it("keeps the palette another device chose while this one had a mute to send", async () => {
+        store.writeAccount(LAGOON, { unsynced: [], owner: ALICE })
+        updateAccountSettingsUseCase(LAGOON, { notifications: { muteAll: true } }, ALICE, store)
+        const idp = fakeIdp(SAND)
+
+        const settings = await syncAccountSettingsOnSignInUseCase(IDP, "tok", idp.document, ALICE, idp, store)
+
+        expect(settings).toEqual({ appearance: SAND.appearance, notifications: { muteAll: true, mutedConversations: [] } })
+    })
+
+    it("sends the palette change a copy saved before sections were tracked still holds", async () => {
+        localStorage.setItem(
+            ACCOUNT_SETTINGS_KEY,
+            JSON.stringify({ version: 1, appearance: LAGOON.appearance, synced: false, owner: ALICE }),
+        )
+        const idp = fakeIdp(SAND)
+
+        const settings = await syncAccountSettingsOnSignInUseCase(IDP, "tok", idp.document, ALICE, idp, store)
+
+        expect(settings.appearance).toEqual(LAGOON.appearance)
+    })
+
+    it("carries a conversation muted on one device to the account's other devices", async () => {
+        store.writeAccount(LAGOON, { unsynced: [], owner: ALICE })
+        const idp = fakeIdp(LAGOON)
+        const mute = { notifications: setConversationMuted(LAGOON.notifications, "dm-1", true) }
+        await pushAccountSettingsUseCase(IDP, "tok", updateAccountSettingsUseCase(LAGOON, mute, ALICE, store), ALICE, idp, store)
+
+        localStorage.clear()
+        const signingIn = await syncAccountSettingsOnSignInUseCase(IDP, "tok", idp.document, ALICE, idp, store)
+        localStorage.clear()
+        const alreadyOpen = receiveAccountSettingsUseCase(idp.document, ALICE, store)
+
+        for (const settings of [signingIn, alreadyOpen!]) {
+            expect(isConversationMuted(settings.notifications, "dm-1")).toBe(true)
+            expect(settings.appearance).toEqual(LAGOON.appearance)
+        }
     })
 })

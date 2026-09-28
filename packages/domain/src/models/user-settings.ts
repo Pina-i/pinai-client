@@ -1,7 +1,8 @@
 /**
  * The user's settings, in two scopes:
  *
- * - `AccountSettings` follow the account to every device (palette, motif).
+ * - `AccountSettings` follow the account to every device (palette, motif,
+ *   notification mutes).
  * - `DeviceSettings` stay on the device they were chosen on (light or dark:
  *   that depends on the screen and the room, not on who is signed in).
  *
@@ -31,9 +32,20 @@ export interface AppearanceSettings {
     motif: MotifKey
 }
 
+export interface NotificationSettings {
+    muteAll: boolean
+    /** Conversation ids. */
+    mutedConversations: string[]
+}
+
 export interface AccountSettings {
     appearance: AppearanceSettings
+    notifications: NotificationSettings
 }
+
+export type AccountSettingsSection = keyof AccountSettings
+
+const ACCOUNT_SETTINGS_SECTIONS: readonly AccountSettingsSection[] = ["appearance", "notifications"]
 
 export interface DeviceSettings {
     mode: ModePreference
@@ -42,9 +54,13 @@ export interface DeviceSettings {
 /** A change to the account settings: any section, any subset of its fields. */
 export interface AccountSettingsChange {
     appearance?: Partial<AppearanceSettings>
+    notifications?: Partial<NotificationSettings>
 }
 
-export const DEFAULT_ACCOUNT_SETTINGS: AccountSettings = { appearance: { family: "pearl", motif: "kowhaiwhai" } }
+export const DEFAULT_ACCOUNT_SETTINGS: AccountSettings = {
+    appearance: { family: "pearl", motif: "kowhaiwhai" },
+    notifications: { muteAll: false, mutedConversations: [] },
+}
 
 export const DEFAULT_DEVICE_SETTINGS: DeviceSettings = { mode: "system" }
 
@@ -67,11 +83,17 @@ function record(raw: unknown): Record<string, unknown> {
 
 export function parseAccountSettings(raw: unknown): AccountSettings {
     const appearance = record(record(raw).appearance)
+    const notifications = record(record(raw).notifications)
+    const muted = Array.isArray(notifications.mutedConversations) ? notifications.mutedConversations : []
     const fallback = DEFAULT_ACCOUNT_SETTINGS.appearance
     return {
         appearance: {
             family: oneOf(THEME_FAMILIES, appearance.family) ? appearance.family : fallback.family,
             motif: oneOf(MOTIFS, appearance.motif) ? appearance.motif : fallback.motif,
+        },
+        notifications: {
+            muteAll: notifications.muteAll === true,
+            mutedConversations: muted.filter((id): id is string => typeof id === "string"),
         },
     }
 }
@@ -85,7 +107,18 @@ export function parseDeviceSettings(raw: unknown): DeviceSettings {
 export function mergeAccountSettings(current: AccountSettings, change: AccountSettingsChange): AccountSettings {
     return {
         appearance: { ...current.appearance, ...change.appearance },
+        notifications: { ...current.notifications, ...change.notifications },
     }
+}
+
+/** The sections a change names, in the document's order. */
+export function changedSections(change: AccountSettingsChange): AccountSettingsSection[] {
+    return ACCOUNT_SETTINGS_SECTIONS.filter((section) => change[section] !== undefined)
+}
+
+/** Only the named sections: the IdP replaces each section it is sent, so the others must not go out stale. */
+export function pickSections(settings: AccountSettings, sections: AccountSettingsSection[]): Partial<AccountSettings> {
+    return Object.fromEntries(sections.map((section) => [section, settings[section]]))
 }
 
 /**
@@ -94,17 +127,20 @@ export function mergeAccountSettings(current: AccountSettings, change: AccountSe
  */
 export interface AccountSettingsCopy {
     settings: AccountSettings
-    /** False while a change made here hasn't reached the IdP. */
-    synced: boolean
+    /** Sections changed here that haven't reached the IdP. */
+    unsynced: AccountSettingsSection[]
     /** Actor URI of the account these settings belong to; `null` before any sign-in. */
     owner: string | null
 }
 
 export function parseAccountSettingsCopy(raw: unknown): AccountSettingsCopy {
     const stored = record(raw)
+    // A copy from before sections were tracked could only hold an unsynced appearance.
+    const legacy = stored.synced === false ? ["appearance"] : []
+    const unsynced = Array.isArray(stored.unsynced) ? stored.unsynced : legacy
     return {
         settings: parseAccountSettings(raw),
-        synced: stored.synced !== false,
+        unsynced: ACCOUNT_SETTINGS_SECTIONS.filter((section) => unsynced.includes(section)),
         owner: typeof stored.owner === "string" ? stored.owner : null,
     }
 }
@@ -116,5 +152,5 @@ export function sameAccountSettings(a: AccountSettings, b: AccountSettings): boo
 
 /** Whether this device holds a change for `account` that the IdP hasn't received. */
 export function hasUnsyncedChange(copy: AccountSettingsCopy, account: string): boolean {
-    return copy.owner === account && !copy.synced
+    return copy.owner === account && copy.unsynced.length > 0
 }

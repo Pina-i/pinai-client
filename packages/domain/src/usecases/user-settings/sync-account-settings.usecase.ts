@@ -21,7 +21,7 @@ export async function syncAccountSettingsOnSignInUseCase(
         return pushAccountSettingsUseCase(idpUrl, accessToken, copy.settings, account, api, store)
     }
     const settings = parseAccountSettings(remote)
-    store.writeAccount(settings, { synced: true, owner: account })
+    store.writeAccount(settings, { unsynced: [], owner: account })
     return settings
 }
 
@@ -38,6 +38,6 @@ export function receiveAccountSettingsUseCase(
 ): AccountSettings | null {
     if (hasUnsyncedChange(parseAccountSettingsCopy(store.readAccount()), account)) return null
     const settings = parseAccountSettings(remote)
-    store.writeAccount(settings, { synced: true, owner: account })
+    store.writeAccount(settings, { unsynced: [], owner: account })
     return settings
 }

@@ -5,6 +5,7 @@ import {
     sameAccountSettings,
     themeId,
     type AccountSettings,
+    type AccountSettingsChange,
     type AppearanceSettings,
     type ModePreference,
     type ThemeFamily,
@@ -18,9 +19,11 @@ import {
 } from "@pinai/domain/usecases/user-settings/sync-account-settings.usecase"
 import { updateAccountSettingsUseCase } from "@pinai/domain/usecases/user-settings/update-account-settings.usecase"
 import { updateDeviceSettingsUseCase } from "@pinai/domain/usecases/user-settings/update-device-settings.usecase"
+import { setConversationMuted as muteConversation } from "@pinai/domain/models/mute"
 import { getAccountSettingsPort, getUserSettingsStore } from "@/ioc"
 import { useAppStore } from "@/store/store"
 import { AppearanceContext } from "./AppearanceProvider.context"
+import { NotificationSettingsContext } from "./NotificationSettings.context"
 
 const DARK_QUERY = "(prefers-color-scheme: dark)"
 
@@ -49,6 +52,10 @@ function crossFade(update: () => void) {
  * Owns the appearance: the palette and motif from the account settings, the
  * mode from this device's settings, and the OS preference `system` resolves
  * against. Applies the result to the document and saves every change.
+ *
+ * Owns the notification mutes too, as a second context: they are a section
+ * of the same account document, which a single owner must hold so a change
+ * to one section is never built on a stale copy of the other.
  *
  * Account settings follow the account: adopted from `/userinfo` on sign-in
  * (unless this device holds a change it couldn't send, which is sent
@@ -84,7 +91,13 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     }, [])
 
     const showAccountSettings = useCallback((next: AccountSettings | null) => {
-        if (next && !sameAccountSettings(next, accountRef.current)) crossFade(() => setAccount(next))
+        if (!next || sameAccountSettings(next, accountRef.current)) return
+        const { family, motif } = accountRef.current.appearance
+        const repaints = next.appearance.family !== family || next.appearance.motif !== motif
+        // Set before the commit: a second change made before it lands must build on this one.
+        accountRef.current = next
+        if (repaints) crossFade(() => setAccount(next))
+        else setAccount(next)
     }, [])
 
     // Every page load signs in again (tokens live in memory), so this runs once
@@ -98,23 +111,38 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
             .catch(() => {})
     }, [accessToken, idpUrl, actorUri, showAccountSettings])
 
-    const setAppearance = useCallback(
-        (change: Partial<AppearanceSettings>) => {
-            const current = accountRef.current.appearance
-            if (Object.entries(change).every(([key, value]) => current[key as keyof AppearanceSettings] === value)) return
-            // Account settings can only change while signed in — the editor lives in Settings.
+    const updateAccount = useCallback(
+        (change: AccountSettingsChange) => {
+            // Account settings can only change while signed in.
             if (!actorUri) return
             const store = getUserSettingsStore()
-            const next = updateAccountSettingsUseCase(accountRef.current, { appearance: change }, actorUri, store)
-            crossFade(() => setAccount(next))
+            const next = updateAccountSettingsUseCase(accountRef.current, change, actorUri, store)
+            showAccountSettings(next)
             if (accessToken && idpUrl) {
                 pushAccountSettingsUseCase(idpUrl, accessToken, next, actorUri, getAccountSettingsPort(), store)
                     // Stays unsynced on this device and goes out again on the next sign-in.
                     .catch(() => {})
             }
         },
-        [accessToken, idpUrl, actorUri],
+        [accessToken, idpUrl, actorUri, showAccountSettings],
     )
+
+    const setAppearance = useCallback(
+        (change: Partial<AppearanceSettings>) => {
+            const current = accountRef.current.appearance
+            if (Object.entries(change).every(([key, value]) => current[key as keyof AppearanceSettings] === value)) return
+            updateAccount({ appearance: change })
+        },
+        [updateAccount],
+    )
+
+    const setConversationMuted = useCallback(
+        (conversationId: string, muted: boolean) =>
+            updateAccount({ notifications: muteConversation(accountRef.current.notifications, conversationId, muted) }),
+        [updateAccount],
+    )
+
+    const setMuteAll = useCallback((muted: boolean) => updateAccount({ notifications: { muteAll: muted } }), [updateAccount])
 
     const receiveAccountSettings = useCallback(
         (remote: unknown) => {
@@ -140,5 +168,14 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
         [account.appearance, modePreference, mode, setAppearance, setModePreference, receiveAccountSettings],
     )
 
-    return <AppearanceContext.Provider value={value}>{children}</AppearanceContext.Provider>
+    const notificationSettings = useMemo(
+        () => ({ notifications: account.notifications, setConversationMuted, setMuteAll }),
+        [account.notifications, setConversationMuted, setMuteAll],
+    )
+
+    return (
+        <AppearanceContext.Provider value={value}>
+            <NotificationSettingsContext.Provider value={notificationSettings}>{children}</NotificationSettingsContext.Provider>
+        </AppearanceContext.Provider>
+    )
 }

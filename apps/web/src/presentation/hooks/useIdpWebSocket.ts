@@ -14,12 +14,14 @@ import type { WsConnectionStatus, WsServerEvent } from "@pinai/domain/models/ws"
 import type { Message } from "@/lib/types"
 import { actorUriToAddress } from "@pinai/domain/models/identity"
 import { applyFederationStatus } from "@pinai/domain/models/dm"
+import { shouldPingForMessage } from "@pinai/domain/models/mute"
 import { TYPING_INDICATOR_TTL_MS } from "@/store/slices/presence.slice"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 import { groupMembersQueryKey } from "@/presentation/pages/home/GroupMembersPanel/GroupMembersPanel.viewmodel"
 import { playDmNotificationSound } from "@/presentation/_libs/notification-sound"
 import { useAppearance } from "@/presentation/providers/AppearanceProvider/AppearanceProvider.context"
+import { useNotificationSettings } from "@/presentation/providers/AppearanceProvider/NotificationSettings.context"
 
 const UNDECRYPTABLE_PLACEHOLDER = "[encrypted]"
 
@@ -103,6 +105,7 @@ export function useIdpWebSocket(): void {
     const setAvatarFor = useAppStore((s) => s.setAvatarFor)
     const queryClient = useQueryClient()
     const { receiveAccountSettings } = useAppearance()
+    const { notifications } = useNotificationSettings()
 
     // Use refs for store actions to avoid stale closures in adapter callbacks.
     // The ref is seeded at mount and refreshed in a layout effect rather than
@@ -126,6 +129,7 @@ export function useIdpWebSocket(): void {
         addTyping,
         setAvatarFor,
         receiveAccountSettings,
+        notifications,
     }
     const actionsRef = useRef(actions)
     useLayoutEffect(() => {
@@ -417,9 +421,14 @@ export function useIdpWebSocket(): void {
 
                     // Sound plays whether or not the user is in this
                     // conversation — confirms the message arrived even
-                    // when they're looking elsewhere on screen. DND
-                    // status suppresses it entirely.
-                    if (useAppStore.getState().myStatus !== "dnd") {
+                    // when they're looking elsewhere on screen.
+                    if (
+                        shouldPingForMessage(
+                            actionsRef.current.notifications,
+                            conversationId,
+                            useAppStore.getState().myStatus,
+                        )
+                    ) {
                         playDmNotificationSound()
                     }
 

@@ -4,7 +4,10 @@ import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { ContextMenuTrigger } from "@/presentation/molecules/ContextMenu/ContextMenuTrigger"
 import { buildUserContextMenuItems } from "@/presentation/molecules/UserContextMenu/UserContextMenu.items"
 import { cn } from "@/presentation/_libs/utils"
+import { useConversationMute } from "@/presentation/hooks/useConversationMute"
+import { findConversation } from "@pinai/domain/models/dm"
 import { userStatusLabel } from "@pinai/domain/models/presence"
+import { useAppStore } from "@/store/store"
 import type { Friend } from "../FriendsPanel.viewmodel"
 
 interface FriendRowProps {
@@ -21,9 +24,14 @@ export function FriendRow({ friend, isActive, onOpen, onRemove }: FriendRowProps
         .map((n) => n[0])
         .join("")
 
+    const privateDmId = useAppStore((s) => findConversation(s.localDmConvos, friend.address)?.id)
+    const { isMuted, toggleMute } = useConversationMute(privateDmId)
+
     const menuItems = buildUserContextMenuItems({
         onMessage: () => onOpen(friend.address),
         onRemove: () => onRemove(friend),
+        onToggleMute: toggleMute,
+        isMuted,
     })
 
     return (

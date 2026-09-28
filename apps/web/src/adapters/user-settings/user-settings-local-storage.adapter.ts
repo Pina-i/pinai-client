@@ -4,7 +4,7 @@
  * both keys before anything paints — keep it in step with the keys and shapes.
  */
 
-import type { AccountSettings, DeviceSettings } from "@pinai/domain/models/user-settings"
+import type { AccountSettings, AccountSettingsSection, DeviceSettings } from "@pinai/domain/models/user-settings"
 import type { IUserSettingsStorePort } from "@pinai/domain/ports/user-settings.port"
 
 export const DEVICE_SETTINGS_KEY = "pinai.settings.device"
@@ -59,7 +59,7 @@ export class UserSettingsLocalStorageAdapter implements IUserSettingsStorePort {
         return read(ACCOUNT_SETTINGS_KEY)
     }
 
-    writeAccount(settings: AccountSettings, meta: { synced: boolean; owner: string | null }): void {
+    writeAccount(settings: AccountSettings, meta: { unsynced: AccountSettingsSection[]; owner: string | null }): void {
         write(ACCOUNT_SETTINGS_KEY, { ...settings, ...meta })
     }
 }

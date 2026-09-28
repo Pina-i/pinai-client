@@ -158,8 +158,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   survives reconciliation, and is looked up the other way for "Sent again at".
 
 ### models/user-settings.ts + ports/user-settings.port.ts + usecases/user-settings/
-- Two scopes. `AccountSettings` (`appearance: { family, motif }`) follow the
-  account to every device; `DeviceSettings` (`mode`) stay on the device.
+- Two scopes. `AccountSettings` (`appearance: { family, motif }`,
+  `notifications: { muteAll, mutedConversations }`) follow the account to
+  every device; `DeviceSettings` (`mode`) stay on the device.
 - `ModePreference` is `system | dark | light`; `resolveMode(preference,
   systemPrefersDark)` gives the painted `ThemeMode`. A theme is the pair
   `family-mode` (`themeId`) — each palette re-specifies its light values.
@@ -168,6 +169,22 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `IUserSettingsStorePort` — this device's store: its own settings plus its
   copy of the account's, raw on read. `load-user-settings` parses both;
   `update-account-settings` merges and saves; `update-device-settings` saves.
+- The copy tracks **which sections** are unsynced, and a push sends only
+  those. The IdP replaces each section it is sent, so a whole-document push
+  from a device with a stale palette would undo a mute made elsewhere, and
+  the other way round. A copy saved before sections were tracked
+  (`synced: false`) reads as an unsynced `appearance`.
+
+### models/mute.ts
+- `isConversationMuted(notifications, id)` — muted on its own, or everything
+  is. The conversation menus (`useConversationMute`) read
+  `mutedConversations` directly instead, so "Unmute" never shows for a mute
+  only "mute all" imposes. A friend's menu mutes the private DM with them
+  (`findConversation` by address).
+- `setConversationMuted(notifications, id, muted)` — idempotent toggle.
+- `shouldPingForMessage(notifications, id, myStatus)` — the incoming-message
+  sound: silent in DND or in a muted conversation. A muted conversation also
+  gets no server-strip bubble, but keeps its unread pill in the list.
 
 ### models/identity.ts
 - `actorUriToAddress(uri)` — only sanctioned converter between
