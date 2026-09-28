@@ -11,4 +11,6 @@ export interface ISocialPort {
     acceptFriendRequest(idpUrl: string, accessToken: string, friendshipId: string): Promise<void>
     /** Reject an incoming friend request (deletes the friendship row). */
     rejectFriendRequest(idpUrl: string, accessToken: string, friendshipId: string): Promise<void>
+    /** End a friendship on both sides. The DM conversation is kept. */
+    removeFriend(idpUrl: string, accessToken: string, friendActorUri: string): Promise<void>
 }

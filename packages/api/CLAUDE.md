@@ -2,9 +2,9 @@
 
 The IdP's HTTP and WebSocket surface, as adapters implementing domain ports.
 
-Eleven files, one per resource: OIDC, DMs, groups, social, presence, TOTP,
-user, device directory, the E2EE key directory, the history archive, and the
-WebSocket connection. `ky` for REST, `XMLHttpRequest` in `dm-api` where upload
+Twelve files, one per resource: OIDC, DMs, groups, social, presence, TOTP,
+user, user settings, device directory, the E2EE key directory, the history
+archive, and the WebSocket connection. `ky` for REST, `XMLHttpRequest` in `dm-api` where upload
 progress is needed, the platform `WebSocket` for the live connection.
 
 Nothing here is browser-specific. `fetch`, `XMLHttpRequest`, `FormData`,

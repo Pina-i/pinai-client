@@ -50,6 +50,15 @@ The film grain covers everything, overlays and the splash included. It is one el
 - Stacking inside a panel stays local and small (`z-[1]`…`z-40`).
 - When upgrading `react-aria`, check that `useOverlayPosition` still uses 100000.
 
+## Appearance
+
+`providers/AppearanceProvider` sits at the root (`main.tsx`) and owns the appearance through `useAppearance()`: the palette and motif (account settings), the mode preference (`system | dark | light`, this device's), and the mode actually painted, with `system` resolved against `prefers-color-scheme` and followed live.
+
+- The theme lives on `<html>`: `data-theme="family-mode"` selects the palette's tokens in `index.css`, and the `dark` / `light` class selects the mode (the `dark:` variant, `--motif-opacity`, `color-scheme`). `index.html` sets both before first paint from the same `localStorage` keys, so a reload never flashes the default.
+- Every change — `setAppearance`, `setModePreference`, or the OS flipping under `system` — commits inside a view transition, so the page cross-fades (`::view-transition-*` timing in `index.css`). With reduced motion, or without the API, it applies instantly.
+- Tokens are scoped by `data-theme`, and `@theme inline` makes utilities read them directly, so any element can preview another theme by carrying its own `data-theme` (see `ThemePreview`). Don't use the shadcn aliases (`bg-card`, …) there: they resolve on `:root`.
+- `<Motif>` draws the chosen motif unless given one; the SVGs in `assets/motifs/` are masks, so the colour comes from a token.
+
 ## Splash screen
 
 A full-page loading state doesn't draw a loader: it holds the splash. A loader inside a panel renders `<RiseLoader title? host? carryOver? />` (atoms), the same loader the splash shows.

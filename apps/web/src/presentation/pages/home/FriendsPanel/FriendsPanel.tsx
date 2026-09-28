@@ -1,9 +1,8 @@
 import { useState } from "react"
-import { Button } from "@/presentation/atoms/Button/Button"
-import { Modal } from "@/presentation/molecules/Modal/Modal"
-import { modalSurface } from "@/presentation/molecules/Modal/modal-surface"
 import { ContextMenu } from "@/presentation/molecules/ContextMenu/ContextMenu"
 import { UserContextMenu } from "@/presentation/molecules/UserContextMenu/UserContextMenu"
+import { RemoveFriendModal } from "@/presentation/molecules/RemoveFriendModal/RemoveFriendModal"
+import { useRemoveFriend } from "@/presentation/hooks/useRemoveFriend"
 import { cn } from "@/presentation/_libs/utils"
 import { useFriendsPanelViewModel } from "./FriendsPanel.viewmodel"
 import { AddFriendPopover } from "./AddFriendPopover/AddFriendPopover"
@@ -23,9 +22,11 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
     const [activeTab, setActiveTab] = useState<FriendTab>("All")
     const [friendToRemove, setFriendToRemove] = useState<{ id: string; name: string } | null>(null)
 
-    function handleConfirmRemove() {
-        // TODO: call removeFriend once the social port/adapter exposes it.
-        setFriendToRemove(null)
+    const { removeFriend, isRemoving } = useRemoveFriend()
+
+    async function handleConfirmRemove() {
+        if (!friendToRemove) return
+        if (await removeFriend(friendToRemove.id, friendToRemove.name)) setFriendToRemove(null)
     }
 
     const filteredFriends = friends.filter((f) => {
@@ -97,28 +98,12 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
                 ))}
             </div>
 
-            <Modal
-                isOpen={!!friendToRemove}
-                onClose={() => setFriendToRemove(null)}
-                label="Confirm remove friend"
-            >
-                <div className={cn(modalSurface, "w-[420px] p-6")}>
-                    <h3 className="title text-[20px] font-normal text-foreground">Remove friend?</h3>
-                    <p className="mt-2 text-[13.5px] leading-[1.55] text-muted-foreground">
-                        Are you sure you want to remove{" "}
-                        <span className="font-medium text-foreground">{friendToRemove?.name}</span>{" "}
-                        from your friends? This cannot be undone.
-                    </p>
-                    <div className="mt-6 flex justify-end gap-2">
-                        <Button variant="secondary" size="inline" onPress={() => setFriendToRemove(null)}>
-                            Cancel
-                        </Button>
-                        <Button variant="destructive" size="inline" onPress={handleConfirmRemove} className="font-semibold">
-                            Remove
-                        </Button>
-                    </div>
-                </div>
-            </Modal>
+            <RemoveFriendModal
+                friendName={friendToRemove?.name ?? null}
+                isPending={isRemoving}
+                onCancel={() => setFriendToRemove(null)}
+                onConfirm={handleConfirmRemove}
+            />
         </div>
     )
 }

@@ -19,6 +19,7 @@ import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsP
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 import { groupMembersQueryKey } from "@/presentation/pages/home/GroupMembersPanel/GroupMembersPanel.viewmodel"
 import { playDmNotificationSound } from "@/presentation/_libs/notification-sound"
+import { useAppearance } from "@/presentation/providers/AppearanceProvider/AppearanceProvider.context"
 
 const UNDECRYPTABLE_PLACEHOLDER = "[encrypted]"
 
@@ -101,6 +102,7 @@ export function useIdpWebSocket(): void {
     const addTyping = useAppStore((s) => s.addTyping)
     const setAvatarFor = useAppStore((s) => s.setAvatarFor)
     const queryClient = useQueryClient()
+    const { receiveAccountSettings } = useAppearance()
 
     // Use refs for store actions to avoid stale closures in adapter callbacks.
     // The ref is seeded at mount and refreshed in a layout effect rather than
@@ -123,6 +125,7 @@ export function useIdpWebSocket(): void {
         setPresence,
         addTyping,
         setAvatarFor,
+        receiveAccountSettings,
     }
     const actionsRef = useRef(actions)
     useLayoutEffect(() => {
@@ -536,14 +539,17 @@ export function useIdpWebSocket(): void {
                     }
                     break
                 }
+                case "settings_updated": {
+                    actionsRef.current.receiveAccountSettings(event.data.settings)
+                    break
+                }
                 case "device_joined": {
                     // useDeviceFanout owns the actual fanout via its registered ref.
                     deviceFanoutHandlerRef.current?.(event.data)
                     break
                 }
                 case "friend_request":
-                case "friend_accepted":
-                case "friend_removed": {
+                case "friend_accepted": {
                     actionsRef.current.addNotification({
                         // Stable composite id prevents duplicates with API-seeded notifications.
                         id: `${event.type}:${event.data.friendship_id}`,
@@ -561,9 +567,15 @@ export function useIdpWebSocket(): void {
                         queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
                         queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
                     }
-                    // When a friend is removed, also refresh.
-                    if (event.type === "friend_removed" && idpUrl) {
+                    break
+                }
+                case "friend_removed": {
+                    // Silent: an unfriend is never announced, the friend just
+                    // leaves the list. The DM conversation stays, but its row
+                    // is refetched with the list it shares a sidebar with.
+                    if (idpUrl) {
                         queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
+                        queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
                     }
                     break
                 }

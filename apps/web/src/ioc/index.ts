@@ -12,6 +12,7 @@ import { KeyDirectoryApiAdapter } from "@pinai/api/e2ee/key-directory.adapter"
 import { MlsAdapter } from "@pinai/mls/wasm.adapter"
 import { NobleRecoveryAdapter } from "@pinai/crypto/recovery.adapter"
 import { JwksCacheAdapter } from "@/adapters/jwks/jwks-cache.adapter"
+import { UserSettingsLocalStorageAdapter } from "@/adapters/user-settings/user-settings-local-storage.adapter"
 import { SocialApiAdapter } from "@pinai/api/social/social-api.adapter"
 import { DmApiAdapter } from "@pinai/api/dm/dm-api.adapter"
 import { GroupApiAdapter } from "@pinai/api/group/group-api.adapter"
@@ -19,6 +20,7 @@ import { IdpWsAdapter } from "@pinai/api/ws/idp-ws.adapter"
 import { PresenceApiAdapter } from "@pinai/api/presence/presence-api.adapter"
 import { TotpApiAdapter } from "@pinai/api/totp/totp-api.adapter"
 import { UserApiAdapter } from "@pinai/api/user/user-api.adapter"
+import { UserSettingsApiAdapter } from "@pinai/api/user-settings/user-settings-api.adapter"
 import { getAccountStorage, getSharedE2eeStorage, useAppStore } from "@/store/store"
 import type { ArchiveEnvelope, AttachmentBlobKey, TextBody } from "@pinai/domain/models/e2ee"
 import type { Message } from "@/lib/types"
@@ -36,6 +38,7 @@ import type { IWsPort } from "@pinai/domain/ports/ws.port"
 import type { IPresencePort } from "@pinai/domain/ports/presence.port"
 import type { ITotpPort } from "@pinai/domain/ports/totp.port"
 import type { IUserPort } from "@pinai/domain/ports/user.port"
+import type { IAccountSettingsPort, IUserSettingsStorePort } from "@pinai/domain/ports/user-settings.port"
 
 /**
  * Singleton instances.
@@ -67,6 +70,8 @@ const attachmentCryptoPort: IAttachmentCryptoPort = new WebCryptoAttachmentCrypt
 // plumbing — keeps the per-issuer JWKS and the in-memory History Archive
 // Key persistent across calls.
 const jwksCache = new JwksCacheAdapter()
+const userSettingsStore: IUserSettingsStorePort = new UserSettingsLocalStorageAdapter()
+const accountSettingsPort: IAccountSettingsPort = new UserSettingsApiAdapter()
 const historyArchivePort: IHistoryArchivePort = new HistoryArchiveApiAdapter()
 const historyArchiveCrypto = new HistoryArchiveAdapter()
 
@@ -198,6 +203,14 @@ export function getDeviceDirectoryPort(): IDeviceDirectoryPort {
 
 export function getAttachmentCryptoPort(): IAttachmentCryptoPort {
     return attachmentCryptoPort
+}
+
+export function getUserSettingsStore(): IUserSettingsStorePort {
+    return userSettingsStore
+}
+
+export function getAccountSettingsPort(): IAccountSettingsPort {
+    return accountSettingsPort
 }
 
 export function getJwksCache(): JwksCacheAdapter {

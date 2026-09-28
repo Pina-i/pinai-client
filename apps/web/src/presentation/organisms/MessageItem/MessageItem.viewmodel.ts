@@ -239,6 +239,7 @@ export function useMessageItemViewModel(
     // device never had the plaintext to resend.
     const showRetry = awaitsResend(message)
     const canRetry = showRetry && canResend(message)
+    const isUndelivered = message.status === "failed" || message.status === "undelivered"
 
     return {
         isOwn,
@@ -254,5 +255,6 @@ export function useMessageItemViewModel(
         retrySend,
         showRetry,
         canRetry,
+        isUndelivered,
     }
 }

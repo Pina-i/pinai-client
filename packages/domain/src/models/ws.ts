@@ -147,6 +147,8 @@ export type WsServerEvent =
     | { type: "member_removed"; data: MemberRemovedPayload }
     | { type: "member_role_changed"; data: MemberRoleChangedPayload }
     | { type: "group_renamed"; data: GroupRenamedPayload }
+    /** The account settings changed from one of the user's sessions; `settings` is the whole document, raw. */
+    | { type: "settings_updated"; data: { settings: unknown } }
     | { type: "heartbeat_ack"; data?: Record<string, never> }
 
 // ── Client → Server messages ────────────────────────────────────────────────
@@ -168,7 +170,8 @@ export type WsConnectionStatus = "disconnected" | "connecting" | "connected"
 
 // ── Notification model ──────────────────────────────────────────────────────
 
-export type WsNotificationEventType = "friend_request" | "friend_accepted" | "friend_removed"
+/** `friend_removed` is absent on purpose: an unfriend is never announced. */
+export type WsNotificationEventType = "friend_request" | "friend_accepted"
 
 export interface WsNotification {
     id: string

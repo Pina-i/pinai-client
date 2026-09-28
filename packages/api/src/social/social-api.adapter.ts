@@ -74,4 +74,17 @@ export class SocialApiAdapter implements ISocialPort {
             throw error
         }
     }
+
+    async removeFriend(idpUrl: string, accessToken: string, friendActorUri: string): Promise<void> {
+        const url = `${idpUrl.replace(/\/$/, "")}/api/friends/${encodeURIComponent(friendActorUri)}`
+        try {
+            await ky.delete(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+        } catch (error) {
+            if (error instanceof HTTPError) {
+                const err = await error.response.json().catch(() => ({})) as { error?: string }
+                throw new Error(err.error ?? `Remove friend failed: ${error.response.status}`)
+            }
+            throw error
+        }
+    }
 }

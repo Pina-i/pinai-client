@@ -10,9 +10,9 @@ HTTP and WebSocket surface) and `@pinai/crypto` (the E2EE core).
 
 What remains under `adapters/` is the part that is genuinely this platform's:
 the WASM MLS engine, the WebCrypto device key, IndexedDB, `sessionStorage`
-for the PKCE round-trip, `localStorage` for the JWKS TTL and for which
-account's storage is open, and browser navigation. That list is the mobile
-port's inventory.
+for the PKCE round-trip, `localStorage` for the JWKS TTL, for which
+account's storage is open and for this device's appearance, and browser
+navigation. That list is the mobile port's inventory.
 
 ```
 locales/              # Translation files

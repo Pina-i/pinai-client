@@ -1,18 +1,22 @@
 import { Moon, Sun } from "lucide-react"
-import { useTheme } from "next-themes"
 import { Switch as AriaSwitch } from "react-aria-components"
+import { useAppearance } from "@/presentation/providers/AppearanceProvider/AppearanceProvider.context"
 import { cn } from "@/presentation/_libs/utils"
 
+/**
+ * Flips the current palette between dark and light on this device. From
+ * `system`, it pins the mode opposite to the one showing.
+ */
 export function ThemeSwitcher() {
-    const { resolvedTheme, setTheme } = useTheme()
-    const isLight = resolvedTheme === "light"
+    const { mode, setModePreference } = useAppearance()
+    const isLight = mode === "light"
 
     return (
         <div className="flex items-center gap-2 rounded-full bg-surf2 px-[11px] py-[5px] text-muted-foreground">
             <Moon className="h-3 w-3" />
             <AriaSwitch
                 isSelected={isLight}
-                onChange={(selected) => setTheme(selected ? "light" : "dark")}
+                onChange={(selected) => setModePreference(selected ? "light" : "dark")}
                 aria-label="Toggle light"
                 className="group flex shrink-0 cursor-pointer items-center outline-none"
             >

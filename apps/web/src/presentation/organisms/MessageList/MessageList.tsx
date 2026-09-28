@@ -6,10 +6,11 @@ import {
     Virtualizer,
 } from "react-aria-components"
 import { DateDivider } from "@/presentation/molecules/DateDivider/DateDivider"
-import { ReactionPickerContext } from "./MessageList.context"
+import { MessageThreadContext, ReactionPickerContext, type LinkedMessage } from "./MessageList.context"
 import { formatDateDividerLabel } from "@/presentation/molecules/DateDivider/DateDivider.helper"
 import { EmojiPickerPopover } from "@/presentation/molecules/EmojiPickerPopover/EmojiPickerPopover"
 import type { Message } from "@/lib/types"
+import { resentCopies } from "@pinai/domain/models/dm"
 import { cn } from "@/presentation/_libs/utils"
 import { MessageItem } from "../MessageItem/MessageItem"
 import { useStickToBottom } from "./MessageList.scroll"
@@ -40,6 +41,8 @@ const SEQUENCE_GAP_MS = 5 * 60 * 1000
  */
 const ESTIMATED_ROW_SIZE = 56
 const LIST_PADDING = 2
+/** How long a row jumped to stays highlighted. */
+const FLASH_MS = 1700
 const LIST_GAP = 0
 
 type RowItem =
@@ -197,6 +200,52 @@ export const MessageList = memo(function MessageList({
 
     useStickToBottom(scrollRef, conversationKey, items.length)
 
+    // ─── Links between rows ───────────────────────────────────────────────────
+
+    const threadLinks = useMemo(() => {
+        const links = new Map<string, LinkedMessage>()
+        for (const [from, copy] of resentCopies(messages)) links.set(from, { id: copy.id, timestamp: copy.timestamp })
+        return links
+    }, [messages])
+
+    const itemsRef = useRef(items)
+    useEffect(() => {
+        itemsRef.current = items
+    })
+    const [flashedMessageId, setFlashedMessageId] = useState<string | null>(null)
+    const flashTimerRef = useRef<number | undefined>(undefined)
+
+    // Rows off-screen aren't in the DOM, so a jump first scrolls to the row's
+    // estimated offset and looks again once the virtualizer has rendered it.
+    const jumpToMessage = useCallback((messageId: string) => {
+        const box = scrollRef.current
+        if (!box) return
+        const reveal = (attemptsLeft: number) => {
+            const row = box.querySelector<HTMLElement>(`[data-key="${CSS.escape(messageId)}"]`)
+            if (row) {
+                const top = box.scrollTop + row.getBoundingClientRect().top - box.getBoundingClientRect().top
+                box.scrollTo({ top: top - box.clientHeight / 2 + row.offsetHeight / 2, behavior: "smooth" })
+                setFlashedMessageId(null)
+                requestAnimationFrame(() => setFlashedMessageId(messageId))
+                window.clearTimeout(flashTimerRef.current)
+                flashTimerRef.current = window.setTimeout(() => setFlashedMessageId(null), FLASH_MS)
+                return
+            }
+            const index = itemsRef.current.findIndex((item) => item.id === messageId)
+            if (index === -1 || attemptsLeft === 0) return
+            box.scrollTop = index * ESTIMATED_ROW_SIZE - box.clientHeight / 2
+            requestAnimationFrame(() => reveal(attemptsLeft - 1))
+        }
+        reveal(3)
+    }, [])
+
+    useEffect(() => () => window.clearTimeout(flashTimerRef.current), [])
+
+    const threadContextValue = useMemo(
+        () => ({ resentCopies: threadLinks, flashedMessageId, jumpToMessage }),
+        [threadLinks, flashedMessageId, jumpToMessage],
+    )
+
     // Close the reaction picker when the user scrolls — the trigger
     // button can be virtualized-away mid-open and a stale ref would
     // anchor the popover to a detached element. Same when conversation
@@ -217,80 +266,82 @@ export const MessageList = memo(function MessageList({
 
     return (
         <ReactionPickerContext.Provider value={pickerContextValue}>
-            <Virtualizer
-                layout={ListLayout}
-                layoutOptions={{
-                    estimatedRowSize: ESTIMATED_ROW_SIZE,
-                    gap: LIST_GAP,
-                    padding: LIST_PADDING,
-                }}
-            >
-                <ListBox
-                    ref={scrollRef}
-                    aria-label="Messages"
-                    selectionMode="none"
-                    items={items}
-                    // Everything the row renderer closes over: a change re-renders the rows, nothing else does.
-                    dependencies={[conversationKey, recipientAddress, isGroup, onReply, onRetry, canResend, openReactionPicker]}
-                    className="min-h-0 flex-1 overflow-auto outline-none"
-                    style={{ display: "block" }}
+            <MessageThreadContext.Provider value={threadContextValue}>
+                <Virtualizer
+                    layout={ListLayout}
+                    layoutOptions={{
+                        estimatedRowSize: ESTIMATED_ROW_SIZE,
+                        gap: LIST_GAP,
+                        padding: LIST_PADDING,
+                    }}
                 >
-                    {(item) => (
-                        <ListBoxItem
-                            id={item.id}
-                            textValue={item.kind === "message" ? item.message.content : item.label}
-                            className={cn("px-1.5 outline-none", item.kind === "message" && item.first && "pt-2")}
-                        >
-                            {item.kind === "divider" ? (
-                                <DateDivider label={item.label} />
-                            ) : (
-                                <MessageItem
-                                    message={item.message}
-                                    conversationKey={conversationKey}
-                                    recipientAddress={recipientAddress}
-                                    isGroup={isGroup}
-                                    first={item.first}
-                                    onReply={onReply}
-                                    onRetry={onRetry}
-                                    canResend={canResend}
-                                    onOpenReactionPicker={openReactionPicker}
-                                />
-                            )}
-                        </ListBoxItem>
-                    )}
-                </ListBox>
-            </Virtualizer>
+                    <ListBox
+                        ref={scrollRef}
+                        aria-label="Messages"
+                        selectionMode="none"
+                        items={items}
+                        // Everything the row renderer closes over: a change re-renders the rows, nothing else does.
+                        dependencies={[conversationKey, recipientAddress, isGroup, onReply, onRetry, canResend, openReactionPicker]}
+                        className="min-h-0 flex-1 overflow-auto outline-none"
+                        style={{ display: "block" }}
+                    >
+                        {(item) => (
+                            <ListBoxItem
+                                id={item.id}
+                                textValue={item.kind === "message" ? item.message.content : item.label}
+                                className={cn("px-1.5 outline-none", item.kind === "message" && item.first && "pt-2")}
+                            >
+                                {item.kind === "divider" ? (
+                                    <DateDivider label={item.label} />
+                                ) : (
+                                    <MessageItem
+                                        message={item.message}
+                                        conversationKey={conversationKey}
+                                        recipientAddress={recipientAddress}
+                                        isGroup={isGroup}
+                                        first={item.first}
+                                        onReply={onReply}
+                                        onRetry={onRetry}
+                                        canResend={canResend}
+                                        onOpenReactionPicker={openReactionPicker}
+                                    />
+                                )}
+                            </ListBoxItem>
+                        )}
+                    </ListBox>
+                </Virtualizer>
 
-            {/* Stable anchor — always in the DOM with a React-attached
-                ref so the Popover's bounding-rect observer can settle
-                on it. Repositioned via inline CSS to mirror whichever
-                smile button opened the picker. `pointer-events-none`
-                keeps it from intercepting interaction. */}
-            <div
-                ref={reactionAnchorRef}
-                aria-hidden
-                className="pointer-events-none fixed"
-                style={{
-                    top: reactionPicker?.anchorRect.top ?? -9999,
-                    left: reactionPicker?.anchorRect.left ?? -9999,
-                    width: reactionPicker?.anchorRect.width ?? 0,
-                    height: reactionPicker?.anchorRect.height ?? 0,
-                }}
-            />
+                {/* Stable anchor — always in the DOM with a React-attached
+                    ref so the Popover's bounding-rect observer can settle
+                    on it. Repositioned via inline CSS to mirror whichever
+                    smile button opened the picker. `pointer-events-none`
+                    keeps it from intercepting interaction. */}
+                <div
+                    ref={reactionAnchorRef}
+                    aria-hidden
+                    className="pointer-events-none fixed"
+                    style={{
+                        top: reactionPicker?.anchorRect.top ?? -9999,
+                        left: reactionPicker?.anchorRect.left ?? -9999,
+                        width: reactionPicker?.anchorRect.width ?? 0,
+                        height: reactionPicker?.anchorRect.height ?? 0,
+                    }}
+                />
 
-            <EmojiPickerPopover
-                triggerRef={reactionAnchorRef}
-                isOpen={reactionPicker !== null}
-                onOpenChange={(open) => {
-                    if (!open) closeReactionPicker()
-                }}
-                placement="bottom end"
-                offset={6}
-                onEmojiSelect={(emoji) => {
-                    reactionPicker?.onReact(emoji)
-                    closeReactionPicker()
-                }}
-            />
+                <EmojiPickerPopover
+                    triggerRef={reactionAnchorRef}
+                    isOpen={reactionPicker !== null}
+                    onOpenChange={(open) => {
+                        if (!open) closeReactionPicker()
+                    }}
+                    placement="bottom end"
+                    offset={6}
+                    onEmojiSelect={(emoji) => {
+                        reactionPicker?.onReact(emoji)
+                        closeReactionPicker()
+                    }}
+                />
+            </MessageThreadContext.Provider>
         </ReactionPickerContext.Provider>
     )
 })

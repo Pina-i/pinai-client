@@ -99,6 +99,46 @@ export interface SendState {
     statusAt?: string
     /** An undelivered message that was already sent again as a new one. */
     resent?: boolean
+    /** On the new message: the id of the undelivered one it was sent again from. */
+    resentFrom?: string
+}
+
+/**
+ * How long a send may stay `sending` before it counts as failed. A send over
+ * the WebSocket is fire-and-forget — only the server's echo confirms it — and
+ * a page closed mid-send leaves the message `sending` in the persisted cache.
+ * Neither would ever settle on its own, so it could never be retried.
+ */
+export const SEND_TIMEOUT_MS = 20_000
+
+/**
+ * Mark a send that has waited past {@link SEND_TIMEOUT_MS} as failed, so it
+ * offers a retry. Returns the same object when nothing changes. An echo that
+ * still arrives later reconciles the message to sent as usual.
+ */
+export function settleStaleSend<T extends SendState>(message: T, now: number): T {
+    if (message.status !== "sending" || !message.statusAt) return message
+    if (now - Date.parse(message.statusAt) < SEND_TIMEOUT_MS) return message
+    return { ...message, status: "failed", statusAt: new Date(now).toISOString() }
+}
+
+/**
+ * The confirmed copy of an optimistic message replaces it, keeping what only
+ * the client knows: which undelivered message it was sent again from.
+ */
+export function reconcileOptimistic<T extends SendState>(optimistic: T, confirmed: T): T {
+    if (!optimistic.resentFrom || confirmed.resentFrom) return confirmed
+    return { ...confirmed, resentFrom: optimistic.resentFrom }
+}
+
+/**
+ * For each undelivered message that was sent again, the message that
+ * replaced it — keyed by the undelivered message's id.
+ */
+export function resentCopies<T extends SendState & { id: string }>(messages: T[]): Map<string, T> {
+    const copies = new Map<string, T>()
+    for (const m of messages) if (m.resentFrom) copies.set(m.resentFrom, m)
+    return copies
 }
 
 /**

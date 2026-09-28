@@ -1,8 +1,11 @@
+import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { Button } from "react-aria-components"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { ContextMenu } from "@/presentation/molecules/ContextMenu/ContextMenu"
 import { UserContextMenu } from "@/presentation/molecules/UserContextMenu/UserContextMenu"
+import { RemoveFriendModal } from "@/presentation/molecules/RemoveFriendModal/RemoveFriendModal"
+import { useIsFriend, useRemoveFriend } from "@/presentation/hooks/useRemoveFriend"
 import { GroupContextMenu } from "@/presentation/molecules/GroupContextMenu/GroupContextMenu"
 import { cn } from "@/presentation/_libs/utils"
 import { presenceToUserStatus, userStatusLabel } from "@pinai/domain/models/presence"
@@ -30,45 +33,67 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
             : (preview ?? userStatusLabel(presenceToUserStatus(presence)).toLowerCase())
     const sublineIsFact = preview == null
 
+    const peerActorUri = dm.kind === "dm" ? dm.actorUri : null
+    const isFriend = useIsFriend(peerActorUri)
+    const { removeFriend, isRemoving } = useRemoveFriend()
+    const [isConfirmingRemove, setIsConfirmingRemove] = useState(false)
+
+    async function handleConfirmRemove() {
+        if (peerActorUri && (await removeFriend(peerActorUri, dm.displayName))) setIsConfirmingRemove(false)
+    }
+
     return (
-        <ContextMenu
-            trigger={(isOpen) => (
-                <Button
-                    onPress={() => navigate({ to: "/dm/$name", params: { name: dm.id } })}
-                    className={cn(sidebarRowClass, isActive ? sidebarRowOnClass : isOpen && sidebarRowHotClass)}
-                >
-                    <Avatar
-                        initials={dm.avatar}
-                        imageUrl={avatarUrl}
-                        seed={dm.address}
-                        tone={dm.kind === "group" ? "sec" : undefined}
-                        size="sm"
-                        status={dm.kind === "dm" ? presenceToUserStatus(presence) : undefined}
-                    />
-                    <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="title truncate text-[14px] font-semibold text-foreground">{dm.displayName}</span>
-                        {subline && (
-                            <span
-                                className={cn(
-                                    "truncate text-muted-foreground",
-                                    sublineIsFact ? "font-mono text-[10px] tracking-[0.03em]" : "text-[11px]",
-                                )}
-                            >
-                                {subline}
-                            </span>
-                        )}
-                    </span>
-                    {unread > 0 && !isActive && <UnreadPill count={unread} />}
-                </Button>
-            )}
-        >
-            {(close) =>
-                dm.kind === "group" ? (
-                    <GroupContextMenu displayName={dm.displayName} onClose={close} />
-                ) : (
-                    <UserContextMenu displayName={dm.displayName} onClose={close} />
-                )
-            }
-        </ContextMenu>
+        <>
+            <ContextMenu
+                trigger={(isOpen) => (
+                    <Button
+                        onPress={() => navigate({ to: "/dm/$name", params: { name: dm.id } })}
+                        className={cn(sidebarRowClass, isActive ? sidebarRowOnClass : isOpen && sidebarRowHotClass)}
+                    >
+                        <Avatar
+                            initials={dm.avatar}
+                            imageUrl={avatarUrl}
+                            seed={dm.address}
+                            tone={dm.kind === "group" ? "sec" : undefined}
+                            size="sm"
+                            status={dm.kind === "dm" ? presenceToUserStatus(presence) : undefined}
+                        />
+                        <span className="flex min-w-0 flex-1 flex-col">
+                            <span className="title truncate text-[14px] font-semibold text-foreground">{dm.displayName}</span>
+                            {subline && (
+                                <span
+                                    className={cn(
+                                        "truncate text-muted-foreground",
+                                        sublineIsFact ? "font-mono text-[10px] tracking-[0.03em]" : "text-[11px]",
+                                    )}
+                                >
+                                    {subline}
+                                </span>
+                            )}
+                        </span>
+                        {unread > 0 && !isActive && <UnreadPill count={unread} />}
+                    </Button>
+                )}
+            >
+                {(close) =>
+                    dm.kind === "group" ? (
+                        <GroupContextMenu displayName={dm.displayName} onClose={close} />
+                    ) : (
+                        <UserContextMenu
+                            displayName={dm.displayName}
+                            onClose={close}
+                            isFriend={isFriend}
+                            onRemove={() => setIsConfirmingRemove(true)}
+                        />
+                    )
+                }
+            </ContextMenu>
+            <RemoveFriendModal
+                friendName={isConfirmingRemove ? dm.displayName : null}
+                isPending={isRemoving}
+                onCancel={() => setIsConfirmingRemove(false)}
+                onConfirm={handleConfirmRemove}
+            />
+        </>
     )
 }
