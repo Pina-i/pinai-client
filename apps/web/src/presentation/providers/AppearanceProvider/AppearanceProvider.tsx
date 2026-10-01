@@ -19,13 +19,14 @@ import {
 } from "@pinai/domain/usecases/user-settings/sync-account-settings.usecase"
 import { updateAccountSettingsUseCase } from "@pinai/domain/usecases/user-settings/update-account-settings.usecase"
 import { updateDeviceSettingsUseCase } from "@pinai/domain/usecases/user-settings/update-device-settings.usecase"
-import { setConversationMuted as muteConversation } from "@pinai/domain/models/mute"
+import { notificationsAt, setConversationMuted as muteConversation } from "@pinai/domain/models/mute"
 import { getAccountSettingsPort, getUserSettingsStore } from "@/ioc"
 import { useAppStore } from "@/store/store"
 import { AppearanceContext } from "./AppearanceProvider.context"
 import { NotificationSettingsContext } from "./NotificationSettings.context"
 
 const DARK_QUERY = "(prefers-color-scheme: dark)"
+const MAX_TIMEOUT_MS = 2 ** 31 - 1
 
 /** The theme lives on <html>: `data-theme` picks the palette, the class picks the mode. */
 function applyToDocument(family: ThemeFamily, mode: ThemeMode) {
@@ -72,6 +73,9 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     const idpUrl = useAppStore((s) => s.idpUrl)
     const actorUri = useAppStore((s) => s.user?.actor_uri ?? null)
 
+    // What a timed "mute all" is read against: it ticks when the mute lapses, so what it silenced wakes with it.
+    const [muteClock, setMuteClock] = useState(() => Date.now())
+
     const accountRef = useRef(account)
     const mode = resolveMode(modePreference, systemPrefersDark)
     const { family } = account.appearance
@@ -89,6 +93,15 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
         query.addEventListener("change", onChange)
         return () => query.removeEventListener("change", onChange)
     }, [])
+
+    const { muteAll, muteAllUntil } = account.notifications
+    useEffect(() => {
+        if (!muteAll || muteAllUntil === null || muteClock >= muteAllUntil) return
+        // setTimeout fires at once past ~24.8 days, so a longer mute re-arms on each tick instead.
+        const delay = Math.min(Math.max(0, muteAllUntil - Date.now()), MAX_TIMEOUT_MS)
+        const timer = window.setTimeout(() => setMuteClock(Date.now()), delay)
+        return () => window.clearTimeout(timer)
+    }, [muteAll, muteAllUntil, muteClock])
 
     const showAccountSettings = useCallback((next: AccountSettings | null) => {
         if (!next || sameAccountSettings(next, accountRef.current)) return
@@ -142,7 +155,11 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
         [updateAccount],
     )
 
-    const setMuteAll = useCallback((muted: boolean) => updateAccount({ notifications: { muteAll: muted } }), [updateAccount])
+    const setMuteAll = useCallback(
+        (muted: boolean, until: number | null = null) =>
+            updateAccount({ notifications: { muteAll: muted, muteAllUntil: muted ? until : null } }),
+        [updateAccount],
+    )
 
     const receiveAccountSettings = useCallback(
         (remote: unknown) => {
@@ -168,9 +185,10 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
         [account.appearance, modePreference, mode, setAppearance, setModePreference, receiveAccountSettings],
     )
 
+    const notifications = useMemo(() => notificationsAt(account.notifications, muteClock), [account.notifications, muteClock])
     const notificationSettings = useMemo(
-        () => ({ notifications: account.notifications, setConversationMuted, setMuteAll }),
-        [account.notifications, setConversationMuted, setMuteAll],
+        () => ({ notifications, setConversationMuted, setMuteAll }),
+        [notifications, setConversationMuted, setMuteAll],
     )
 
     return (

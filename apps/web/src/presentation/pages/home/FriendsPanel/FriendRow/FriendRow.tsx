@@ -15,11 +15,12 @@ interface FriendRowProps {
     /** True while this row's context menu is open. */
     isActive?: boolean
     onOpen: (address: string) => void
+    onProfile: (friend: Friend) => void
     onRemove: (friend: Friend) => void
     onBlock: (friend: Friend) => void
 }
 
-export function FriendRow({ friend, isActive, onOpen, onRemove, onBlock }: FriendRowProps) {
+export function FriendRow({ friend, isActive, onOpen, onProfile, onRemove, onBlock }: FriendRowProps) {
     const initials = friend.name
         .split(" ")
         .map((n) => n[0])
@@ -30,6 +31,7 @@ export function FriendRow({ friend, isActive, onOpen, onRemove, onBlock }: Frien
 
     const menuItems = buildUserContextMenuItems({
         onMessage: () => onOpen(friend.address),
+        onProfile: () => onProfile(friend),
         onRemove: () => onRemove(friend),
         onToggleMute: toggleMute,
         isMuted,

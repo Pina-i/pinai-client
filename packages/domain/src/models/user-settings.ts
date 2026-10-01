@@ -34,6 +34,8 @@ export interface AppearanceSettings {
 
 export interface NotificationSettings {
     muteAll: boolean
+    /** Epoch ms at which "mute all" lifts by itself; `null` while it lasts until the user unmutes. */
+    muteAllUntil: number | null
     /** Conversation ids. */
     mutedConversations: string[]
 }
@@ -59,7 +61,7 @@ export interface AccountSettingsChange {
 
 export const DEFAULT_ACCOUNT_SETTINGS: AccountSettings = {
     appearance: { family: "pearl", motif: "kowhaiwhai" },
-    notifications: { muteAll: false, mutedConversations: [] },
+    notifications: { muteAll: false, muteAllUntil: null, mutedConversations: [] },
 }
 
 export const DEFAULT_DEVICE_SETTINGS: DeviceSettings = { mode: "system" }
@@ -85,6 +87,7 @@ export function parseAccountSettings(raw: unknown): AccountSettings {
     const appearance = record(record(raw).appearance)
     const notifications = record(record(raw).notifications)
     const muted = Array.isArray(notifications.mutedConversations) ? notifications.mutedConversations : []
+    const until = notifications.muteAllUntil
     const fallback = DEFAULT_ACCOUNT_SETTINGS.appearance
     return {
         appearance: {
@@ -93,6 +96,7 @@ export function parseAccountSettings(raw: unknown): AccountSettings {
         },
         notifications: {
             muteAll: notifications.muteAll === true,
+            muteAllUntil: typeof until === "number" && Number.isFinite(until) ? until : null,
             mutedConversations: muted.filter((id): id is string => typeof id === "string"),
         },
     }

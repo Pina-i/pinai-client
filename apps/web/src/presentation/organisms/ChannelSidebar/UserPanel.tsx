@@ -1,4 +1,4 @@
-import { Headphones, HeadphoneOff, Mic, MicOff, Settings } from "lucide-react"
+import { BellOff, Headphones, HeadphoneOff, Mic, MicOff, Settings } from "lucide-react"
 import { memo, useState } from "react"
 import { Button } from "react-aria-components"
 import { useAppStore } from "@/store/store"
@@ -7,6 +7,8 @@ import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { Tooltip } from "@/presentation/atoms/Tooltip/Tooltip"
 import { cn } from "@/presentation/_libs/utils"
+import { useNotificationSettings } from "@/presentation/providers/AppearanceProvider/NotificationSettings.context"
+import { clockTime, muteUntilLabel } from "./_helpers/mute-end.helper"
 import { UserBarPopover } from "./UserBarPopover/UserBarPopover"
 
 const statusDotClass = {
@@ -23,6 +25,7 @@ export const UserPanel = memo(function UserPanel() {
     const myStatus = useAppStore((s) => s.myStatus)
     const showSettings = useAppStore((s) => s.showSettings)
     const setShowSettings = useAppStore((s) => s.setShowSettings)
+    const { notifications } = useNotificationSettings()
 
     const [isMuted, setIsMuted] = useState(false)
     const [isDeafened, setIsDeafened] = useState(false)
@@ -31,6 +34,8 @@ export const UserPanel = memo(function UserPanel() {
 
     const displayName = user.display_name ?? user.preferred_username
     const initials = displayName.slice(0, 2).toUpperCase()
+    const statusLabel = userStatusLabel(myStatus).toLowerCase()
+    const mutedUntil = muteUntilLabel(notifications.muteAllUntil)
 
     return (
         <div className="relative flex items-center gap-[9px] border-t border-line bg-surf2 p-[11px]">
@@ -40,17 +45,37 @@ export const UserPanel = memo(function UserPanel() {
                         aria-label={`Open status menu for ${displayName}`}
                         className="-m-1 flex min-w-0 flex-1 cursor-pointer items-center gap-[9px] rounded-full p-1 text-left outline-none transition-colors duration-150 hover:bg-surf3 aria-expanded:bg-surf3 focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                        <Avatar
-                            initials={initials}
-                            imageUrl={user.avatar_url}
-                            size="sm"
-                            status={myStatus}
-                        />
+                        <span className="relative flex shrink-0">
+                            <Avatar
+                                initials={initials}
+                                imageUrl={user.avatar_url}
+                                size="sm"
+                                status={myStatus}
+                            />
+                            {notifications.muteAll && (
+                                <span
+                                    title={`Notifications muted ${mutedUntil}`}
+                                    className="absolute -left-1 -top-1 flex h-[15px] w-[15px] items-center justify-center rounded-full bg-acc text-acc-ink shadow-[0_0_0_2px_var(--background)]"
+                                >
+                                    <BellOff className="h-2 w-2" />
+                                </span>
+                            )}
+                        </span>
                         <span className="flex min-w-0 flex-1 flex-col">
                             <span className="truncate text-[13px] font-bold text-foreground">{displayName}</span>
                             <span className="flex items-center gap-[5px] truncate font-mono text-[10px] tracking-[0.03em] text-muted-foreground">
                                 <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", statusDotClass[myStatus])} />
-                                <span className="truncate">{userStatusLabel(myStatus).toLowerCase()}</span>
+                                {notifications.muteAll ? (
+                                    <span
+                                        title={`${statusLabel} · notifications muted ${mutedUntil}`}
+                                        className="inline-flex items-center gap-[3px] truncate text-acc"
+                                    >
+                                        <BellOff className="h-2.5 w-2.5 shrink-0" />
+                                        {notifications.muteAllUntil === null ? "muted" : clockTime(notifications.muteAllUntil)}
+                                    </span>
+                                ) : (
+                                    <span className="truncate">{statusLabel}</span>
+                                )}
                             </span>
                         </span>
                     </Button>

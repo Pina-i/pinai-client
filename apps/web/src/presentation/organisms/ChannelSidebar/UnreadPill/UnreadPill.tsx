@@ -1,6 +1,20 @@
-export function UnreadPill({ count }: { count: number }) {
+import { cn } from "@/presentation/_libs/utils"
+
+interface UnreadPillProps {
+    count: number
+    isMuted?: boolean
+    className?: string
+}
+
+export function UnreadPill({ count, isMuted = false, className }: UnreadPillProps) {
     return (
-        <span className="shrink-0 rounded-full bg-acc px-2 py-0.5 font-mono text-[9.5px] font-bold text-acc-ink">
+        <span
+            className={cn(
+                "shrink-0 rounded-full px-2 py-0.5 font-mono text-[9.5px]",
+                isMuted ? "bg-surf3 font-medium text-muted-foreground" : "bg-acc font-bold text-acc-ink",
+                className,
+            )}
+        >
             {count}
         </span>
     )

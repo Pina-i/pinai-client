@@ -4,6 +4,7 @@ import { useAppStore } from "@/store/store"
 import { toast } from "sonner"
 import { getE2eePort, getGroupPort } from "@/ioc"
 import { distributeGroupKeysUseCase } from "@pinai/domain/usecases/e2ee/distribute-group-keys.usecase"
+import { MAX_GROUP_MEMBERS, seatsLeft } from "@pinai/domain/models/group"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 import { groupMembersQueryKey } from "@/presentation/pages/home/GroupMembersPanel/GroupMembersPanel.viewmodel"
 import { useFriendsPanelViewModel, type Friend } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
@@ -55,6 +56,9 @@ export function useGroupComposerViewModel(composer: GroupComposerState, onClose:
         [friends, selectedIds],
     )
 
+    // The creator counts, and so does everyone already in the group being added to.
+    const isFull = seatsLeft((isAddMode ? (existingMembers?.length ?? 0) : 1) + selectedIds.size) === 0
+
     /** True when any selected member lives on a different instance. */
     const hasFederatedSelection = useMemo(
         () => selectedFriends.some((f) => f.address.split("@")[1] !== idpUrl?.replace(/^https?:\/\//, "")),
@@ -66,7 +70,7 @@ export function useGroupComposerViewModel(composer: GroupComposerState, onClose:
         setExplicitSelection((prev) => {
             const next = new Set(prev ?? prefillSelection)
             if (next.has(friend.id)) next.delete(friend.id)
-            else next.add(friend.id)
+            else if (!isFull) next.add(friend.id)
             return next
         })
     }
@@ -143,6 +147,8 @@ export function useGroupComposerViewModel(composer: GroupComposerState, onClose:
         selectedFriends,
         selectedIds,
         excludedIds,
+        isFull,
+        maxMembers: MAX_GROUP_MEMBERS,
         hasFederatedSelection,
         toggle,
         submit,

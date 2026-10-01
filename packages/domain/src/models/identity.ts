@@ -36,6 +36,12 @@ export function actorUriToAddress(uri: string): string {
     }
 }
 
+/** `handle@host` → its two parts; an address without an `@` is all handle. */
+export function addressParts(address: string): { handle: string; host: string } {
+    const at = address.lastIndexOf("@")
+    return at < 0 ? { handle: address, host: "" } : { handle: address.slice(0, at), host: address.slice(at + 1) }
+}
+
 /**
  * Inverse of {@link actorUriToAddress}: `username@host` → canonical
  * `<scheme>://<host>/users/<username>`. Used when we hold an address

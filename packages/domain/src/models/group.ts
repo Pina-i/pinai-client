@@ -10,6 +10,14 @@ export interface GroupMember {
 
 export type GroupRole = "admin" | "member"
 
+/** How many people a group holds at most, its creator included: the IdP refuses more. */
+export const MAX_GROUP_MEMBERS = 50
+
+/** How many more people a group of `members` can take. */
+export function seatsLeft(members: number): number {
+    return Math.max(0, MAX_GROUP_MEMBERS - members)
+}
+
 /** A group conversation snapshot returned by create / rename. */
 export interface GroupView {
     conversationId: string

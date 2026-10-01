@@ -34,7 +34,7 @@ import { isConversationMuted, setConversationMuted } from "@pinai/domain/models/
 const IDP = "http://localhost:8080"
 const ALICE = "https://idp.alice.test/users/alice_xK9mP"
 const BOB = "https://idp.alice.test/users/bob_Qw3rT"
-const UNMUTED = { muteAll: false, mutedConversations: [] }
+const UNMUTED = { muteAll: false, muteAllUntil: null, mutedConversations: [] }
 const LAGOON = { appearance: { family: "lagoon", motif: "raranga" }, notifications: UNMUTED } as const
 const SAND = { appearance: { family: "sand", motif: "tapa1" }, notifications: UNMUTED } as const
 
@@ -42,7 +42,7 @@ describe("parseAccountSettings", () => {
     it("keeps a valid stored document", () => {
         const stored = {
             appearance: { family: "lagoon", motif: "tapa3" },
-            notifications: { muteAll: true, mutedConversations: ["dm-1", "group-1"] },
+            notifications: { muteAll: true, muteAllUntil: null, mutedConversations: ["dm-1", "group-1"] },
         }
 
         expect(parseAccountSettings(stored)).toEqual(stored)
@@ -61,8 +61,18 @@ describe("parseAccountSettings", () => {
         )
         expect(parseAccountSettings({ notifications: { mutedConversations: ["dm-1", 42, null] } }).notifications).toEqual({
             muteAll: false,
+            muteAllUntil: null,
             mutedConversations: ["dm-1"],
         })
+    })
+
+    it("keeps the end of a timed mute, and reads anything but a number there as no end", () => {
+        const until = Date.UTC(2026, 9, 1, 15, 0)
+
+        expect(parseAccountSettings({ notifications: { muteAll: true, muteAllUntil: until } }).notifications.muteAllUntil).toBe(until)
+        for (const muteAllUntil of ["15:00", Number.NaN, null]) {
+            expect(parseAccountSettings({ notifications: { muteAll: true, muteAllUntil } }).notifications.muteAllUntil).toBeNull()
+        }
     })
 
     it("returns the defaults for anything that isn't settings", () => {
@@ -90,12 +100,12 @@ describe("resolveMode", () => {
 
 describe("mergeAccountSettings", () => {
     it("changes only the fields the change names", () => {
-        const notifications = { muteAll: false, mutedConversations: ["dm-1"] }
+        const notifications = { muteAll: false, muteAllUntil: null, mutedConversations: ["dm-1"] }
         const current = { appearance: { family: "sand", motif: "tapa1" }, notifications } as const
 
         expect(mergeAccountSettings(current, { appearance: { motif: "tapa4" } })).toEqual({
             appearance: { family: "sand", motif: "tapa4" },
-            notifications: { muteAll: false, mutedConversations: ["dm-1"] },
+            notifications: { muteAll: false, muteAllUntil: null, mutedConversations: ["dm-1"] },
         })
     })
 })
@@ -250,13 +260,13 @@ describe("account settings sync", () => {
     it("keeps the mutes another device made while this one had a palette change to send", async () => {
         store.writeAccount(LAGOON, { unsynced: [], owner: ALICE })
         updateAccountSettingsUseCase(LAGOON, { appearance: { family: "sand" } }, ALICE, store)
-        const idp = fakeIdp({ ...LAGOON, notifications: { muteAll: false, mutedConversations: ["dm-1"] } })
+        const idp = fakeIdp({ ...LAGOON, notifications: { muteAll: false, muteAllUntil: null, mutedConversations: ["dm-1"] } })
 
         const settings = await syncAccountSettingsOnSignInUseCase(IDP, "tok", idp.document, ALICE, idp, store)
 
         const expected = {
             appearance: { family: "sand", motif: "raranga" },
-            notifications: { muteAll: false, mutedConversations: ["dm-1"] },
+            notifications: { muteAll: false, muteAllUntil: null, mutedConversations: ["dm-1"] },
         }
         expect(settings).toEqual(expected)
         expect(idp.document).toEqual(expected)
@@ -269,7 +279,7 @@ describe("account settings sync", () => {
 
         const settings = await syncAccountSettingsOnSignInUseCase(IDP, "tok", idp.document, ALICE, idp, store)
 
-        expect(settings).toEqual({ appearance: SAND.appearance, notifications: { muteAll: true, mutedConversations: [] } })
+        expect(settings).toEqual({ appearance: SAND.appearance, notifications: { muteAll: true, muteAllUntil: null, mutedConversations: [] } })
     })
 
     it("sends the palette change a copy saved before sections were tracked still holds", async () => {

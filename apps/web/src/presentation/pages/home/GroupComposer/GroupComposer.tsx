@@ -88,7 +88,8 @@ function GroupComposerContent({
                         key={friend.id}
                         friend={friend}
                         selected={vm.selectedIds.has(friend.id)}
-                        disabled={vm.excludedIds.has(friend.id)}
+                        inGroup={vm.excludedIds.has(friend.id)}
+                        full={vm.isFull}
                         onToggle={() => vm.toggle(friend)}
                     />
                 ))}
@@ -123,6 +124,7 @@ function GroupComposerContent({
                 <div className="flex items-center justify-between gap-3">
                     <span className="text-[12px] text-muted-foreground">
                         <span className="font-mono">{vm.selectedFriends.length}</span> selected
+                        {vm.isFull && ` · a group holds ${vm.maxMembers} people at most`}
                     </span>
                     <div className="flex gap-2">
                         <Button variant="secondary" size="inline" onPress={onClose}>
@@ -151,14 +153,18 @@ function GroupComposerContent({
 function ComposerFriendRow({
     friend,
     selected,
-    disabled,
+    inGroup,
+    full,
     onToggle,
 }: {
     friend: Friend
     selected: boolean
-    disabled: boolean
+    inGroup: boolean
+    /** The group has no room left for anyone not already picked. */
+    full: boolean
     onToggle: () => void
 }) {
+    const disabled = inGroup || (full && !selected)
     const initials = friend.name
         .split(" ")
         .map((n) => n[0])
@@ -187,7 +193,7 @@ function ComposerFriendRow({
                 <span className="title block truncate text-[15px] font-semibold text-foreground">{friend.name}</span>
                 <span className="block truncate font-mono text-[10.5px] text-muted-foreground">{friend.address}</span>
             </span>
-            {disabled ? (
+            {inGroup ? (
                 <span className="fact">in group</span>
             ) : (
                 <span

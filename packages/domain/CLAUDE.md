@@ -160,7 +160,7 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 
 ### models/user-settings.ts + ports/user-settings.port.ts + usecases/user-settings/
 - Two scopes. `AccountSettings` (`appearance: { family, motif }`,
-  `notifications: { muteAll, mutedConversations }`) follow the account to
+  `notifications: { muteAll, muteAllUntil, mutedConversations }`) follow the account to
   every device; `DeviceSettings` (`mode`) stay on the device.
 - `ModePreference` is `system | dark | light`; `resolveMode(preference,
   systemPrefersDark)` gives the painted `ThemeMode`. A theme is the pair
@@ -177,6 +177,11 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   (`synced: false`) reads as an unsynced `appearance`.
 
 ### models/mute.ts
+- `isMuteAllActive(notifications, now)` — "mute all" with a `muteAllUntil`
+  (epoch ms) lifts once it passes, on every device, with nothing written;
+  `null` lasts until unmuted. `notificationsAt(notifications, now)` is the
+  settings as they apply then: what `useNotificationSettings` hands out,
+  read against a clock the provider ticks when the mute lapses.
 - `isConversationMuted(notifications, id)` — muted on its own, or everything
   is. The conversation menus (`useConversationMute`) read
   `mutedConversations` directly instead, so "Unmute" never shows for a mute
@@ -217,6 +222,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   `http(s)://<host>/users/<handle>` (canonical AP/backend form) and
   `<handle>@<host>` (UI form). Always import from here; never hand-parse `@`
   or `URL` elsewhere.
+- `addressParts(address)` — `{ handle, host }`, split at the last `@`; the
+  host tells a local person from a federated one.
 
 ### models/presence.ts
 - `UserStatus` — presence as the UI models it (`online | idle | dnd |

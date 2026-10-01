@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react"
-import { AtSign, Bell, BellOff, Check, Hash, LogOut, Moon, Pencil, UserPen } from "lucide-react"
+import { AtSign, Check, Hash, LogOut, Pencil, UserPen } from "lucide-react"
 import { useAppStore } from "@/store/store"
 import { logoutUseCase } from "@pinai/domain/usecases/auth/logout.usecase"
 import { setPresenceUseCase } from "@pinai/domain/usecases/presence/set-presence.usecase"
@@ -8,8 +8,8 @@ import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { Popover, PopoverCaret } from "@/presentation/molecules/Popover/Popover"
 import { popoverSurface } from "@/presentation/molecules/Popover/popover-surface"
 import { cn } from "@/presentation/_libs/utils"
-import { useNotificationSettings } from "@/presentation/providers/AppearanceProvider/NotificationSettings.context"
 import type { UserStatus } from "@pinai/domain/models/presence"
+import { MuteAllControl } from "./MuteAllControl/MuteAllControl"
 
 interface StatusMeta {
     id: UserStatus
@@ -56,7 +56,6 @@ export function UserBarPopover({ trigger, isOpen, onOpenChange }: UserBarPopover
     const activeChannel = useAppStore((s) => s.activeChannel)
     const channelsByServer = useAppStore((s) => s.channelsByServer)
     const servers = useAppStore((s) => s.servers)
-    const { notifications, setMuteAll } = useNotificationSettings()
 
     const [internalOpen, setInternalOpen] = useState(false)
     const isControlled = isOpen !== undefined
@@ -194,24 +193,7 @@ export function UserBarPopover({ trigger, isOpen, onOpenChange }: UserBarPopover
                         })}
 
                         <div className="mt-1.5 border-t border-line pt-1.5">
-                            <button
-                                type="button"
-                                aria-pressed={notifications.muteAll}
-                                onClick={() => setMuteAll(!notifications.muteAll)}
-                                className="flex w-full cursor-pointer items-center gap-2.5 rounded-[12px] px-2.5 py-[7px] text-left text-[12.5px] text-muted-foreground outline-none transition-colors duration-150 hover:bg-surf focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                                {notifications.muteAll ? <BellOff className="h-3.5 w-3.5" /> : <Bell className="h-3.5 w-3.5" />}
-                                <span className="flex-1">Mute notifications</span>
-                                {notifications.muteAll && <Check className="h-3.5 w-3.5 text-acc" />}
-                            </button>
-                            <button
-                                type="button"
-                                className="flex w-full cursor-pointer items-center gap-2.5 rounded-[12px] px-2.5 py-[7px] text-left text-[12.5px] text-muted-foreground outline-none transition-colors duration-150 hover:bg-surf focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                                <Moon className="h-3.5 w-3.5" />
-                                <span className="flex-1">Quiet hours</span>
-                                <span className="font-mono text-[10px]">22–7</span>
-                            </button>
+                            <MuteAllControl />
                         </div>
                     </div>
 

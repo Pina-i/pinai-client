@@ -4,11 +4,12 @@ import { UserContextMenu } from "@/presentation/molecules/UserContextMenu/UserCo
 import { RemoveFriendModal } from "@/presentation/molecules/RemoveFriendModal/RemoveFriendModal"
 import { BlockUserModal } from "@/presentation/molecules/BlockUserModal/BlockUserModal"
 import { BlockedPersonRow } from "@/presentation/molecules/BlockedPersonRow/BlockedPersonRow"
+import { PersonProfileModal } from "@/presentation/organisms/PersonProfileModal/PersonProfileModal"
 import { blockedPeople } from "@/presentation/molecules/BlockedPersonRow/blocked-person.helper"
 import { useRemoveFriend } from "@/presentation/hooks/useRemoveFriend"
 import { useBlockUser, useBlocks } from "@/presentation/hooks/useBlocks"
 import { cn } from "@/presentation/_libs/utils"
-import { useFriendsPanelViewModel } from "./FriendsPanel.viewmodel"
+import { useFriendsPanelViewModel, type Friend } from "./FriendsPanel.viewmodel"
 import { AddFriendPopover } from "./AddFriendPopover/AddFriendPopover"
 import { FriendRow } from "./FriendRow/FriendRow"
 
@@ -27,6 +28,7 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
     const [friendToRemove, setFriendToRemove] = useState<{ id: string; name: string } | null>(null)
 
     const [friendToBlock, setFriendToBlock] = useState<{ id: string; name: string } | null>(null)
+    const [profileFriend, setProfileFriend] = useState<Friend | null>(null)
 
     const { removeFriend, isRemoving } = useRemoveFriend()
     const { blocks } = useBlocks()
@@ -109,6 +111,7 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
                                         friend={friend}
                                         isActive={isOpen}
                                         onOpen={onStartDm}
+                                        onProfile={setProfileFriend}
                                         onRemove={(f) => setFriendToRemove({ id: f.id, name: f.name })}
                                         onBlock={(f) => setFriendToBlock({ id: f.id, name: f.name })}
                                     />
@@ -119,6 +122,7 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
                                         displayName={friend.name}
                                         onClose={close}
                                         onMessage={() => onStartDm(friend.address)}
+                                        onProfile={() => setProfileFriend(friend)}
                                         onRemove={() => setFriendToRemove({ id: friend.id, name: friend.name })}
                                         onBlock={() => setFriendToBlock({ id: friend.id, name: friend.name })}
                                     />
@@ -134,6 +138,21 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
                 isPending={isRemoving}
                 onCancel={() => setFriendToRemove(null)}
                 onConfirm={handleConfirmRemove}
+            />
+            <PersonProfileModal
+                person={
+                    profileFriend && {
+                        actorUri: profileFriend.id,
+                        address: profileFriend.address,
+                        displayName: profileFriend.name,
+                        avatarUrl: profileFriend.avatarUrl,
+                    }
+                }
+                onClose={() => setProfileFriend(null)}
+                onMessage={() => {
+                    if (profileFriend) onStartDm(profileFriend.address)
+                    setProfileFriend(null)
+                }}
             />
             <BlockUserModal
                 name={friendToBlock?.name ?? null}

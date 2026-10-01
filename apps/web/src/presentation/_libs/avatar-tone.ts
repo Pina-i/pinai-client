@@ -19,3 +19,13 @@ export const TONE_FILL: Record<AvatarTone, string> = {
     neutral: "var(--surf3)",
     blue: "oklch(0.75 0.080 245)",
 }
+
+/** The colour that reads on `TONE_FILL`, as the Avatar's initials do. */
+export const TONE_INK: Record<AvatarTone, string> = {
+    acc: "var(--accink)",
+    sec: "var(--secink)",
+    violet: "oklch(0.18 0.02 300)",
+    olive: "oklch(0.18 0.02 110)",
+    neutral: "var(--foreground)",
+    blue: "oklch(0.18 0.02 245)",
+}

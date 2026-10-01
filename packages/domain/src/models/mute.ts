@@ -1,6 +1,15 @@
 import type { UserStatus } from "./presence"
 import type { NotificationSettings } from "./user-settings"
 
+// A timed "mute all" lifts on every device once its end passes, without anyone writing the change.
+export function isMuteAllActive(notifications: NotificationSettings, now: number): boolean {
+    return notifications.muteAll && (notifications.muteAllUntil === null || now < notifications.muteAllUntil)
+}
+
+export function notificationsAt(notifications: NotificationSettings, now: number): NotificationSettings {
+    return isMuteAllActive(notifications, now) ? notifications : { ...notifications, muteAll: false, muteAllUntil: null }
+}
+
 export function isConversationMuted(notifications: NotificationSettings, conversationId: string): boolean {
     return notifications.muteAll || notifications.mutedConversations.includes(conversationId)
 }
