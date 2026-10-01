@@ -151,8 +151,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   overrides the client's status: the IdP never retries, so it is final.
 - `awaitsResend(message)` — whether an own message still offers a retry.
 - `settleStaleSend(message, now)` — a send `sending` for longer than
-  `SEND_TIMEOUT_MS` becomes `failed`: a WebSocket send is only confirmed by its
-  echo, and a page closed mid-send leaves it `sending` in the cache.
+  `SEND_TIMEOUT_MS` becomes `failed`: a page closed mid-send leaves it
+  `sending` in the cache. Every DM goes out over `POST /api/dm`, whose answer
+  settles it; the WebSocket only carries the echo.
 - `reconcileOptimistic(optimistic, confirmed)` / `resentCopies(messages)` — the
   `resentFrom` link from a resent copy to the undelivered message it replaced
   survives reconciliation, and is looked up the other way for "Sent again at".
@@ -182,9 +183,34 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   only "mute all" imposes. A friend's menu mutes the private DM with them
   (`findConversation` by address).
 - `setConversationMuted(notifications, id, muted)` — idempotent toggle.
-- `shouldPingForMessage(notifications, id, myStatus)` — the incoming-message
-  sound: silent in DND or in a muted conversation. A muted conversation also
-  gets no server-strip bubble, but keeps its unread pill in the list.
+- `shouldPingForMessage(notifications, id, myStatus, senderBlocked)` — the
+  incoming-message sound: silent in DND, in a muted conversation, or from
+  someone blocked. A muted conversation also gets no server-strip bubble, but
+  keeps its unread pill in the list.
+
+### models/block.ts + ports/privacy.port.ts + usecases/privacy/
+- The IdP enforces blocks and the contact setting; the client only keeps
+  what still reaches it quiet. A group message from someone blocked arrives
+  (the group is shared), so it gets no ping, no live unread and no typing —
+  `countsAsUnread`, `shouldPingForMessage`. The IdP leaves them out of
+  `unread_count` already.
+- `blockedAddresses` keys the list by address and `isBlocked` takes either
+  form, since the WebSocket names people by actor URI and the UI by address.
+- Unblocking restores nothing: a friendship the block ended stays ended.
+
+### models/idp-error.ts
+- `IdpError` — a refusal as the IdP sent it: status, `error` code, the
+  `error_description` as the message, and the `actor_uri` it names (the
+  group invitee who can't be added). `@pinai/api` builds it (`idpErrorFrom`)
+  so the UI matches on the code, never on the words.
+
+### usecases/e2ee/distribute-group-keys.usecase.ts
+- Keys new group members one at a time: concurrent Add commits race the epoch.
+- An invitee whose instance hands out no KeyPackage (`KeyPackageUnavailable`
+  in `models/group.ts`, thrown by `@pinai/crypto` around the claim) is taken
+  off the group again, so its roster stops naming someone who can never read
+  it. A refused claim — they blocked the creator, or don't admit them — lands
+  here. A failure past the claim keeps the member: the MLS state may hold them.
 
 ### models/identity.ts
 - `actorUriToAddress(uri)` — only sanctioned converter between

@@ -54,7 +54,7 @@ Everything this client talks to lives in **`Pina-i/pinai`** (`git@github.com:Pin
 |------|------|
 | `identity-provider/` | OIDC provider this client authenticates against; owns DMs, presence, and the E2EE key directory |
 | `chat-server/` | Community servers this client connects to (planned) |
-| `crates/` | Shared Rust libraries — `common-types`, `jwt-utils`, `http-signatures`, `activitypub`, `observability`, `federation-transport` |
+| `crates/` | Shared Rust libraries — `jwt-utils`, `http-signatures`, `activitypub`, `observability`, `federation-transport` |
 | `specs/` | Platform-wide specs; service-scoped specs live under that service (e.g. `identity-provider/specs/`) |
 
 Paths in this file that point into the backend are written from that monorepo's

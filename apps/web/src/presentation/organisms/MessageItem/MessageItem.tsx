@@ -6,6 +6,7 @@ import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { AttachmentFilmstrip } from "@/presentation/molecules/AttachmentFilmstrip/AttachmentFilmstrip"
 import { ImageLightboxDialog } from "@/presentation/molecules/ImageLightboxDialog/ImageLightboxDialog"
 import { MessageDeliveryState } from "@/presentation/molecules/MessageDeliveryState/MessageDeliveryState"
+import { UNDELIVERED_DM_HINT } from "@/presentation/molecules/MessageDeliveryState/undelivered-hint"
 import { MessageStatus } from "@/presentation/molecules/MessageStatus/MessageStatus"
 import { SingleImageAttachment } from "@/presentation/molecules/SingleImageAttachment/SingleImageAttachment"
 import { MessageThreadContext, ReactionPickerContext } from "@/presentation/organisms/MessageList/MessageList.context"
@@ -264,6 +265,7 @@ export function MessageItem({
                             }
                         }
                         onJumpToOriginal={resentFrom ? () => jumpToMessage(resentFrom) : undefined}
+                        undeliveredHint={isGroup ? undefined : UNDELIVERED_DM_HINT}
                     />
                 )}
             </div>

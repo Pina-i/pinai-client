@@ -5,9 +5,9 @@ Wraps the minimum MLS surface the web client uses — `KeyPackage`,
 `MlsGroup` operations, `Welcome` handling, application encrypt/decrypt,
 secret export — behind a strict bytes-in / bytes-out boundary.
 
-This crate is **not** part of the `identity-provider` or `core-libs`
-workspaces. It's a standalone Cargo project whose build artefact is a
-generated npm package consumed by the web client (Phase 4b).
+This crate is **not** part of the `pinai` Cargo workspace. It's a
+standalone Cargo project whose build artefact is a generated npm package,
+consumed by `@pinai/mls` and the web app.
 
 ## Pinned ciphersuite
 
@@ -26,12 +26,17 @@ cargo install wasm-pack
 cargo test
 
 # Browser-targeted bundle:
-wasm-pack build --release --target web --out-dir ../openmls-pkg
+./build.sh
 ```
 
+You rarely need the last step by hand: `apps/web`'s `dev`, `build`, `test`
+and `typecheck` scripts run `scripts/build-wasm.mjs` first, which rebuilds
+only when the sources are newer than the output.
+
 The produced `../openmls-pkg/` is a self-contained npm package —
-`pkg.json`, `.wasm`, `.d.ts`, JS glue. The web client imports it via a
-`file:` dependency in its `package.json` (Phase 4b sets this up).
+`package.json`, `.wasm`, `.d.ts`, JS glue. `@pinai/mls` and `apps/web`
+depend on it with pnpm's `link:` protocol, never `file:` — the root
+`README.md` explains why a `file:` dependency leaves the app on stale code.
 
 ## Build flags
 
@@ -50,12 +55,11 @@ still open" section.
 
 ## What's not here yet
 
-- **Persistence helpers.** `OpenMlsRustCrypto` is in-memory; Phase 4b
-  will add IndexedDB snapshotting (encrypted at rest by a non-extractable
-  Web Crypto key).
+- **Persistence.** `OpenMlsRustCrypto` is in-memory; the provider state
+  leaves as a snapshot, which `@pinai/crypto`'s `SealedStorage` keeps
+  encrypted at rest.
 - **`wasm-bindgen-test` browser tests.** Native `cargo test` covers the
   happy paths; the browser-only checks (the `JsError` round-trip + the
-  negative-decryption assertions) ride alongside the JS adapter tests
-  in 4b.
+  negative-decryption assertions) ride alongside the JS adapter tests.
 - **Identity-key (MSK / SSK / USK) generation.** That's a thin layer
   over `@noble/curves` Ed25519 in the JS adapter — not the MLS engine.

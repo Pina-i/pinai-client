@@ -7,6 +7,7 @@ import { MessageList } from "@/presentation/organisms/MessageList/MessageList"
 import { useHoldSplashScreen } from "@/presentation/hooks/use-hold-splash-screen"
 import type { Message } from "@/lib/types"
 import { ConversationTypingIndicator } from "./ConversationTypingIndicator/ConversationTypingIndicator"
+import { BlockedComposer } from "./BlockedComposer/BlockedComposer"
 import { useConversationPageViewModel } from "./ConversationPage.viewmodel"
 
 interface ConversationPageProps {
@@ -93,15 +94,25 @@ export function ConversationPage({ name }: ConversationPageProps) {
                     canResend={vm.canResend}
                     handleRef={vm.messageListHandleRef}
                 />
-                <ConversationTypingIndicator conversationKey={vm.conversationKey} peerDisplayName={vm.typingPeerName} />
-                <MessageInput
-                    placeholder={`Send a message to ${vm.displayName}`}
-                    onSend={vm.sendMessage}
-                    onType={vm.handleType}
-                    replyTo={vm.replyingTo}
-                    onCancelReply={vm.cancelReply}
-                    handleRef={messageInputRef}
-                />
+                {vm.peerBlocked ? (
+                    <BlockedComposer
+                        name={vm.displayName}
+                        isPending={vm.isUnblocking}
+                        onUnblock={vm.unblockPeer}
+                    />
+                ) : (
+                    <>
+                        <ConversationTypingIndicator conversationKey={vm.conversationKey} peerDisplayName={vm.typingPeerName} />
+                        <MessageInput
+                            placeholder={`Send a message to ${vm.displayName}`}
+                            onSend={vm.sendMessage}
+                            onType={vm.handleType}
+                            replyTo={vm.replyingTo}
+                            onCancelReply={vm.cancelReply}
+                            handleRef={messageInputRef}
+                        />
+                    </>
+                )}
                 <DropOverlay isVisible={isDragging} />
             </div>
         </PageTransition>

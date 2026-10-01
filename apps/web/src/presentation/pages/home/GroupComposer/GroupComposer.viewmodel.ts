@@ -1,12 +1,14 @@
 import { useMemo, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
+import { toast } from "sonner"
 import { getE2eePort, getGroupPort } from "@/ioc"
-import { asActorUri } from "@pinai/domain/models/identity"
+import { distributeGroupKeysUseCase } from "@pinai/domain/usecases/e2ee/distribute-group-keys.usecase"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 import { groupMembersQueryKey } from "@/presentation/pages/home/GroupMembersPanel/GroupMembersPanel.viewmodel"
 import { useFriendsPanelViewModel, type Friend } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import type { GroupComposerState } from "@/store/slices/ui.slice"
+import { droppedNotice, inviteRefusal } from "./_helpers/invite-refusal.helper"
 
 export function useGroupComposerViewModel(composer: GroupComposerState, onClose: () => void) {
     const accessToken = useAppStore((s) => s.accessToken)
@@ -69,16 +71,22 @@ export function useGroupComposerViewModel(composer: GroupComposerState, onClose:
         })
     }
 
-    // Sequential: parallel Add commits race the epoch (409). Best-effort so one
-    // bad KeyPackage doesn't undo the membership change already made server-side.
+    const nameOf = (actorUri: string) => friends.find((f) => f.id === actorUri)?.name ?? null
+
     async function distributeKeys(conversationId: string, actorUris: string[]) {
-        for (const uri of actorUris) {
-            try {
-                await getE2eePort().addContactToGroup(idpUrl!, accessToken!, conversationId, asActorUri(uri))
-            } catch (e) {
-                // eslint-disable-next-line no-console
-                console.warn(`MLS key delivery failed for ${uri}`, e)
-            }
+        const { dropped, failed } = await distributeGroupKeysUseCase(
+            idpUrl!,
+            accessToken!,
+            conversationId,
+            actorUris,
+            getE2eePort(),
+            getGroupPort(),
+        )
+        const notice = droppedNotice(dropped, nameOf)
+        if (notice) toast.warning(notice)
+        for (const uri of failed) {
+            // eslint-disable-next-line no-console
+            console.warn(`MLS key delivery failed for ${uri}`)
         }
     }
 
@@ -90,11 +98,21 @@ export function useGroupComposerViewModel(composer: GroupComposerState, onClose:
         try {
             if (isAddMode && composer.targetConversationId) {
                 const convId = composer.targetConversationId
+                // Whoever was added before a refusal still gets their keys.
+                const added: string[] = []
+                let refused: unknown = null
                 for (const uri of actorUris) {
-                    await getGroupPort().addMember(idpUrl, accessToken, convId, uri)
+                    try {
+                        await getGroupPort().addMember(idpUrl, accessToken, convId, uri)
+                        added.push(uri)
+                    } catch (e) {
+                        refused = e
+                        break
+                    }
                 }
-                await distributeKeys(convId, actorUris)
+                await distributeKeys(convId, added)
                 await queryClient.invalidateQueries({ queryKey: groupMembersQueryKey(convId) })
+                if (refused) throw refused
             } else {
                 const group = await getGroupPort().createGroup(
                     idpUrl,
@@ -107,7 +125,7 @@ export function useGroupComposerViewModel(composer: GroupComposerState, onClose:
             await queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
             onClose()
         } catch (e) {
-            setError(e instanceof Error ? e.message : "Something went wrong")
+            setError(inviteRefusal(e, nameOf))
         } finally {
             setIsSubmitting(false)
         }

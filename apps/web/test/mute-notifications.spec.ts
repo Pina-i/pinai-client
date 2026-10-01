@@ -31,12 +31,16 @@ describe("shouldPingForMessage", () => {
     const notifications = { muteAll: false, mutedConversations: ["group-1"] }
 
     it("pings for a message in a conversation that isn't muted", () => {
-        expect(shouldPingForMessage(notifications, "dm-1", "online")).toBe(true)
-        expect(shouldPingForMessage(notifications, "dm-1", "idle")).toBe(true)
+        expect(shouldPingForMessage(notifications, "dm-1", "online", false)).toBe(true)
+        expect(shouldPingForMessage(notifications, "dm-1", "idle", false)).toBe(true)
     })
 
     it("stays silent in a muted conversation, or while the user is in do not disturb", () => {
-        expect(shouldPingForMessage(notifications, "group-1", "online")).toBe(false)
-        expect(shouldPingForMessage(notifications, "dm-1", "dnd")).toBe(false)
+        expect(shouldPingForMessage(notifications, "group-1", "online", false)).toBe(false)
+        expect(shouldPingForMessage(notifications, "dm-1", "dnd", false)).toBe(false)
+    })
+
+    it("never pings for someone the user blocked, wherever they write", () => {
+        expect(shouldPingForMessage(notifications, "dm-1", "online", true)).toBe(false)
     })
 })

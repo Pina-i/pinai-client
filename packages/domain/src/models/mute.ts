@@ -18,6 +18,7 @@ export function shouldPingForMessage(
     notifications: NotificationSettings,
     conversationId: string,
     myStatus: UserStatus,
+    senderBlocked: boolean,
 ): boolean {
-    return myStatus !== "dnd" && !isConversationMuted(notifications, conversationId)
+    return !senderBlocked && myStatus !== "dnd" && !isConversationMuted(notifications, conversationId)
 }

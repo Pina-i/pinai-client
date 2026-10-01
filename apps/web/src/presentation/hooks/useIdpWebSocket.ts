@@ -15,6 +15,8 @@ import type { Message } from "@/lib/types"
 import { actorUriToAddress } from "@pinai/domain/models/identity"
 import { applyFederationStatus } from "@pinai/domain/models/dm"
 import { shouldPingForMessage } from "@pinai/domain/models/mute"
+import { countsAsUnread, isBlocked } from "@pinai/domain/models/block"
+import { blocksQueryKey, useBlocks } from "@/presentation/hooks/useBlocks"
 import { TYPING_INDICATOR_TTL_MS } from "@/store/slices/presence.slice"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
@@ -106,6 +108,7 @@ export function useIdpWebSocket(): void {
     const queryClient = useQueryClient()
     const { receiveAccountSettings } = useAppearance()
     const { notifications } = useNotificationSettings()
+    const { blocked } = useBlocks()
 
     // Use refs for store actions to avoid stale closures in adapter callbacks.
     // The ref is seeded at mount and refreshed in a layout effect rather than
@@ -130,6 +133,7 @@ export function useIdpWebSocket(): void {
         setAvatarFor,
         receiveAccountSettings,
         notifications,
+        blocked,
     }
     const actionsRef = useRef(actions)
     useLayoutEffect(() => {
@@ -160,6 +164,7 @@ export function useIdpWebSocket(): void {
                     // the user has another tab open with the same identity.
                     const senderAddress = actorUriToAddress(event.data.actorUri)
                     if (senderAddress === actionsRef.current.user?.address) break
+                    if (isBlocked(actionsRef.current.blocked, senderAddress)) break
                     actionsRef.current.addTyping(
                         event.data.conversationId,
                         event.data.actorUri,
@@ -418,6 +423,7 @@ export function useIdpWebSocket(): void {
                     }
 
                     const isActive = actionsRef.current.activeDm === conversationId
+                    const senderBlocked = isBlocked(actionsRef.current.blocked, senderAddress)
 
                     // Sound plays whether or not the user is in this
                     // conversation — confirms the message arrived even
@@ -427,6 +433,7 @@ export function useIdpWebSocket(): void {
                             actionsRef.current.notifications,
                             conversationId,
                             useAppStore.getState().myStatus,
+                            senderBlocked,
                         )
                     ) {
                         playDmNotificationSound()
@@ -463,7 +470,9 @@ export function useIdpWebSocket(): void {
                             })
                         }
                     } else {
-                        actionsRef.current.incrementDmUnread(conversationId)
+                        if (countsAsUnread(isActive, senderBlocked)) {
+                            actionsRef.current.incrementDmUnread(conversationId)
+                        }
                         if (idpUrl) {
                             queryClient.invalidateQueries({
                                 queryKey: dmConversationsQueryKey(idpUrl),
@@ -550,6 +559,14 @@ export function useIdpWebSocket(): void {
                 }
                 case "settings_updated": {
                     actionsRef.current.receiveAccountSettings(event.data.settings)
+                    break
+                }
+                case "blocks_updated": {
+                    // Another session blocked or unblocked someone: a block also ended a friendship.
+                    if (idpUrl) {
+                        queryClient.invalidateQueries({ queryKey: blocksQueryKey(idpUrl) })
+                        queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
+                    }
                     break
                 }
                 case "device_joined": {

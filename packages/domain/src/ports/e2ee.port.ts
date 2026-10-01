@@ -112,7 +112,7 @@ export interface IE2eePort {
     /**
      * Encrypt an `ApplicationMessage` for delivery. Returns the
      * TLS-encoded `MLSMessage` bytes ready to ship as
-     * `mls_ciphertext` over `POST /api/dm` / WS `send_dm`.
+     * `mls_ciphertext` over `POST /api/dm`.
      *
      * Throws if the conversation has no MLS group state (the caller
      * must have `addContactToGroup`'d at least one peer first).

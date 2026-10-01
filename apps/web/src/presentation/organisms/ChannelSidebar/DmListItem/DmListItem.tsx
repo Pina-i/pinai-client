@@ -5,7 +5,10 @@ import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { ContextMenu } from "@/presentation/molecules/ContextMenu/ContextMenu"
 import { UserContextMenu } from "@/presentation/molecules/UserContextMenu/UserContextMenu"
 import { RemoveFriendModal } from "@/presentation/molecules/RemoveFriendModal/RemoveFriendModal"
+import { BlockUserModal } from "@/presentation/molecules/BlockUserModal/BlockUserModal"
 import { useIsFriend, useRemoveFriend } from "@/presentation/hooks/useRemoveFriend"
+import { useBlockUser, useBlocks } from "@/presentation/hooks/useBlocks"
+import { isBlocked } from "@pinai/domain/models/block"
 import { GroupContextMenu } from "@/presentation/molecules/GroupContextMenu/GroupContextMenu"
 import { cn } from "@/presentation/_libs/utils"
 import { presenceToUserStatus, userStatusLabel } from "@pinai/domain/models/presence"
@@ -39,9 +42,17 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
     const isFriend = useIsFriend(peerActorUri)
     const { removeFriend, isRemoving } = useRemoveFriend()
     const [isConfirmingRemove, setIsConfirmingRemove] = useState(false)
+    const { blocked } = useBlocks()
+    const peerBlocked = !!peerActorUri && isBlocked(blocked, peerActorUri)
+    const { block, unblock, isPending: isBlocking } = useBlockUser()
+    const [isConfirmingBlock, setIsConfirmingBlock] = useState(false)
 
     async function handleConfirmRemove() {
         if (peerActorUri && (await removeFriend(peerActorUri, dm.displayName))) setIsConfirmingRemove(false)
+    }
+
+    async function handleConfirmBlock() {
+        if (peerActorUri && (await block(peerActorUri, dm.displayName))) setIsConfirmingBlock(false)
     }
 
     return (
@@ -93,6 +104,9 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
                             isMuted={isMuted}
                             onToggleMute={toggleMute}
                             onRemove={() => setIsConfirmingRemove(true)}
+                            isBlocked={peerBlocked}
+                            onBlock={() => setIsConfirmingBlock(true)}
+                            onUnblock={() => peerActorUri && void unblock(peerActorUri, dm.displayName)}
                         />
                     )
                 }
@@ -102,6 +116,12 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
                 isPending={isRemoving}
                 onCancel={() => setIsConfirmingRemove(false)}
                 onConfirm={handleConfirmRemove}
+            />
+            <BlockUserModal
+                name={isConfirmingBlock ? dm.displayName : null}
+                isPending={isBlocking}
+                onCancel={() => setIsConfirmingBlock(false)}
+                onConfirm={handleConfirmBlock}
             />
         </>
     )

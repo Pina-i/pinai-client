@@ -2,7 +2,11 @@ import { useState } from "react"
 import { ContextMenu } from "@/presentation/molecules/ContextMenu/ContextMenu"
 import { UserContextMenu } from "@/presentation/molecules/UserContextMenu/UserContextMenu"
 import { RemoveFriendModal } from "@/presentation/molecules/RemoveFriendModal/RemoveFriendModal"
+import { BlockUserModal } from "@/presentation/molecules/BlockUserModal/BlockUserModal"
+import { BlockedPersonRow } from "@/presentation/molecules/BlockedPersonRow/BlockedPersonRow"
+import { blockedPeople } from "@/presentation/molecules/BlockedPersonRow/blocked-person.helper"
 import { useRemoveFriend } from "@/presentation/hooks/useRemoveFriend"
+import { useBlockUser, useBlocks } from "@/presentation/hooks/useBlocks"
 import { cn } from "@/presentation/_libs/utils"
 import { useFriendsPanelViewModel } from "./FriendsPanel.viewmodel"
 import { AddFriendPopover } from "./AddFriendPopover/AddFriendPopover"
@@ -22,11 +26,20 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
     const [activeTab, setActiveTab] = useState<FriendTab>("All")
     const [friendToRemove, setFriendToRemove] = useState<{ id: string; name: string } | null>(null)
 
+    const [friendToBlock, setFriendToBlock] = useState<{ id: string; name: string } | null>(null)
+
     const { removeFriend, isRemoving } = useRemoveFriend()
+    const { blocks } = useBlocks()
+    const { block, unblock, isPending: isBlocking } = useBlockUser()
 
     async function handleConfirmRemove() {
         if (!friendToRemove) return
         if (await removeFriend(friendToRemove.id, friendToRemove.name)) setFriendToRemove(null)
+    }
+
+    async function handleConfirmBlock() {
+        if (!friendToBlock) return
+        if (await block(friendToBlock.id, friendToBlock.name)) setFriendToBlock(null)
     }
 
     const filteredFriends = friends.filter((f) => {
@@ -70,32 +83,50 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto pb-3">
-                {isLoading && (
-                    <p className="title py-8 text-center text-[13px] italic text-muted-foreground">Loading friends…</p>
+                {activeTab === "Blocked" ? (
+                    <>
+                        {blocks.length === 0 && (
+                            <p className="title py-8 text-center text-[13px] italic text-muted-foreground">You haven't blocked anyone.</p>
+                        )}
+                        {blockedPeople(blocks).map((person) => (
+                            <BlockedPersonRow
+                                key={person.actorUri}
+                                person={person}
+                                isPending={isBlocking}
+                                onUnblock={(p) => void unblock(p.actorUri, p.name)}
+                            />
+                        ))}
+                    </>
+                ) : (
+                    <>
+                        {isLoading && <p className="title py-8 text-center text-[13px] italic text-muted-foreground">Loading friends…</p>}
+                        {error && <p className="py-8 text-center text-[13px] text-dnd">{error}</p>}
+                        {filteredFriends.map((friend) => (
+                            <ContextMenu
+                                key={friend.id}
+                                trigger={(isOpen) => (
+                                    <FriendRow
+                                        friend={friend}
+                                        isActive={isOpen}
+                                        onOpen={onStartDm}
+                                        onRemove={(f) => setFriendToRemove({ id: f.id, name: f.name })}
+                                        onBlock={(f) => setFriendToBlock({ id: f.id, name: f.name })}
+                                    />
+                                )}
+                            >
+                                {(close) => (
+                                    <UserContextMenu
+                                        displayName={friend.name}
+                                        onClose={close}
+                                        onMessage={() => onStartDm(friend.address)}
+                                        onRemove={() => setFriendToRemove({ id: friend.id, name: friend.name })}
+                                        onBlock={() => setFriendToBlock({ id: friend.id, name: friend.name })}
+                                    />
+                                )}
+                            </ContextMenu>
+                        ))}
+                    </>
                 )}
-                {error && <p className="py-8 text-center text-[13px] text-dnd">{error}</p>}
-                {filteredFriends.map((friend) => (
-                    <ContextMenu
-                        key={friend.id}
-                        trigger={(isOpen) => (
-                            <FriendRow
-                                friend={friend}
-                                isActive={isOpen}
-                                onOpen={onStartDm}
-                                onRemove={(f) => setFriendToRemove({ id: f.id, name: f.name })}
-                            />
-                        )}
-                    >
-                        {(close) => (
-                            <UserContextMenu
-                                displayName={friend.name}
-                                onClose={close}
-                                onMessage={() => onStartDm(friend.address)}
-                                onRemove={() => setFriendToRemove({ id: friend.id, name: friend.name })}
-                            />
-                        )}
-                    </ContextMenu>
-                ))}
             </div>
 
             <RemoveFriendModal
@@ -103,6 +134,12 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
                 isPending={isRemoving}
                 onCancel={() => setFriendToRemove(null)}
                 onConfirm={handleConfirmRemove}
+            />
+            <BlockUserModal
+                name={friendToBlock?.name ?? null}
+                isPending={isBlocking}
+                onCancel={() => setFriendToBlock(null)}
+                onConfirm={handleConfirmBlock}
             />
         </div>
     )

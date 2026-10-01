@@ -1,4 +1,4 @@
-import { Bell, BellOff, Copy, MessageSquare, Phone, ShieldCheck, User, UserMinus, Video } from "lucide-react"
+import { Ban, Bell, BellOff, Copy, MessageSquare, Phone, ShieldCheck, User, UserMinus, Video } from "lucide-react"
 import type { ContextMenuItem } from "@/presentation/molecules/ContextMenu/ContextMenuList"
 
 const iconClass = "h-4 w-4"
@@ -12,6 +12,10 @@ export interface UserContextMenuHandlers {
     /** Hides "Remove friend" for someone who isn't one. */
     isFriend?: boolean
     isMuted?: boolean
+    /** Absent where blocking isn't offered. */
+    onBlock?: () => void
+    onUnblock?: () => void
+    isBlocked?: boolean
 }
 
 // Items without a handler aren't wired up yet.
@@ -22,6 +26,9 @@ export function buildUserContextMenuItems({
     onToggleMute,
     isFriend = true,
     isMuted = false,
+    onBlock,
+    onUnblock,
+    isBlocked = false,
 }: UserContextMenuHandlers): ContextMenuItem[] {
     const items: ContextMenuItem[] = [
         { key: "message", label: "Send message", icon: <MessageSquare className={iconClass} />, hint: "↵", onAction: onMessage },
@@ -40,11 +47,15 @@ export function buildUserContextMenuItems({
             onAction: onToggleMute,
         },
     ]
+    const manage: ContextMenuItem[] = []
     if (isFriend) {
-        items.push(
-            { type: "separator", key: "sep-manage" },
-            { key: "remove", label: "Remove friend", icon: <UserMinus className={iconClass} />, variant: "destructive", onAction: onRemove },
-        )
+        manage.push({ key: "remove", label: "Remove friend", icon: <UserMinus className={iconClass} />, variant: "destructive", onAction: onRemove })
     }
+    if (isBlocked && onUnblock) {
+        manage.push({ key: "unblock", label: "Unblock", icon: <Ban className={iconClass} />, onAction: onUnblock })
+    } else if (!isBlocked && onBlock) {
+        manage.push({ key: "block", label: "Block", icon: <Ban className={iconClass} />, variant: "destructive", onAction: onBlock })
+    }
+    if (manage.length > 0) items.push({ type: "separator", key: "sep-manage" }, ...manage)
     return items
 }

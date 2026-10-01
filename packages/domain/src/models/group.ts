@@ -18,3 +18,17 @@ export interface GroupView {
     members: GroupMember[]
     createdAt: string
 }
+
+/**
+ * The invitee's instance handed out none of their KeyPackages: it refused, knows no such account,
+ * has none left, or didn't answer. Nothing changed in the group's MLS state.
+ */
+export class KeyPackageUnavailable extends Error {
+    readonly actorUri: string
+
+    constructor(actorUri: string, cause: unknown) {
+        super(`No KeyPackage for ${actorUri}`, { cause })
+        this.name = "KeyPackageUnavailable"
+        this.actorUri = actorUri
+    }
+}

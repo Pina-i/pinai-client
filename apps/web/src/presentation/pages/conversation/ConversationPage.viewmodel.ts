@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
-import { sendDmWsUseCase } from "@pinai/domain/usecases/ws/send-dm-ws.usecase"
 import { sendTypingStartUseCase } from "@pinai/domain/usecases/presence/send-typing-start.usecase"
 import { getConversationHistoryUseCase } from "@pinai/domain/usecases/dm/get-conversation-history.usecase"
 import { getDmConversationsUseCase } from "@pinai/domain/usecases/dm/get-dm-conversations.usecase"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 import { getDmPort, getE2eePort, getGroupPort, getWsPort } from "@/ioc"
+import { isBlocked } from "@pinai/domain/models/block"
+import { useBlockUser, useBlocks } from "@/presentation/hooks/useBlocks"
 import { actorUriToAddress, addressToActorUri, asActorUri } from "@pinai/domain/models/identity"
 import type { Message } from "@/lib/types"
-import { applyFederationStatus, findConversation, SEND_TIMEOUT_MS, settleStaleSend, type DirectMessage } from "@pinai/domain/models/dm"
+import { applyFederationStatus, findConversation, settleStaleSend, type DirectMessage } from "@pinai/domain/models/dm"
 import type {
     ActorUri,
     ApplicationMessage,
@@ -207,6 +208,8 @@ export function useConversationPageViewModel(name: string) {
     const updateDmMessage = useAppStore((s) => s.updateDmMessage)
     const seedDmMessages = useAppStore((s) => s.seedDmMessages)
     const updateDmConversation = useAppStore((s) => s.updateDmConversation)
+    const { blocked } = useBlocks()
+    const { unblock, isPending: isUnblocking } = useBlockUser()
     const applyReaction = useAppStore((s) => s.applyReaction)
     const setActiveDm = useAppStore((s) => s.setActiveDm)
     const clearDmUnread = useAppStore((s) => s.clearDmUnread)
@@ -453,7 +456,6 @@ export function useConversationPageViewModel(name: string) {
         async (optimisticId: string, intent: SendIntent) => {
             if (!accessToken || !idpUrl || !user) return
             const optimisticKey = intent.conversationId
-            const needsRest = !!intent.replyTo || intent.attachmentIds.length > 0
 
             const reconcileToServer = (dm: DirectMessage) => {
                 const mapped: Message = {
@@ -561,59 +563,25 @@ export function useConversationPageViewModel(name: string) {
                 return
             }
 
-            // Prefer WS-shortcut for plain text messages, fall back to
-            // REST when the socket isn't connected yet (e.g. right after
-            // a browser relaunch the conversation page can mount before
-            // `useIdpWebSocket` finishes its handshake) — without this
-            // the first send throws "WebSocket is not connected" and
-            // markFailed, even though the server is perfectly reachable.
-            const wsReady = useAppStore.getState().wsStatus === "connected"
-            const useRest = needsRest || !wsReady
-
-            if (useRest) {
-                try {
-                    const dm = await getDmPort().sendMessage(
-                        idpUrl,
-                        accessToken,
-                        intent.recipientAddress,
-                        mlsCiphertextB64,
-                        intent.replyTo?.id,
-                        intent.attachmentIds.length > 0 ? intent.attachmentIds : undefined,
-                        intent.conversationId,
-                        optimisticId,
-                    )
-                    reconcileToServer(dm)
-                } catch (e) {
-                    markFailed(e, "POST /api/dm")
-                }
-            } else {
-                // WS-shortcut send: pass `optimisticId` as `client_id`
-                // so the server's `new_dm` echo carries it back and
-                // the WS handler can reconcile to "sent" via
-                // `isOwnEcho`. WS-send is fire-and-forget — we can't
-                // catch a server-side reject here, so the row stays
-                // at "sending" until the echo flips it — or fails once
-                // the echo is overdue, so it can be retried.
-                try {
-                    sendDmWsUseCase(
-                        intent.recipientAddress,
-                        mlsCiphertextB64,
-                        getWsPort(),
-                        optimisticId,
-                    )
-                } catch (e) {
-                    markFailed(e, "sendDmWsUseCase")
-                    return
-                }
-                setTimeout(() => {
-                    const now = Date.now()
-                    updateDmConversation(optimisticKey, (list) =>
-                        list.map((m) => (m.id === optimisticId ? settleStaleSend(m, now) : m)),
-                    )
-                }, SEND_TIMEOUT_MS)
+            // Always over REST, as Discord sends: a refusal answers here, where the socket has no
+            // error channel and would leave the message waiting out its timeout.
+            try {
+                const dm = await getDmPort().sendMessage(
+                    idpUrl,
+                    accessToken,
+                    intent.recipientAddress,
+                    mlsCiphertextB64,
+                    intent.replyTo?.id,
+                    intent.attachmentIds.length > 0 ? intent.attachmentIds : undefined,
+                    intent.conversationId,
+                    optimisticId,
+                )
+                reconcileToServer(dm)
+            } catch (e) {
+                markFailed(e, "POST /api/dm")
             }
         },
-        [user, accessToken, idpUrl, reconcileDmMessage, updateDmMessage, updateDmConversation],
+        [user, accessToken, idpUrl, reconcileDmMessage, updateDmMessage],
     )
 
     // Optimistic push, then the network half. Shared by a fresh send and by
@@ -784,6 +752,11 @@ export function useConversationPageViewModel(name: string) {
     // immediately after a first send.
     const recipientAddress = dmData?.address ?? name
     const isGroup = dmData?.kind === "group"
+    // Nothing can be written to someone blocked: the IdP would refuse it anyway.
+    const peerBlocked = !isGroup && isBlocked(blocked, recipientAddress)
+    const unblockPeer = useCallback(() => {
+        if (recipientActorUri) void unblock(recipientActorUri, displayName)
+    }, [recipientActorUri, unblock, displayName])
 
     return {
         user,
@@ -802,5 +775,8 @@ export function useConversationPageViewModel(name: string) {
         handleType,
         cancelReply,
         typingPeerName: dmData?.kind === "dm" ? dmData.displayName : null,
+        peerBlocked,
+        unblockPeer,
+        isUnblocking,
     }
 }

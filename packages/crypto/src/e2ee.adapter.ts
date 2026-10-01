@@ -17,6 +17,7 @@ import type {
     Fingerprint,
     KeyPackageStatusResponse,
 } from "@pinai/domain/models/e2ee"
+import { KeyPackageUnavailable } from "@pinai/domain/models/group"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
 import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
 
@@ -799,12 +800,13 @@ export class E2eeAdapter implements IE2eePort {
         // Pass `null` for device_id — the IdP's claim endpoint picks
         // any device with spare KeyPackages and tells us which leaf
         // it claimed from (so we can target the Welcome correctly).
-        const claimed = await this.directory.claimKeyPackage(
-            idpUrl,
-            accessToken,
-            actorUri,
-            null,
-        )
+        let claimed
+        try {
+            claimed = await this.directory.claimKeyPackage(idpUrl, accessToken, actorUri, null)
+        } catch (e) {
+            // Nothing committed yet: the caller may take the invitee off the group cleanly.
+            throw new KeyPackageUnavailable(actorUri, e)
+        }
         const out = await this.mls.addMember(conversationId, claimed.key_package)
 
         // For a fresh group, the founding commit lives at epoch 0

@@ -1,4 +1,5 @@
 import type { ActorUri } from "./e2ee"
+import type { ContactPolicy } from "./block"
 
 /** Closed enum of pronoun choices the IdP currently supports. */
 export type Pronouns = "he" | "she" | "non-binary"
@@ -27,6 +28,8 @@ export interface UserProfile {
      * interpreting it. Read it through `parseAccountSettings`.
      */
     settings?: unknown
+    /** Who may message the account or add it to a group. */
+    privacy?: { contact_policy: ContactPolicy }
 }
 
 export interface ProfilePatch {

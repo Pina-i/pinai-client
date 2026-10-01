@@ -149,15 +149,13 @@ export type WsServerEvent =
     | { type: "group_renamed"; data: GroupRenamedPayload }
     /** The account settings changed from one of the user's sessions; `settings` is the whole document, raw. */
     | { type: "settings_updated"; data: { settings: unknown } }
+    /** The user's block list changed, from one of their sessions: refetch it. */
+    | { type: "blocks_updated"; data: Record<string, never> }
     | { type: "heartbeat_ack"; data?: Record<string, never> }
 
 // ── Client → Server messages ────────────────────────────────────────────────
 
 export type WsClientMessage =
-    | {
-          type: "send_dm"
-          data: { recipient_address: string; mls_ciphertext: string; client_id?: string }
-      }
     | { type: "heartbeat" }
     | { type: "typing_start"; data: { conversationId: string } }
     | { type: "watch_conversation"; data: { conversationId: string } }

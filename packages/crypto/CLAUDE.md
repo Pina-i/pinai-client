@@ -52,9 +52,10 @@ Three collaborators could not come, and the shape of each is the mobile work:
   encrypted under the same per-device key; the key is also re-used
   by the Zustand `persist` middleware so the message-plaintext cache
   lives behind the same key material.
-- **`key-directory.adapter.ts`** — `KeyDirectoryApiAdapter`. REST
-  client for the eight `/api/keys/*` (incl. recovery PUT/GET/DELETE)
-  and three `/api/mls/*` endpoints.
+- **`@pinai/api/e2ee/key-directory.adapter`** — `KeyDirectoryApiAdapter`
+  implementing `IKeyDirectoryPort`, outside this package. REST client for
+  the `/api/keys/*` and `/api/mls/*` endpoints; the identity and
+  recovery-blob methods are no-op stubs, since `/api/keys/recovery` is gone.
 - **`recovery.adapter.ts`** — `NobleRecoveryAdapter`. Argon2id
   (`@noble/hashes/argon2.js`) + XChaCha20-Poly1305 (`@noble/ciphers`)
   wrap/unwrap of the MSK private. Default params m=64 MiB, t=3, p=4
@@ -504,8 +505,8 @@ publishes) holds against the documented threat model.
 
 ### Adapter additions
 
-- **`key-directory.adapter.ts`** —
-  `IKeyDirectoryAdapter.registerDevice(idpUrl, accessToken, deviceId, drkPublicKey)`
+- **`@pinai/api/e2ee/key-directory.adapter`** —
+  `IKeyDirectoryPort.registerDevice(idpUrl, accessToken, deviceId, drkPublicKey)`
   POSTs to `/api/keys/devices`; returns `{ signature, kid,
   issued_at, expires_at, signed_message }`.
 - **`e2ee.adapter.ts`** — additive Phase 7 methods (old MSK

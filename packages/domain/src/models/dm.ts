@@ -104,10 +104,9 @@ export interface SendState {
 }
 
 /**
- * How long a send may stay `sending` before it counts as failed. A send over
- * the WebSocket is fire-and-forget — only the server's echo confirms it — and
- * a page closed mid-send leaves the message `sending` in the persisted cache.
- * Neither would ever settle on its own, so it could never be retried.
+ * How long a send may stay `sending` before it counts as failed. A page closed
+ * mid-send leaves the message `sending` in the persisted cache, where it would
+ * never settle on its own, so it could never be retried.
  */
 export const SEND_TIMEOUT_MS = 20_000
 

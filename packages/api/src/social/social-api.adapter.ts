@@ -1,4 +1,5 @@
-import ky, { HTTPError } from "ky"
+import ky from "ky"
+import { idpErrorFrom } from "../idp-error"
 import type { FriendListEntry, FriendRequestResponse, PendingFriendRequest } from "@pinai/domain/models/social"
 import type { ISocialPort } from "@pinai/domain/ports/social.port"
 
@@ -11,11 +12,7 @@ export class SocialApiAdapter implements ISocialPort {
                 json: { address },
             }).json<FriendRequestResponse>()
         } catch (error) {
-            if (error instanceof HTTPError) {
-                const err = await error.response.json().catch(() => ({})) as { error?: string }
-                throw new Error(err.error ?? `Friend request failed: ${error.response.status}`)
-            }
-            throw error
+            throw await idpErrorFrom(error, "Friend request failed")
         }
     }
 
@@ -26,11 +23,7 @@ export class SocialApiAdapter implements ISocialPort {
                 headers: { Authorization: `Bearer ${accessToken}` },
             }).json<FriendListEntry[]>()
         } catch (error) {
-            if (error instanceof HTTPError) {
-                const err = await error.response.json().catch(() => ({})) as { error?: string }
-                throw new Error(err.error ?? `Failed to fetch friends: ${error.response.status}`)
-            }
-            throw error
+            throw await idpErrorFrom(error, "Failed to fetch friends")
         }
     }
 
@@ -41,11 +34,7 @@ export class SocialApiAdapter implements ISocialPort {
                 headers: { Authorization: `Bearer ${accessToken}` },
             }).json<PendingFriendRequest[]>()
         } catch (error) {
-            if (error instanceof HTTPError) {
-                const err = await error.response.json().catch(() => ({})) as { error?: string }
-                throw new Error(err.error ?? `Failed to fetch pending friend requests: ${error.response.status}`)
-            }
-            throw error
+            throw await idpErrorFrom(error, "Failed to fetch pending friend requests")
         }
     }
 
@@ -54,11 +43,7 @@ export class SocialApiAdapter implements ISocialPort {
         try {
             await ky.post(url, { headers: { Authorization: `Bearer ${accessToken}` } })
         } catch (error) {
-            if (error instanceof HTTPError) {
-                const err = await error.response.json().catch(() => ({})) as { error?: string }
-                throw new Error(err.error ?? `Accept friend request failed: ${error.response.status}`)
-            }
-            throw error
+            throw await idpErrorFrom(error, "Accept friend request failed")
         }
     }
 
@@ -67,11 +52,7 @@ export class SocialApiAdapter implements ISocialPort {
         try {
             await ky.delete(url, { headers: { Authorization: `Bearer ${accessToken}` } })
         } catch (error) {
-            if (error instanceof HTTPError) {
-                const err = await error.response.json().catch(() => ({})) as { error?: string }
-                throw new Error(err.error ?? `Reject friend request failed: ${error.response.status}`)
-            }
-            throw error
+            throw await idpErrorFrom(error, "Reject friend request failed")
         }
     }
 
@@ -80,11 +61,7 @@ export class SocialApiAdapter implements ISocialPort {
         try {
             await ky.delete(url, { headers: { Authorization: `Bearer ${accessToken}` } })
         } catch (error) {
-            if (error instanceof HTTPError) {
-                const err = await error.response.json().catch(() => ({})) as { error?: string }
-                throw new Error(err.error ?? `Remove friend failed: ${error.response.status}`)
-            }
-            throw error
+            throw await idpErrorFrom(error, "Remove friend failed")
         }
     }
 }

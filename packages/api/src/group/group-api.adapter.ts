@@ -1,20 +1,10 @@
-import ky, { HTTPError } from "ky"
+import ky from "ky"
+import { idpErrorFrom } from "../idp-error"
 import type { GroupMember, GroupRole, GroupView } from "@pinai/domain/models/group"
 import type { DirectMessage } from "@pinai/domain/models/dm"
 import type { IGroupPort } from "@pinai/domain/ports/group.port"
 
 /** Pull the server's `error_description` (falls back to a generic message). */
-async function toError(error: unknown, fallback: string): Promise<Error> {
-    if (error instanceof HTTPError) {
-        const body = (await error.response.json().catch(() => ({}))) as {
-            error_description?: string
-            error?: string
-        }
-        return new Error(body.error_description ?? body.error ?? `${fallback}: ${error.response.status}`)
-    }
-    return error instanceof Error ? error : new Error(fallback)
-}
-
 export class GroupApiAdapter implements IGroupPort {
     async createGroup(
         idpUrl: string,
@@ -31,7 +21,7 @@ export class GroupApiAdapter implements IGroupPort {
                 })
                 .json<GroupView>()
         } catch (error) {
-            throw await toError(error, "Failed to create group")
+            throw await idpErrorFrom(error, "Failed to create group")
         }
     }
 
@@ -40,7 +30,7 @@ export class GroupApiAdapter implements IGroupPort {
         try {
             return await ky.get(url, { headers: { Authorization: `Bearer ${accessToken}` } }).json<GroupMember[]>()
         } catch (error) {
-            throw await toError(error, "Failed to load members")
+            throw await idpErrorFrom(error, "Failed to load members")
         }
     }
 
@@ -59,7 +49,7 @@ export class GroupApiAdapter implements IGroupPort {
                 })
                 .json<GroupMember>()
         } catch (error) {
-            throw await toError(error, "Failed to add member")
+            throw await idpErrorFrom(error, "Failed to add member")
         }
     }
 
@@ -73,7 +63,7 @@ export class GroupApiAdapter implements IGroupPort {
         try {
             await ky.delete(url, { headers: { Authorization: `Bearer ${accessToken}` } })
         } catch (error) {
-            throw await toError(error, "Failed to remove member")
+            throw await idpErrorFrom(error, "Failed to remove member")
         }
     }
 
@@ -92,7 +82,7 @@ export class GroupApiAdapter implements IGroupPort {
                 })
                 .json<GroupView>()
         } catch (error) {
-            throw await toError(error, "Failed to rename group")
+            throw await idpErrorFrom(error, "Failed to rename group")
         }
     }
 
@@ -112,7 +102,7 @@ export class GroupApiAdapter implements IGroupPort {
                 })
                 .json<GroupMember>()
         } catch (error) {
-            throw await toError(error, "Failed to change role")
+            throw await idpErrorFrom(error, "Failed to change role")
         }
     }
 
@@ -133,7 +123,7 @@ export class GroupApiAdapter implements IGroupPort {
                 .post(url, { headers: { Authorization: `Bearer ${accessToken}` }, json })
                 .json<DirectMessage>()
         } catch (error) {
-            throw await toError(error, "Failed to send message")
+            throw await idpErrorFrom(error, "Failed to send message")
         }
     }
 }

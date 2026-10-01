@@ -5,6 +5,8 @@ import { useAppStore } from "@/store/store"
 import { getGroupPort } from "@/ioc"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 import type { GroupMember, GroupRole } from "@pinai/domain/models/group"
+import { isBlocked } from "@pinai/domain/models/block"
+import { useBlockUser, useBlocks } from "@/presentation/hooks/useBlocks"
 
 export const groupMembersQueryKey = (conversationId: string) => ["group-members", conversationId] as const
 
@@ -37,6 +39,8 @@ export function useGroupMembersPanelViewModel(conversationId: string) {
     )
 
     const [pendingActor, setPendingActor] = useState<string | null>(null)
+    const { blocked } = useBlocks()
+    const { block, unblock, isPending: isBlocking } = useBlockUser()
 
     function refreshMembers() {
         void queryClient.invalidateQueries({ queryKey: groupMembersQueryKey(conversationId) })
@@ -91,6 +95,11 @@ export function useGroupMembersPanelViewModel(conversationId: string) {
         setRole,
         leaveGroup,
         openAddPeople,
+        /** Their messages here still show, without drawing the user's attention. */
+        isBlocked: (actorUri: string) => isBlocked(blocked, actorUri),
+        block,
+        unblock,
+        isBlocking,
     }
 }
 

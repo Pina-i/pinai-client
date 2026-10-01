@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Crown, Globe, LogOut, MessageSquare, MoreHorizontal, User, UserMinus, UserPlus, Video } from "lucide-react"
+import { Ban, Crown, Globe, LogOut, MessageSquare, MoreHorizontal, User, UserMinus, UserPlus, Video } from "lucide-react"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { Button } from "@/presentation/atoms/Button/Button"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
@@ -9,6 +9,7 @@ import { ContextMenuTrigger } from "@/presentation/molecules/ContextMenu/Context
 import type { ContextMenuItem } from "@/presentation/molecules/ContextMenu/ContextMenuList"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { modalSurface } from "@/presentation/molecules/Modal/modal-surface"
+import { BlockUserModal } from "@/presentation/molecules/BlockUserModal/BlockUserModal"
 import { cn } from "@/presentation/_libs/utils"
 import { actorUriToAddress } from "@pinai/domain/models/identity"
 import { presenceToUserStatus } from "@pinai/domain/models/presence"
@@ -30,6 +31,31 @@ function memberInitials(member: GroupMember): string {
 function GroupMembersPanelContent({ conversationId }: { conversationId: string }) {
     const vm = useGroupMembersPanelViewModel(conversationId)
     const [removeTarget, setRemoveTarget] = useState<GroupMember | null>(null)
+    const [blockTarget, setBlockTarget] = useState<GroupMember | null>(null)
+
+    async function confirmBlock() {
+        if (blockTarget && (await vm.block(blockTarget.actorUri, blockTarget.displayName ?? "This member"))) {
+            setBlockTarget(null)
+        }
+    }
+
+    function rosterRow(member: GroupMember) {
+        return (
+            <RosterRow
+                key={member.actorUri}
+                member={member}
+                isSelf={member.actorUri === vm.myActorUri}
+                viewerIsAdmin={vm.isAdmin}
+                pending={vm.pendingActor === member.actorUri}
+                localHost={vm.localHost}
+                onSetRole={vm.setRole}
+                onRemove={() => setRemoveTarget(member)}
+                isBlocked={vm.isBlocked(member.actorUri)}
+                onBlock={() => setBlockTarget(member)}
+                onUnblock={() => void vm.unblock(member.actorUri, member.displayName ?? "This member")}
+            />
+        )
+    }
 
     return (
         // The roster carries actions (add, leave), so unlike the server member
@@ -53,36 +79,14 @@ function GroupMembersPanelContent({ conversationId }: { conversationId: string }
                 {vm.admins.length > 0 && (
                     <>
                         <p className="eye mb-1.5 mt-2 pl-2">Admin</p>
-                        {vm.admins.map((member) => (
-                            <RosterRow
-                                key={member.actorUri}
-                                member={member}
-                                isSelf={member.actorUri === vm.myActorUri}
-                                viewerIsAdmin={vm.isAdmin}
-                                pending={vm.pendingActor === member.actorUri}
-                                localHost={vm.localHost}
-                                onSetRole={vm.setRole}
-                                onRemove={() => setRemoveTarget(member)}
-                            />
-                        ))}
+                        {vm.admins.map(rosterRow)}
                     </>
                 )}
 
                 {vm.regularMembers.length > 0 && (
                     <>
                         <p className="eye mb-1.5 mt-3.5 pl-2">Members</p>
-                        {vm.regularMembers.map((member) => (
-                            <RosterRow
-                                key={member.actorUri}
-                                member={member}
-                                isSelf={member.actorUri === vm.myActorUri}
-                                viewerIsAdmin={vm.isAdmin}
-                                pending={vm.pendingActor === member.actorUri}
-                                localHost={vm.localHost}
-                                onSetRole={vm.setRole}
-                                onRemove={() => setRemoveTarget(member)}
-                            />
-                        ))}
+                        {vm.regularMembers.map(rosterRow)}
                     </>
                 )}
             </ScrollArea>
@@ -130,6 +134,12 @@ function GroupMembersPanelContent({ conversationId }: { conversationId: string }
                     </div>
                 )}
             </Modal>
+            <BlockUserModal
+                name={blockTarget ? (blockTarget.displayName ?? "this member") : null}
+                isPending={vm.isBlocking}
+                onCancel={() => setBlockTarget(null)}
+                onConfirm={confirmBlock}
+            />
         </aside>
     )
 }
@@ -156,6 +166,9 @@ function RosterRow({
     localHost,
     onSetRole,
     onRemove,
+    isBlocked,
+    onBlock,
+    onUnblock,
 }: {
     member: GroupMember
     isSelf: boolean
@@ -164,6 +177,9 @@ function RosterRow({
     localHost: string | null
     onSetRole: (actorUri: string, role: "admin" | "member") => void
     onRemove: () => void
+    isBlocked: boolean
+    onBlock: () => void
+    onUnblock: () => void
 }) {
     const address = actorUriToAddress(member.actorUri)
     const host = address.split("@")[1] ?? ""
@@ -175,6 +191,9 @@ function RosterRow({
         { key: "message", label: "Message privately", icon: <MessageSquare className="h-4 w-4" /> },
         { key: "call", label: "Call", icon: <Video className="h-4 w-4" /> },
         { key: "profile", label: "See profile", icon: <User className="h-4 w-4" /> },
+        isBlocked
+            ? { key: "unblock", label: "Unblock", icon: <Ban className="h-4 w-4" />, onAction: onUnblock }
+            : { key: "block", label: "Block", icon: <Ban className="h-4 w-4" />, variant: "destructive", onAction: onBlock },
     ]
     if (viewerIsAdmin) {
         menuItems.push(
@@ -224,6 +243,11 @@ function RosterRow({
                     {member.role === "admin" && (
                         <span className="flex shrink-0 items-center gap-1 font-mono text-[9px] uppercase tracking-[0.04em] text-sec">
                             <Crown className="h-3 w-3" /> admin
+                        </span>
+                    )}
+                    {isBlocked && (
+                        <span className="flex shrink-0 items-center gap-1 font-mono text-[9px] uppercase tracking-[0.04em] text-dnd">
+                            <Ban className="h-3 w-3" /> blocked
                         </span>
                     )}
                 </div>

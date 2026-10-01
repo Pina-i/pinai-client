@@ -7,6 +7,8 @@ import { AppearanceEditor } from "./AppearanceEditor/AppearanceEditor"
 import { DevicesEditor } from "./DevicesEditor/DevicesEditor"
 import { IdentityTile } from "./IdentityTile/IdentityTile"
 import { PlaceholderEditor } from "./PlaceholderEditor/PlaceholderEditor"
+import { PrivacyEditor } from "./PrivacyEditor/PrivacyEditor"
+import { CONTACT_POLICY_CHOICES, DEFAULT_CONTACT_POLICY } from "./PrivacyEditor/PrivacyEditor.viewmodel"
 import { ProfileEditor } from "./ProfileEditor/ProfileEditor"
 import { SecurityEditor } from "./SecurityEditor/SecurityEditor"
 import { SettingsHeader } from "./SettingsHeader/SettingsHeader"
@@ -59,7 +61,6 @@ const SECTIONS: SectionDescriptor[] = [
         title: "Who can reach you, and how.",
         description: "Who can DM you, friend requests, blocked users.",
         icon: <Lock className={ICON_PROPS} />,
-        preview: <span className={`${FACT_PREVIEW} text-on`}>● Friends-of-friends</span>,
     },
     {
         id: "appearance",
@@ -135,6 +136,8 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
     const handle = user.preferred_username
     const host = user.address.split("@")[1] ?? ""
     const activeDescriptor = SECTIONS.find((s) => s.id === activeSection) ?? SECTIONS[0]
+    const contactPolicy = user.privacy?.contact_policy ?? DEFAULT_CONTACT_POLICY
+    const contactPolicyLabel = CONTACT_POLICY_CHOICES.find((c) => c.value === contactPolicy)?.label
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} variant="fullscreen" isDismissable label="Settings">
@@ -160,7 +163,7 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
                                     icon={s.icon}
                                     label={s.label}
                                     description={s.description}
-                                    preview={s.preview}
+                                    preview={s.id === "privacy" ? <span className={`${FACT_PREVIEW} text-on`}>● {contactPolicyLabel}</span> : s.preview}
                                     state={s.id === activeSection ? "active" : "idle"}
                                     onPress={() => selectSection(s.id)}
                                 />
@@ -190,6 +193,8 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
                         <DevicesEditor />
                     ) : activeDescriptor.id === "appearance" ? (
                         <AppearanceEditor />
+                    ) : activeDescriptor.id === "privacy" ? (
+                        <PrivacyEditor />
                     ) : (
                         <PlaceholderEditor
                             sectionLabel={activeDescriptor.label}

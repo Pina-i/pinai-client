@@ -1,5 +1,4 @@
 import type { ReactNode } from "react"
-import { useLocation } from "@tanstack/react-router"
 import { getAuthPlatform } from "@/ioc/index"
 import { useAppStore } from "@/store/store"
 import { logoutUseCase } from "@pinai/domain/usecases/auth/logout.usecase"
@@ -13,6 +12,7 @@ import { SettingsModal } from "@/presentation/pages/home/SettingsModal/SettingsM
 import { GroupComposer } from "@/presentation/pages/home/GroupComposer/GroupComposer"
 import { GroupMembersPanel } from "@/presentation/pages/home/GroupMembersPanel/GroupMembersPanel"
 import { Backdrop } from "@/presentation/atoms/backdrop/backdrop"
+import { useOpenConversationRef } from "@/presentation/hooks/useOpenConversationRef"
 
 interface HomeLayoutProps {
     children: ReactNode
@@ -33,9 +33,7 @@ export function HomeLayout({ children }: HomeLayoutProps) {
     // Resolve the open group from the route (reactive + synchronous) rather
     // than the effect-set `activeDm`, so the panel tracks navigation without
     // the mount/cleanup race that hid it when re-entering a group.
-    const dmParam = useLocation({
-        select: (l) => (l.pathname.startsWith("/dm/") ? decodeURIComponent(l.pathname.slice(4)) : null),
-    })
+    const dmParam = useOpenConversationRef()
     // Only the id: a conversation-list refresh must not re-render the whole shell.
     const activeGroupId = useAppStore((s) => {
         const open = dmParam ? findConversation(s.localDmConvos, dmParam) : undefined

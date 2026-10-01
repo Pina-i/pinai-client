@@ -14,6 +14,7 @@ import { NobleRecoveryAdapter } from "@pinai/crypto/recovery.adapter"
 import { JwksCacheAdapter } from "@/adapters/jwks/jwks-cache.adapter"
 import { UserSettingsLocalStorageAdapter } from "@/adapters/user-settings/user-settings-local-storage.adapter"
 import { SocialApiAdapter } from "@pinai/api/social/social-api.adapter"
+import { PrivacyApiAdapter } from "@pinai/api/privacy/privacy-api.adapter"
 import { DmApiAdapter } from "@pinai/api/dm/dm-api.adapter"
 import { GroupApiAdapter } from "@pinai/api/group/group-api.adapter"
 import { IdpWsAdapter } from "@pinai/api/ws/idp-ws.adapter"
@@ -32,6 +33,7 @@ import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
 import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
 import type { IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
 import type { ISocialPort } from "@pinai/domain/ports/social.port"
+import type { IPrivacyPort } from "@pinai/domain/ports/privacy.port"
 import type { IDmPort } from "@pinai/domain/ports/dm.port"
 import type { IGroupPort } from "@pinai/domain/ports/group.port"
 import type { IWsPort } from "@pinai/domain/ports/ws.port"
@@ -57,6 +59,7 @@ const authPlatform: AuthPlatform = {
     navigation: new BrowserAuthNavigationAdapter(),
 }
 const socialPort: ISocialPort = new SocialApiAdapter()
+const privacyPort: IPrivacyPort = new PrivacyApiAdapter()
 const dmPort: IDmPort = new DmApiAdapter()
 const groupPort: IGroupPort = new GroupApiAdapter()
 const wsPort: IWsPort = new IdpWsAdapter()
@@ -163,6 +166,10 @@ export function getAuthSessionStore(): IAuthSessionStore {
 
 export function getSocialPort(): ISocialPort {
     return socialPort
+}
+
+export function getPrivacyPort(): IPrivacyPort {
+    return privacyPort
 }
 
 export function getDmPort(): IDmPort {

@@ -18,7 +18,10 @@ export interface MessageDeliveryStateProps {
     resentAs?: { timestamp: string; onJump: () => void }
     /** On the copy: jumps back to the undelivered message it replaced. */
     onJumpToOriginal?: () => void
+    /** Why it may not have been delivered, shown beside `Not delivered`. */
+    undeliveredHint?: string
 }
+
 
 const lineClass = "mt-[7px] flex flex-wrap items-center gap-2 text-[12px]"
 
@@ -53,6 +56,7 @@ export function MessageDeliveryState({
     onRetry,
     resentAs,
     onJumpToOriginal,
+    undeliveredHint,
 }: MessageDeliveryStateProps) {
     if (status === "sending") {
         return (
@@ -79,6 +83,7 @@ export function MessageDeliveryState({
                         />
                         Not delivered
                     </span>
+                    {undeliveredHint && <span className="text-[11.5px] text-muted-foreground">{undeliveredHint}</span>}
                     <Button
                         onPress={onRetry}
                         isDisabled={!canRetry}

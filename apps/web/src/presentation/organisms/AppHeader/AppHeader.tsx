@@ -3,13 +3,15 @@ import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { Tooltip } from "@/presentation/atoms/Tooltip/Tooltip"
 import { Navbar } from "@/presentation/organisms/Navbar/Navbar"
+import { findConversation } from "@pinai/domain/models/dm"
 import { presenceToUserStatus } from "@pinai/domain/models/presence"
+import { useOpenConversationRef } from "@/presentation/hooks/useOpenConversationRef"
 import { useAppStore } from "@/store/store"
 import { Hash, MessageSquare, Pin, UserPlus, Users, Volume2 } from "lucide-react"
 
 export function AppHeader() {
     const view = useAppStore((s) => s.view)
-    const activeDm = useAppStore((s) => s.activeDm)
+    const dmRef = useOpenConversationRef()
     const showPinned = useAppStore((s) => s.showPinned)
     const setShowPinned = useAppStore((s) => s.setShowPinned)
     const showMembers = useAppStore((s) => s.showMembers)
@@ -20,7 +22,7 @@ export function AppHeader() {
     const currentChannel = useAppStore((s) =>
         (s.channelsByServer[s.activeServer] ?? []).find((c) => c.id === s.activeChannel),
     )
-    const activeDmData = useAppStore((s) => s.localDmConvos.find((d) => d.id === s.activeDm))
+    const activeDmData = useAppStore((s) => (dmRef ? findConversation(s.localDmConvos, dmRef) : undefined))
     const activeDmPresence = useAppStore((s) =>
         activeDmData?.kind === "dm" ? s.presenceByAddress[activeDmData.address] : undefined,
     )
@@ -28,14 +30,14 @@ export function AppHeader() {
         activeDmData?.kind === "dm" ? s.avatarsByAddress[activeDmData.address] ?? null : null,
     )
 
-    const activeDmAddress = activeDmData?.address ?? activeDm ?? ""
+    const activeDmAddress = activeDmData?.address ?? dmRef ?? ""
 
     const title = view === "dms"
-        ? (activeDm ? (activeDmData?.displayName ?? activeDmAddress.split("@")[0] ?? activeDmAddress) : "Friends")
+        ? (dmRef ? (activeDmData?.displayName ?? activeDmAddress.split("@")[0] ?? activeDmAddress) : "Friends")
         : (currentChannel?.name ?? "")
 
     const description = view === "dms"
-        ? (activeDm
+        ? (dmRef
             ? (activeDmData?.kind === "group"
                 ? `${activeDmData.memberCount} ${activeDmData.memberCount === 1 ? "member" : "members"}`
                 : activeDmAddress)
@@ -95,7 +97,7 @@ export function AppHeader() {
     return (
         <Navbar actions={actions}>
             <span className="flex shrink-0">
-                {view === "dms" && !activeDm ? (
+                {view === "dms" && !dmRef ? (
                     <Users className="h-5 w-5" />
                 ) : view === "dms" && activeDmData ? (
                     <Avatar
@@ -121,7 +123,7 @@ export function AppHeader() {
                     <span
                         className={cn(
                             "truncate",
-                            view === "dms" && activeDm ? "fact fact-plain" : "text-[11px] text-muted-foreground",
+                            view === "dms" && dmRef ? "fact fact-plain" : "text-[11px] text-muted-foreground",
                         )}
                     >
                         {description}

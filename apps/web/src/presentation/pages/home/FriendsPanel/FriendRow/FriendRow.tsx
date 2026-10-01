@@ -16,9 +16,10 @@ interface FriendRowProps {
     isActive?: boolean
     onOpen: (address: string) => void
     onRemove: (friend: Friend) => void
+    onBlock: (friend: Friend) => void
 }
 
-export function FriendRow({ friend, isActive, onOpen, onRemove }: FriendRowProps) {
+export function FriendRow({ friend, isActive, onOpen, onRemove, onBlock }: FriendRowProps) {
     const initials = friend.name
         .split(" ")
         .map((n) => n[0])
@@ -32,6 +33,7 @@ export function FriendRow({ friend, isActive, onOpen, onRemove }: FriendRowProps
         onRemove: () => onRemove(friend),
         onToggleMute: toggleMute,
         isMuted,
+        onBlock: () => onBlock(friend),
     })
 
     return (

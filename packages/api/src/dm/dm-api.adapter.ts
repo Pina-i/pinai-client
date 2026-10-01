@@ -1,4 +1,5 @@
-import ky, { HTTPError } from "ky"
+import ky from "ky"
+import { idpErrorFrom } from "../idp-error"
 import type { Attachment, DirectMessage, DmConversationSummary } from "@pinai/domain/models/dm"
 import type { LocalFile } from "@pinai/domain/models/file"
 import type { DmCursor, IDmPort, UploadProgress } from "@pinai/domain/ports/dm.port"
@@ -11,11 +12,7 @@ export class DmApiAdapter implements IDmPort {
                 headers: { Authorization: `Bearer ${accessToken}` },
             }).json<DmConversationSummary[]>()
         } catch (error) {
-            if (error instanceof HTTPError) {
-                const err = await error.response.json().catch(() => ({})) as { error?: string }
-                throw new Error(err.error ?? `Failed to fetch DM conversations: ${error.response.status}`)
-            }
-            throw error
+            throw await idpErrorFrom(error, "Failed to fetch DM conversations")
         }
     }
 
@@ -37,11 +34,7 @@ export class DmApiAdapter implements IDmPort {
                 ...(cursor && { searchParams }),
             }).json<DirectMessage[]>()
         } catch (error) {
-            if (error instanceof HTTPError) {
-                const err = await error.response.json().catch(() => ({})) as { error?: string }
-                throw new Error(err.error ?? `Failed to fetch conversation: ${error.response.status}`)
-            }
-            throw error
+            throw await idpErrorFrom(error, "Failed to fetch conversation")
         }
     }
 
@@ -70,11 +63,7 @@ export class DmApiAdapter implements IDmPort {
                 json,
             }).json<DirectMessage>()
         } catch (error) {
-            if (error instanceof HTTPError) {
-                const err = await error.response.json().catch(() => ({})) as { error?: string }
-                throw new Error(err.error ?? `Failed to send message: ${error.response.status}`)
-            }
-            throw error
+            throw await idpErrorFrom(error, "Failed to send message")
         }
     }
 
@@ -146,11 +135,7 @@ export class DmApiAdapter implements IDmPort {
             }).json<{ url: string }>()
             return body.url
         } catch (error) {
-            if (error instanceof HTTPError) {
-                const err = await error.response.json().catch(() => ({})) as { error?: string }
-                throw new Error(err.error ?? `Failed to resolve attachment: ${error.response.status}`)
-            }
-            throw error
+            throw await idpErrorFrom(error, "Failed to resolve attachment")
         }
     }
 
@@ -165,11 +150,7 @@ export class DmApiAdapter implements IDmPort {
                 headers: { Authorization: `Bearer ${accessToken}` },
             })
         } catch (error) {
-            if (error instanceof HTTPError) {
-                const err = await error.response.json().catch(() => ({})) as { error?: string }
-                throw new Error(err.error ?? `Failed to mark conversation as read: ${error.response.status}`)
-            }
-            throw error
+            throw await idpErrorFrom(error, "Failed to mark conversation as read")
         }
     }
 
@@ -181,11 +162,7 @@ export class DmApiAdapter implements IDmPort {
                 json: { mls_ciphertext: mlsCiphertext },
             })
         } catch (error) {
-            if (error instanceof HTTPError) {
-                const err = await error.response.json().catch(() => ({})) as { error?: string }
-                throw new Error(err.error ?? `Failed to edit message: ${error.response.status}`)
-            }
-            throw error
+            throw await idpErrorFrom(error, "Failed to edit message")
         }
     }
 }

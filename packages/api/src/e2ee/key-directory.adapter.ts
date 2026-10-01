@@ -7,7 +7,8 @@
  * shape).
  */
 
-import ky, { HTTPError } from "ky"
+import ky from "ky"
+import { idpErrorFrom } from "../idp-error"
 
 import type {
     ActorUri,
@@ -301,18 +302,7 @@ async function guarded<T>(fn: () => Promise<T>): Promise<T> {
     try {
         return await fn()
     } catch (error) {
-        throw await wrap(error, "Key directory request failed")
+        throw await idpErrorFrom(error, "Key directory request failed")
     }
 }
 
-async function wrap(error: unknown, fallback: string): Promise<Error> {
-    if (error instanceof HTTPError) {
-        const body = (await error.response.json().catch(() => ({}))) as {
-            error?: string
-            error_description?: string
-        }
-        const detail = body.error_description ?? body.error ?? `${error.response.status}`
-        return new Error(`${fallback}: ${detail}`)
-    }
-    return error instanceof Error ? error : new Error(String(error))
-}
