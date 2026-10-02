@@ -61,6 +61,8 @@ function buildPort(
             throw new Error("recoverFromPassphrase not stubbed")
         },
         revokeDevice: async () => ({ removed_from: [] }),
+        pruneGroup: async () => ({ removed: 0 }),
+        forgetGroup: async () => {},
         startPairingAsInitiator: async () => {
             throw new Error("startPairingAsInitiator not stubbed")
         },

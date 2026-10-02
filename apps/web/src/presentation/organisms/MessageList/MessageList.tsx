@@ -6,11 +6,12 @@ import {
     Virtualizer,
 } from "react-aria-components"
 import { DateDivider } from "@/presentation/molecules/DateDivider/DateDivider"
+import { GroupEventLine } from "@/presentation/molecules/GroupEventLine/GroupEventLine"
 import { MessageThreadContext, ReactionPickerContext, type LinkedMessage } from "./MessageList.context"
 import { formatDateDividerLabel } from "@/presentation/molecules/DateDivider/DateDivider.helper"
 import { EmojiPickerPopover } from "@/presentation/molecules/EmojiPickerPopover/EmojiPickerPopover"
-import type { Message } from "@/lib/types"
-import { resentCopies } from "@pinai/domain/models/dm"
+import type { Message, TimelineNotice } from "@/lib/types"
+import { interleaveTimeline, resentCopies } from "@pinai/domain/models/dm"
 import { cn } from "@/presentation/_libs/utils"
 import { MessageItem } from "../MessageItem/MessageItem"
 import { useStickToBottom } from "./MessageList.scroll"
@@ -22,6 +23,8 @@ export interface MessageListHandle {
 
 interface MessageListProps {
     messages: Message[]
+    /** Lines between the messages, in the timeline's order. */
+    notices: TimelineNotice[]
     conversationKey: string
     recipientAddress: string
     isGroup: boolean
@@ -47,6 +50,7 @@ const LIST_GAP = 0
 
 type RowItem =
     | { kind: "divider"; id: string; label: string }
+    | { kind: "notice"; id: string; notice: TimelineNotice }
     | {
           kind: "message"
           id: string
@@ -56,13 +60,15 @@ type RowItem =
 
 type DividerRow = Extract<RowItem, { kind: "divider" }>
 type MessageRow = Extract<RowItem, { kind: "message" }>
+type NoticeRow = Extract<RowItem, { kind: "notice" }>
 
 // React Aria caches each rendered row by the identity of its item object, so
 // rows are reused per message: appending one message then re-renders one row,
 // not the whole list. Messages are replaced, never mutated, so a WeakMap on the
 // message is exact.
 const messageRows = new WeakMap<Message, [rest: MessageRow, first: MessageRow]>()
-const dividerRows = new WeakMap<Message, DividerRow>()
+const dividerRows = new WeakMap<Message | TimelineNotice, DividerRow>()
+const noticeRows = new WeakMap<TimelineNotice, NoticeRow>()
 
 function messageRow(message: Message, first: boolean): MessageRow {
     let rows = messageRows.get(message)
@@ -76,13 +82,22 @@ function messageRow(message: Message, first: boolean): MessageRow {
     return rows[first ? 1 : 0]
 }
 
-// Keyed by the message the divider precedes; the label check covers "Today"
+function noticeRow(notice: TimelineNotice): NoticeRow {
+    let row = noticeRows.get(notice)
+    if (!row) {
+        row = { kind: "notice", id: notice.id, notice }
+        noticeRows.set(notice, row)
+    }
+    return row
+}
+
+// Keyed by the entry the divider precedes; the label check covers "Today"
 // turning into "Yesterday" at midnight.
-function dividerRow(message: Message, dayKey: string, label: string): DividerRow {
-    const cached = dividerRows.get(message)
+function dividerRow(entry: Message | TimelineNotice, dayKey: string, label: string): DividerRow {
+    const cached = dividerRows.get(entry)
     if (cached?.label === label) return cached
-    const row: DividerRow = { kind: "divider", id: `divider-${dayKey}-${message.id}`, label }
-    dividerRows.set(message, row)
+    const row: DividerRow = { kind: "divider", id: `divider-${dayKey}-${entry.id}`, label }
+    dividerRows.set(entry, row)
     return row
 }
 
@@ -111,6 +126,7 @@ interface ReactionPickerState {
 // Memoised: the page also re-renders when the conversation object refreshes, which leaves every prop here unchanged.
 export const MessageList = memo(function MessageList({
     messages,
+    notices,
     conversationKey,
     recipientAddress,
     isGroup,
@@ -164,18 +180,25 @@ export const MessageList = memo(function MessageList({
         let prevAuthorAddress: string | undefined
         let prevCreatedAt: number | undefined
 
-        for (const msg of messages) {
-            const date = new Date(msg.createdAt)
+        for (const item of interleaveTimeline(messages, notices)) {
+            const date = new Date(item.entry.createdAt)
             const dayKey = date.toDateString()
             if (dayKey !== lastDayKey) {
-                // Date dividers carry the message id of the row they
-                // precede so the React key stays stable when older
-                // history loads in above an existing divider.
-                acc.push(dividerRow(msg, dayKey, formatDateDividerLabel(date)))
+                // Date dividers carry the id of the row they precede so
+                // the React key stays stable when older history loads in
+                // above an existing divider.
+                acc.push(dividerRow(item.entry, dayKey, formatDateDividerLabel(date)))
                 lastDayKey = dayKey
                 prevAuthorAddress = undefined
                 prevCreatedAt = undefined
             }
+            if (item.kind === "event") {
+                acc.push(noticeRow(item.entry))
+                prevAuthorAddress = undefined
+                prevCreatedAt = undefined
+                continue
+            }
+            const msg = item.entry
             const sameAuthor = prevAuthorAddress != null && prevAuthorAddress === msg.authorAddress
             const within = prevCreatedAt != null && date.getTime() - prevCreatedAt <= SEQUENCE_GAP_MS
             const first = !sameAuthor || !within
@@ -184,7 +207,7 @@ export const MessageList = memo(function MessageList({
             prevCreatedAt = date.getTime()
         }
         return acc
-    }, [messages])
+    }, [messages, notices])
 
     useImperativeHandle(
         handleRef,
@@ -288,11 +311,19 @@ export const MessageList = memo(function MessageList({
                         {(item) => (
                             <ListBoxItem
                                 id={item.id}
-                                textValue={item.kind === "message" ? item.message.content : item.label}
+                                textValue={
+                                    item.kind === "message"
+                                        ? item.message.content
+                                        : item.kind === "notice"
+                                          ? item.notice.text
+                                          : item.label
+                                }
                                 className={cn("px-1.5 outline-none", item.kind === "message" && item.first && "pt-2")}
                             >
                                 {item.kind === "divider" ? (
                                     <DateDivider label={item.label} />
+                                ) : item.kind === "notice" ? (
+                                    <GroupEventLine text={item.notice.text} timestamp={item.notice.timestamp} />
                                 ) : (
                                     <MessageItem
                                         message={item.message}

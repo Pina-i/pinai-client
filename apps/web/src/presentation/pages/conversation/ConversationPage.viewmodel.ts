@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
 import { sendTypingStartUseCase } from "@pinai/domain/usecases/presence/send-typing-start.usecase"
@@ -9,8 +9,16 @@ import { getDmPort, getE2eePort, getGroupPort, getWsPort } from "@/ioc"
 import { isBlocked } from "@pinai/domain/models/block"
 import { useBlockUser, useBlocks } from "@/presentation/hooks/useBlocks"
 import { actorUriToAddress, addressToActorUri, asActorUri } from "@pinai/domain/models/identity"
-import type { Message } from "@/lib/types"
-import { applyFederationStatus, findConversation, settleStaleSend, type DirectMessage } from "@pinai/domain/models/dm"
+import type { Message, TimelineNotice } from "@/lib/types"
+import {
+    applyFederationStatus,
+    findConversation,
+    settleStaleSend,
+    startsConversation,
+    type DirectMessage,
+} from "@pinai/domain/models/dm"
+import { describeGroupEvent, type GroupEvent } from "@pinai/domain/models/group-event"
+import { useDismissGroup } from "@/presentation/hooks/useDismissGroup"
 import type {
     ActorUri,
     ApplicationMessage,
@@ -98,7 +106,8 @@ async function mapApiMessage(
     // the cached UI message verbatim when it exists; only fall back
     // to decrypt for genuinely-new rows.
     const cached = cachedById?.get(msg.id)
-    if (cached) {
+    // One this device couldn't decrypt is tried again: the failure deleted no key.
+    if (cached && !cached.undecrypted) {
         return { kind: "message", message: cached }
     }
     // Reactions we already applied via the live WS path live folded
@@ -196,8 +205,13 @@ async function mapApiMessage(
     return { kind: "message", message: mapped }
 }
 
-// Stable fallback: a fresh `[]` per render would defeat every memo downstream.
+// Stable fallbacks: a fresh `[]` per render would defeat every memo downstream.
 const NO_MESSAGES: Message[] = []
+const NO_EVENTS: GroupEvent[] = []
+
+function timeOfDay(iso: string): string {
+    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+}
 
 export function useConversationPageViewModel(name: string) {
     const user = useAppStore((s) => s.user)
@@ -211,6 +225,7 @@ export function useConversationPageViewModel(name: string) {
     const { blocked } = useBlocks()
     const { unblock, isPending: isUnblocking } = useBlockUser()
     const applyReaction = useAppStore((s) => s.applyReaction)
+    const addGroupEvents = useAppStore((s) => s.addGroupEvents)
     const setActiveDm = useAppStore((s) => s.setActiveDm)
     const clearDmUnread = useAppStore((s) => s.clearDmUnread)
     const wsStatus = useAppStore((s) => s.wsStatus)
@@ -246,7 +261,7 @@ export function useConversationPageViewModel(name: string) {
     // re-runs this component immediately and throws the first pass away, so
     // no child ever sees the intermediate `null` and no effect fires on it.
     const [minted, setMinted] = useState<{ key: string; id: string } | null>(null)
-    const mintKey = idpUrl && dmConvosLoaded && !dmData ? `${idpUrl}|${name}` : null
+    const mintKey = idpUrl && dmConvosLoaded && !dmData && startsConversation(name) ? `${idpUrl}|${name}` : null
     if (mintKey !== null && minted?.key !== mintKey) {
         setMinted({ key: mintKey, id: crypto.randomUUID() })
     }
@@ -256,6 +271,8 @@ export function useConversationPageViewModel(name: string) {
     // dmData is present, otherwise the lazily-minted UUID. `null` only
     // during the loading window — sends are blocked then.
     const conversationId = dmData?.id ?? mintedConversationId
+    const isRemoved = dmData?.removedAt != null
+    const isUnavailable = dmConvosLoaded && !dmData && !startsConversation(name)
 
     // Resolved recipient actor URI: prefer `dmData.actorUri` (already
     // canonical), fall back to deriving from the route param. The
@@ -303,7 +320,7 @@ export function useConversationPageViewModel(name: string) {
     // reaches `connected` so the watch survives a race where
     // ConversationPage mounts before the socket finishes its handshake.
     useEffect(() => {
-        if (!conversationId) return
+        if (!conversationId || isRemoved) return
         if (wsStatus !== "connected") return
 
         const ws = getWsPort()
@@ -319,7 +336,7 @@ export function useConversationPageViewModel(name: string) {
                 // Connection already dead; server will drop the watcher on disconnect.
             }
         }
-    }, [conversationId, wsStatus])
+    }, [conversationId, isRemoved, wsStatus])
 
     // Load message history from REST API once per conversation mount.
     const historyLoadedRef = useRef(false)
@@ -334,7 +351,8 @@ export function useConversationPageViewModel(name: string) {
         historyLoadedRef.current = true
 
         getConversationHistoryUseCase(idpUrl, accessToken, dmData.id, getDmPort())
-            .then(async (msgs) => {
+            .then(async ({ messages: msgs, events }) => {
+                addGroupEvents(conversationKey, events)
                 // API returns newest-first → reverse to oldest-first for display.
                 const reversed = msgs.reverse()
                 const catchUp = { idpUrl, accessToken }
@@ -399,11 +417,31 @@ export function useConversationPageViewModel(name: string) {
                         row.reactor_address === ownAddress,
                     )
                 }
+                // A reaction that failed to decrypt live was cached as a placeholder message.
+                const reactions = new Set(mapped.flatMap((row) => (row.kind === "reaction" ? [row.reaction_message_id] : [])))
+                if (reactions.size > 0) {
+                    updateDmConversation(conversationKey, (list) =>
+                        list.some((m) => m.undecrypted && reactions.has(m.id))
+                            ? list.filter((m) => !(m.undecrypted && reactions.has(m.id)))
+                            : list,
+                    )
+                }
             })
             .catch(() => {
                 historyLoadedRef.current = false
             })
-    }, [accessToken, idpUrl, user, name, conversationKey, seedDmMessages, updateDmConversation, applyReaction, dmData])
+    }, [
+        accessToken,
+        idpUrl,
+        user,
+        name,
+        conversationKey,
+        seedDmMessages,
+        updateDmConversation,
+        applyReaction,
+        addGroupEvents,
+        dmData,
+    ])
 
     // A send left `sending` by a closed page never settles on its own, so
     // opening the conversation fails it and it offers a retry.
@@ -417,6 +455,18 @@ export function useConversationPageViewModel(name: string) {
 
     // This conversation's list only: traffic in other conversations must not re-render the page.
     const messages = useAppStore((s) => s.dmMessages[conversationKey]) ?? NO_MESSAGES
+    const events = useAppStore((s) => s.groupEvents[conversationKey]) ?? NO_EVENTS
+    const myActorUri = user?.actor_uri ?? ""
+    const notices = useMemo<TimelineNotice[]>(
+        () =>
+            events.map((e) => ({
+                id: e.id,
+                createdAt: e.createdAt,
+                text: describeGroupEvent(e, myActorUri),
+                timestamp: timeOfDay(e.createdAt),
+            })),
+        [events, myActorUri],
+    )
     // Scroll-to-bottom is an imperative action — page wires a
     // `MessageListHandle` here, viewmodel triggers it after a local
     // send. Old `messagesEndRef.scrollIntoView` only worked when the
@@ -640,7 +690,7 @@ export function useConversationPageViewModel(name: string) {
             // populates either from `dmData.id` (friend / existing
             // convo) or from a freshly minted UUID (non-friend DM).
             if (!user || !accessToken || !idpUrl) return
-            if (!conversationId) return
+            if (!conversationId || isRemoved) return
             // Groups need only the conversation id; 1:1s need the resolved peer.
             const isGroup = dmData?.kind === "group"
             if (!isGroup && !recipientActorUri) return
@@ -664,7 +714,7 @@ export function useConversationPageViewModel(name: string) {
                 optimisticAttachmentKeys,
             })
         },
-        [user, dmData, name, conversationId, recipientActorUri, replyingTo, accessToken, idpUrl, dispatchSend],
+        [user, dmData, name, conversationId, isRemoved, recipientActorUri, replyingTo, accessToken, idpUrl, dispatchSend],
     )
 
     // Rebuilds a send from the cached message, for when the in-memory intent
@@ -758,6 +808,14 @@ export function useConversationPageViewModel(name: string) {
         if (recipientActorUri) void unblock(recipientActorUri, displayName)
     }, [recipientActorUri, unblock, displayName])
 
+    const { dismiss, isPending: isDismissing } = useDismissGroup()
+    const [isConfirmingDismiss, setIsConfirmingDismiss] = useState(false)
+    const askDismiss = useCallback(() => setIsConfirmingDismiss(true), [])
+    const cancelDismiss = useCallback(() => setIsConfirmingDismiss(false), [])
+    async function confirmDismiss() {
+        if (dmData && (await dismiss(dmData.id))) setIsConfirmingDismiss(false)
+    }
+
     return {
         user,
         name,
@@ -766,6 +824,7 @@ export function useConversationPageViewModel(name: string) {
         recipientAddress,
         isGroup,
         messages,
+        notices,
         messageListHandleRef,
         replyingTo,
         sendMessage,
@@ -778,5 +837,12 @@ export function useConversationPageViewModel(name: string) {
         peerBlocked,
         unblockPeer,
         isUnblocking,
+        isRemoved,
+        isUnavailable,
+        isConfirmingDismiss,
+        askDismiss,
+        cancelDismiss,
+        confirmDismiss,
+        isDismissing,
     }
 }

@@ -202,6 +202,21 @@ export interface IE2eePort {
     ): Promise<{ removed_from: ConversationId[] }>
 
     /**
+     * Commit out of a group's MLS state every device of someone `roster` — the group's members as
+     * the IdP lists them — no longer holds, so nothing sent from then on decrypts for them. A
+     * commit that loses an epoch race is dropped; the group catches up and is looked at again.
+     */
+    pruneGroup(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        roster: readonly string[],
+    ): Promise<{ removed: number }>
+
+    /** Drop a group's MLS state from this device, as a group the user was removed from is cleared. */
+    forgetGroup(conversationId: ConversationId): Promise<void>
+
+    /**
      * Background poll of `GET /api/keys/packages/status`. When any
      * device reports `needs_refill`, generates fresh KeyPackages and
      * uploads them via `POST /api/keys/packages` capped at the

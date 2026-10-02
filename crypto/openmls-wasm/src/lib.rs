@@ -38,6 +38,7 @@ use openmls::{
     framing::{MlsMessageBodyIn, MlsMessageIn, MlsMessageOut, ProcessedMessageContent},
     group::{GroupId, MlsGroup, MlsGroupJoinConfig, StagedWelcome},
     key_packages::{KeyPackage as OpenMlsKeyPackage, KeyPackageIn},
+    messages::Welcome,
     prelude::{LeafNodeIndex, LeafNodeParameters, ProtocolVersion, SignatureScheme},
     treesync::RatchetTreeIn,
 };
@@ -46,6 +47,18 @@ use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_traits::{types::Ciphersuite, OpenMlsProvider};
 use tls_codec::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
+
+fn welcome_in(welcome_bytes: &[u8]) -> Result<Welcome, JsError> {
+    let mut s = welcome_bytes;
+    let msg = MlsMessageIn::tls_deserialize(&mut s)
+        .map_err(|e| JsError::new(&format!("Welcome deserialize failed: {e}")))?;
+    match msg.extract() {
+        MlsMessageBodyIn::Welcome(w) => Ok(w),
+        other => Err(JsError::new(&format!(
+            "Expected Welcome message, got {other:?}"
+        ))),
+    }
+}
 
 /// One-shot init. Mounts the panic hook so dev-tools see a real Rust
 /// stack trace instead of `unreachable executed`.
@@ -495,18 +508,7 @@ impl Group {
         welcome_bytes: &[u8],
         ratchet_tree_bytes: Option<Vec<u8>>,
     ) -> Result<Group, JsError> {
-        let mut s = welcome_bytes;
-        let msg = MlsMessageIn::tls_deserialize(&mut s)
-            .map_err(|e| JsError::new(&format!("Welcome deserialize failed: {e}")))?;
-        let welcome = match msg.extract() {
-            MlsMessageBodyIn::Welcome(w) => w,
-            other => {
-                return Err(JsError::new(&format!(
-                    "Expected Welcome message, got {other:?}"
-                )))
-            }
-        };
-
+        let welcome = welcome_in(welcome_bytes)?;
         let ratchet_tree = match ratchet_tree_bytes {
             Some(bytes) => {
                 let mut s = bytes.as_slice();
@@ -525,6 +527,56 @@ impl Group {
             .map_err(|e| JsError::new(&format!("Group join failed: {e}")))?;
 
         Ok(Group { mls_group })
+    }
+
+    /// Join again from a Welcome for this group — the device was committed out and added back.
+    /// The group held is replaced only when the Welcome brings a later epoch; `None` keeps it, as
+    /// for a Welcome from a group both sides founded at once.
+    pub fn rejoin(
+        &mut self,
+        provider: &Provider,
+        welcome_bytes: &[u8],
+    ) -> Result<Option<Group>, JsError> {
+        let config = MlsGroupJoinConfig::builder().build();
+        let welcome = welcome_in(welcome_bytes)?;
+        let staged = StagedWelcome::build_from_welcome(&provider.0, &config, welcome)
+            .and_then(|join| join.replace_old_group().build())
+            .map_err(|e| JsError::new(&format!("StagedWelcome failed: {e}")))?;
+        if staged.group_context().group_id() != self.mls_group.group_id()
+            || staged.group_context().epoch() <= self.mls_group.epoch()
+        {
+            return Ok(None);
+        }
+        // Deleted first: the new group's state lands under the same keys, and an old epoch's
+        // keys would otherwise stay behind.
+        self.delete(provider)?;
+        let mls_group = staged
+            .into_group(&provider.0)
+            .map_err(|e| JsError::new(&format!("Group join failed: {e}")))?;
+        Ok(Some(Group { mls_group }))
+    }
+
+    /// Remove the group's state from the provider, as a group the user was removed from is cleared.
+    pub fn delete(&mut self, provider: &Provider) -> Result<(), JsError> {
+        self.mls_group
+            .delete(provider.0.storage())
+            .map_err(|e| JsError::new(&format!("Group delete failed: {e:?}")))
+    }
+
+    /// The keypair of the group's own leaf, which peers verify this device's messages and commits
+    /// against — not necessarily the identity bound since: a KeyPackage published before a reload
+    /// carries the key of its day.
+    fn signer(&self, provider: &Provider) -> Result<SignatureKeyPair, JsError> {
+        let leaf = self
+            .mls_group
+            .own_leaf_node()
+            .ok_or_else(|| JsError::new("The group holds no leaf of this device"))?;
+        SignatureKeyPair::read(
+            provider.0.storage(),
+            leaf.signature_key().as_slice(),
+            SignatureScheme::ED25519,
+        )
+        .ok_or_else(|| JsError::new("The signing keypair of this device's leaf is missing from storage"))
     }
 
     /// Serialise the ratchet tree so a joining client can rebuild group
@@ -570,10 +622,9 @@ impl Group {
     pub fn add_member(
         &mut self,
         provider: &Provider,
-        sender: &Identity,
         new_member_kp: &KeyPackage,
     ) -> Result<AddOutput, JsError> {
-        let signer = sender.signer(provider)?;
+        let signer = self.signer(provider)?;
         let (commit_msg, welcome_msg, _group_info) = self
             .mls_group
             .add_members(&provider.0, &signer, &[new_member_kp.0.clone()])
@@ -589,10 +640,9 @@ impl Group {
     pub fn remove_member(
         &mut self,
         provider: &Provider,
-        sender: &Identity,
         member_index: u32,
     ) -> Result<CommitOutput, JsError> {
-        let signer = sender.signer(provider)?;
+        let signer = self.signer(provider)?;
         let (commit_msg, _welcome, _group_info) = self
             .mls_group
             .remove_members(
@@ -611,9 +661,8 @@ impl Group {
     pub fn update(
         &mut self,
         provider: &Provider,
-        sender: &Identity,
     ) -> Result<CommitOutput, JsError> {
-        let signer = sender.signer(provider)?;
+        let signer = self.signer(provider)?;
         let commit_bundle = self
             .mls_group
             .self_update(&provider.0, &signer, LeafNodeParameters::default())
@@ -632,15 +681,22 @@ impl Group {
             .map_err(|e| JsError::new(&format!("merge_pending_commit failed: {e}")))
     }
 
+    /// Drop the pending commit — one the IdP DS refused or never acknowledged. The group builds no
+    /// other commit while one is pending.
+    pub fn clear_pending_commit(&mut self, provider: &mut Provider) -> Result<(), JsError> {
+        self.mls_group
+            .clear_pending_commit(provider.0.storage())
+            .map_err(|e| JsError::new(&format!("clear_pending_commit failed: {e:?}")))
+    }
+
     /// Encrypt an application message (text DM, reaction, edit — the
     /// kind-byte lives inside `plaintext`).
     pub fn encrypt_application(
         &mut self,
         provider: &Provider,
-        sender: &Identity,
         plaintext: &[u8],
     ) -> Result<Vec<u8>, JsError> {
-        let signer = sender.signer(provider)?;
+        let signer = self.signer(provider)?;
         let msg = self
             .mls_group
             .create_message(&provider.0, &signer, plaintext)
@@ -750,6 +806,96 @@ mod tests {
         (alice_p, alice, bob_p, bob)
     }
 
+    /// A commit the DS never acknowledged blocks the group's next commit; clearing it frees it.
+    #[test]
+    fn a_cleared_pending_commit_lets_the_group_commit_again() {
+        let (alice_p, alice, bob_p, bob) = make_alice_and_bob();
+        let (mut alice_p, mut bob_p) = (alice_p, bob_p);
+        let mut alice_group = Group::create_new(&alice_p, &alice, b"conv-002").unwrap();
+        let add = alice_group
+            .add_member(&alice_p, &bob.key_package(&bob_p).unwrap())
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        let tree = alice_group.export_ratchet_tree().unwrap();
+        let mut bob_group = Group::join(&bob_p, &add.welcome, Some(tree)).unwrap();
+
+        alice_group.remove_member(&alice_p, 1).unwrap();
+        assert!(alice_group.mls_group.pending_commit().is_some());
+
+        alice_group.clear_pending_commit(&mut alice_p).unwrap();
+        assert!(alice_group.mls_group.pending_commit().is_none());
+        let update = alice_group.update(&alice_p).unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        bob_group.process_message(&mut bob_p, &update.commit).unwrap();
+        let ciphertext = alice_group
+            .encrypt_application(&alice_p, b"still in step")
+            .unwrap();
+        let processed = bob_group.process_message(&mut bob_p, &ciphertext).unwrap();
+        assert_eq!(processed.application(), b"still in step");
+    }
+
+    /// Bob, committed out of the group and added back, takes the Welcome over the group he held.
+    #[test]
+    fn a_welcome_from_a_later_epoch_replaces_the_group_held() {
+        let (alice_p, alice, bob_p, bob) = make_alice_and_bob();
+        let (mut alice_p, mut bob_p) = (alice_p, bob_p);
+        let mut alice_group = Group::create_new(&alice_p, &alice, b"conv-003").unwrap();
+        let first = alice_group
+            .add_member(&alice_p, &bob.key_package(&bob_p).unwrap())
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        let mut held = Group::join(&bob_p, &first.welcome, None).unwrap();
+        alice_group.remove_member(&alice_p, 1).unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        let again = alice_group
+            .add_member(&alice_p, &bob.key_package(&bob_p).unwrap())
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+
+        let mut rejoined = held.rejoin(&bob_p, &again.welcome).unwrap().unwrap();
+
+        assert_eq!(rejoined.epoch(), alice_group.epoch());
+        let ciphertext = alice_group
+            .encrypt_application(&alice_p, b"welcome back")
+            .unwrap();
+        let processed = rejoined.process_message(&mut bob_p, &ciphertext).unwrap();
+        assert_eq!(processed.application(), b"welcome back");
+        let stored = Group::load_from_provider(&bob_p, b"conv-003").unwrap().unwrap();
+        assert_eq!(stored.epoch(), rejoined.epoch());
+    }
+
+    /// Both founded the group at once: Alice's Welcome is no later than Bob's own group, so Bob
+    /// keeps his.
+    #[test]
+    fn a_welcome_no_later_than_the_group_held_keeps_it() {
+        let (alice_p, alice, bob_p, bob) = make_alice_and_bob();
+        let (mut alice_p, mut bob_p) = (alice_p, bob_p);
+        let mut alice_group = Group::create_new(&alice_p, &alice, b"conv-004").unwrap();
+        let add = alice_group
+            .add_member(&alice_p, &bob.key_package(&bob_p).unwrap())
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        let mut bobs_own = Group::create_new(&bob_p, &bob, b"conv-004").unwrap();
+        bobs_own.update(&bob_p).unwrap();
+        bobs_own.merge_pending_commit(&mut bob_p).unwrap();
+
+        assert!(bobs_own.rejoin(&bob_p, &add.welcome).unwrap().is_none());
+
+        let stored = Group::load_from_provider(&bob_p, b"conv-004").unwrap().unwrap();
+        assert_eq!(stored.list_members().len(), 1);
+        assert_eq!(stored.epoch(), 1);
+    }
+
+    #[test]
+    fn a_deleted_group_is_gone_from_the_provider() {
+        let (alice_p, alice, _, _) = make_alice_and_bob();
+        let mut group = Group::create_new(&alice_p, &alice, b"conv-005").unwrap();
+
+        group.delete(&alice_p).unwrap();
+
+        assert!(Group::load_from_provider(&alice_p, b"conv-005").unwrap().is_none());
+    }
+
     /// Two-member group: create, add, exchange one app message, decrypt
     /// matches.
     #[test]
@@ -767,7 +913,7 @@ mod tests {
             Group::create_new(&alice_p_mut, &alice, b"conv-001").unwrap();
 
         let add = alice_group
-            .add_member(&alice_p_mut, &alice, &bob_kp_validated)
+            .add_member(&alice_p_mut, &bob_kp_validated)
             .unwrap();
         alice_group.merge_pending_commit(&mut alice_p_mut).unwrap();
 
@@ -777,7 +923,7 @@ mod tests {
         // Alice encrypts; Bob decrypts.
         let plaintext = b"hello bob, encrypted";
         let ciphertext = alice_group
-            .encrypt_application(&alice_p_mut, &alice, plaintext)
+            .encrypt_application(&alice_p_mut, plaintext)
             .unwrap();
         let processed = bob_group.process_message(&mut bob_p_mut, &ciphertext).unwrap();
         assert!(matches!(processed.kind(), ProcessedKind::Application));
@@ -804,7 +950,7 @@ mod tests {
 
         // Add Bob.
         let bob_kp = bob.key_package(&bob_p_mut).unwrap();
-        let add_bob = alice_group.add_member(&alice_p_mut, &alice, &bob_kp).unwrap();
+        let add_bob = alice_group.add_member(&alice_p_mut, &bob_kp).unwrap();
         alice_group.merge_pending_commit(&mut alice_p_mut).unwrap();
         let mut bob_group = Group::join(
             &bob_p_mut,
@@ -817,7 +963,7 @@ mod tests {
         // group advances to the same epoch.
         let charles_kp = charles.key_package(&charles_p_mut).unwrap();
         let add_charles = alice_group
-            .add_member(&alice_p_mut, &alice, &charles_kp)
+            .add_member(&alice_p_mut, &charles_kp)
             .unwrap();
         alice_group.merge_pending_commit(&mut alice_p_mut).unwrap();
 
@@ -836,7 +982,7 @@ mod tests {
         // All three can decrypt the same application message.
         let msg = b"hello group";
         let ct = alice_group
-            .encrypt_application(&alice_p_mut, &alice, msg)
+            .encrypt_application(&alice_p_mut, msg)
             .unwrap();
         for (group, prov) in [
             (&mut bob_group, &mut bob_p_mut),
@@ -861,7 +1007,7 @@ mod tests {
 
         let mut alice_group = Group::create_new(&alice_p_mut, &alice, b"conv").unwrap();
         let bob_kp = bob.key_package(&bob_p_mut).unwrap();
-        let add = alice_group.add_member(&alice_p_mut, &alice, &bob_kp).unwrap();
+        let add = alice_group.add_member(&alice_p_mut, &bob_kp).unwrap();
         alice_group.merge_pending_commit(&mut alice_p_mut).unwrap();
         let bob_group = Group::join(
             &bob_p_mut,
@@ -875,7 +1021,7 @@ mod tests {
 
         // Bob's leaf is at index 1 (Alice is 0).
         let _remove = alice_group
-            .remove_member(&alice_p_mut, &alice, 1)
+            .remove_member(&alice_p_mut, 1)
             .unwrap();
         alice_group.merge_pending_commit(&mut alice_p_mut).unwrap();
 
@@ -898,7 +1044,7 @@ mod tests {
 
         let mut alice_group = Group::create_new(&alice_p_mut, &alice, b"conv").unwrap();
         let bob_kp = bob.key_package(&bob_p_mut).unwrap();
-        let add = alice_group.add_member(&alice_p_mut, &alice, &bob_kp).unwrap();
+        let add = alice_group.add_member(&alice_p_mut, &bob_kp).unwrap();
         alice_group.merge_pending_commit(&mut alice_p_mut).unwrap();
         let mut bob_group = Group::join(
             &bob_p_mut,
@@ -909,7 +1055,7 @@ mod tests {
 
         let epoch_before = alice_group.epoch();
 
-        let upd = alice_group.update(&alice_p_mut, &alice).unwrap();
+        let upd = alice_group.update(&alice_p_mut).unwrap();
         alice_group.merge_pending_commit(&mut alice_p_mut).unwrap();
 
         // Bob processes the update commit.
@@ -929,7 +1075,7 @@ mod tests {
 
         // And messages still flow.
         let ct = alice_group
-            .encrypt_application(&alice_p_mut, &alice, b"post-update")
+            .encrypt_application(&alice_p_mut, b"post-update")
             .unwrap();
         let processed = bob_group.process_message(&mut bob_p_mut, &ct).unwrap();
         assert_eq!(processed.application(), b"post-update");
@@ -944,7 +1090,7 @@ mod tests {
 
         let mut alice_group = Group::create_new(&alice_p_mut, &alice, b"conv").unwrap();
         let bob_kp = bob.key_package(&bob_p_mut).unwrap();
-        let add = alice_group.add_member(&alice_p_mut, &alice, &bob_kp).unwrap();
+        let add = alice_group.add_member(&alice_p_mut, &bob_kp).unwrap();
         alice_group.merge_pending_commit(&mut alice_p_mut).unwrap();
         let bob_group = Group::join(
             &bob_p_mut,
@@ -978,7 +1124,7 @@ mod tests {
 
         let mut alice_group = Group::create_new(&alice_p_mut, &alice, b"conv-restore").unwrap();
         let bob_kp = bob.key_package(&bob_p_immut).unwrap();
-        let add = alice_group.add_member(&alice_p_mut, &alice, &bob_kp).unwrap();
+        let add = alice_group.add_member(&alice_p_mut, &bob_kp).unwrap();
         alice_group.merge_pending_commit(&mut alice_p_mut).unwrap();
 
         let bob_group = Group::join(
@@ -1003,7 +1149,7 @@ mod tests {
 
         // Alice sends one more message; restored Bob decrypts it.
         let ct = alice_group
-            .encrypt_application(&alice_p_mut, &alice, b"after-reload")
+            .encrypt_application(&alice_p_mut, b"after-reload")
             .unwrap();
         let mut restored_p_mut = restored_p;
         let processed = bob_loaded.process_message(&mut restored_p_mut, &ct).unwrap();

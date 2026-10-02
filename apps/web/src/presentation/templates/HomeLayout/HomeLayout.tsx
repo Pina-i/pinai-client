@@ -37,7 +37,7 @@ export function HomeLayout({ children }: HomeLayoutProps) {
     // Only the id: a conversation-list refresh must not re-render the whole shell.
     const activeGroupId = useAppStore((s) => {
         const open = dmParam ? findConversation(s.localDmConvos, dmParam) : undefined
-        return open?.kind === "group" ? open.id : undefined
+        return open?.kind === "group" && !open.removedAt ? open.id : undefined
     })
 
     if (!user) return null

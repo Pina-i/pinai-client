@@ -1,5 +1,6 @@
 import type { PresenceState } from "./presence"
 import type { Attachment } from "./dm"
+import type { GroupEvent } from "./group-event"
 
 // ── Server → Client events ──────────────────────────────────────────────────
 
@@ -147,6 +148,8 @@ export type WsServerEvent =
     | { type: "member_removed"; data: MemberRemovedPayload }
     | { type: "member_role_changed"; data: MemberRoleChangedPayload }
     | { type: "group_renamed"; data: GroupRenamedPayload }
+    /** A line a group's change adds to its conversation; no unread, no sound. */
+    | { type: "group_event"; data: GroupEvent }
     /** The account settings changed from one of the user's sessions; `settings` is the whole document, raw. */
     | { type: "settings_updated"; data: { settings: unknown } }
     /** The user's block list changed, from one of their sessions: refetch it. */

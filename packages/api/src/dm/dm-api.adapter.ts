@@ -1,8 +1,41 @@
 import ky from "ky"
 import { idpErrorFrom } from "../idp-error"
-import type { Attachment, DirectMessage, DmConversationSummary } from "@pinai/domain/models/dm"
+import type { Attachment, ConversationHistory, DirectMessage, DmConversationSummary } from "@pinai/domain/models/dm"
+import type { GroupEvent } from "@pinai/domain/models/group-event"
 import type { LocalFile } from "@pinai/domain/models/file"
 import type { DmCursor, IDmPort, UploadProgress } from "@pinai/domain/ports/dm.port"
+
+/** An event item of the history, in the REST API's casing: the WebSocket's `group_event` is camelCase. */
+interface HistoryEvent {
+    kind: "event"
+    id: string
+    conversation_id: string
+    event: GroupEvent["event"]
+    actor_uri: string
+    actor_display_name: string | null
+    subject_uri?: string
+    subject_display_name?: string | null
+    name?: string
+    role?: GroupEvent["role"]
+    created_at: string
+}
+
+type HistoryItem = (DirectMessage & { kind: "message" }) | HistoryEvent
+
+function groupEventFrom(item: HistoryEvent): GroupEvent {
+    return {
+        id: item.id,
+        conversationId: item.conversation_id,
+        event: item.event,
+        actorUri: item.actor_uri,
+        actorDisplayName: item.actor_display_name,
+        ...(item.subject_uri !== undefined && { subjectUri: item.subject_uri }),
+        ...(item.subject_display_name !== undefined && { subjectDisplayName: item.subject_display_name }),
+        ...(item.name !== undefined && { name: item.name }),
+        ...(item.role !== undefined && { role: item.role }),
+        createdAt: item.created_at,
+    }
+}
 
 export class DmApiAdapter implements IDmPort {
     async listConversations(idpUrl: string, accessToken: string): Promise<DmConversationSummary[]> {
@@ -21,21 +54,28 @@ export class DmApiAdapter implements IDmPort {
         accessToken: string,
         conversationId: string,
         cursor?: DmCursor,
-    ): Promise<DirectMessage[]> {
+    ): Promise<ConversationHistory> {
         const base = `${idpUrl.replace(/\/$/, "")}/api/dm/${encodeURIComponent(conversationId)}`
-        const searchParams = new URLSearchParams()
+        const searchParams = new URLSearchParams({ include: "events" })
         if (cursor) {
             searchParams.set("cursor_created_at", cursor.created_at)
             searchParams.set("cursor_id", cursor.id)
         }
+        let items: HistoryItem[]
         try {
-            return await ky.get(base, {
+            items = await ky.get(base, {
                 headers: { Authorization: `Bearer ${accessToken}` },
-                ...(cursor && { searchParams }),
-            }).json<DirectMessage[]>()
+                searchParams,
+            }).json<HistoryItem[]>()
         } catch (error) {
             throw await idpErrorFrom(error, "Failed to fetch conversation")
         }
+        const history: ConversationHistory = { messages: [], events: [] }
+        for (const item of items) {
+            if (item.kind === "event") history.events.push(groupEventFrom(item))
+            else history.messages.push(item)
+        }
+        return history
     }
 
     async sendMessage(

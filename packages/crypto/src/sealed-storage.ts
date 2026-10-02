@@ -168,7 +168,19 @@ export class SealedStorage implements E2eeStorage {
         }
     }
 
-    async getOrCreateDeviceId(): Promise<DeviceId> {
+    // Shared while in flight: first callers racing would each mint an id, and only the last
+    // written would stay — the others bound to an id the device no longer has.
+    private deviceId: Promise<DeviceId> | null = null
+
+    getOrCreateDeviceId(): Promise<DeviceId> {
+        this.deviceId ??= this.loadOrMintDeviceId().catch((e: unknown) => {
+            this.deviceId = null
+            throw e
+        })
+        return this.deviceId
+    }
+
+    private async loadOrMintDeviceId(): Promise<DeviceId> {
         const existing = await this.kv.get(META, DEVICE_ID_KEY)
         if (existing) return decoder.decode(existing) as DeviceId
         const id = crypto.randomUUID()
@@ -237,6 +249,7 @@ export class SealedStorage implements E2eeStorage {
      * that no longer exists.
      */
     async clear(): Promise<void> {
+        this.deviceId = null
         await this.kv.clear()
         await this.deviceKey.wipe()
     }

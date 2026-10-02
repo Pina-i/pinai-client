@@ -39,7 +39,9 @@ export function AppHeader() {
     const description = view === "dms"
         ? (dmRef
             ? (activeDmData?.kind === "group"
-                ? `${activeDmData.memberCount} ${activeDmData.memberCount === 1 ? "member" : "members"}`
+                ? (activeDmData.removedAt
+                    ? "You're no longer a member"
+                    : `${activeDmData.memberCount} ${activeDmData.memberCount === 1 ? "member" : "members"}`)
                 : activeDmAddress)
             : "Manage your friends")
         : currentChannel?.description

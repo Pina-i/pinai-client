@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
-import { getDmPort, getE2eePort, getWsPort } from "@/ioc"
+import { getDmPort, getE2eePort, getGroupPort, getWsPort } from "@/ioc"
 import type {
     ApplicationMessage,
     ArchiveEnvelope,
@@ -14,6 +14,7 @@ import type { WsConnectionStatus, WsServerEvent } from "@pinai/domain/models/ws"
 import type { Message } from "@/lib/types"
 import { actorUriToAddress } from "@pinai/domain/models/identity"
 import { applyFederationStatus } from "@pinai/domain/models/dm"
+import { reconcileGroupKeysUseCase } from "@pinai/domain/usecases/e2ee/reconcile-group-keys.usecase"
 import { shouldPingForMessage } from "@pinai/domain/models/mute"
 import { countsAsUnread, isBlocked } from "@pinai/domain/models/block"
 import { blocksQueryKey, useBlocks } from "@/presentation/hooks/useBlocks"
@@ -105,6 +106,8 @@ export function useIdpWebSocket(): void {
     const setPresence = useAppStore((s) => s.setPresence)
     const addTyping = useAppStore((s) => s.addTyping)
     const setAvatarFor = useAppStore((s) => s.setAvatarFor)
+    const addGroupEvents = useAppStore((s) => s.addGroupEvents)
+    const markDmRemoved = useAppStore((s) => s.markDmRemoved)
     const queryClient = useQueryClient()
     const { receiveAccountSettings } = useAppearance()
     const { notifications } = useNotificationSettings()
@@ -131,6 +134,8 @@ export function useIdpWebSocket(): void {
         setPresence,
         addTyping,
         setAvatarFor,
+        addGroupEvents,
+        markDmRemoved,
         receiveAccountSettings,
         notifications,
         blocked,
@@ -380,6 +385,7 @@ export function useIdpWebSocket(): void {
                         color: "#a78bfa",
                         attachments: event.data.attachments,
                         attachmentKeys,
+                        ...(!app && { undecrypted: true as const }),
                     }
                     if (event.data.reply_to_id && inlineReplyMeta) {
                         msg.replyTo = {
@@ -555,6 +561,31 @@ export function useIdpWebSocket(): void {
                     if (idpUrl) {
                         queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
                     }
+                    const me = actionsRef.current.user?.actor_uri
+                    if (event.type === "member_removed" && event.data.actorUri === me) {
+                        if (event.data.removedByActorUri) {
+                            actionsRef.current.markDmRemoved(event.data.conversationId, new Date().toISOString())
+                        }
+                        break
+                    }
+                    // Whoever left can't commit their own devices out: an admin here does.
+                    if (event.type === "member_removed" && me && idpUrl && accessToken) {
+                        reconcileGroupKeysUseCase(
+                            idpUrl,
+                            accessToken,
+                            event.data.conversationId,
+                            me,
+                            getGroupPort(),
+                            getE2eePort(),
+                        ).catch((e) => {
+                            // eslint-disable-next-line no-console
+                            console.warn("Committing a departed member's devices out failed:", e)
+                        })
+                    }
+                    break
+                }
+                case "group_event": {
+                    actionsRef.current.addGroupEvents(event.data.conversationId, [event.data])
                     break
                 }
                 case "settings_updated": {

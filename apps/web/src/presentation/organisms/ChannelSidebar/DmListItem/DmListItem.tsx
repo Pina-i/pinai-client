@@ -7,9 +7,11 @@ import { ContextMenu } from "@/presentation/molecules/ContextMenu/ContextMenu"
 import { UserContextMenu } from "@/presentation/molecules/UserContextMenu/UserContextMenu"
 import { RemoveFriendModal } from "@/presentation/molecules/RemoveFriendModal/RemoveFriendModal"
 import { BlockUserModal } from "@/presentation/molecules/BlockUserModal/BlockUserModal"
+import { RemoveGroupFromListModal } from "@/presentation/molecules/RemoveGroupFromListModal/RemoveGroupFromListModal"
 import { PersonProfileModal } from "@/presentation/organisms/PersonProfileModal/PersonProfileModal"
 import { useIsFriend, useRemoveFriend } from "@/presentation/hooks/useRemoveFriend"
 import { useBlockUser, useBlocks } from "@/presentation/hooks/useBlocks"
+import { useDismissGroup } from "@/presentation/hooks/useDismissGroup"
 import { isBlocked } from "@pinai/domain/models/block"
 import { GroupContextMenu } from "@/presentation/molecules/GroupContextMenu/GroupContextMenu"
 import { cn } from "@/presentation/_libs/utils"
@@ -32,11 +34,12 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
     const myAddress = useAppStore((s) => s.user?.address)
     const { isMuted, toggleMute } = useConversationMute(dm.id)
 
+    const isRemoved = dm.removedAt != null
     const preview = dm.kind === "dm" ? lastMessagePreview(messages, myAddress) : null
     // A message preview is prose; a member count or presence label is a machine fact.
     const subline =
         dm.kind === "group"
-            ? `${dm.memberCount} ${dm.memberCount === 1 ? "member" : "members"}`
+            ? (isRemoved ? "no longer a member" : `${dm.memberCount} ${dm.memberCount === 1 ? "member" : "members"}`)
             : (preview ?? userStatusLabel(presenceToUserStatus(presence)).toLowerCase())
     const sublineIsFact = preview == null
 
@@ -49,6 +52,8 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
     const { block, unblock, isPending: isBlocking } = useBlockUser()
     const [isConfirmingBlock, setIsConfirmingBlock] = useState(false)
     const [isShowingProfile, setIsShowingProfile] = useState(false)
+    const { dismiss, isPending: isDismissing } = useDismissGroup()
+    const [isConfirmingDismiss, setIsConfirmingDismiss] = useState(false)
 
     function openConversation() {
         navigate({ to: "/dm/$name", params: { name: dm.id } })
@@ -62,6 +67,10 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
         if (peerActorUri && (await block(peerActorUri, dm.displayName))) setIsConfirmingBlock(false)
     }
 
+    async function handleConfirmDismiss() {
+        if (await dismiss(dm.id)) setIsConfirmingDismiss(false)
+    }
+
     return (
         <>
             {/* The mute toggle is the row's sibling: a button can't nest in the row's button. */}
@@ -70,7 +79,11 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
                     trigger={(isOpen) => (
                         <Button
                             onPress={openConversation}
-                            className={cn(sidebarRowClass, isActive ? sidebarRowOnClass : isOpen && sidebarRowHotClass)}
+                            className={cn(
+                                sidebarRowClass,
+                                isActive ? sidebarRowOnClass : isOpen && sidebarRowHotClass,
+                                isRemoved && "opacity-60",
+                            )}
                         >
                             <Avatar
                                 initials={dm.avatar}
@@ -82,7 +95,7 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
                             />
                             <span className="flex min-w-0 flex-1 flex-col">
                                 <span className="title truncate text-[14px] font-semibold text-foreground">{dm.displayName}</span>
-                                {isMuted ? (
+                                {isMuted && !isRemoved ? (
                                     <span className="flex items-center gap-[5px] truncate font-mono text-[10px] tracking-[0.03em] text-muted-foreground">
                                         <BellOff className="h-[11px] w-[11px] shrink-0" />
                                         Muted
@@ -116,6 +129,7 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
                                 displayName={dm.displayName}
                                 isMuted={isMuted}
                                 onToggleMute={toggleMute}
+                                onRemoveFromList={isRemoved ? () => setIsConfirmingDismiss(true) : undefined}
                                 onClose={close}
                             />
                         ) : (
@@ -134,6 +148,7 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
                         )
                     }
                 </ContextMenu>
+                {!isRemoved && (
                 <button
                     type="button"
                     title={isMuted ? "Unmute conversation" : "Mute conversation"}
@@ -143,6 +158,7 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
                 >
                     {isMuted ? <Bell className="h-[13px] w-[13px]" /> : <BellOff className="h-[13px] w-[13px]" />}
                 </button>
+                )}
             </div>
             <RemoveFriendModal
                 friendName={isConfirmingRemove ? dm.displayName : null}
@@ -161,6 +177,12 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
                     setIsShowingProfile(false)
                     openConversation()
                 }}
+            />
+            <RemoveGroupFromListModal
+                groupName={isConfirmingDismiss ? dm.displayName : null}
+                isPending={isDismissing}
+                onCancel={() => setIsConfirmingDismiss(false)}
+                onConfirm={handleConfirmDismiss}
             />
             <BlockUserModal
                 name={isConfirmingBlock ? dm.displayName : null}

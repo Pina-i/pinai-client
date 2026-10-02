@@ -79,6 +79,13 @@ describe("device identity", () => {
         expect(await storage.getOrCreateDeviceId()).toBe(first)
     })
 
+    it("mints one device id however many callers ask at once", async () => {
+        const ids = await Promise.all(Array.from({ length: 4 }, () => storage.getOrCreateDeviceId()))
+
+        expect(new Set(ids).size).toBe(1)
+        expect(await webStorage().getOrCreateDeviceId()).toBe(ids[0])
+    })
+
     it("sees the device id a previous instance persisted", async () => {
         const id = await storage.getOrCreateDeviceId()
         expect(await webStorage().getOrCreateDeviceId()).toBe(id)

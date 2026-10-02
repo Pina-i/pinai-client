@@ -1,6 +1,7 @@
 import type { StateCreator } from "zustand"
 import type { WsConnectionStatus, WsNotification } from "@pinai/domain/models/ws"
-import { mergeMessageHistory, reconcileOptimistic } from "@pinai/domain/models/dm"
+import { addToTimeline, mergeMessageHistory, reconcileOptimistic } from "@pinai/domain/models/dm"
+import type { GroupEvent } from "@pinai/domain/models/group-event"
 import type { Message } from "@/lib/types"
 import type { AppStore } from "../store"
 
@@ -25,6 +26,8 @@ export interface WsSlice {
      * to skip already-applied reactions.
      */
     appliedReactionIds: Record<string, true>
+    /** A group's changes, per conversation, shown between its messages and persisted with them. */
+    groupEvents: Record<string, GroupEvent[]>
 
     setWsStatus: (status: WsConnectionStatus) => void
     addNotification: (notification: WsNotification) => void
@@ -40,6 +43,10 @@ export interface WsSlice {
     updateDmConversation: (conversationKey: string, updater: (msgs: Message[]) => Message[]) => void
     /** Merge API-loaded history into the cached messages in time order, deduplicating by id. */
     seedDmMessages: (conversationKey: string, messages: Message[]) => void
+    /** Merge a group's changes into the conversation's, deduplicating by id. */
+    addGroupEvents: (conversationKey: string, events: GroupEvent[]) => void
+    /** Drop what this device keeps of a conversation: its messages and its changes. */
+    forgetConversation: (conversationKey: string) => void
     /** Update a single message by id across all conversations. */
     updateMessageById: (messageId: string, updater: (msg: Message) => Message) => void
     /**
@@ -71,6 +78,7 @@ export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]]
     notifications: [],
     dmMessages: {},
     appliedReactionIds: {},
+    groupEvents: {},
 
     setWsStatus: (status) => set({ wsStatus: status }, false, "ws/setStatus"),
 
@@ -98,13 +106,9 @@ export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]]
         set(
             (s) => {
                 const existing = s.dmMessages[conversationKey] ?? []
-                if (existing.some((m) => m.id === message.id)) return s
-                return {
-                    dmMessages: {
-                        ...s.dmMessages,
-                        [conversationKey]: [...existing, message],
-                    },
-                }
+                const next = addToTimeline(existing, message)
+                if (next === existing) return s
+                return { dmMessages: { ...s.dmMessages, [conversationKey]: next } }
             },
             false,
             "ws/pushDmMessage",
@@ -159,6 +163,31 @@ export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]]
             },
             false,
             "ws/seedDmMessages",
+        ),
+
+    addGroupEvents: (conversationKey, events) =>
+        set(
+            (s) => ({
+                groupEvents: {
+                    ...s.groupEvents,
+                    [conversationKey]: mergeMessageHistory(s.groupEvents[conversationKey] ?? [], events),
+                },
+            }),
+            false,
+            "ws/addGroupEvents",
+        ),
+
+    forgetConversation: (conversationKey) =>
+        set(
+            (s) => {
+                const dmMessages = { ...s.dmMessages }
+                const groupEvents = { ...s.groupEvents }
+                delete dmMessages[conversationKey]
+                delete groupEvents[conversationKey]
+                return { dmMessages, groupEvents }
+            },
+            false,
+            "ws/forgetConversation",
         ),
 
     updateMessageById: (messageId, updater) =>

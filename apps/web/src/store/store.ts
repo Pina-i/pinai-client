@@ -32,8 +32,9 @@ export type AppStore =
 
 /**
  * Persisted slice — the parts of the store we want to survive page
- * reloads. Today: the message-plaintext cache (`dmMessages`) and the
- * unread counters keyed by conversation_id (`dmUnread`).
+ * reloads. Today: the message-plaintext cache (`dmMessages`), the group
+ * changes shown between its messages (`groupEvents`) and the unread
+ * counters keyed by conversation_id (`dmUnread`).
  *
  * Why these two specifically:
  * - `dmMessages` holds plaintexts the client has already decrypted.
@@ -49,6 +50,7 @@ export type AppStore =
 type PersistedAppState = {
     dmMessages: WsSlice["dmMessages"]
     appliedReactionIds: WsSlice["appliedReactionIds"]
+    groupEvents: WsSlice["groupEvents"]
     dmUnread: DataSlice["dmUnread"]
 }
 
@@ -103,6 +105,7 @@ export const useAppStore = create<AppStore>()(
                 partialize: (s): PersistedAppState => ({
                     dmMessages: s.dmMessages,
                     appliedReactionIds: s.appliedReactionIds,
+                    groupEvents: s.groupEvents,
                     dmUnread: s.dmUnread,
                 }),
                 version: 1,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { mergeMessageHistory, type TimelineEntry } from "@pinai/domain/models/dm"
+import { addToTimeline, mergeMessageHistory, type Decryption, type TimelineEntry } from "@pinai/domain/models/dm"
 
-type Entry = TimelineEntry & { content: string }
+type Entry = TimelineEntry & Decryption & { content: string; reactions?: string[] }
 
 function entry(id: string, createdAt: string, content = id): Entry {
     return { id, createdAt, content }
@@ -39,6 +39,15 @@ describe("mergeMessageHistory", () => {
         expect(merged[0].content).toBe("decrypted text")
     })
 
+    it("takes the decrypted copy over a cached one this device couldn't decrypt, keeping what only the cache knew", () => {
+        const placeholder = { ...entry("y1", YESTERDAY_1.createdAt, "[encrypted]"), undecrypted: true as const, reactions: ["👍"] }
+        const decrypted = entry("y1", YESTERDAY_1.createdAt, "hello")
+
+        expect(mergeMessageHistory([placeholder], [decrypted])).toEqual([
+            { id: "y1", createdAt: YESTERDAY_1.createdAt, content: "hello", reactions: ["👍"] },
+        ])
+    })
+
     it("repairs a cache an earlier prepend left out of order", () => {
         expect(ids(mergeMessageHistory([TODAY, YESTERDAY_1, YESTERDAY_2], [TODAY]))).toEqual(["y1", "y2", "t1"])
     })
@@ -47,5 +56,29 @@ describe("mergeMessageHistory", () => {
         const legacy = entry("legacy", undefined as unknown as string)
 
         expect(ids(mergeMessageHistory([legacy, TODAY], [YESTERDAY_1]))).toEqual(["legacy", "y1", "t1"])
+    })
+})
+
+describe("addToTimeline", () => {
+    it("appends a message it doesn't hold", () => {
+        expect(ids(addToTimeline([YESTERDAY_1], TODAY))).toEqual(["y1", "t1"])
+    })
+
+    it("keeps the copy it holds of a message, as the same list", () => {
+        const list = [entry("t1", TODAY.createdAt, "hello")]
+
+        expect(addToTimeline(list, entry("t1", TODAY.createdAt, "[encrypted]"))).toBe(list)
+    })
+
+    it("keeps the copy it holds when neither could be decrypted, as the same list", () => {
+        const list = [{ ...entry("t1", TODAY.createdAt, "[encrypted]"), undecrypted: true as const }]
+
+        expect(addToTimeline(list, { ...entry("t1", TODAY.createdAt, "[encrypted]"), undecrypted: true })).toBe(list)
+    })
+
+    it("takes a decrypted copy over one it couldn't decrypt", () => {
+        const list = [{ ...entry("t1", TODAY.createdAt, "[encrypted]"), undecrypted: true as const }]
+
+        expect(addToTimeline(list, entry("t1", TODAY.createdAt, "hello"))).toEqual([entry("t1", TODAY.createdAt, "hello")])
     })
 })

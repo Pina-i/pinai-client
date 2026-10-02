@@ -1,5 +1,5 @@
 import type { LocalFile } from "../models/file"
-import type { Attachment, DirectMessage, DmConversationSummary } from "../models/dm"
+import type { Attachment, ConversationHistory, DirectMessage, DmConversationSummary } from "../models/dm"
 
 export interface DmCursor {
     created_at: string
@@ -12,8 +12,13 @@ export type UploadProgress = (loaded: number, total: number) => void
 export interface IDmPort {
     /** GET /api/dm — list all conversations, sorted by most recent first. */
     listConversations(idpUrl: string, accessToken: string): Promise<DmConversationSummary[]>
-    /** GET /api/dm/{conversationId} — paginated history (newest first). */
-    getConversation(idpUrl: string, accessToken: string, conversationId: string, cursor?: DmCursor): Promise<DirectMessage[]>
+    /** GET /api/dm/{conversationId} — paginated history (newest first), a group's changes included. */
+    getConversation(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: string,
+        cursor?: DmCursor,
+    ): Promise<ConversationHistory>
     /**
      * POST /api/dm — send a message. After Phase 3 the body carries an
      * MLS ciphertext (base64) instead of plaintext. Reactions live in

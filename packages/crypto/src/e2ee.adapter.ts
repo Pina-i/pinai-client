@@ -17,7 +17,8 @@ import type {
     Fingerprint,
     KeyPackageStatusResponse,
 } from "@pinai/domain/models/e2ee"
-import { KeyPackageUnavailable } from "@pinai/domain/models/group"
+import { KeyPackageUnavailable, leavesToRemove } from "@pinai/domain/models/group"
+import { IdpError } from "@pinai/domain/models/idp-error"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
 import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
 
@@ -88,6 +89,9 @@ function applicationMessageReviver(_key: string, value: unknown): unknown {
  * for noticeable time.
  */
 const INITIAL_KEY_PACKAGE_BATCH = 50
+
+/** How many epoch races a prune loses before it gives up for now. */
+const MAX_EPOCH_CONFLICTS = 5
 
 export class E2eeAdapter implements IE2eePort {
     private readonly identity: IdentityAdapter
@@ -390,14 +394,9 @@ export class E2eeAdapter implements IE2eePort {
 
     private async doBindIdentity(localActorUri: ActorUri): Promise<void> {
         const deviceId = await this.storage.getOrCreateDeviceId()
-        // Try to recover an already-stored signing key from one of the
-        // restored groups' leaf credentials before falling back to
-        // fresh-key generation. Without this, every page reload would
-        // mint a new MLS leaf keypair and orphan the previous one —
-        // peers' trees still reference the old public key, so signature
-        // verification fails on the next inbound application message
-        // ("process PrivateMessage failed: Verifying the signature
-        // failed.").
+        // Rebind a key one of the restored groups' leaves carries, so a
+        // reload doesn't mint one for the next KeyPackages. Groups sign
+        // with their own leaf's key either way.
         const existingKey = await this.mls.findOwnLeafSigKey(localActorUri, deviceId)
         await this.mls.setIdentity(localActorUri, deviceId, existingKey ?? undefined)
         this.identityBound = true
@@ -863,8 +862,11 @@ export class E2eeAdapter implements IE2eePort {
         const welcomes = await this.directory.getWelcomes(idpUrl, accessToken, deviceId)
         let joined = 0
         for (const w of welcomes) {
-            if (await this.mls.hasGroup(w.conversation_id)) continue
             try {
+                if (await this.mls.hasGroup(w.conversation_id)) {
+                    if (await this.mls.rejoinGroup(w.conversation_id, w.welcome_blob)) joined++
+                    continue
+                }
                 // Welcomes carry the ratchet tree via the extension
                 // (we set `use_ratchet_tree_extension(true)` on group
                 // creation), so passing `null` here is correct.
@@ -1015,6 +1017,46 @@ export class E2eeAdapter implements IE2eePort {
         }
     }
 
+    async pruneGroup(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        roster: readonly string[],
+    ): Promise<{ removed: number }> {
+        await this.ensureInitialized(null)
+        const me = await this.storage.getBoundActorUri()
+        if (!me || !(await this.mls.hasGroup(conversationId))) return { removed: 0 }
+        let removed = 0
+        let conflicts = 0
+        // One leaf a commit, and the leaves looked at again after each: a commit moves the epoch,
+        // and one lost to another member's may have removed what was left.
+        for (;;) {
+            const [leaf] = leavesToRemove(await this.mls.groupMembers(conversationId), roster, me)
+            if (leaf === undefined) return { removed }
+            const commit = await this.mls.removeMember(conversationId, leaf)
+            const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
+            try {
+                await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, commit)
+            } catch (e) {
+                await this.mls.clearPendingCommit(conversationId)
+                if (!(e instanceof IdpError && e.status === 409) || ++conflicts > MAX_EPOCH_CONFLICTS) {
+                    throw e
+                }
+                await this.catchUpCommits(idpUrl, accessToken, conversationId)
+                continue
+            }
+            await this.mls.mergePendingCommit(conversationId)
+            await this.persistMlsState()
+            removed++
+        }
+    }
+
+    async forgetGroup(conversationId: ConversationId): Promise<void> {
+        await this.ensureInitialized(null)
+        await this.mls.deleteGroup(conversationId)
+        await this.persistMlsState()
+    }
+
     // ─── Device revocation ─────────────────────────────────────────────
 
     async revokeDevice(
@@ -1044,6 +1086,8 @@ export class E2eeAdapter implements IE2eePort {
                 removed.push(conversationId)
                 await this.persistMlsState()
             } catch (e) {
+                // A commit left pending would block the group's next one.
+                await this.mls.clearPendingCommit(conversationId).catch(() => {})
                 // Per-group failure (often 409 epoch race) shouldn't block the rest.
                 // eslint-disable-next-line no-console
                 console.warn(`revokeDevice: per-group commit failed for ${conversationId}`, e)

@@ -4,10 +4,13 @@ import { DropOverlay } from "@/presentation/molecules/DropOverlay/DropOverlay"
 import { MessageInput } from "@/presentation/molecules/MessageInput/MessageInput"
 import type { MessageInputHandle } from "@/presentation/molecules/MessageInput/MessageInput.viewmodel"
 import { MessageList } from "@/presentation/organisms/MessageList/MessageList"
+import { RemoveGroupFromListModal } from "@/presentation/molecules/RemoveGroupFromListModal/RemoveGroupFromListModal"
 import { useHoldSplashScreen } from "@/presentation/hooks/use-hold-splash-screen"
-import type { Message } from "@/lib/types"
+import type { Message, TimelineNotice } from "@/lib/types"
 import { ConversationTypingIndicator } from "./ConversationTypingIndicator/ConversationTypingIndicator"
 import { BlockedComposer } from "./BlockedComposer/BlockedComposer"
+import { ConversationUnavailable } from "./ConversationUnavailable/ConversationUnavailable"
+import { RemovedComposer } from "./RemovedComposer/RemovedComposer"
 import { useConversationPageViewModel } from "./ConversationPage.viewmodel"
 
 interface ConversationPageProps {
@@ -22,6 +25,7 @@ function dragHasFiles(e: DragEvent<HTMLDivElement>): boolean {
 // Stable reference so `useDeferredValue`'s initialValue path doesn't
 // allocate a fresh array on every render.
 const EMPTY_MESSAGES: Message[] = []
+const EMPTY_NOTICES: TimelineNotice[] = []
 
 export function ConversationPage({ name }: ConversationPageProps) {
     const vm = useConversationPageViewModel(name)
@@ -33,6 +37,7 @@ export function ConversationPage({ name }: ConversationPageProps) {
     // message list has rendered. The deferred render then re-runs in
     // the background with the real cached messages.
     const deferredMessages = useDeferredValue(vm.messages, EMPTY_MESSAGES)
+    const deferredNotices = useDeferredValue(vm.notices, EMPTY_NOTICES)
     // After a hard refresh the page is not loaded until that background render lands.
     useHoldSplashScreen(deferredMessages !== vm.messages, { reshow: "never" })
 
@@ -75,6 +80,14 @@ export function ConversationPage({ name }: ConversationPageProps) {
 
     if (!vm.user) return null
 
+    if (vm.isUnavailable) {
+        return (
+            <PageTransition className="flex min-h-0 min-w-0 flex-1">
+                <ConversationUnavailable />
+            </PageTransition>
+        )
+    }
+
     return (
         <PageTransition className="flex min-h-0 min-w-0 flex-1">
             <div
@@ -86,6 +99,7 @@ export function ConversationPage({ name }: ConversationPageProps) {
             >
                 <MessageList
                     messages={deferredMessages}
+                    notices={deferredNotices}
                     conversationKey={vm.conversationKey}
                     recipientAddress={vm.recipientAddress}
                     isGroup={vm.isGroup}
@@ -94,7 +108,9 @@ export function ConversationPage({ name }: ConversationPageProps) {
                     canResend={vm.canResend}
                     handleRef={vm.messageListHandleRef}
                 />
-                {vm.peerBlocked ? (
+                {vm.isRemoved ? (
+                    <RemovedComposer onRemoveFromList={vm.askDismiss} />
+                ) : vm.peerBlocked ? (
                     <BlockedComposer
                         name={vm.displayName}
                         isPending={vm.isUnblocking}
@@ -115,6 +131,12 @@ export function ConversationPage({ name }: ConversationPageProps) {
                 )}
                 <DropOverlay isVisible={isDragging} />
             </div>
+            <RemoveGroupFromListModal
+                groupName={vm.isConfirmingDismiss ? vm.displayName : null}
+                isPending={vm.isDismissing}
+                onCancel={vm.cancelDismiss}
+                onConfirm={vm.confirmDismiss}
+            />
         </PageTransition>
     )
 }

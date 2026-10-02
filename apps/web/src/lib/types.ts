@@ -1,9 +1,12 @@
 import type { UserStatus } from "@pinai/domain/models/presence"
-import type { Attachment, SendState } from "@pinai/domain/models/dm"
+import type { Attachment, Decryption, SendState } from "@pinai/domain/models/dm"
 import type { AttachmentBlobKey } from "@pinai/domain/models/e2ee"
 
-/** `SendState` carries the send lifecycle of own messages; absent `status` hides the indicator. */
-export interface Message extends SendState {
+/**
+ * `SendState` carries the send lifecycle of own messages; absent `status` hides the indicator.
+ * `undecrypted` marks a peer's message this device couldn't decrypt yet.
+ */
+export interface Message extends SendState, Decryption {
     id: string
     author: string
     /** Federated address of the sender (`username@domain`). Used to resolve
@@ -29,6 +32,16 @@ export interface Message extends SendState {
      *  body has been decrypted. Missing → caller must fall back to the
      *  placeholder wire metadata in `attachments`. */
     attachmentKeys?: Record<string, AttachmentBlobKey>
+}
+
+/** A line of the timeline nobody wrote: a change to the group, worded for the reader. */
+export interface TimelineNotice {
+    id: string
+    /** ISO 8601 instant. */
+    createdAt: string
+    text: string
+    /** Pre-formatted "HH:MM". */
+    timestamp: string
 }
 
 export interface Server {
@@ -71,6 +84,8 @@ export interface DmConversation {
     unread: number
     /** Total participants (the caller + every other active member). */
     memberCount: number
+    /** When the user was removed from this group; `null` while they are in it. */
+    removedAt: string | null
 }
 
 export interface Member {

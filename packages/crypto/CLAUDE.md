@@ -43,7 +43,9 @@ Three collaborators could not come, and the shape of each is the mobile work:
   MMKV plus a Keychain key. The backend only ever sees ciphertext; the device
   id and bound actor URI are stored in the clear because reading them must
   not require the key. `clear()` wipes the rows *and* the key, which is what
-  makes a device wipe irreversible. Stores:
+  makes a device wipe irreversible. `getOrCreateDeviceId` shares the lookup
+  while it is in flight: callers racing on a fresh device would otherwise each
+  mint an id, and leaves would carry one the device no longer has. Stores:
   `meta` (device UUID + non-extractable AES-GCM CryptoKey),
   `identity` (encrypted MSK/SSK/USK bundle), `mls_snapshot`
   (encrypted snapshot of the openmls provider state +
@@ -71,7 +73,7 @@ Three collaborators could not come, and the shape of each is the mobile work:
 - **`e2ee.adapter.ts`** — `E2eeAdapter`. The `IE2eePort` impl. Wires
   every sub-adapter into `register`, `replenishKeyPackages`,
   `encryptOutbound`, `decryptInbound`, `addContactToGroup`,
-  `ensureGroupExists`, `consumePendingWelcomes`, `revokeDevice`,
+  `ensureGroupExists`, `consumePendingWelcomes`, `revokeDevice`, `pruneGroup`, `forgetGroup`,
   `setupRecoveryKey`, `recoverFromPassphrase`, `hasRecoveryKey`,
   `clearRecoveryKey`, `loadStoredPassphrase`, `saveStoredPassphrase`,
   `hasLocalIdentity`, `startPairingAsInitiator`, `pairAsResponder`,
@@ -138,6 +140,9 @@ above, the sections above win.
 - `consumePendingWelcomes(idpUrl, accessToken, actorUri)` polls
   `GET /api/mls/welcomes?device_id=` and joins each pending group via
   `mls.joinGroup` (welcomes carry the ratchet tree via the extension).
+  A Welcome to a group already held goes to `mls.rejoinGroup`: the device was
+  committed out and added back, so a later epoch replaces the group; one no
+  later (both sides founded it at once) leaves it as it is.
   Mounted in `_authenticated` layout via `useConsumeMlsWelcomes` hook.
 - First-message UUID pinning: client generates `crypto.randomUUID()`
   on first send, uses it as the MLS `group_id` AND passes it on
@@ -241,7 +246,21 @@ above, the sections above win.
   conversationIds, opts?)` iterates the caller-supplied conversation
   list, builds + posts a Remove commit per group, optionally clears
   the wrapped Recovery Key. Per-group failures are logged + swallowed
-  so one bad group doesn't block the rest.
+  so one bad group doesn't block the rest; the commit a failure leaves
+  pending is cleared, or the group's next commit would be refused.
+
+### `pruneGroup`
+
+- Commits out, one Remove a leaf, every device of an actor the roster
+  doesn't hold (`leavesToRemove`), looking at the leaves again after each
+  commit. A `409` clears the pending commit, catches up on the DS's log and
+  looks again — at most five times; any other failure clears it and throws.
+- `apps/web/test/e2ee-integration.spec.ts` drives it against the real
+  engine: the one removed reads nothing after, a lost commit leaves the
+  group able to commit, two admins at once converge, and the one removed
+  reads again once added back.
+- `forgetGroup` drops a group's MLS state from the device, for a group the
+  user was removed from and cleared from their list.
 - The use case (`revoke-device.usecase.ts`) is the integration seam;
   Phase 6's Devices UI pulls the conversation list from the
   zustand store and invokes it.

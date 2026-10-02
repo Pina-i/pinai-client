@@ -1,4 +1,4 @@
-import { Bell, BellOff, LogOut, Phone, Video } from "lucide-react"
+import { Bell, BellOff, ListX, LogOut, Phone, Video } from "lucide-react"
 import { ContextMenuList, type ContextMenuItem } from "@/presentation/molecules/ContextMenu/ContextMenuList"
 
 const iconClass = "h-4 w-4"
@@ -9,14 +9,30 @@ interface GroupContextMenuProps {
     isMuted: boolean
     /** Absent while there is no conversation to mute: the item is then disabled. */
     onToggleMute?: () => void
+    /** Set for a group the user was removed from: clearing it is all that is left to do. */
+    onRemoveFromList?: () => void
     onClose: () => void
 }
 
 // Group variant of UserContextMenu — no identity actions (profile/verify/copy),
 // and no "Send message", which is for starting a DM with a person.
 // Items without a handler aren't wired up yet.
-export function GroupContextMenu({ displayName, isMuted, onToggleMute, onClose }: GroupContextMenuProps) {
-    const items: ContextMenuItem[] = [
+export function GroupContextMenu({
+    displayName,
+    isMuted,
+    onToggleMute,
+    onRemoveFromList,
+    onClose,
+}: GroupContextMenuProps) {
+    const items: ContextMenuItem[] = onRemoveFromList ? [
+        {
+            key: "remove-from-list",
+            label: "Remove from list",
+            icon: <ListX className={iconClass} />,
+            variant: "destructive",
+            onAction: onRemoveFromList,
+        },
+    ] : [
         { key: "call", label: "Start a call", icon: <Phone className={iconClass} /> },
         { key: "video", label: "Start a video call", icon: <Video className={iconClass} /> },
         { type: "separator", key: "sep-talk" },

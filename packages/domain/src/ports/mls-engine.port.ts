@@ -1,4 +1,5 @@
 import type { ActorUri, ConversationId, DeviceId } from "../models/e2ee"
+import type { GroupLeaf } from "../models/group"
 
 export type MlsCiphertext = Uint8Array
 
@@ -74,6 +75,16 @@ export interface IMlsEngine {
         ratchetTreeBytes?: Uint8Array | null,
     ): Promise<void>
 
+    /**
+     * Join again from a Welcome for a group this device holds — it was committed out and added
+     * back. The group is replaced only when the Welcome brings a later epoch; `false` keeps it, as
+     * for a Welcome from a group both sides founded at once.
+     */
+    rejoinGroup(conversationId: ConversationId, welcomeBytes: Uint8Array): Promise<boolean>
+
+    /** Drop a group's state from this device. */
+    deleteGroup(conversationId: ConversationId): Promise<void>
+
     hasGroup(conversationId: ConversationId): Promise<boolean>
 
     knownGroupIds(): Promise<ConversationId[]>
@@ -97,6 +108,15 @@ export interface IMlsEngine {
         actorUri: ActorUri,
         deviceId: DeviceId,
     ): Promise<number | null>
+
+    /** Every leaf of the group whose credential names an actor and a device. */
+    groupMembers(conversationId: ConversationId): Promise<GroupLeaf[]>
+
+    /**
+     * Drop the commit built and not merged — one the DS refused or never acknowledged: the group
+     * builds no other commit while one is pending.
+     */
+    clearPendingCommit(conversationId: ConversationId): Promise<void>
 
     update(conversationId: ConversationId): Promise<Uint8Array>
 

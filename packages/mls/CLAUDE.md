@@ -22,6 +22,16 @@ because Hermes has no WebAssembly.
   place `openmls-wasm` is imported. Every method is `async` to satisfy the
   port even though the wasm calls underneath are synchronous — see the port
   for why that was decided before the native binding exists.
+  A group signs with the keypair of its own leaf, read from the provider's
+  storage, not with the bound `Identity`: a device that reloads before it
+  joins anything binds a new key, while the KeyPackages it published carry
+  the old one. The `Identity` only makes KeyPackages and founds groups.
+  `groupMembers` lists the leaves by their decoded credentials;
+  `clearPendingCommit` drops a commit the DS never took — openmls builds no
+  other commit while one is pending.
+  `rejoinGroup` takes a Welcome to a group already held only when it brings a
+  later epoch, deleting the old state first so none of it lingers under the
+  same group id; `deleteGroup` drops a group from the provider.
 
 ## When to split this package
 

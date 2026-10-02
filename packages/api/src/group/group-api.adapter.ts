@@ -67,6 +67,15 @@ export class GroupApiAdapter implements IGroupPort {
         }
     }
 
+    async dismissGroup(idpUrl: string, accessToken: string, conversationId: string): Promise<void> {
+        const url = `${idpUrl.replace(/\/$/, "")}/api/groups/${conversationId}`
+        try {
+            await ky.delete(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+        } catch (error) {
+            throw await idpErrorFrom(error, "Failed to remove the group from the list")
+        }
+    }
+
     async renameGroup(
         idpUrl: string,
         accessToken: string,

@@ -36,6 +36,7 @@ import { MlsAdapter } from "@pinai/mls/wasm.adapter"
 import { NobleRecoveryAdapter } from "@pinai/crypto/recovery.adapter"
 import type { DeviceAttestation, E2eeStorage, MlsSnapshot } from "@pinai/crypto/sealed-storage"
 import type { LocalFile } from "@pinai/domain/models/file"
+import { IdpError } from "@pinai/domain/models/idp-error"
 import { asActorUri } from "@pinai/domain/models/identity"
 import type {
     ActorUri,
@@ -166,6 +167,9 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
         }
     }
 
+    /** The next commit posted is lost on its way, as a dropped connection would lose it. */
+    failNextCommit = false
+
     async postCommit(
         _idpUrl: string,
         accessToken: string,
@@ -173,6 +177,14 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
         epoch: number,
         commitBlob: Uint8Array,
     ): Promise<CommitView> {
+        if (this.failNextCommit) {
+            this.failNextCommit = false
+            throw new Error("connection reset")
+        }
+        // The DS's unique (conversation, epoch): the first commit at an epoch wins.
+        if ((this.commitsByConversation.get(conversationId) ?? []).some((c) => c.epoch === epoch)) {
+            throw new IdpError(409, "conflict", "That epoch is taken")
+        }
         const actorUri = this.resolveSender(accessToken)
         const view: CommitView = {
             id: crypto.randomUUID(),
@@ -284,6 +296,10 @@ class InMemoryE2eeStorage implements E2eeStorage {
         if (!this.deviceId) this.deviceId = crypto.randomUUID()
         return this.deviceId
     }
+    /** What a race on the first device id left: the id stored isn't the one its leaves carry. */
+    replaceDeviceId(id: DeviceId): void {
+        this.deviceId = id
+    }
     async saveIdentityKeypair(k: IdentityKeypair): Promise<void> {
         this.keypair = k
     }
@@ -345,6 +361,14 @@ async function buildAdapter(
     const e2ee = new E2eeAdapter(identity, mls, storage, directory, recovery)
     directory.bindToken(accessToken, actorUri)
     return { e2ee, mls, storage }
+}
+
+/** The same device after a page reload: a fresh engine over what it persisted. */
+async function reload(directory: InMemoryKeyDirectory, ctx: AdapterCtx): Promise<AdapterCtx> {
+    const mls = new MlsAdapter()
+    await mls.initialize({ module_or_path: wasmModule } as never)
+    const e2ee = new E2eeAdapter(new NobleIdentityAdapter(), mls, ctx.storage, directory, new NobleRecoveryAdapter())
+    return { e2ee, mls, storage: ctx.storage }
 }
 
 describe("MLS E2EE — full-loop integration (Alice + Bob)", () => {
@@ -490,5 +514,165 @@ describe("MLS E2EE — full-loop integration (Alice + Bob)", () => {
         const consumed = await bob.e2ee.consumePendingWelcomes(sharedIssuer, "bob-token", bobLocal)
         expect(consumed.joined).toBe(1)
         expect(await bob.mls.getEpoch(conversationId)).toBe(await alice.mls.getEpoch(conversationId))
+    })
+})
+
+describe("MLS E2EE — committing a removed member's devices out", () => {
+    const conversationId: ConversationId = "aaaa1111-2222-3333-4444-555566667777"
+    const issuer = "https://idp.shared.example"
+    const [aliceActor, bobActor, carolActor] = ["alice", "bob", "carol"].map((name) =>
+        asActorUri(`${issuer}/users/${name}_x1y2z`),
+    )
+    const text = (t: string): ApplicationMessage<TextBody> => ({ version: 1, kind: "text", body: { text: t } })
+    const catchUp = (accessToken: string) => ({ idpUrl: issuer, accessToken })
+    const read = async (ctx: AdapterCtx, token: string, ciphertext: Uint8Array) =>
+        ((await ctx.e2ee.decryptInbound(conversationId, ciphertext, catchUp(token)))?.body as TextBody).text
+
+    /** Alice's group, with Bob and Carol in it. */
+    async function crew() {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const alice = await buildAdapter(directory, "alice-token", aliceActor)
+        const bob = await buildAdapter(directory, "bob-token", bobActor)
+        const carol = await buildAdapter(directory, "carol-token", carolActor)
+        for (const [ctx, token, actor] of [
+            [alice, "alice-token", aliceActor],
+            [bob, "bob-token", bobActor],
+            [carol, "carol-token", carolActor],
+        ] as const) {
+            await ctx.e2ee.register(issuer, token, actor)
+        }
+        await alice.e2ee.addContactToGroup(issuer, "alice-token", conversationId, bobActor)
+        await bob.e2ee.consumePendingWelcomes(issuer, "bob-token", bobActor)
+        await alice.e2ee.addContactToGroup(issuer, "alice-token", conversationId, carolActor)
+        await carol.e2ee.consumePendingWelcomes(issuer, "carol-token", carolActor)
+        return { directory, alice, bob, carol }
+    }
+
+    it("leaves the others reading on, and the one removed reading nothing", async () => {
+        const { alice, bob, carol } = await crew()
+
+        const pruned = await alice.e2ee.pruneGroup(issuer, "alice-token", conversationId, [aliceActor, bobActor])
+
+        expect(pruned).toEqual({ removed: 1 })
+        const after = await alice.e2ee.encryptOutbound(conversationId, text("after"))
+        expect(await read(bob, "bob-token", after)).toBe("after")
+        await expect(read(carol, "carol-token", after)).rejects.toThrow()
+        expect(
+            await alice.e2ee.pruneGroup(issuer, "alice-token", conversationId, [aliceActor, bobActor]),
+        ).toEqual({ removed: 0 })
+    })
+
+    it("can commit again after a commit lost on its way", async () => {
+        const { directory, alice, bob } = await crew()
+        directory.failNextCommit = true
+
+        await expect(
+            alice.e2ee.pruneGroup(issuer, "alice-token", conversationId, [aliceActor, bobActor]),
+        ).rejects.toThrow("connection reset")
+
+        const still = await alice.e2ee.encryptOutbound(conversationId, text("still here"))
+        expect(await read(bob, "bob-token", still)).toBe("still here")
+        expect(
+            await alice.e2ee.pruneGroup(issuer, "alice-token", conversationId, [aliceActor, bobActor]),
+        ).toEqual({ removed: 1 })
+    })
+
+    it("can commit again after a device revocation whose commit was lost", async () => {
+        const { directory, alice, carol } = await crew()
+        const carolsDevice = await carol.storage.getOrCreateDeviceId()
+        directory.failNextCommit = true
+
+        const revoked = await alice.e2ee.revokeDevice(issuer, "alice-token", carolActor, carolsDevice, [
+            conversationId,
+        ])
+
+        expect(revoked.removed_from).toEqual([])
+        expect(
+            await alice.e2ee.pruneGroup(issuer, "alice-token", conversationId, [aliceActor, bobActor]),
+        ).toEqual({ removed: 1 })
+    })
+
+    it("has the second of two admins pruning at once catch up and find nothing left to do", async () => {
+        const { alice, bob } = await crew()
+        await read(bob, "bob-token", await alice.e2ee.encryptOutbound(conversationId, text("hi")))
+
+        const first = await alice.e2ee.pruneGroup(issuer, "alice-token", conversationId, [aliceActor, bobActor])
+        const second = await bob.e2ee.pruneGroup(issuer, "bob-token", conversationId, [aliceActor, bobActor])
+
+        expect([first, second]).toEqual([{ removed: 1 }, { removed: 0 }])
+        expect(await bob.mls.getEpoch(conversationId)).toBe(await alice.mls.getEpoch(conversationId))
+        expect(await read(bob, "bob-token", await alice.e2ee.encryptOutbound(conversationId, text("on"))))
+            .toBe("on")
+    })
+
+    it("lets a member removed and added back read again", async () => {
+        const { alice, carol } = await crew()
+        await alice.e2ee.pruneGroup(issuer, "alice-token", conversationId, [aliceActor, bobActor])
+
+        await alice.e2ee.addContactToGroup(issuer, "alice-token", conversationId, carolActor)
+        await carol.e2ee.consumePendingWelcomes(issuer, "carol-token", carolActor)
+
+        expect(await read(carol, "carol-token", await alice.e2ee.encryptOutbound(conversationId, text("back"))))
+            .toBe("back")
+    })
+
+    it("leaves none of the group's keys on a device that cleared it", async () => {
+        const { alice, carol } = await crew()
+        await alice.e2ee.pruneGroup(issuer, "alice-token", conversationId, [aliceActor, bobActor])
+
+        await carol.e2ee.forgetGroup(conversationId)
+
+        expect(await carol.mls.hasGroup(conversationId)).toBe(false)
+        expect((await carol.storage.loadMlsSnapshot())?.known_group_ids).toEqual([])
+        await alice.e2ee.addContactToGroup(issuer, "alice-token", conversationId, carolActor)
+        await carol.e2ee.consumePendingWelcomes(issuer, "carol-token", carolActor)
+        expect(await read(carol, "carol-token", await alice.e2ee.encryptOutbound(conversationId, text("anew"))))
+            .toBe("anew")
+    })
+})
+
+describe("MLS E2EE — a device signs a group with the key its leaf carries", () => {
+    const conversationId: ConversationId = "bbbb1111-2222-3333-4444-555566667777"
+    const issuer = "https://idp.shared.example"
+    const [aliceActor, bobActor] = ["alice", "bob"].map((name) => asActorUri(`${issuer}/users/${name}_x1y2z`))
+    const text = (t: string): ApplicationMessage<TextBody> => ({ version: 1, kind: "text", body: { text: t } })
+    const read = async (ctx: AdapterCtx, token: string, ciphertext: Uint8Array) =>
+        ((await ctx.e2ee.decryptInbound(conversationId, ciphertext, { idpUrl: issuer, accessToken: token }))
+            ?.body as TextBody).text
+
+    async function pair() {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const alice = await buildAdapter(directory, "alice-token", aliceActor)
+        const bob = await buildAdapter(directory, "bob-token", bobActor)
+        await alice.e2ee.register(issuer, "alice-token", aliceActor)
+        await bob.e2ee.register(issuer, "bob-token", bobActor)
+        return { directory, alice, bob }
+    }
+
+    it("is read after a reload that came before the device joined anything", async () => {
+        const { directory, alice, bob } = await pair()
+        const reloaded = await reload(directory, bob)
+        await reloaded.e2ee.consumePendingWelcomes(issuer, "bob-token", bobActor)
+
+        await alice.e2ee.addContactToGroup(issuer, "alice-token", conversationId, bobActor)
+        await reloaded.e2ee.consumePendingWelcomes(issuer, "bob-token", bobActor)
+
+        expect(await read(alice, "alice-token", await reloaded.e2ee.encryptOutbound(conversationId, text("hi"))))
+            .toBe("hi")
+    })
+
+    it("is read after a reload on a device whose stored id isn't the one its leaf carries", async () => {
+        const { directory, alice, bob } = await pair()
+        await alice.e2ee.addContactToGroup(issuer, "alice-token", conversationId, bobActor)
+        await bob.e2ee.consumePendingWelcomes(issuer, "bob-token", bobActor)
+        bob.storage.replaceDeviceId(crypto.randomUUID())
+
+        const reloaded = await reload(directory, bob)
+        await reloaded.e2ee.consumePendingWelcomes(issuer, "bob-token", bobActor)
+
+        expect(await read(alice, "alice-token", await reloaded.e2ee.encryptOutbound(conversationId, text("hi"))))
+            .toBe("hi")
     })
 })

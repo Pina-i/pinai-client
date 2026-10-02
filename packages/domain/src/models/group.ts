@@ -1,3 +1,5 @@
+import type { ActorUri, DeviceId } from "./e2ee"
+
 /** A member of a group conversation, as returned by the group REST API. */
 export interface GroupMember {
     /** Canonical ActivityPub actor URI. */
@@ -16,6 +18,26 @@ export const MAX_GROUP_MEMBERS = 50
 /** How many more people a group of `members` can take. */
 export function seatsLeft(members: number): number {
     return Math.max(0, MAX_GROUP_MEMBERS - members)
+}
+
+/** A device's leaf in a group's MLS state, by the credential it carries. */
+export interface GroupLeaf {
+    leafIndex: number
+    actorUri: ActorUri
+    deviceId: DeviceId
+}
+
+/**
+ * The leaves to commit out of a group's MLS state: every device of someone its roster no longer
+ * holds. None when the roster doesn't hold `me`: that view of the group isn't the user's.
+ */
+export function leavesToRemove(
+    leaves: readonly GroupLeaf[],
+    roster: readonly string[],
+    me: string,
+): number[] {
+    if (!roster.includes(me)) return []
+    return leaves.filter((leaf) => !roster.includes(leaf.actorUri)).map((leaf) => leaf.leafIndex)
 }
 
 /** A group conversation snapshot returned by create / rename. */

@@ -138,10 +138,21 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   older": the timeline cache is persisted, so a message sent while this
   device was away comes back through history and is the newest of all.
   Generic over `TimelineEntry` so each client keeps its own message shape.
+- `Decryption.undecrypted` marks a peer's message this device couldn't
+  decrypt, cached as a placeholder. The decrypted copy of it, from history or
+  live, takes its place and keeps what only the cache knew (its reactions) —
+  in `mergeMessageHistory` and `addToTimeline`, the live push. A failed
+  decrypt deletes no key, so history tries it again.
 - `findConversation(list, ref)` — what a route param names: a conversation
   id, or a peer's address, which designates the 1:1 with them only. A group
   carries its first member's address too, so a plain address match would open
   the group instead of the private conversation.
+- `startsConversation(ref)` — a ref the list doesn't hold opens a new 1:1 only
+  when it is an address. A group id never does: a group the user isn't in
+  shows as unavailable instead of minting a conversation for it.
+- `interleaveTimeline(messages, events)` — a group's changes between its
+  messages: the messages keep their order, each change goes before the first
+  message from after it.
 - `SendStatus` — an own message's lifecycle. `failed`: the IdP never accepted
   it, retried in place. `undelivered`: the IdP stored it but couldn't reach the
   recipient's IdP; the row stays as the record of that attempt and the retry
@@ -216,6 +227,32 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   off the group again, so its roster stops naming someone who can never read
   it. A refused claim — they blocked the creator, or don't admit them — lands
   here. A failure past the claim keeps the member: the MLS state may hold them.
+
+### models/group-event.ts
+- `GroupEvent` — a change to a group (`created`, `added`, `removed`, `left`,
+  `renamed`, `role_changed`) as the IdP pushes it in `group_event` and lists it
+  in the history; `ConversationHistory` (`models/dm.ts`) carries a page's.
+- `describeGroupEvent(event, me)` — the line the conversation shows, worded
+  for the reader: "Alice removed you", "You added Dave", "Alice stepped down
+  as admin". The handle stands in for a name only when the IdP has none.
+
+### A group the user was removed from
+- `DmConversationSummary.removed_at` — the group stays listed as it stood,
+  with its history up to the removal; nothing can be sent to it.
+- `dismiss-group.usecase.ts` — `DELETE /api/groups/:id` first, then
+  `IE2eePort.forgetGroup` drops its MLS state; a refusal keeps the keys.
+
+### Leaving a group's MLS state with its roster
+- `leavesToRemove(leaves, roster, me)` (`models/group.ts`) — every device of
+  someone the roster no longer holds; nothing when the roster doesn't hold
+  `me`, a view of the group that isn't the user's.
+- `remove-group-member.usecase.ts` — the REST removal first (the IdP checks
+  it), then `IE2eePort.pruneGroup` with the roster that remains. A prune that
+  fails doesn't undo the removal (`cutOff: false`): the next look finishes it.
+- `reconcile-group-keys.usecase.ts` — what a leave can't do for itself, and a
+  removal cut short: an admin's client prunes on `member_removed` and when
+  the group opens. Other members leave it to admins, so fewer clients race
+  for an epoch. See `identity-provider/specs/05-e2ee.md § 6.8`.
 
 ### models/identity.ts
 - `actorUriToAddress(uri)` — only sanctioned converter between

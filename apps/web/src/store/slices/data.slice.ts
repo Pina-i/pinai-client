@@ -11,6 +11,8 @@ export interface DataSlice {
     dmUnread: Record<string, number>
 
     setDmConversations: (convos: DmConversation[]) => void
+    /** Mark a group the user was just removed from, ahead of the list's refetch. */
+    markDmRemoved: (conversationId: string, at: string) => void
     /** Increment unread count for a conversation_id. */
     incrementDmUnread: (conversationId: string) => void
     /** Clear unread count for a conversation_id. */
@@ -26,6 +28,14 @@ export const createDataSlice: StateCreator<AppStore, [["zustand/devtools", never
     dmUnread: {},
 
     setDmConversations: (convos) => set({ localDmConvos: convos }, false, "data/setDmConversations"),
+    markDmRemoved: (conversationId, at) =>
+        set(
+            (s) => ({
+                localDmConvos: s.localDmConvos.map((c) => (c.id === conversationId ? { ...c, removedAt: at } : c)),
+            }),
+            false,
+            "data/markDmRemoved",
+        ),
     incrementDmUnread: (address) =>
         set(
             (s) => ({ dmUnread: { ...s.dmUnread, [address]: (s.dmUnread[address] ?? 0) + 1 } }),

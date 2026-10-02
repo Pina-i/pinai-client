@@ -59,6 +59,7 @@ export function useLoadDmConversations(): void {
                 unread: 0,
                 // `members` excludes the caller, so add 1 for the local user.
                 memberCount: summary.members.length + 1,
+                removedAt: summary.removed_at ?? null,
             }
         })
         setDmConversations(convos)
