@@ -217,14 +217,15 @@ export interface IE2eePort {
     forgetGroup(conversationId: ConversationId): Promise<void>
 
     /**
-     * Background poll of `GET /api/keys/packages/status`. When any
-     * device reports `needs_refill`, generates fresh KeyPackages and
-     * uploads them via `POST /api/keys/packages` capped at the
-     * server-reported max.
+     * Tops this device's KeyPackage stash up to the server's cap when
+     * `GET /api/keys/packages/status` reports it at the refill
+     * threshold, or doesn't list it at all. Concurrent calls share one
+     * run.
      */
     replenishKeyPackages(
         idpUrl: string,
         accessToken: string,
+        actorUri: ActorUri,
     ): Promise<KeyPackageStatusResponse>
 
     // ─── Legacy — kept on the interface for the integration test stub ──

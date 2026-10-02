@@ -11,7 +11,7 @@
  * are signed by the SSK so receivers verify a leaf via
  * `leaf_sig → SSK_sig → MSK`.
  *
- * See `specs/05-e2ee.md § 2` for the trust model rationale.
+ * See `identity-provider/specs/e2ee.md § 2` for the trust model rationale.
  */
 
 import { ed25519 } from "@noble/curves/ed25519.js"

@@ -35,7 +35,7 @@ function originOf(url: string): string | null {
  * an MLS leaf credential. Checks issuer-origin binding to actor_uri, expiry
  * (5-min skew), and the IdP signature over canonical bytes. Invalidates
  * and retries once on verify-failure for JWKS rotation safety. See
- * `specs/05-e2ee.md` for the wire format.
+ * `identity-provider/specs/e2ee.md` for the wire format.
  */
 export async function verifyLeafCredential(
     credentialBytes: Uint8Array,

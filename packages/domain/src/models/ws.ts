@@ -154,6 +154,8 @@ export type WsServerEvent =
     | { type: "settings_updated"; data: { settings: unknown } }
     /** The user's block list changed, from one of their sessions: refetch it. */
     | { type: "blocks_updated"; data: Record<string, never> }
+    /** A claim left one of the user's devices low on KeyPackages: each session tops its own up. */
+    | { type: "key_packages_low"; data: Record<string, never> }
     | { type: "heartbeat_ack"; data?: Record<string, never> }
 
 // ── Client → Server messages ────────────────────────────────────────────────

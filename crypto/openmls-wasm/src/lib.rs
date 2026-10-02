@@ -29,7 +29,7 @@
 //! Every method that crosses the JS boundary takes / returns
 //! `Vec<u8>` (which `wasm-bindgen` translates to `Uint8Array`).
 //! Serialisation is `tls_codec` everywhere — the same format used on the
-//! IdP wire (see `specs/05-e2ee.md § 5`), so the same bytes that come off
+//! IdP wire (see `identity-provider/specs/e2ee.md § 5`), so the same bytes that come off
 //! `direct_messages.mls_ciphertext` feed straight into
 //! [`Group::process_message`].
 

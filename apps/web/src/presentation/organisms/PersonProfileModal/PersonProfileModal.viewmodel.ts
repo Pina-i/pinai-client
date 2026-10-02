@@ -2,9 +2,10 @@ import { useState } from "react"
 import { addressParts } from "@pinai/domain/models/identity"
 import { presenceToUserStatus, userStatusLabel } from "@pinai/domain/models/presence"
 import { useAppStore } from "@/store/store"
-import { useIsFriend } from "@/presentation/hooks/useRemoveFriend"
+import { useProfileCard } from "@/presentation/hooks/useProfileCard"
 import { avatarToneFor, TONE_FILL, TONE_INK } from "@/presentation/_libs/avatar-tone"
 import { passportMrz } from "./_helpers/passport-mrz.helper"
+import { cardCells } from "./_helpers/profile-card.helper"
 
 export interface ProfilePerson {
     actorUri: string
@@ -19,7 +20,7 @@ export function usePersonProfileModalViewModel(person: ProfilePerson) {
     const myAddress = useAppStore((s) => s.user?.address ?? "")
     const presence = useAppStore((s) => s.presenceByAddress[person.address])
     const cachedAvatarUrl = useAppStore((s) => s.avatarsByAddress[person.address] ?? null)
-    const isFriend = useIsFriend(person.actorUri)
+    const card = useProfileCard(person.actorUri)
     const [isHandleCopied, setIsHandleCopied] = useState(false)
 
     const { host } = addressParts(person.address)
@@ -47,7 +48,7 @@ export function usePersonProfileModalViewModel(person: ProfilePerson) {
         photoInk: TONE_INK[tone],
         identityLabel: `Pīna'i identity · ${isLocal ? "local" : "federated"}`,
         homeServer: isLocal ? "Same as yours" : host,
-        friendsSince: isFriend ? "—" : "Not friends",
+        ...cardCells(card),
         mrz: passportMrz(person.displayName, person.address),
         isHandleCopied,
         copyHandle,

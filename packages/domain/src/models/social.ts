@@ -24,4 +24,6 @@ export interface FriendListEntry {
     avatar_url: string | null
     friend_actor_uri: string
     instance: string | null
+    /** RFC 3339: when the friendship was accepted; a friend made again starts a new date. */
+    since: string
 }

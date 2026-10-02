@@ -7,6 +7,7 @@ import { getFriendsUseCase } from "@pinai/domain/usecases/social/get-friends.use
 import { removeFriendUseCase } from "@pinai/domain/usecases/social/remove-friend.usecase"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
+import { profileCardQueryKey } from "@/presentation/hooks/useProfileCard"
 
 /**
  * Removes a friend and refreshes what depends on the friendship. The DM
@@ -27,6 +28,7 @@ export function useRemoveFriend() {
             toast.success(`${name} was removed from your friends`)
             void queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
             void queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
+            void queryClient.invalidateQueries({ queryKey: profileCardQueryKey(idpUrl, actorUri) })
             return true
         } catch (e) {
             toast.error(e instanceof Error ? e.message : "Something went wrong")

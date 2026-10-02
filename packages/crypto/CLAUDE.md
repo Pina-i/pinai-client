@@ -61,7 +61,7 @@ Three collaborators could not come, and the shape of each is the mobile work:
 - **`recovery.adapter.ts`** — `NobleRecoveryAdapter`. Argon2id
   (`@noble/hashes/argon2.js`) + XChaCha20-Poly1305 (`@noble/ciphers`)
   wrap/unwrap of the MSK private. Default params m=64 MiB, t=3, p=4
-  per `specs/05-e2ee.md § 9`. AAD-tagged, nonce-prepended.
+  per `identity-provider/specs/e2ee.md § 9`. AAD-tagged, nonce-prepended.
 - **`spake2.ts`** — Hand-rolled SPAKE2 over Ristretto255 via
   `@noble/curves`. M and N derived once via `ristretto255_hasher.hashToCurve`
   from labels. Returns `{ ourMessage, derive(peerMessage) }` →
@@ -81,7 +81,9 @@ Three collaborators could not come, and the shape of each is the mobile work:
   (`ensureInitialized`, `register`) are guarded by cached promises
   so concurrent callers (React strict-mode double-fire, sibling
   hooks racing) can't produce two `Provider` / `Identity`
-  instances. The whole port is intentionally idempotent.
+  instances; `replenishKeyPackages` likewise shares one run, so the
+  entry check, the 6 h timer and a `key_packages_low` push never
+  overshoot the stash cap. The whole port is intentionally idempotent.
 
 ## Use cases
 
@@ -287,7 +289,10 @@ above, the sections above win.
   `encryptApplication`, `decryptInbound`, `addContactToGroup`,
   `consumePendingWelcomes`, `revokeDevice`) calls
   `persistMlsState()` afterwards so reload picks up exactly where
-  the session left off.
+  the session left off. New KeyPackages are the exception: they are
+  saved before they are uploaded, and not uploaded when the save
+  fails, so the server never hands out a package this device can no
+  longer open after a reload.
 
 ## Phase 5d additions
 
@@ -483,7 +488,7 @@ to "recover your message history" — derives a History Archive Key
 via Argon2id; per-decrypt plaintexts are encrypted under that key
 and uploaded to a server-side opaque-ciphertext archive.
 
-See `identity-provider/specs/05-e2ee.md` in the `Pina-i/pinai` monorepo
+See `identity-provider/specs/e2ee.md` in the `Pina-i/pinai` monorepo
 for the full design.
 
 ### New adapters

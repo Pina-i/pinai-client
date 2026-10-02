@@ -148,6 +148,15 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
         }
     }
 
+    /** What a reset database, or every package claimed or swept, leaves of an account's stash. */
+    forgetPackages(actorUri: ActorUri): void {
+        this.packagesByActor.delete(actorUri)
+    }
+
+    packagesOf(actorUri: ActorUri): number {
+        return this.packagesByActor.get(actorUri)?.length ?? 0
+    }
+
     async getKeyPackageStatus(
         _idpUrl: string,
         accessToken: string,
@@ -674,5 +683,82 @@ describe("MLS E2EE — a device signs a group with the key its leaf carries", ()
 
         expect(await read(alice, "alice-token", await reloaded.e2ee.encryptOutbound(conversationId, text("hi"))))
             .toBe("hi")
+    })
+})
+
+describe("MLS E2EE — a device keeps its KeyPackage stash topped up", () => {
+    const conversationId: ConversationId = "cccc1111-2222-3333-4444-555566667777"
+    const issuer = "https://idp.shared.example"
+    const [aliceActor, bobActor] = ["alice", "bob"].map((name) => asActorUri(`${issuer}/users/${name}_x1y2z`))
+    const text = (t: string): ApplicationMessage<TextBody> => ({ version: 1, kind: "text", body: { text: t } })
+
+    async function pair() {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const alice = await buildAdapter(directory, "alice-token", aliceActor)
+        const bob = await buildAdapter(directory, "bob-token", bobActor)
+        await alice.e2ee.register(issuer, "alice-token", aliceActor)
+        await bob.e2ee.register(issuer, "bob-token", bobActor)
+        return { directory, alice, bob }
+    }
+
+    it("can be added again once a reloaded device refilled the stash the server lost", async () => {
+        const { directory, alice, bob } = await pair()
+        directory.forgetPackages(bobActor)
+
+        const reloaded = await reload(directory, bob)
+        await reloaded.e2ee.replenishKeyPackages(issuer, "bob-token", bobActor)
+        const again = await reload(directory, reloaded)
+        await alice.e2ee.addContactToGroup(issuer, "alice-token", conversationId, bobActor)
+        await again.e2ee.consumePendingWelcomes(issuer, "bob-token", bobActor)
+
+        const read = await alice.e2ee.decryptInbound(
+            conversationId,
+            await again.e2ee.encryptOutbound(conversationId, text("hi")),
+            { idpUrl: issuer, accessToken: "alice-token" },
+        )
+        expect((read?.body as TextBody).text).toBe("hi")
+    })
+
+    it("fills the stash once when asked twice at once", async () => {
+        const { directory, bob } = await pair()
+        directory.forgetPackages(bobActor)
+
+        await Promise.all([
+            bob.e2ee.replenishKeyPackages(issuer, "bob-token", bobActor),
+            bob.e2ee.replenishKeyPackages(issuer, "bob-token", bobActor),
+        ])
+
+        expect(directory.packagesOf(bobActor)).toBe(100)
+    })
+
+    it("can still be added through what it published when the tab dies as the server stores it", async () => {
+        const { directory, alice, bob } = await pair()
+        directory.forgetPackages(bobActor)
+        let onDisk: MlsSnapshot | null = null
+        const upload = directory.uploadKeyPackages.bind(directory)
+        directory.uploadKeyPackages = async (...args) => {
+            onDisk = await bob.storage.loadMlsSnapshot()
+            return upload(...args)
+        }
+
+        await bob.e2ee.replenishKeyPackages(issuer, "bob-token", bobActor)
+        await bob.storage.saveMlsSnapshot(onDisk!)
+        const reloaded = await reload(directory, bob)
+        await alice.e2ee.addContactToGroup(issuer, "alice-token", conversationId, bobActor)
+        const { joined } = await reloaded.e2ee.consumePendingWelcomes(issuer, "bob-token", bobActor)
+
+        expect(joined).toBe(1)
+    })
+
+    it("publishes nothing it could not save", async () => {
+        const { directory, bob } = await pair()
+        directory.forgetPackages(bobActor)
+        bob.storage.saveMlsSnapshot = async () => {
+            throw new Error("quota exceeded")
+        }
+
+        await expect(bob.e2ee.replenishKeyPackages(issuer, "bob-token", bobActor)).rejects.toThrow("quota exceeded")
+        expect(directory.packagesOf(bobActor)).toBe(0)
     })
 })

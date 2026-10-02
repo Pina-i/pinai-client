@@ -7,7 +7,7 @@
  * the crypto core from having to depend on the REST client that happens to
  * implement it today.
  *
- * Endpoint shapes come from `identity-provider/specs/05-e2ee.md`. The DTOs
+ * Endpoint shapes come from `identity-provider/specs/e2ee.md`. The DTOs
  * below are the wire shapes, base64 already decoded to bytes.
  */
 

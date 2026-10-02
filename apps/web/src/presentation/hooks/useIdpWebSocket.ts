@@ -21,6 +21,7 @@ import { blocksQueryKey, useBlocks } from "@/presentation/hooks/useBlocks"
 import { TYPING_INDICATOR_TTL_MS } from "@/store/slices/presence.slice"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
+import { profileCardQueryKey, profileCardsQueryKey } from "@/presentation/hooks/useProfileCard"
 import { groupMembersQueryKey } from "@/presentation/pages/home/GroupMembersPanel/GroupMembersPanel.viewmodel"
 import { playDmNotificationSound } from "@/presentation/_libs/notification-sound"
 import { useAppearance } from "@/presentation/providers/AppearanceProvider/AppearanceProvider.context"
@@ -40,6 +41,18 @@ export function registerDeviceFanoutHandler(
     return () => {
         if (deviceFanoutHandlerRef.current === handler) {
             deviceFanoutHandlerRef.current = null
+        }
+    }
+}
+
+/** Module-level slot — `useReplenishKeyPackages` registers its refill here once the device is onboarded. */
+const keyPackagesLowHandlerRef: { current: (() => void) | null } = { current: null }
+
+export function registerKeyPackagesLowHandler(handler: () => void): () => void {
+    keyPackagesLowHandlerRef.current = handler
+    return () => {
+        if (keyPackagesLowHandlerRef.current === handler) {
+            keyPackagesLowHandlerRef.current = null
         }
     }
 }
@@ -597,12 +610,17 @@ export function useIdpWebSocket(): void {
                     if (idpUrl) {
                         queryClient.invalidateQueries({ queryKey: blocksQueryKey(idpUrl) })
                         queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
+                        queryClient.invalidateQueries({ queryKey: profileCardsQueryKey(idpUrl) })
                     }
                     break
                 }
                 case "device_joined": {
                     // useDeviceFanout owns the actual fanout via its registered ref.
                     deviceFanoutHandlerRef.current?.(event.data)
+                    break
+                }
+                case "key_packages_low": {
+                    keyPackagesLowHandlerRef.current?.()
                     break
                 }
                 case "friend_request":
@@ -623,6 +641,7 @@ export function useIdpWebSocket(): void {
                     if (event.type === "friend_accepted" && idpUrl) {
                         queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
                         queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
+                        queryClient.invalidateQueries({ queryKey: profileCardQueryKey(idpUrl, event.data.actor_uri) })
                     }
                     break
                 }
@@ -633,6 +652,7 @@ export function useIdpWebSocket(): void {
                     if (idpUrl) {
                         queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
                         queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
+                        queryClient.invalidateQueries({ queryKey: profileCardQueryKey(idpUrl, event.data.actor_uri) })
                     }
                     break
                 }
@@ -646,6 +666,7 @@ export function useIdpWebSocket(): void {
                     if (idpUrl) {
                         queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
                         queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
+                        queryClient.invalidateQueries({ queryKey: profileCardQueryKey(idpUrl, event.data.actorUri) })
                     }
                     break
                 }

@@ -1,5 +1,5 @@
 /**
- * Device-pairing protocol layer (`specs/05-e2ee.md § 8`).
+ * Device-pairing protocol layer (`identity-provider/specs/e2ee.md § 8`).
  *
  * Two classes: {@link PairingInitiator} (the existing device that
  * already holds the user's MSK + SSK) and {@link PairingResponder}

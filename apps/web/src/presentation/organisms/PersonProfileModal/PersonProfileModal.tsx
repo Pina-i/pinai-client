@@ -103,8 +103,15 @@ function Passport({ person, onClose, onMessage }: { person: ProfilePerson; onClo
                     <h2 className="title mt-3.5 text-[46px] font-normal italic leading-none tracking-[-0.015em] text-foreground">
                         {person.displayName}
                     </h2>
-                    <p className="mt-1.5 text-[13px] text-muted-foreground">—</p>
-                    <p className="title mt-3.5 text-[15px] italic text-muted-foreground">No bio yet.</p>
+                    <p className="mt-1.5 text-[13px] text-muted-foreground">{vm.pronouns}</p>
+                    <p
+                        className={cn(
+                            "title mt-3.5 whitespace-pre-line break-words text-[15px] italic",
+                            vm.bio ? "text-foreground" : "text-muted-foreground",
+                        )}
+                    >
+                        {vm.bio ?? "No bio yet."}
+                    </p>
 
                     <dl className="mt-5 grid grid-cols-2 gap-x-[22px] gap-y-3.5 border-t border-line pt-4">
                         <div>

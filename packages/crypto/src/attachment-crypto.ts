@@ -1,5 +1,5 @@
 /**
- * Per-attachment AES-256-GCM encryption (`specs/05-e2ee.md § 7`).
+ * Per-attachment AES-256-GCM encryption (`identity-provider/specs/e2ee.md § 7`).
  *
  * `@noble/ciphers` rather than WebCrypto, deliberately: this key is
  * protocol-visible — it travels to the peer inside the MLS body — so every

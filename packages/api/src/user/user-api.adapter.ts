@@ -1,7 +1,9 @@
 import ky, { HTTPError } from "ky"
 import type { ProfilePatch, UserProfile } from "@pinai/domain/models/auth"
 import type { LocalFile } from "@pinai/domain/models/file"
+import type { ProfileCard } from "@pinai/domain/models/profile"
 import type { IUserPort } from "@pinai/domain/ports/user.port"
+import { idpErrorFrom } from "../idp-error"
 
 export class UserApiAdapter implements IUserPort {
     async uploadAvatar(
@@ -59,6 +61,23 @@ export class UserApiAdapter implements IUserPort {
                 throw new Error(err.error ?? `Failed to update profile: ${error.response.status}`)
             }
             throw error
+        }
+    }
+
+    async getProfileCard(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: string,
+    ): Promise<ProfileCard | null> {
+        const url = `${idpUrl.replace(/\/$/, "")}/api/profiles`
+        try {
+            return await ky.get(url, {
+                headers: { Authorization: `Bearer ${accessToken}` },
+                searchParams: { actor: actorUri },
+            }).json<ProfileCard>()
+        } catch (error) {
+            if (error instanceof HTTPError && error.response.status === 404) return null
+            throw await idpErrorFrom(error, "Failed to read the profile")
         }
     }
 }

@@ -33,7 +33,7 @@ export type ActorUri = string & { readonly __actorUri: unique symbol }
 export type Fingerprint = string
 
 /**
- * The four user-controlled identity keys (see `specs/05-e2ee.md § 2`).
+ * The four user-controlled identity keys (see `identity-provider/specs/e2ee.md § 2`).
  * Public halves are uploaded to the IdP key directory; private halves
  * never leave the user's devices. The `*_signature` blobs prove that
  * `MSK` signed `SSK` and `USK` respectively.
@@ -62,7 +62,7 @@ export interface IdentityKeypair {
 }
 
 /**
- * The MLS application-message envelope (`specs/05-e2ee.md § 6`).
+ * The MLS application-message envelope (`identity-provider/specs/e2ee.md § 6`).
  * `body` is `kind`-dependent — the client serialises it before
  * handing the bytes to the MLS layer for encryption.
  */
@@ -124,7 +124,7 @@ export interface ReplyMetaBody {
 
 /**
  * Per-attachment AES-GCM key + nonce + plaintext metadata. Travels
- * inside the encrypted MLS body (`specs/05-e2ee.md § 7`).
+ * inside the encrypted MLS body (`identity-provider/specs/e2ee.md § 7`).
  */
 export interface AttachmentBlobKey {
     /** The IdP-side `message_attachments.id`. */

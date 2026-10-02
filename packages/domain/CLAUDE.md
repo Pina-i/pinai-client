@@ -214,6 +214,15 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   form, since the WebSocket names people by actor URI and the UI by address.
 - Unblocking restores nothing: a friendship the block ended stays ended.
 
+### models/profile.ts + usecases/user/get-profile-card.usecase.ts
+- `ProfileCard` — `GET /api/profiles?actor=`, what the IdP shows the viewer of
+  another account: pronouns, bio, `friends_since`. `IUserPort.getProfileCard`
+  reads a `404` as `null`, an account elsewhere the viewer shares neither a
+  friendship nor a conversation with — the card then claims no friendship
+  instead of failing.
+- `pronounsLabel` — "he / him", "she / her", "non-binary", as the profile
+  editor offers them.
+
 ### models/idp-error.ts
 - `IdpError` — a refusal as the IdP sent it: status, `error` code, the
   `error_description` as the message, and the `actor_uri` it names (the
@@ -252,7 +261,7 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `reconcile-group-keys.usecase.ts` — what a leave can't do for itself, and a
   removal cut short: an admin's client prunes on `member_removed` and when
   the group opens. Other members leave it to admins, so fewer clients race
-  for an epoch. See `identity-provider/specs/05-e2ee.md § 6.8`.
+  for an epoch. See `identity-provider/specs/e2ee.md § 6.8`.
 
 ### models/identity.ts
 - `actorUriToAddress(uri)` — only sanctioned converter between

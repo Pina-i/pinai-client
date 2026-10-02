@@ -1,5 +1,6 @@
 import type { ProfilePatch, UserProfile } from "../models/auth"
 import type { LocalFile } from "../models/file"
+import type { ProfileCard } from "../models/profile"
 
 export interface IUserPort {
     uploadAvatar(
@@ -15,4 +16,11 @@ export interface IUserPort {
         accessToken: string,
         patch: ProfilePatch,
     ): Promise<UserProfile>
+
+    /** `null` when the IdP shows the viewer nothing of the account. */
+    getProfileCard(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: string,
+    ): Promise<ProfileCard | null>
 }

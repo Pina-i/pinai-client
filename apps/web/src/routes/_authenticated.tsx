@@ -15,6 +15,7 @@ import { useLoadDmConversations } from "@/presentation/hooks/useLoadDmConversati
 import { useHeartbeat } from "@/presentation/hooks/useHeartbeat"
 import { useTypingPruner } from "@/presentation/hooks/useTypingPruner"
 import { useHoldSplashScreen } from "@/presentation/hooks/use-hold-splash-screen"
+import { useReplenishKeyPackages } from "@/presentation/hooks/use-replenish-key-packages"
 import { useLoadPresence } from "@/presentation/hooks/useLoadPresence"
 import { HomeLayout } from "@/presentation/templates/HomeLayout/HomeLayout"
 import { Backdrop } from "@/presentation/atoms/backdrop/backdrop"
@@ -32,6 +33,7 @@ function AuthenticatedLayout() {
     useLoadDmConversations()
     useLoadPresence()
     useConsumeMlsWelcomes()
+    useReplenishKeyPackages(gate.status === "ready")
     useHistoryArchiveFlusher()
     const { onDeviceJoined } = useDeviceFanout()
     useEffect(() => registerDeviceFanoutHandler(onDeviceJoined), [onDeviceJoined])

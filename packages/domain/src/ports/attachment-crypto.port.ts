@@ -2,7 +2,7 @@ import type { AttachmentBlobKey } from "../models/e2ee"
 import type { LocalFile } from "../models/file"
 
 /**
- * Per-attachment AES-256-GCM sealing (`specs/05-e2ee.md § 7`).
+ * Per-attachment AES-256-GCM sealing (`identity-provider/specs/e2ee.md § 7`).
  *
  * A port rather than a direct import because the implementation is
  * platform crypto: WebCrypto in the browser, a native provider on React

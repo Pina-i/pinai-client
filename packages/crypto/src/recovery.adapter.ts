@@ -1,6 +1,6 @@
 /**
  * Argon2id-derived KEK + XChaCha20-Poly1305 wrap/unwrap of the user's
- * MSK private key. Matches `specs/05-e2ee.md § 9`.
+ * MSK private key. Matches `identity-provider/specs/e2ee.md § 9`.
  *
  * Wire format
  * - `wrapped_msk` is `nonce(24) || ciphertext_with_tag` — the server

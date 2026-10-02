@@ -13,7 +13,7 @@ export interface UploadEncryptedAttachmentParams {
 }
 
 /**
- * Encrypt-before-upload pipeline (Phase 5c.4 / `specs/05-e2ee.md § 7`):
+ * Encrypt-before-upload pipeline (Phase 5c.4 / `identity-provider/specs/e2ee.md § 7`):
  * 1. Generate a fresh AES-256-GCM key + 12-byte nonce + UUID for
  *    this attachment.
  * 2. Encrypt the file bytes with AAD = the UUID.

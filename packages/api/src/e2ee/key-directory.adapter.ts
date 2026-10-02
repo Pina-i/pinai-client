@@ -2,7 +2,7 @@
  * REST implementation of {@link IKeyDirectoryPort}.
  *
  * Wraps the eight `/api/keys/*` and three `/api/mls/*` endpoints from
- * `identity-provider/specs/05-e2ee.md`. Bytes-in / bytes-out — base64
+ * `identity-provider/specs/e2ee.md`. Bytes-in / bytes-out — base64
  * is the wire format for every binary blob (matches the server's JSON
  * shape).
  */

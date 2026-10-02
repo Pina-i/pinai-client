@@ -428,13 +428,17 @@ export class E2eeAdapter implements IE2eePort {
      */
     private async persistMlsState(): Promise<void> {
         try {
-            const provider_state = await this.mls.serializeStorage()
-            const known_group_ids = await this.mls.knownGroupIds()
-            await this.storage.saveMlsSnapshot({ provider_state, known_group_ids })
+            await this.saveMlsState()
         } catch (e) {
             // eslint-disable-next-line no-console
             console.warn("MLS snapshot save failed:", e)
         }
+    }
+
+    private async saveMlsState(): Promise<void> {
+        const provider_state = await this.mls.serializeStorage()
+        const known_group_ids = await this.mls.knownGroupIds()
+        await this.storage.saveMlsSnapshot({ provider_state, known_group_ids })
     }
 
     async register(
@@ -638,10 +642,30 @@ export class E2eeAdapter implements IE2eePort {
         return this.identity.fingerprint(resp.keys.msk_public)
     }
 
+    private replenishPromise: Promise<KeyPackageStatusResponse> | null = null
+
     async replenishKeyPackages(
         idpUrl: string,
         accessToken: string,
+        actorUri: ActorUri,
     ): Promise<KeyPackageStatusResponse> {
+        // Entry, timer and push may overlap: two runs would read the same count and overshoot the cap.
+        if (this.replenishPromise) return this.replenishPromise
+        this.replenishPromise = this.doReplenishKeyPackages(idpUrl, accessToken, actorUri)
+        try {
+            return await this.replenishPromise
+        } finally {
+            this.replenishPromise = null
+        }
+    }
+
+    private async doReplenishKeyPackages(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+    ): Promise<KeyPackageStatusResponse> {
+        // A KeyPackage made before the snapshot restore would lose its private half to it.
+        await this.ensureInitialized(actorUri)
         const status = await this.directory.getKeyPackageStatus(idpUrl, accessToken)
         const deviceId = await this.storage.getOrCreateDeviceId()
         const myDevice = status.devices.find((d) => d.device_id === deviceId)
@@ -679,11 +703,10 @@ export class E2eeAdapter implements IE2eePort {
                 expires_at: expiresAtIso,
             })
         }
+        // Saved before they're published, and not published unsaved: a package the server hands
+        // out must be one this device can still open after a reload.
+        await this.saveMlsState()
         await this.directory.uploadKeyPackages(idpUrl, accessToken, deviceId, packages)
-        // createKeyPackage writes per-bundle key material into the
-        // provider's storage; persist so unconsumed KPs survive a
-        // reload.
-        await this.persistMlsState()
     }
 
     async encryptOutbound(
