@@ -73,6 +73,13 @@ export interface MlsWelcomeReadyPayload {
     recipientDeviceId: string
 }
 
+/** `mls_commit` — a commit stored for a group the account is in, its own devices' included. */
+export interface MlsCommitPayload {
+    conversationId: string
+    epoch: number
+    proposerActorUri: string
+}
+
 /**
  * `group_created` — the recipient is a member of a brand-new group. Fired by
  * the hosting IdP for its local members, and by the recipient's own IdP when
@@ -142,6 +149,7 @@ export type WsServerEvent =
     | { type: "presence_update"; data: PresenceUpdateEventPayload }
     | { type: "typing"; data: TypingEventDataPayload }
     | { type: "mls_welcome_ready"; data: MlsWelcomeReadyPayload }
+    | { type: "mls_commit"; data: MlsCommitPayload }
     | { type: "device_joined"; data: DeviceJoinedPayload }
     | { type: "group_created"; data: GroupCreatedPayload }
     | { type: "member_added"; data: MemberAddedPayload }

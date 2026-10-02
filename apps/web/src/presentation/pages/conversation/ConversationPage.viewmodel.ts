@@ -121,14 +121,9 @@ async function mapApiMessage(
     if (appliedReactionIds?.[msg.id]) {
         return { kind: "skip" }
     }
-    // Sender path: we never have the recv-side key for our own
-    // ciphertext (forward secrecy wipes it on encrypt). Skipping the
-    // decrypt avoids a noisy "secret deleted" log and a placeholder
-    // row when the optimistic-pushed message hasn't yet been seeded
-    // into the store under the server's `msg.id`.
-    if (isOwn) {
-        return { kind: "skip" }
-    }
+    // One of the account's own not held here came from one of its other
+    // devices, and decrypts like anyone's. One of this device's own never
+    // does (MLS can't) and is skipped below, placeholder-free.
     const app = await tryDecryptApp(msg.conversation_id, msg.mls_ciphertext, catchUp)
 
     // Undecryptable peer history: skip rather than rendering an

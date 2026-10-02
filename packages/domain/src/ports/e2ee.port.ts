@@ -214,6 +214,19 @@ export interface IE2eePort {
     ): Promise<{ removed: number }>
 
     /**
+     * Calls `listener` each time this device comes to hold a group — founded on a first send, or
+     * joined from a Welcome — the moment the user's other devices can be brought into it. Answers
+     * the unsubscribe.
+     */
+    onGroupHeld(listener: (conversationId: ConversationId) => void): () => void
+
+    /**
+     * Applies the commits the DS holds past this device's epoch, for a group it holds keys for:
+     * a message encrypted at an epoch the others left is read by none of them.
+     */
+    catchUp(idpUrl: string, accessToken: string, conversationId: ConversationId): Promise<void>
+
+    /**
      * Brings the user's other `devices` into a group this device holds keys for, one device a
      * commit, each with a KeyPackage of its own (`devicesToAdd`). A group this device doesn't hold
      * is left alone: founding one here would fork it. A commit that loses an epoch race is

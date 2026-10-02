@@ -128,6 +128,37 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
         }
     }
 
+    async claimEachDevice(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+    ): Promise<ClaimedKeyPackage[]> {
+        const url = `${trimSlash(idpUrl)}/api/keys/packages/claim/devices`
+        const json = await guarded(() =>
+            ky
+                .post(url, {
+                    headers: authHeader(accessToken),
+                    json: { actor_uri: actorUri },
+                })
+                .json<{
+                    claims: {
+                        key_package: string
+                        device_id: DeviceId
+                        expires_at: string
+                        remaining_count: number
+                        needs_refill: boolean
+                    }[]
+                }>(),
+        )
+        return json.claims.map((claim) => ({
+            key_package: unb64(claim.key_package),
+            device_id: claim.device_id,
+            expires_at: claim.expires_at,
+            remaining_count: claim.remaining_count,
+            needs_refill: claim.needs_refill,
+        }))
+    }
+
     async getKeyPackageStatus(
         idpUrl: string,
         accessToken: string,

@@ -63,6 +63,8 @@ function buildPort(
         revokeDevice: async () => ({ removed_from: [] }),
         pruneGroup: async () => ({ removed: 0 }),
         addOwnDevices: async () => ({ added: 0 }),
+        catchUp: async () => {},
+        onGroupHeld: () => () => {},
         forgetGroup: async () => {},
         startPairingAsInitiator: async () => {
             throw new Error("startPairingAsInitiator not stubbed")

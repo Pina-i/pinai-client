@@ -226,11 +226,20 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 ### A user's devices bring each other into their groups
 - `devicesToAdd(leaves, me, devices)` (`models/group.ts`) — the user's
   devices a group holds no leaf for.
-- `add-own-devices.usecase.ts` — offers each conversation the user's
-  other active devices, one at a time, and names the ones that failed
-  (the hook logs them; the domain doesn't). `IE2eePort.addOwnDevices`
-  adds them only to groups this device holds. See
+- `sync-own-groups.usecase.ts` — for each conversation, one at a time:
+  catch it up on the commits it missed (`IE2eePort.catchUp`), then offer
+  it the user's other active devices (`addOwnDevices`, which adds them
+  only to groups this device holds). Names the conversations that failed;
+  the hook logs them, the domain doesn't. See
   `identity-provider/specs/e2ee.md § 6.2`.
+
+### models/own-messages.ts
+- `isHeldHere` — a message from the user's own account is this device's
+  echo only when it holds a copy of it (optimistic id, server id, or an
+  applied reaction). Any other came from one of the user's other devices:
+  `useIdpWebSocket` and the history load decrypt it like anyone's, and
+  show nothing for one that doesn't decrypt (MLS never decrypts a
+  device's own).
 
 ### models/idp-error.ts
 - `IdpError` — a refusal as the IdP sent it: status, `error` code, the

@@ -6,6 +6,7 @@ import type {
     ApplicationMessage,
     ArchiveEnvelope,
     AttachmentBlobKey,
+    ConversationId,
     EditBody,
     ReactionBody,
     TextBody,
@@ -13,6 +14,7 @@ import type {
 import type { WsConnectionStatus, WsServerEvent } from "@pinai/domain/models/ws"
 import type { Message } from "@/lib/types"
 import { actorUriToAddress } from "@pinai/domain/models/identity"
+import { isHeldHere } from "@pinai/domain/models/own-messages"
 import { applyFederationStatus } from "@pinai/domain/models/dm"
 import { reconcileGroupKeysUseCase } from "@pinai/domain/usecases/e2ee/reconcile-group-keys.usecase"
 import { shouldPingForMessage } from "@pinai/domain/models/mute"
@@ -193,18 +195,22 @@ export function useIdpWebSocket(): void {
                 case "new_dm": {
                     const conversationId = event.data.conversation_id
                     const senderAddress = actorUriToAddress(event.data.sender_address)
-                    // The server fans `new_dm` out to the sender too
-                    // (echo path in `idp-messaging::handlers`). We must
-                    // NEVER try to decrypt our own ciphertext — MLS
-                    // wipes the per-generation send-side key the moment
-                    // we encrypt for forward secrecy, so a re-decrypt
-                    // surfaces as "secret deleted" + leaves an
-                    // `[encrypted]` placeholder in the conversation.
-                    // `isOwnEcho` is the narrower predicate (we can
-                    // reconcile an optimistic message via `client_id`);
-                    // `isOwn` is the safety gate around decrypt.
+                    // The server fans `new_dm` out to every session of the
+                    // sender's account. One this device holds a copy of is
+                    // its own echo, never decrypted: MLS can't, and the try
+                    // would cost a catch-up. Any other of the account's is
+                    // from one of its other devices, decrypted like anyone's
+                    // (`isHeldHere`).
                     const isOwn = senderAddress === actionsRef.current.user?.address
-                    const isOwnEcho = isOwn && !!event.data.client_id
+                    const snapshot = useAppStore.getState()
+                    const isHeld =
+                        isOwn &&
+                        isHeldHere(
+                            snapshot.dmMessages[conversationId],
+                            { messageId: event.data.message_id, clientId: event.data.client_id },
+                            snapshot.appliedReactionIds,
+                        )
+                    const isOwnEcho = isHeld && !!event.data.client_id
 
                     const catchUp =
                         idpUrl && accessToken ? { idpUrl, accessToken } : undefined
@@ -215,9 +221,12 @@ export function useIdpWebSocket(): void {
                     // mutate an existing target's reactions[]; edits
                     // arrive on the message_edited event so we never
                     // see them here.
-                    const app = isOwn
+                    const app = isHeld
                         ? null
                         : await tryDecryptAny(conversationId, event.data.mls_ciphertext, catchUp)
+                    // The account's own that doesn't decrypt is this device's, sent before its
+                    // copy was recorded, or older than the device: nothing to show.
+                    if (isOwn && !isHeld && !app) break
 
                     if (app && app.kind === "reaction") {
                         const body = app.body as ReactionBody
@@ -356,7 +365,7 @@ export function useIdpWebSocket(): void {
                         }
                         break
                     }
-                    if (isOwn) {
+                    if (isHeld) {
                         // Own message echoed back without a `client_id`
                         // (group sends, which don't propagate the client
                         // UUID, and broker replays). The REST response
@@ -441,6 +450,14 @@ export function useIdpWebSocket(): void {
                         }
                     }
 
+                    if (isOwn) {
+                        // Sent from one of the user's other devices: nothing to ring or count.
+                        if (idpUrl) {
+                            queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
+                        }
+                        break
+                    }
+
                     const isActive = actionsRef.current.activeDm === conversationId
                     const senderBlocked = isBlocked(actionsRef.current.blocked, senderAddress)
 
@@ -520,6 +537,15 @@ export function useIdpWebSocket(): void {
                             }
                         }
                     }
+                    if (newText === UNDECRYPTABLE_PLACEHOLDER) {
+                        // An edit of one of the user's messages that doesn't decrypt is this
+                        // device's own, applied when it was made.
+                        const me = actionsRef.current.user?.address
+                        const target = Object.values(useAppStore.getState().dmMessages)
+                            .flat()
+                            .find((m) => m.id === message_id)
+                        if (target && target.authorAddress === me) break
+                    }
                     actionsRef.current.updateMessageById(message_id, (m) => ({
                         ...m,
                         content: newText,
@@ -532,6 +558,18 @@ export function useIdpWebSocket(): void {
                     actionsRef.current.updateMessageById(event.data.message_id, (m) =>
                         applyFederationStatus(m, "failed", at),
                     )
+                    break
+                }
+                case "mls_commit": {
+                    // Move on with the group now: a message sent from an epoch the others left
+                    // is read by none of them.
+                    if (!idpUrl || !accessToken) break
+                    getE2eePort()
+                        .catchUp(idpUrl, accessToken, event.data.conversationId as ConversationId)
+                        .catch((e) => {
+                            // eslint-disable-next-line no-console
+                            console.warn("WS-triggered commit catch-up failed:", e)
+                        })
                     break
                 }
                 case "mls_welcome_ready": {

@@ -265,8 +265,17 @@ above, the sections above win.
   engine: the new device reads and is read, a device holding no group
   commits nothing, two devices adding a third converge, a lost commit
   is tried again, two runs at once add once.
-- `addContactToGroup` clears its pending commit when the commit POST
-  fails too, so the add can be tried again.
+- `addContactToGroup` claims a KeyPackage of each of the contact's
+  devices (`claimEachDevice`) and adds them one a commit, so every device
+  of theirs reads the group; only the first one's failure is the
+  caller's. A commit POST that fails clears its pending commit, so the
+  add can be tried again.
+- `catchUp(idpUrl, token, conversationId)` applies the DS's commits past
+  the local epoch for a held group; `useIdpWebSocket` calls it on every
+  `mls_commit` push, so a device sends at the epoch the others are at.
+- `onGroupHeld(listener)` fires after this device founds a group
+  (`addContactToGroup` on a first send) or joins one
+  (`consumePendingWelcomes`): the moment its siblings can be added.
 - Every member's Welcome carries the ratchet tree: the wasm crate's
   `join_config` sets the extension on join, and a group joined before
   takes it when loaded.
@@ -573,10 +582,11 @@ publishes) holds against the documented threat model.
 
 ### Hooks (`presentation/hooks/`)
 
-- `useDeviceFanout` — multi-device fanout. Every device-list refresh
-  (the `device_joined` push only triggers one) runs
-  `addOwnDevicesUseCase`, which offers each held group the user's other
-  active devices — see "`addOwnDevices`" above.
+- `useDeviceFanout` — keeps held groups in step. Every device-list
+  refresh (the `device_joined` push only triggers one), conversation-list
+  change and `onGroupHeld` call runs `syncOwnGroupsUseCase`: catch each
+  group up, then offer it the user's other active devices — see
+  "`addOwnDevices`" above.
 - `useHistoryArchiveFlusher` — lifecycle hook for the 2-second
   flush timer + buffer (both live in the adapter; this hook is
   pure mount/unmount glue).

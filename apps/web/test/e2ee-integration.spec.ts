@@ -148,6 +148,19 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
         }
     }
 
+    async claimEachDevice(
+        _idpUrl: string,
+        _accessToken: string,
+        actorUri: ActorUri,
+    ): Promise<ClaimedKeyPackage[]> {
+        const stash = this.packagesByActor.get(actorUri) ?? []
+        const devices = [...new Set(stash.map((p) => p.deviceId))]
+        const claimed: ClaimedKeyPackage[] = []
+        for (const device of devices) claimed.push(await this.claimKeyPackage(_idpUrl, _accessToken, actorUri, device))
+        if (claimed.length === 0) throw new Error(`No KeyPackage available for ${actorUri}`)
+        return claimed
+    }
+
     /** What a reset database, or every package claimed or swept, leaves of an account's stash. */
     forgetPackages(actorUri: ActorUri): void {
         this.packagesByActor.delete(actorUri)
@@ -869,6 +882,61 @@ describe("MLS E2EE — a user's devices bring each other into their groups", () 
 
         expect(runs.map((r) => r.added).sort()).toEqual([0, 1])
         expect(directory.welcomeRouting.filter((w) => w.recipient_device_id === ids.dan2)).toHaveLength(1)
+    })
+
+    it("has a member who missed the add catch up when told, and be read by the new device", async () => {
+        const { bob, dan1, dan2, ids } = await secondDevice()
+        await dan1.e2ee.addOwnDevices(issuer, "dan1-token", conversationId, [ids.dan2])
+        await dan2.e2ee.consumePendingWelcomes(issuer, "dan2-token", danActor)
+
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+
+        expect(await bob.mls.getEpoch(conversationId)).toBe(await dan1.mls.getEpoch(conversationId))
+        expect(await read(dan2, "dan2-token", await bob.e2ee.encryptOutbound(conversationId, text("first"))))
+            .toBe("first")
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+        await dan2.e2ee.catchUp(issuer, "dan2-token", "eeee1111-2222-3333-4444-555566667777")
+    })
+
+    it("brings every device of a contact's into a first add, each reading and read", async () => {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const bob = await buildAdapter(directory, "bob-token", bobActor)
+        const dan1 = await buildAdapter(directory, "dan1-token", danActor)
+        const dan2 = await buildAdapter(directory, "dan2-token", danActor)
+        await bob.e2ee.register(issuer, "bob-token", bobActor)
+        await dan1.e2ee.register(issuer, "dan1-token", danActor)
+        await dan2.e2ee.register(issuer, "dan2-token", danActor)
+
+        await bob.e2ee.addContactToGroup(issuer, "bob-token", conversationId, danActor)
+        await dan1.e2ee.consumePendingWelcomes(issuer, "dan1-token", danActor)
+        await dan2.e2ee.consumePendingWelcomes(issuer, "dan2-token", danActor)
+
+        const fromBob = await bob.e2ee.encryptOutbound(conversationId, text("to both"))
+        expect(await read(dan1, "dan1-token", fromBob)).toBe("to both")
+        expect(await read(dan2, "dan2-token", fromBob)).toBe("to both")
+        expect(await read(bob, "bob-token", await dan2.e2ee.encryptOutbound(conversationId, text("back"))))
+            .toBe("back")
+    })
+
+    it("tells when the device comes to hold a group, founded or joined, once", async () => {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const bob = await buildAdapter(directory, "bob-token", bobActor)
+        const dan = await buildAdapter(directory, "dan1-token", danActor)
+        await bob.e2ee.register(issuer, "bob-token", bobActor)
+        await dan.e2ee.register(issuer, "dan1-token", danActor)
+        const held: string[] = []
+        bob.e2ee.onGroupHeld((id) => held.push(`bob ${id}`))
+        const stop = dan.e2ee.onGroupHeld((id) => held.push(`dan ${id}`))
+
+        await bob.e2ee.addContactToGroup(issuer, "bob-token", conversationId, danActor)
+        await dan.e2ee.consumePendingWelcomes(issuer, "dan1-token", danActor)
+        await bob.e2ee.ensureGroupExists(issuer, "bob-token", conversationId, danActor)
+        stop()
+        await dan.e2ee.consumePendingWelcomes(issuer, "dan1-token", danActor)
+
+        expect(held).toEqual([`bob ${conversationId}`, `dan ${conversationId}`])
     })
 
     it("lets a contact's add be tried again after its commit was lost", async () => {

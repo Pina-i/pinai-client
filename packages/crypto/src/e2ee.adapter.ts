@@ -12,6 +12,7 @@ import { wordlist } from "@scure/bip39/wordlists/english.js"
 import type {
     ActorUri,
     ApplicationMessage,
+    ClaimedKeyPackage,
     ConversationId,
     DeviceId,
     Fingerprint,
@@ -819,22 +820,43 @@ export class E2eeAdapter implements IE2eePort {
             await this.mls.createGroup(conversationId)
         }
 
-        // Pass `null` for device_id — the IdP's claim endpoint picks
-        // any device with spare KeyPackages and tells us which leaf
-        // it claimed from (so we can target the Welcome correctly).
-        let claimed
+        // One KeyPackage of each of their devices: a group holding only the device a single
+        // claim picks leaves their others reading nothing until a sibling of theirs adds them.
+        let claimed: ClaimedKeyPackage[]
         try {
-            claimed = await this.directory.claimKeyPackage(idpUrl, accessToken, actorUri, null)
+            claimed = await this.directory.claimEachDevice(idpUrl, accessToken, actorUri)
         } catch (e) {
             // Nothing committed yet: the caller may take the invitee off the group cleanly.
             throw new KeyPackageUnavailable(actorUri, e)
         }
-        const out = await this.mls.addMember(conversationId, claimed.key_package)
+        if (claimed.length === 0) {
+            throw new KeyPackageUnavailable(actorUri, new Error("no device with a KeyPackage"))
+        }
+        let added = 0
+        for (const keyPackage of claimed) {
+            try {
+                await this.addClaimed(idpUrl, accessToken, conversationId, actorUri, keyPackage)
+                added++
+            } catch (e) {
+                // The first is the add itself, whose failure is the caller's. A later device of
+                // theirs is brought in by its siblings once one of them holds the group.
+                if (added === 0) throw e
+                // eslint-disable-next-line no-console
+                console.warn(`addContactToGroup: device ${keyPackage.device_id} left to its siblings`, e)
+            }
+        }
+        if (isFirstMessage) this.announceGroupHeld(conversationId)
+    }
 
-        // For a fresh group, the founding commit lives at epoch 0
-        // (the create's implicit one). The very first commit we
-        // generate via add_member moves us to epoch 1. Server's
-        // unique index prevents duplicates; 409 races land in 5d.
+    /** One device into the group: a commit of its own, then its Welcome. */
+    private async addClaimed(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        actorUri: ActorUri,
+        claimed: ClaimedKeyPackage,
+    ): Promise<void> {
+        const out = await this.mls.addMember(conversationId, claimed.key_package)
         const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
         try {
             await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, out.commit)
@@ -843,24 +865,16 @@ export class E2eeAdapter implements IE2eePort {
             await this.mls.clearPendingCommit(conversationId)
             throw e
         }
-
-        // Hand the welcome to our own IdP and let it route. Same-IdP
-        // recipients land via `mls_welcomes` + a `MlsWelcomeReady` WS
-        // push; remote recipients ride a signed AP `Create{Note}` with
-        // `mlsKind: welcome` to the recipient IdP's inbox. The local
-        // commit log + the (5d.1) cross-IdP claim proxy mean the
-        // browser never has to know which side the recipient lives on.
+        await this.mls.mergePendingCommit(conversationId)
+        await this.persistMlsState()
+        // Our own IdP routes it: a local recipient's queue and push, or a signed AP
+        // `Create{Note}` (`mlsKind: welcome`) to the recipient's instance.
         await this.directory.postWelcome(idpUrl, accessToken, {
             recipient_actor_uri: actorUri,
             recipient_device_id: claimed.device_id,
             conversation_id: conversationId,
             welcome_blob: out.welcome,
         })
-
-        await this.mls.mergePendingCommit(conversationId)
-        // Group bootstrap is a multi-step state mutation; persist
-        // once at the end instead of on every intermediate step.
-        await this.persistMlsState()
     }
 
     async ensureGroupExists(
@@ -889,25 +903,45 @@ export class E2eeAdapter implements IE2eePort {
         await this.ensureInitialized(actorUri)
         const deviceId = await this.storage.getOrCreateDeviceId()
         const welcomes = await this.directory.getWelcomes(idpUrl, accessToken, deviceId)
-        let joined = 0
+        const joined: ConversationId[] = []
         for (const w of welcomes) {
             try {
                 if (await this.mls.hasGroup(w.conversation_id)) {
-                    if (await this.mls.rejoinGroup(w.conversation_id, w.welcome_blob)) joined++
+                    if (await this.mls.rejoinGroup(w.conversation_id, w.welcome_blob)) {
+                        joined.push(w.conversation_id)
+                    }
                     continue
                 }
-                // Welcomes carry the ratchet tree via the extension
-                // (we set `use_ratchet_tree_extension(true)` on group
-                // creation), so passing `null` here is correct.
+                // Every member's Welcome carries the ratchet tree (the
+                // extension, set on create and join), so `null` is correct.
                 await this.mls.joinGroup(w.conversation_id, w.welcome_blob, null)
-                joined++
+                joined.push(w.conversation_id)
             } catch (e) {
                 // eslint-disable-next-line no-console
                 console.warn(`Failed to join group ${w.conversation_id} from welcome:`, e)
             }
         }
-        if (joined > 0) await this.persistMlsState()
-        return { joined }
+        if (joined.length > 0) await this.persistMlsState()
+        for (const id of joined) this.announceGroupHeld(id)
+        return { joined: joined.length }
+    }
+
+    private readonly groupHeldListeners = new Set<(conversationId: ConversationId) => void>()
+
+    onGroupHeld(listener: (conversationId: ConversationId) => void): () => void {
+        this.groupHeldListeners.add(listener)
+        return () => this.groupHeldListeners.delete(listener)
+    }
+
+    private announceGroupHeld(conversationId: ConversationId): void {
+        for (const listener of this.groupHeldListeners) {
+            try {
+                listener(conversationId)
+            } catch (e) {
+                // eslint-disable-next-line no-console
+                console.warn("onGroupHeld listener failed:", e)
+            }
+        }
     }
 
     // ─── Recovery Key ─────────────────────────────────────────────────
@@ -1078,6 +1112,14 @@ export class E2eeAdapter implements IE2eePort {
             await this.persistMlsState()
             removed++
         }
+    }
+
+    async catchUp(idpUrl: string, accessToken: string, conversationId: ConversationId): Promise<void> {
+        await this.ensureInitialized(null)
+        if (!(await this.mls.hasGroup(conversationId))) return
+        const before = await this.mls.getEpoch(conversationId)
+        await this.catchUpCommits(idpUrl, accessToken, conversationId)
+        if ((await this.mls.getEpoch(conversationId)) !== before) await this.persistMlsState()
     }
 
     private ownDevicesRun: Promise<unknown> = Promise.resolve()

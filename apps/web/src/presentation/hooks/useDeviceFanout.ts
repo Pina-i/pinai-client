@@ -1,17 +1,18 @@
-import { useCallback, useEffect } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 
 import type { ConversationId } from "@pinai/domain/models/e2ee"
 import type { DeviceJoinedPayload } from "@pinai/domain/models/ws"
-import { addOwnDevicesUseCase } from "@pinai/domain/usecases/e2ee/add-own-devices.usecase"
+import { syncOwnGroupsUseCase } from "@pinai/domain/usecases/e2ee/sync-own-groups.usecase"
 import { getDeviceDirectoryPort, getE2eePort } from "@/ioc"
 import { devicesQueryKey } from "@/presentation/hooks/useDevices"
 import { useAppStore } from "@/store/store"
 
 /**
- * Brings this user's other devices into the groups this device holds keys for. It runs on every
- * device-list refresh, so a device signed in while this one was offline is caught when this one
- * comes back; the WS `device_joined` push only refreshes the list.
+ * Keeps the groups this device holds keys for in step: the commits it missed while away, then
+ * this user's other devices they lack. It runs on every device-list refresh, so a device signed
+ * in while this one was offline is caught when this one comes back; the WS `device_joined` push
+ * only refreshes the list.
  */
 export function useDeviceFanout(): {
     onDeviceJoined: (e: DeviceJoinedPayload) => void
@@ -35,6 +36,9 @@ export function useDeviceFanout(): {
 
     // The ids alone: the list's rows change on every typing-status flip.
     const conversationIds = localDmConvos.map((c) => c.id).join(",")
+    // A group this device founds or joins changes neither the device list nor, often, the ids.
+    const [groupsHeld, setGroupsHeld] = useState(0)
+    useEffect(() => getE2eePort().onGroupHeld(() => setGroupsHeld((n) => n + 1)), [])
 
     useEffect(() => {
         if (!devices || !idpUrl || !accessToken || !conversationIds) return
@@ -43,7 +47,7 @@ export function useDeviceFanout(): {
         void (async () => {
             const thisDevice = await e2ee.getDeviceId()
             if (cancelled) return
-            const { failed } = await addOwnDevicesUseCase(
+            const { failed } = await syncOwnGroupsUseCase(
                 idpUrl,
                 accessToken,
                 thisDevice,
@@ -53,13 +57,13 @@ export function useDeviceFanout(): {
             )
             for (const { conversationId, error } of failed) {
                 // eslint-disable-next-line no-console
-                console.warn("[fanout] adding this user's devices failed", conversationId, error)
+                console.warn("[fanout] keeping a group in step failed", conversationId, error)
             }
         })()
         return () => {
             cancelled = true
         }
-    }, [devices, idpUrl, accessToken, conversationIds])
+    }, [devices, idpUrl, accessToken, conversationIds, groupsHeld])
 
     const onDeviceJoined = useCallback(() => {
         if (!idpUrl) return

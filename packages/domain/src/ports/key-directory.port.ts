@@ -110,6 +110,16 @@ export interface IKeyDirectoryPort {
         actorUri: ActorUri,
         deviceId: DeviceId | null,
     ): Promise<ClaimedKeyPackage>
+    /**
+     * One KeyPackage of each of `actorUri`'s devices that has any
+     * (`POST /api/keys/packages/claim/devices`): a contact's first add
+     * brings all their devices in.
+     */
+    claimEachDevice(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+    ): Promise<ClaimedKeyPackage[]>
     getKeyPackageStatus(
         idpUrl: string,
         accessToken: string,
