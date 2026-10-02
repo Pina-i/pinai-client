@@ -27,8 +27,6 @@ export function usePersonProfileModalViewModel(person: ProfilePerson) {
     const isLocal = host === addressParts(myAddress).host
     const status = presenceToUserStatus(presence)
     const tone = avatarToneFor(person.address)
-    // A neutral tone would leave the photo grey on grey, so its side panel takes the muted ink instead.
-    const isNeutral = tone === "neutral"
 
     function copyHandle() {
         navigator.clipboard.writeText(person.address).catch(() => {})
@@ -42,8 +40,6 @@ export function usePersonProfileModalViewModel(person: ProfilePerson) {
         avatarUrl: person.avatarUrl ?? cachedAvatarUrl,
         status,
         presenceLabel: userStatusLabel(status),
-        sideFill: isNeutral ? "var(--muted-foreground)" : TONE_FILL[tone],
-        sideInk: isNeutral ? "var(--background)" : TONE_INK[tone],
         photoFill: TONE_FILL[tone],
         photoInk: TONE_INK[tone],
         identityLabel: `Pīna'i identity · ${isLocal ? "local" : "federated"}`,

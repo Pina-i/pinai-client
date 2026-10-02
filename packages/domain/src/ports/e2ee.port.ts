@@ -213,6 +213,19 @@ export interface IE2eePort {
         roster: readonly string[],
     ): Promise<{ removed: number }>
 
+    /**
+     * Brings the user's other `devices` into a group this device holds keys for, one device a
+     * commit, each with a KeyPackage of its own (`devicesToAdd`). A group this device doesn't hold
+     * is left alone: founding one here would fork it. A commit that loses an epoch race is
+     * dropped; the group catches up and is looked at again. Runs on one device take turns.
+     */
+    addOwnDevices(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        devices: readonly DeviceId[],
+    ): Promise<{ added: number }>
+
     /** Drop a group's MLS state from this device, as a group the user was removed from is cleared. */
     forgetGroup(conversationId: ConversationId): Promise<void>
 

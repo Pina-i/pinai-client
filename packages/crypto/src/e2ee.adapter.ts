@@ -17,7 +17,7 @@ import type {
     Fingerprint,
     KeyPackageStatusResponse,
 } from "@pinai/domain/models/e2ee"
-import { KeyPackageUnavailable, leavesToRemove } from "@pinai/domain/models/group"
+import { KeyPackageUnavailable, devicesToAdd, leavesToRemove } from "@pinai/domain/models/group"
 import { IdpError } from "@pinai/domain/models/idp-error"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
 import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
@@ -836,7 +836,13 @@ export class E2eeAdapter implements IE2eePort {
         // generate via add_member moves us to epoch 1. Server's
         // unique index prevents duplicates; 409 races land in 5d.
         const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
-        await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, out.commit)
+        try {
+            await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, out.commit)
+        } catch (e) {
+            // A commit left pending would block the group's next one, this add tried again included.
+            await this.mls.clearPendingCommit(conversationId)
+            throw e
+        }
 
         // Hand the welcome to our own IdP and let it route. Same-IdP
         // recipients land via `mls_welcomes` + a `MlsWelcomeReady` WS
@@ -1071,6 +1077,77 @@ export class E2eeAdapter implements IE2eePort {
             await this.mls.mergePendingCommit(conversationId)
             await this.persistMlsState()
             removed++
+        }
+    }
+
+    private ownDevicesRun: Promise<unknown> = Promise.resolve()
+
+    async addOwnDevices(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        devices: readonly DeviceId[],
+    ): Promise<{ added: number }> {
+        // A device-list refresh and a `device_joined` push can start runs together; the second
+        // finds what the first added.
+        const run = this.ownDevicesRun.then(() =>
+            this.doAddOwnDevices(idpUrl, accessToken, conversationId, devices),
+        )
+        this.ownDevicesRun = run.catch(() => {})
+        return run
+    }
+
+    private async doAddOwnDevices(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        devices: readonly DeviceId[],
+    ): Promise<{ added: number }> {
+        await this.ensureInitialized(null)
+        const me = await this.storage.getBoundActorUri()
+        if (!me || !(await this.mls.hasGroup(conversationId))) return { added: 0 }
+        const unavailable = new Set<DeviceId>()
+        let added = 0
+        let conflicts = 0
+        // One device a commit, and the leaves looked at again after each: a commit lost to another
+        // device's may have added the one this was adding.
+        for (;;) {
+            const [device] = devicesToAdd(await this.mls.groupMembers(conversationId), me, devices).filter(
+                (d) => !unavailable.has(d),
+            )
+            if (device === undefined) return { added }
+            let claimed
+            try {
+                claimed = await this.directory.claimKeyPackage(idpUrl, accessToken, me, device)
+            } catch {
+                unavailable.add(device)
+                continue
+            }
+            if (claimed.device_id !== device) {
+                unavailable.add(device)
+                continue
+            }
+            const out = await this.mls.addMember(conversationId, claimed.key_package)
+            const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
+            try {
+                await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, out.commit)
+            } catch (e) {
+                await this.mls.clearPendingCommit(conversationId)
+                if (!(e instanceof IdpError && e.status === 409) || ++conflicts > MAX_EPOCH_CONFLICTS) {
+                    throw e
+                }
+                await this.catchUpCommits(idpUrl, accessToken, conversationId)
+                continue
+            }
+            await this.mls.mergePendingCommit(conversationId)
+            await this.persistMlsState()
+            await this.directory.postWelcome(idpUrl, accessToken, {
+                recipient_actor_uri: me,
+                recipient_device_id: device,
+                conversation_id: conversationId,
+                welcome_blob: out.welcome,
+            })
+            added++
         }
     }
 

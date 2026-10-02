@@ -41,9 +41,8 @@ const linkClass = cn(
 )
 
 /**
- * The line under an own message about its delivery:
+ * The line under an own message about its delivery, none while the send is in flight:
  *
- * - `Sending…` while the send is in flight;
  * - a red `Not delivered` with a retry button while the message waits to be
  *   sent again;
  * - a quiet `Not delivered · Sent again at …` once it was, linking to the copy;
@@ -58,16 +57,7 @@ export function MessageDeliveryState({
     onJumpToOriginal,
     undeliveredHint,
 }: MessageDeliveryStateProps) {
-    if (status === "sending") {
-        return (
-            <div
-                aria-live="polite"
-                className={lineClass}
-            >
-                <span className="font-serif text-[13px] italic text-muted-foreground">Sending…</span>
-            </div>
-        )
-    }
+    if (status === "sending") return null
 
     if (status === "failed" || status === "undelivered") {
         if (awaitsResend) {

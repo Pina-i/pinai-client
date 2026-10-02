@@ -223,6 +223,15 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `pronounsLabel` — "he / him", "she / her", "non-binary", as the profile
   editor offers them.
 
+### A user's devices bring each other into their groups
+- `devicesToAdd(leaves, me, devices)` (`models/group.ts`) — the user's
+  devices a group holds no leaf for.
+- `add-own-devices.usecase.ts` — offers each conversation the user's
+  other active devices, one at a time, and names the ones that failed
+  (the hook logs them; the domain doesn't). `IE2eePort.addOwnDevices`
+  adds them only to groups this device holds. See
+  `identity-provider/specs/e2ee.md § 6.2`.
+
 ### models/idp-error.ts
 - `IdpError` — a refusal as the IdP sent it: status, `error` code, the
   `error_description` as the message, and the `actor_uri` it names (the

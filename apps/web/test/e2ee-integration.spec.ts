@@ -762,3 +762,131 @@ describe("MLS E2EE — a device keeps its KeyPackage stash topped up", () => {
         expect(directory.packagesOf(bobActor)).toBe(0)
     })
 })
+
+describe("MLS E2EE — a user's devices bring each other into their groups", () => {
+    const conversationId: ConversationId = "dddd1111-2222-3333-4444-555566667777"
+    const issuer = "https://idp.shared.example"
+    const [bobActor, danActor] = ["bob", "dan"].map((name) => asActorUri(`${issuer}/users/${name}_x1y2z`))
+    const text = (t: string): ApplicationMessage<TextBody> => ({ version: 1, kind: "text", body: { text: t } })
+    const read = async (ctx: AdapterCtx, token: string, ciphertext: Uint8Array) =>
+        ((await ctx.e2ee.decryptInbound(conversationId, ciphertext, { idpUrl: issuer, accessToken: token }))
+            ?.body as TextBody).text
+
+    /** Bob and Dan's conversation, with Dan on one device; a second device of Dan's just signed in. */
+    async function secondDevice() {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const bob = await buildAdapter(directory, "bob-token", bobActor)
+        const dan1 = await buildAdapter(directory, "dan1-token", danActor)
+        await bob.e2ee.register(issuer, "bob-token", bobActor)
+        await dan1.e2ee.register(issuer, "dan1-token", danActor)
+        await bob.e2ee.addContactToGroup(issuer, "bob-token", conversationId, danActor)
+        await dan1.e2ee.consumePendingWelcomes(issuer, "dan1-token", danActor)
+        const dan2 = await buildAdapter(directory, "dan2-token", danActor)
+        await dan2.e2ee.register(issuer, "dan2-token", danActor)
+        const ids = {
+            dan1: await dan1.storage.getOrCreateDeviceId(),
+            dan2: await dan2.storage.getOrCreateDeviceId(),
+        }
+        return { directory, bob, dan1, dan2, ids }
+    }
+
+    it("brings the new device in, reading and read from then on", async () => {
+        const { bob, dan1, dan2, ids } = await secondDevice()
+
+        const added = await dan1.e2ee.addOwnDevices(issuer, "dan1-token", conversationId, [ids.dan2])
+        await dan2.e2ee.consumePendingWelcomes(issuer, "dan2-token", danActor)
+
+        expect(added).toEqual({ added: 1 })
+        const fromDan2 = await dan2.e2ee.encryptOutbound(conversationId, text("from dan2"))
+        expect(await read(bob, "bob-token", fromDan2)).toBe("from dan2")
+        expect(await read(dan1, "dan1-token", fromDan2)).toBe("from dan2")
+        const fromBob = await bob.e2ee.encryptOutbound(conversationId, text("from bob"))
+        expect(await read(dan2, "dan2-token", fromBob)).toBe("from bob")
+        expect(await read(dan1, "dan1-token", fromBob)).toBe("from bob")
+        expect(await dan1.e2ee.addOwnDevices(issuer, "dan1-token", conversationId, [ids.dan2])).toEqual({
+            added: 0,
+        })
+    })
+
+    it("founds no group on a device that holds none", async () => {
+        const { directory, dan2, ids } = await secondDevice()
+        const packages = directory.packagesOf(danActor)
+        const commits = (await directory.getCommitsSince(issuer, "dan2-token", conversationId, 0)).commits.length
+
+        const added = await dan2.e2ee.addOwnDevices(issuer, "dan2-token", conversationId, [ids.dan1])
+
+        expect(added).toEqual({ added: 0 })
+        expect(await dan2.mls.hasGroup(conversationId)).toBe(false)
+        expect(directory.packagesOf(danActor)).toBe(packages)
+        expect((await directory.getCommitsSince(issuer, "dan2-token", conversationId, 0)).commits).toHaveLength(
+            commits,
+        )
+    })
+
+    it("has the second of two devices adding a third at once catch up and find nothing left to do", async () => {
+        const { directory, bob, dan1, dan2, ids } = await secondDevice()
+        await dan1.e2ee.addOwnDevices(issuer, "dan1-token", conversationId, [ids.dan2])
+        await dan2.e2ee.consumePendingWelcomes(issuer, "dan2-token", danActor)
+        const dan3 = await buildAdapter(directory, "dan3-token", danActor)
+        await dan3.e2ee.register(issuer, "dan3-token", danActor)
+        const dan3Id = await dan3.storage.getOrCreateDeviceId()
+
+        const first = await dan1.e2ee.addOwnDevices(issuer, "dan1-token", conversationId, [ids.dan2, dan3Id])
+        const second = await dan2.e2ee.addOwnDevices(issuer, "dan2-token", conversationId, [ids.dan1, dan3Id])
+        await dan3.e2ee.consumePendingWelcomes(issuer, "dan3-token", danActor)
+
+        expect([first, second]).toEqual([{ added: 1 }, { added: 0 }])
+        expect(await dan2.mls.getEpoch(conversationId)).toBe(await dan1.mls.getEpoch(conversationId))
+        const fromDan3 = await dan3.e2ee.encryptOutbound(conversationId, text("from dan3"))
+        expect(await read(bob, "bob-token", fromDan3)).toBe("from dan3")
+        expect(await read(dan2, "dan2-token", fromDan3)).toBe("from dan3")
+    })
+
+    it("can add the device again after a commit lost on its way", async () => {
+        const { directory, bob, dan1, dan2, ids } = await secondDevice()
+        directory.failNextCommit = true
+
+        await expect(
+            dan1.e2ee.addOwnDevices(issuer, "dan1-token", conversationId, [ids.dan2]),
+        ).rejects.toThrow("connection reset")
+
+        expect(await dan1.e2ee.addOwnDevices(issuer, "dan1-token", conversationId, [ids.dan2])).toEqual({
+            added: 1,
+        })
+        await dan2.e2ee.consumePendingWelcomes(issuer, "dan2-token", danActor)
+        expect(await read(bob, "bob-token", await dan2.e2ee.encryptOutbound(conversationId, text("in"))))
+            .toBe("in")
+    })
+
+    it("adds the device once when asked twice at once", async () => {
+        const { directory, dan1, ids } = await secondDevice()
+
+        const runs = await Promise.all([
+            dan1.e2ee.addOwnDevices(issuer, "dan1-token", conversationId, [ids.dan2]),
+            dan1.e2ee.addOwnDevices(issuer, "dan1-token", conversationId, [ids.dan2]),
+        ])
+
+        expect(runs.map((r) => r.added).sort()).toEqual([0, 1])
+        expect(directory.welcomeRouting.filter((w) => w.recipient_device_id === ids.dan2)).toHaveLength(1)
+    })
+
+    it("lets a contact's add be tried again after its commit was lost", async () => {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const bob = await buildAdapter(directory, "bob-token", bobActor)
+        const dan = await buildAdapter(directory, "dan1-token", danActor)
+        await bob.e2ee.register(issuer, "bob-token", bobActor)
+        await dan.e2ee.register(issuer, "dan1-token", danActor)
+        directory.failNextCommit = true
+
+        await expect(
+            bob.e2ee.addContactToGroup(issuer, "bob-token", conversationId, danActor),
+        ).rejects.toThrow("connection reset")
+
+        await bob.e2ee.addContactToGroup(issuer, "bob-token", conversationId, danActor)
+        await dan.e2ee.consumePendingWelcomes(issuer, "dan1-token", danActor)
+        expect(await read(dan, "dan1-token", await bob.e2ee.encryptOutbound(conversationId, text("hi"))))
+            .toBe("hi")
+    })
+})

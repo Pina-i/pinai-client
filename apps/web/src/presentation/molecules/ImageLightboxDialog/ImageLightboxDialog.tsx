@@ -1,4 +1,3 @@
-import { useState } from "react"
 import { X } from "lucide-react"
 import type { Attachment } from "@pinai/domain/models/dm"
 import type { AttachmentBlobKey } from "@pinai/domain/models/e2ee"
@@ -38,11 +37,6 @@ export function ImageLightboxDialog({
     const avatarUrl = useAppStore((s) =>
         senderAddress ? s.avatarsByAddress[senderAddress] ?? null : null,
     )
-    // Tagged with the image they were measured from: a stale entry simply
-    // does not match, so the previous image's aspect ratio can never leak
-    // into the next one's layout. No reset effect needed.
-    const [measured, setMeasured] = useState<{ id: string; w: number; h: number } | null>(null)
-    const dims = measured && measured.id === attachment?.id ? measured : null
 
     if (!attachment) return null
 
@@ -84,8 +78,10 @@ export function ImageLightboxDialog({
 
                 {/* The fullscreen Dialog covers React Aria's dismissable backdrop,
                     so clicking around the image closes it by hand. */}
+                {/* `min-h-0`: a flex item never shrinks below its content by default, so a tall
+                    image would push the area past the viewport instead of being fitted into it. */}
                 <div
-                    className="flex flex-1 items-center justify-center px-8 pb-4"
+                    className="flex min-h-0 flex-1 items-center justify-center px-8 pb-4"
                     onClick={onClose}
                 >
                     {url && (
@@ -93,23 +89,10 @@ export function ImageLightboxDialog({
                             src={url}
                             alt={filename}
                             onClick={(e) => e.stopPropagation()}
-                            onLoad={(e) => {
-                                const img = e.currentTarget
-                                if (img.naturalWidth > 0) {
-                                    if (attachment) {
-                                        setMeasured({ id: attachment.id, w: img.naturalWidth, h: img.naturalHeight })
-                                    }
-                                }
-                            }}
                             className={cn(
-                                "max-h-full rounded-[18px] border border-line bg-surf2 object-contain",
+                                "max-h-full max-w-full rounded-[18px] border border-line bg-surf2 object-contain",
                                 "shadow-[0_24px_60px_-16px_rgba(0,0,0,0.55)]",
                             )}
-                            style={{
-                                width: "100%",
-                                maxWidth: "min(96%, 1080px)",
-                                aspectRatio: dims ? `${dims.w} / ${dims.h}` : undefined,
-                            }}
                         />
                     )}
                 </div>

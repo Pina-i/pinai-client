@@ -305,27 +305,31 @@ export function NotificationsPopover() {
                     </div>
                 </div>
 
-                {today.length > 0 && (
-                    <div className="px-2 pt-2">
-                        <p className="eye px-3 py-1.5">Today</p>
-                        {today.map((n) => (
-                            <TodayRow
-                                key={n.id}
-                                notification={n}
-                                isUnread={unreadInPanel.has(n.id)}
-                                onAccept={handleAccept}
-                                onReject={handleReject}
-                            />
-                        ))}
-                    </div>
-                )}
+                {hasAny && (
+                    <div className="pb-2">
+                        {today.length > 0 && (
+                            <div className="px-2 pt-2">
+                                <p className="eye px-3 py-1.5">Today</p>
+                                {today.map((n) => (
+                                    <TodayRow
+                                        key={n.id}
+                                        notification={n}
+                                        isUnread={unreadInPanel.has(n.id)}
+                                        onAccept={handleAccept}
+                                        onReject={handleReject}
+                                    />
+                                ))}
+                            </div>
+                        )}
 
-                {earlier.length > 0 && (
-                    <div className="px-2 pb-1.5 pt-1">
-                        <p className="eye px-3 pb-1 pt-2">Earlier this week</p>
-                        {earlier.map((n) => (
-                            <EarlierRow key={n.id} notification={n} />
-                        ))}
+                        {earlier.length > 0 && (
+                            <div className="px-2 pt-1">
+                                <p className="eye px-3 pb-1 pt-2">Earlier this week</p>
+                                {earlier.map((n) => (
+                                    <EarlierRow key={n.id} notification={n} />
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
 

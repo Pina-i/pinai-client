@@ -16,7 +16,7 @@ interface SingleImageAttachmentProps {
  * The image renders at its intrinsic dimensions (clamped by max-w / max-h)
  * so the native aspect ratio survives without any container gymnastics —
  * no `aspectRatio` style, no `object-cover` crop. Small images stay small,
- * large ones get a generous canvas up to ~960×600.
+ * large ones get a generous canvas up to ~960×360.
  *
  * Click anywhere → caller opens the lightbox via `onExpand`.
  */
@@ -40,7 +40,7 @@ export function SingleImageAttachment({ attachment, attachmentKey, onExpand }: S
                     src={url}
                     alt={filename}
                     className={cn(
-                        "block h-auto w-auto max-w-[min(960px,100%)] max-h-[600px] object-contain",
+                        "block h-auto w-auto max-w-[min(960px,100%)] max-h-[360px] object-contain",
                     )}
                 />
             ) : (

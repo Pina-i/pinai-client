@@ -40,6 +40,20 @@ export function leavesToRemove(
     return leaves.filter((leaf) => !roster.includes(leaf.actorUri)).map((leaf) => leaf.leafIndex)
 }
 
+/**
+ * The devices of `me` to bring into a group: those of `devices` it holds no leaf for. A user's
+ * devices add one another, so each one reads what the group sends from then on.
+ */
+export function devicesToAdd(
+    leaves: readonly GroupLeaf[],
+    me: string,
+    devices: readonly DeviceId[],
+): DeviceId[] {
+    return devices.filter(
+        (device) => !leaves.some((leaf) => leaf.actorUri === me && leaf.deviceId === device),
+    )
+}
+
 /** A group conversation snapshot returned by create / rename. */
 export interface GroupView {
     conversationId: string

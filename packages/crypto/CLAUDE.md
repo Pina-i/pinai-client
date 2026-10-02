@@ -73,7 +73,8 @@ Three collaborators could not come, and the shape of each is the mobile work:
 - **`e2ee.adapter.ts`** — `E2eeAdapter`. The `IE2eePort` impl. Wires
   every sub-adapter into `register`, `replenishKeyPackages`,
   `encryptOutbound`, `decryptInbound`, `addContactToGroup`,
-  `ensureGroupExists`, `consumePendingWelcomes`, `revokeDevice`, `pruneGroup`, `forgetGroup`,
+  `ensureGroupExists`, `consumePendingWelcomes`, `revokeDevice`, `addOwnDevices`, `pruneGroup`,
+  `forgetGroup`,
   `setupRecoveryKey`, `recoverFromPassphrase`, `hasRecoveryKey`,
   `clearRecoveryKey`, `loadStoredPassphrase`, `saveStoredPassphrase`,
   `hasLocalIdentity`, `startPairingAsInitiator`, `pairAsResponder`,
@@ -250,6 +251,25 @@ above, the sections above win.
   the wrapped Recovery Key. Per-group failures are logged + swallowed
   so one bad group doesn't block the rest; the commit a failure leaves
   pending is cleared, or the group's next commit would be refused.
+
+### `addOwnDevices`
+
+- Brings the user's other devices into a group this device holds, one
+  device a commit (`devicesToAdd`), each with a KeyPackage claimed by its
+  device id. It never founds a group, and never reuses
+  `addContactToGroup`, which does both: that is how a second device used
+  to end up in groups holding only itself. A `409` clears the pending
+  commit, catches up and looks again, as `pruneGroup` does; runs take
+  turns on a chained promise.
+- `apps/web/test/e2ee-integration.spec.ts` drives it against the real
+  engine: the new device reads and is read, a device holding no group
+  commits nothing, two devices adding a third converge, a lost commit
+  is tried again, two runs at once add once.
+- `addContactToGroup` clears its pending commit when the commit POST
+  fails too, so the add can be tried again.
+- Every member's Welcome carries the ratchet tree: the wasm crate's
+  `join_config` sets the extension on join, and a group joined before
+  takes it when loaded.
 
 ### `pruneGroup`
 
@@ -553,11 +573,10 @@ publishes) holds against the documented threat model.
 
 ### Hooks (`presentation/hooks/`)
 
-- `useDeviceFanout` — push + reconcile multi-device fanout.
-  Reconcile-on-connect via the existing `useDevices` TanStack
-  Query; on every device-list refresh the pure `runDeviceFanout`
-  scans for non-current non-revoked devices and emits Add commits
-  via the existing `addContactToGroup` machinery.
+- `useDeviceFanout` — multi-device fanout. Every device-list refresh
+  (the `device_joined` push only triggers one) runs
+  `addOwnDevicesUseCase`, which offers each held group the user's other
+  active devices — see "`addOwnDevices`" above.
 - `useHistoryArchiveFlusher` — lifecycle hook for the 2-second
   flush timer + buffer (both live in the adapter; this hook is
   pure mount/unmount glue).

@@ -457,6 +457,14 @@ pub struct Group {
     mls_group: MlsGroup,
 }
 
+/// How a device runs a group it joined. Its Welcomes carry the ratchet tree, as a founder's do: a
+/// user's other devices and later members are added by whoever is at hand, not only the founder.
+fn join_config() -> MlsGroupJoinConfig {
+    MlsGroupJoinConfig::builder()
+        .use_ratchet_tree_extension(true)
+        .build()
+}
+
 #[wasm_bindgen]
 impl Group {
     /// Create a brand-new group. The founder is automatically the only
@@ -470,9 +478,7 @@ impl Group {
         let signer = founder.signer(provider)?;
         let mls_group = MlsGroup::builder()
             .ciphersuite(CIPHERSUITE)
-            // We don't ship the ratchet tree in welcomes; the joiner
-            // fetches it via `export_ratchet_tree` from an existing
-            // member or from a server-side cache. Phase 4b will pick.
+            // As every member's Welcomes do (`join_config`): a joiner needs nothing else.
             .use_ratchet_tree_extension(true)
             .with_group_id(GroupId::from_slice(group_id))
             .build(
@@ -495,9 +501,19 @@ impl Group {
         group_id: &[u8],
     ) -> Result<Option<Group>, JsError> {
         let id = GroupId::from_slice(group_id);
-        let opt = MlsGroup::load(provider.0.storage(), &id)
-            .map_err(|e| JsError::new(&format!("Group::load failed: {e:?}")))?;
-        Ok(opt.map(|mls_group| Group { mls_group }))
+        let Some(mut mls_group) = MlsGroup::load(provider.0.storage(), &id)
+            .map_err(|e| JsError::new(&format!("Group::load failed: {e:?}")))?
+        else {
+            return Ok(None);
+        };
+        // Joined while Welcomes went without the ratchet tree: the next one it sent would leave
+        // its joiner unable to build the group.
+        if mls_group.configuration() != &join_config() {
+            mls_group
+                .set_configuration(provider.0.storage(), &join_config())
+                .map_err(|e| JsError::new(&format!("Group config update failed: {e:?}")))?;
+        }
+        Ok(Some(Group { mls_group }))
     }
 
     /// Build a group from a Welcome we received. The ratchet tree must
@@ -519,8 +535,7 @@ impl Group {
             None => None,
         };
 
-        let config = MlsGroupJoinConfig::builder().build();
-        let staged = StagedWelcome::new_from_welcome(&provider.0, &config, welcome, ratchet_tree)
+        let staged = StagedWelcome::new_from_welcome(&provider.0, &join_config(), welcome, ratchet_tree)
             .map_err(|e| JsError::new(&format!("StagedWelcome failed: {e}")))?;
         let mls_group = staged
             .into_group(&provider.0)
@@ -537,9 +552,8 @@ impl Group {
         provider: &Provider,
         welcome_bytes: &[u8],
     ) -> Result<Option<Group>, JsError> {
-        let config = MlsGroupJoinConfig::builder().build();
         let welcome = welcome_in(welcome_bytes)?;
-        let staged = StagedWelcome::build_from_welcome(&provider.0, &config, welcome)
+        let staged = StagedWelcome::build_from_welcome(&provider.0, &join_config(), welcome)
             .and_then(|join| join.replace_old_group().build())
             .map_err(|e| JsError::new(&format!("StagedWelcome failed: {e}")))?;
         if staged.group_context().group_id() != self.mls_group.group_id()
@@ -832,6 +846,63 @@ mod tests {
             .unwrap();
         let processed = bob_group.process_message(&mut bob_p, &ciphertext).unwrap();
         assert_eq!(processed.application(), b"still in step");
+    }
+
+    /// Bob joined Alice's group; Charles, whom Bob adds, joins from Bob's Welcome alone, as a
+    /// user's second device does when its first adds it.
+    #[test]
+    fn a_welcome_from_a_member_who_joined_carries_the_ratchet_tree() {
+        let (alice_p, alice, bob_p, bob) = make_alice_and_bob();
+        let (mut alice_p, mut bob_p) = (alice_p, bob_p);
+        let mut charles_p = Provider::new();
+        let charles = Identity::new(&charles_p, b"charles@idp.bob.com").unwrap();
+        let mut alice_group = Group::create_new(&alice_p, &alice, b"conv-006").unwrap();
+        let add_bob = alice_group
+            .add_member(&alice_p, &bob.key_package(&bob_p).unwrap())
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        let mut bob_group = Group::join(&bob_p, &add_bob.welcome, None).unwrap();
+
+        let add_charles = bob_group
+            .add_member(&bob_p, &charles.key_package(&charles_p).unwrap())
+            .unwrap();
+        bob_group.merge_pending_commit(&mut bob_p).unwrap();
+        let mut charles_group = Group::join(&charles_p, &add_charles.welcome, None).unwrap();
+
+        let ciphertext = bob_group.encrypt_application(&bob_p, b"in").unwrap();
+        let processed = charles_group
+            .process_message(&mut charles_p, &ciphertext)
+            .unwrap();
+        assert_eq!(processed.application(), b"in");
+    }
+
+    /// A group joined while Welcomes went without the tree takes it on load, so the next one it
+    /// sends carries it.
+    #[test]
+    fn a_group_joined_without_the_ratchet_tree_extension_takes_it_on_load() {
+        let (alice_p, alice, bob_p, bob) = make_alice_and_bob();
+        let (mut alice_p, mut bob_p) = (alice_p, bob_p);
+        let charles_p = Provider::new();
+        let charles = Identity::new(&charles_p, b"charles@idp.bob.com").unwrap();
+        let mut alice_group = Group::create_new(&alice_p, &alice, b"conv-007").unwrap();
+        let add_bob = alice_group
+            .add_member(&alice_p, &bob.key_package(&bob_p).unwrap())
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        let before = MlsGroupJoinConfig::builder().build();
+        StagedWelcome::new_from_welcome(&bob_p.0, &before, welcome_in(&add_bob.welcome).unwrap(), None)
+            .unwrap()
+            .into_group(&bob_p.0)
+            .unwrap();
+
+        let mut bob_group = Group::load_from_provider(&bob_p, b"conv-007").unwrap().unwrap();
+
+        assert_eq!(bob_group.mls_group.configuration(), &join_config());
+        let add_charles = bob_group
+            .add_member(&bob_p, &charles.key_package(&charles_p).unwrap())
+            .unwrap();
+        bob_group.merge_pending_commit(&mut bob_p).unwrap();
+        Group::join(&charles_p, &add_charles.welcome, None).unwrap();
     }
 
     /// Bob, committed out of the group and added back, takes the Welcome over the group he held.

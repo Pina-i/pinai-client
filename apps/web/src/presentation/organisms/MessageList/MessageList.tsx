@@ -290,7 +290,10 @@ export const MessageList = memo(function MessageList({
     return (
         <ReactionPickerContext.Provider value={pickerContextValue}>
             <MessageThreadContext.Provider value={threadContextValue}>
+                {/* A row grows after it is first measured — an image or GIF that loads — and the
+                    virtualizer clips each row to its measured height until it measures again. */}
                 <Virtualizer
+                    shouldObserveItemSize
                     layout={ListLayout}
                     layoutOptions={{
                         estimatedRowSize: ESTIMATED_ROW_SIZE,

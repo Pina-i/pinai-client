@@ -48,13 +48,10 @@ function Passport({ person, onClose, onMessage }: { person: ProfilePerson; onClo
     return (
         <div className={cn(modalSurface, "w-[740px]")}>
             <div className="grid min-h-0 flex-1 grid-cols-[248px_minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto] max-[720px]:grid-cols-1">
-                <div
-                    className="relative flex flex-col items-center justify-center gap-[18px] overflow-hidden px-5 py-7 max-[720px]:p-5"
-                    style={{ background: vm.sideFill }}
-                >
+                <div className="relative flex flex-col items-center justify-center gap-[18px] overflow-hidden bg-(--accsoft) px-5 py-7 max-[720px]:p-5">
                     <Motif
                         variant="field"
-                        color={vm.sideInk}
+                        color="var(--acc)"
                         className="absolute inset-0"
                         style={{ opacity: 0.34 }}
                     />
