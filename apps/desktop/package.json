@@ -1,0 +1,19 @@
+{
+  "name": "@pinai/desktop",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "wasm": "node ../../scripts/build-wasm.mjs",
+    "dev": "pnpm run wasm && install-electron && electron-vite dev",
+    "typecheck": "tsc -b"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "electron": "^44.5.1",
+    "electron-vite": "6.0.0-beta.5",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.0"
+  }
+}

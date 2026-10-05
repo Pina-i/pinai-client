@@ -109,6 +109,14 @@ pinai-client/                 # pnpm workspace root
 │                             #   as source TS; `exports` maps
 │                             #   `@pinai/domain/<path>` to `src/<path>.ts`.
 └── apps/
+    ├── desktop/              # Electron shell (@pinai/desktop), dev only for now.
+    │                         #   electron.vite.config.ts builds src/main and serves
+    │                         #   apps/web as the renderer, loading web's own
+    │                         #   vite.config.ts so plugins are never duplicated.
+    │                         #   Shares :5173 with web (FRONTEND_URL and the seeded
+    │                         #   callbacks point there), so run one at a time.
+    │                         #   No packaged build until the IdP accepts a desktop
+    │                         #   OAuth client and the app's origin in CORS.
     └── web/                  # The browser client (@pinai/web)
         ├── index.html, vite.config.ts, vitest.config.ts, tsconfig*.json
         ├── components.json    # React Aria registry config for the CLI

@@ -5,7 +5,8 @@
   "type": "module",
   "packageManager": "pnpm@12.4.2",
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "turbo run dev --filter=@pinai/web",
+    "dev:desktop": "turbo run dev --filter=@pinai/desktop",
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",

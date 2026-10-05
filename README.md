@@ -70,6 +70,7 @@ finishes in under a second.
 | Command | What it does |
 |---|---|
 | `pnpm dev` | Build the WASM bundle if stale, then start Vite on :5173 |
+| `pnpm dev:desktop` | The same client in an Electron window — also on :5173, so not alongside `pnpm dev` |
 | `pnpm build` | Type-check and build to `apps/web/dist` |
 | `pnpm test` | Run the whole Vitest suite once |
 | `pnpm typecheck` | `tsc --noEmit` across the app and every package |
@@ -94,6 +95,7 @@ pnpm --filter @pinai/web exec vitest
 ## How the repository is laid out
 
 ```
+apps/desktop        Electron shell around apps/web. Dev only for now.
 apps/web            The browser client. UI, routing, and the adapters that are
                     genuinely browser-specific: WASM, WebCrypto, IndexedDB,
                     sessionStorage, window.location.

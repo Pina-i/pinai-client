@@ -48,7 +48,7 @@ export default defineConfig([
   // exist). It is neither built nor type-checked, so linting it only produces
   // noise. Delete it, or wire it in and drop this ignore.
   // `crypto/openmls-pkg` is wasm-pack output — generated, never committed.
-  globalIgnores(['**/dist', 'apps/web/src/components/ui', 'crypto/openmls-pkg']),
+  globalIgnores(['**/dist', '**/out', 'apps/web/src/components/ui', 'crypto/openmls-pkg']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -85,7 +85,9 @@ export default defineConfig([
     // whole project, including `src`. Nothing under `src` ships to Node: it
     // runs in a browser today and on Hermes tomorrow, where none of these
     // exist. The type checker can no longer say so, so the linter does.
+    // Electron's main process is the exception: it is Node.
     files: ['apps/*/src/**/*.{ts,tsx}'],
+    ignores: ['apps/desktop/src/main/**'],
     rules: {
       'no-restricted-globals': [
         'error',
