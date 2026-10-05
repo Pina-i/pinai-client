@@ -17,7 +17,7 @@
  *      ciphertext using the per-attachment key carried in the MLS body.
  */
 
-import { beforeAll, describe, expect, it } from "vitest"
+import { beforeAll, describe, expect, it, vi } from "vitest"
 
 import { loadWasmModule } from "./setup/wasm"
 
@@ -191,6 +191,8 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
 
     /** The next commit posted is lost on its way, as a dropped connection would lose it. */
     failNextCommit = false
+    /** Runs once a commit is stored, before its sender hears back: the window the DS pushes it in. */
+    afterCommitStored: (() => Promise<void>) | null = null
 
     async postCommit(
         _idpUrl: string,
@@ -219,6 +221,7 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
         const log = this.commitsByConversation.get(conversationId) ?? []
         log.push(view)
         this.commitsByConversation.set(conversationId, log)
+        await this.afterCommitStored?.()
         return view
     }
 
@@ -939,6 +942,85 @@ describe("MLS E2EE — a user's devices bring each other into their groups", () 
         expect(held).toEqual([`bob ${conversationId}`, `dan ${conversationId}`])
     })
 
+    it("keeps no group on a device that lost the race to found one, and joins the real one", async () => {
+        const { bob, dan1, dan2, ids } = await secondDevice()
+
+        await expect(
+            dan2.e2ee.ensureGroupExists(issuer, "dan2-token", conversationId, bobActor),
+        ).rejects.toThrow()
+
+        expect(await dan2.mls.hasGroup(conversationId)).toBe(false)
+        // Tried again, it fails again rather than send into a group nobody else is in.
+        await expect(
+            dan2.e2ee.ensureGroupExists(issuer, "dan2-token", conversationId, bobActor),
+        ).rejects.toThrow()
+        await dan1.e2ee.addOwnDevices(issuer, "dan1-token", conversationId, [ids.dan2])
+        await dan2.e2ee.consumePendingWelcomes(issuer, "dan2-token", danActor)
+        expect(await read(bob, "bob-token", await dan2.e2ee.encryptOutbound(conversationId, text("in at last"))))
+            .toBe("in at last")
+    })
+
+    it("founds a conversation once when two sends start it at once", async () => {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const bob = await buildAdapter(directory, "bob-token", bobActor)
+        const dan = await buildAdapter(directory, "dan1-token", danActor)
+        await bob.e2ee.register(issuer, "bob-token", bobActor)
+        await dan.e2ee.register(issuer, "dan1-token", danActor)
+
+        await Promise.all([
+            bob.e2ee.ensureGroupExists(issuer, "bob-token", conversationId, danActor),
+            bob.e2ee.ensureGroupExists(issuer, "bob-token", conversationId, danActor),
+        ])
+
+        expect(await bob.mls.hasGroup(conversationId)).toBe(true)
+        await dan.e2ee.consumePendingWelcomes(issuer, "dan1-token", danActor)
+        expect(await read(dan, "dan1-token", await bob.e2ee.encryptOutbound(conversationId, text("once"))))
+            .toBe("once")
+    })
+
+    it("keeps no group when the first add finds no KeyPackage", async () => {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const bob = await buildAdapter(directory, "bob-token", bobActor)
+        await bob.e2ee.register(issuer, "bob-token", bobActor)
+
+        await expect(
+            bob.e2ee.addContactToGroup(issuer, "bob-token", conversationId, danActor),
+        ).rejects.toThrow("No KeyPackage")
+
+        expect(await bob.mls.hasGroup(conversationId)).toBe(false)
+    })
+
+    it("applies none of its own commits while it is still making one", async () => {
+        const { directory, bob, dan1, dan2, ids } = await secondDevice()
+        let stored!: () => void
+        const commitStored = new Promise<void>((resolve) => (stored = resolve))
+        let release!: () => void
+        directory.afterCommitStored = () => {
+            stored()
+            return new Promise<void>((resolve) => (release = resolve))
+        }
+        const warn = vi.spyOn(console, "warn")
+
+        const adding = dan1.e2ee.addOwnDevices(issuer, "dan1-token", conversationId, [ids.dan2])
+        await commitStored
+        // The DS pushes `mls_commit` the moment the commit is stored, to its sender's devices too.
+        const caughtUp = dan1.e2ee.catchUp(issuer, "dan1-token", conversationId)
+        // Held until the catch-up is done — or, queued behind the commit, has waited long enough.
+        await Promise.race([caughtUp, new Promise((resolve) => setTimeout(resolve, 300))])
+        directory.afterCommitStored = null
+        release()
+        await Promise.all([adding, caughtUp])
+
+        const catchUpFailures = warn.mock.calls.filter(([m]) => String(m).includes("catchUpCommits"))
+        warn.mockRestore()
+        expect(catchUpFailures).toEqual([])
+        await dan2.e2ee.consumePendingWelcomes(issuer, "dan2-token", danActor)
+        expect(await read(bob, "bob-token", await dan2.e2ee.encryptOutbound(conversationId, text("in step"))))
+            .toBe("in step")
+    })
+
     it("lets a contact's add be tried again after its commit was lost", async () => {
         const directory = new InMemoryKeyDirectory()
         directory.senderIssuer = issuer
@@ -956,5 +1038,73 @@ describe("MLS E2EE — a user's devices bring each other into their groups", () 
         await dan.e2ee.consumePendingWelcomes(issuer, "dan1-token", danActor)
         expect(await read(dan, "dan1-token", await bob.e2ee.encryptOutbound(conversationId, text("hi"))))
             .toBe("hi")
+    })
+})
+
+describe("MLS E2EE — a message overtaken by a commit", () => {
+    const conversationId: ConversationId = "eeee1111-2222-3333-4444-555566667777"
+    const issuer = "https://idp.shared.example"
+    const [bobActor, danActor] = ["bob", "dan"].map((name) => asActorUri(`${issuer}/users/${name}_x1y2z`))
+    const text = (t: string): ApplicationMessage<TextBody> => ({ version: 1, kind: "text", body: { text: t } })
+    const read = async (ctx: AdapterCtx, token: string, ciphertext: Uint8Array) =>
+        ((await ctx.e2ee.decryptInbound(conversationId, ciphertext, { idpUrl: issuer, accessToken: token }))
+            ?.body as TextBody).text
+
+    /** Bob's conversation with Dan, who joined from Bob's Welcome. */
+    async function pair() {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const bob = await buildAdapter(directory, "bob-token", bobActor)
+        const dan = await buildAdapter(directory, "dan-token", danActor)
+        await bob.e2ee.register(issuer, "bob-token", bobActor)
+        await dan.e2ee.register(issuer, "dan-token", danActor)
+        await bob.e2ee.addContactToGroup(issuer, "bob-token", conversationId, danActor)
+        await dan.e2ee.consumePendingWelcomes(issuer, "dan-token", danActor)
+        return { directory, bob, dan }
+    }
+
+    /** `n` commits by `by`, each moving the group on an epoch, as an add or a removal does. */
+    async function commits(directory: InMemoryKeyDirectory, by: AdapterCtx, token: string, n: number) {
+        for (let i = 0; i < n; i++) {
+            const commit = await by.mls.update(conversationId)
+            const epoch = Number(await by.mls.getEpoch(conversationId)) + 1
+            await directory.postCommit(issuer, token, conversationId, epoch, commit)
+            await by.mls.mergePendingCommit(conversationId)
+        }
+    }
+
+    it("is read once the commit that overtook it is applied", async () => {
+        const { directory, bob, dan } = await pair()
+        const sent = await bob.e2ee.encryptOutbound(conversationId, text("before the commit"))
+        await commits(directory, bob, "bob-token", 1)
+
+        await dan.e2ee.catchUp(issuer, "dan-token", conversationId)
+
+        expect(await read(dan, "dan-token", sent)).toBe("before the commit")
+    })
+
+    it("is read by the group's founder too", async () => {
+        const { directory, bob, dan } = await pair()
+        const sent = await dan.e2ee.encryptOutbound(conversationId, text("before the commit"))
+        await commits(directory, dan, "dan-token", 1)
+
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+
+        expect(await read(bob, "bob-token", sent)).toBe("before the commit")
+    })
+
+    it("is read five commits behind, and not six", async () => {
+        const { directory, bob, dan } = await pair()
+        const fiveBehind = await bob.e2ee.encryptOutbound(conversationId, text("five behind"))
+        await commits(directory, bob, "bob-token", 5)
+        await dan.e2ee.catchUp(issuer, "dan-token", conversationId)
+        // Read before the next commits, which would take its epoch out of the window.
+        expect(await read(dan, "dan-token", fiveBehind)).toBe("five behind")
+
+        const sixBehind = await bob.e2ee.encryptOutbound(conversationId, text("six behind"))
+        await commits(directory, bob, "bob-token", 6)
+        await dan.e2ee.catchUp(issuer, "dan-token", conversationId)
+
+        await expect(read(dan, "dan-token", sixBehind)).rejects.toThrow()
     })
 })

@@ -457,11 +457,18 @@ pub struct Group {
     mls_group: MlsGroup,
 }
 
+/// How many past epochs' keys a device keeps for the messages it hasn't read: a message and a
+/// commit travel separately, and one sent just before a commit can arrive after it. openmls still
+/// deletes each key once used.
+const MAX_PAST_EPOCHS: usize = 5;
+
 /// How a device runs a group it joined. Its Welcomes carry the ratchet tree, as a founder's do: a
 /// user's other devices and later members are added by whoever is at hand, not only the founder.
+/// It keeps the last `MAX_PAST_EPOCHS` epochs' keys for messages it hasn't read.
 fn join_config() -> MlsGroupJoinConfig {
     MlsGroupJoinConfig::builder()
         .use_ratchet_tree_extension(true)
+        .max_past_epochs(MAX_PAST_EPOCHS)
         .build()
 }
 
@@ -480,6 +487,7 @@ impl Group {
             .ciphersuite(CIPHERSUITE)
             // As every member's Welcomes do (`join_config`): a joiner needs nothing else.
             .use_ratchet_tree_extension(true)
+            .max_past_epochs(MAX_PAST_EPOCHS)
             .with_group_id(GroupId::from_slice(group_id))
             .build(
                 &provider.0,
@@ -903,6 +911,77 @@ mod tests {
             .unwrap();
         bob_group.merge_pending_commit(&mut bob_p).unwrap();
         Group::join(&charles_p, &add_charles.welcome, None).unwrap();
+    }
+
+    /// Alice and Bob, Bob joined from Alice's Welcome.
+    fn alice_with_bob(group_id: &[u8]) -> (Provider, Group, Provider, Group) {
+        let (alice_p, alice, bob_p, bob) = make_alice_and_bob();
+        let mut alice_p = alice_p;
+        let mut alice_group = Group::create_new(&alice_p, &alice, group_id).unwrap();
+        let add = alice_group
+            .add_member(&alice_p, &bob.key_package(&bob_p).unwrap())
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        let bob_group = Group::join(&bob_p, &add.welcome, None).unwrap();
+        (alice_p, alice_group, bob_p, bob_group)
+    }
+
+    /// A message and a commit travel separately: one sent just before a commit can arrive after
+    /// it, at a member who joined from a Welcome.
+    #[test]
+    fn a_message_overtaken_by_a_commit_is_read_by_a_member_who_joined() {
+        let (mut alice_p, mut alice_group, mut bob_p, mut bob_group) = alice_with_bob(b"conv-008");
+        let sent = alice_group
+            .encrypt_application(&alice_p, b"before the commit")
+            .unwrap();
+        let update = alice_group.update(&alice_p).unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+
+        bob_group
+            .process_message(&mut bob_p, &update.commit)
+            .unwrap();
+        let processed = bob_group.process_message(&mut bob_p, &sent).unwrap();
+
+        assert_eq!(processed.application(), b"before the commit");
+    }
+
+    /// The same at the group's founder, whose group was built rather than joined.
+    #[test]
+    fn a_message_overtaken_by_a_commit_is_read_by_the_founder() {
+        let (mut alice_p, mut alice_group, mut bob_p, mut bob_group) = alice_with_bob(b"conv-009");
+        let sent = bob_group
+            .encrypt_application(&bob_p, b"before the commit")
+            .unwrap();
+        let update = bob_group.update(&bob_p).unwrap();
+        bob_group.merge_pending_commit(&mut bob_p).unwrap();
+
+        alice_group
+            .process_message(&mut alice_p, &update.commit)
+            .unwrap();
+        let processed = alice_group.process_message(&mut alice_p, &sent).unwrap();
+
+        assert_eq!(processed.application(), b"before the commit");
+    }
+
+    /// The window's edge: five commits behind is still read. Six is refused, which the TS suite
+    /// checks — an `Err` here is a `JsError`, which panics off wasm.
+    #[test]
+    fn a_message_five_commits_behind_is_still_read() {
+        let (mut alice_p, mut alice_group, mut bob_p, mut bob_group) = alice_with_bob(b"conv-010");
+        let sent = alice_group
+            .encrypt_application(&alice_p, b"five behind")
+            .unwrap();
+
+        for _ in 0..5 {
+            let update = alice_group.update(&alice_p).unwrap();
+            alice_group.merge_pending_commit(&mut alice_p).unwrap();
+            bob_group
+                .process_message(&mut bob_p, &update.commit)
+                .unwrap();
+        }
+        let processed = bob_group.process_message(&mut bob_p, &sent).unwrap();
+
+        assert_eq!(processed.application(), b"five behind");
     }
 
     /// Bob, committed out of the group and added back, takes the Welcome over the group he held.

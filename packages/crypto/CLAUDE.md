@@ -259,8 +259,20 @@ above, the sections above win.
   device id. It never founds a group, and never reuses
   `addContactToGroup`, which does both: that is how a second device used
   to end up in groups holding only itself. A `409` clears the pending
-  commit, catches up and looks again, as `pruneGroup` does; runs take
-  turns on a chained promise.
+  commit, catches up and looks again, as `pruneGroup` does.
+- Every change to a group's MLS state goes through `inGroup`, one queue
+  per conversation: `addContactToGroup` / `ensureGroupExists` (the check
+  and the founding in one run), `addOwnDevices`, `catchUp`, the catch-up
+  inside `decryptInbound`, joins in `consumePendingWelcomes`,
+  `pruneGroup`, `revokeDevice`, `forgetGroup`. Each awaits the network
+  between steps; without the queue, the DS's push of this device's own
+  commit had `catchUp` apply it over the one still pending. Encrypting
+  and plain decrypts stay outside: openmls encrypts with a commit pending,
+  and the past-epoch window covers the merge that follows.
+- A founding whose first add fails drops the group it created
+  (`forgetFoundedGroup`): another device most likely founded it first, and
+  a group holding only this device would take its sends unread. The claim
+  happens before the group is created, so a refused claim leaves nothing.
 - `apps/web/test/e2ee-integration.spec.ts` drives it against the real
   engine: the new device reads and is read, a device holding no group
   commits nothing, two devices adding a third converge, a lost commit
@@ -279,6 +291,11 @@ above, the sections above win.
 - Every member's Welcome carries the ratchet tree: the wasm crate's
   `join_config` sets the extension on join, and a group joined before
   takes it when loaded.
+- A group keeps its last five epochs' keys for unread messages
+  (`MAX_PAST_EPOCHS`, at create and at join), so a message a commit
+  overtook still decrypts. openmls sizes that store when the group is
+  created or joined and persists it: a group held before the window
+  existed keeps none.
 
 ### `pruneGroup`
 

@@ -745,7 +745,9 @@ export class E2eeAdapter implements IE2eePort {
             // no-op for already-applied commits.
             if (!catchUp) throw firstError
             try {
-                await this.catchUpCommits(catchUp.idpUrl, catchUp.accessToken, conversationId)
+                await this.inGroup(conversationId, () =>
+                    this.catchUpCommits(catchUp.idpUrl, catchUp.accessToken, conversationId),
+                )
                 const out = await this.processOnce(conversationId, ciphertext)
                 await this.persistMlsState()
                 return out
@@ -813,12 +815,19 @@ export class E2eeAdapter implements IE2eePort {
         conversationId: ConversationId,
         actorUri: ActorUri,
     ): Promise<void> {
-        // Pre-check first-message: if there's no MLS group yet, found
-        // it before adding. The first sender always founds.
+        await this.inGroup(conversationId, () =>
+            this.doAddContactToGroup(idpUrl, accessToken, conversationId, actorUri),
+        )
+    }
+
+    private async doAddContactToGroup(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        actorUri: ActorUri,
+    ): Promise<void> {
+        // No MLS group yet: this device founds it. The first sender always founds.
         const isFirstMessage = !(await this.mls.hasGroup(conversationId))
-        if (isFirstMessage) {
-            await this.mls.createGroup(conversationId)
-        }
 
         // One KeyPackage of each of their devices: a group holding only the device a single
         // claim picks leaves their others reading nothing until a sibling of theirs adds them.
@@ -832,6 +841,7 @@ export class E2eeAdapter implements IE2eePort {
         if (claimed.length === 0) {
             throw new KeyPackageUnavailable(actorUri, new Error("no device with a KeyPackage"))
         }
+        if (isFirstMessage) await this.mls.createGroup(conversationId)
         let added = 0
         for (const keyPackage of claimed) {
             try {
@@ -840,12 +850,23 @@ export class E2eeAdapter implements IE2eePort {
             } catch (e) {
                 // The first is the add itself, whose failure is the caller's. A later device of
                 // theirs is brought in by its siblings once one of them holds the group.
-                if (added === 0) throw e
+                if (added === 0) {
+                    // Founded here, it holds only this device — most likely another one founded
+                    // the group first. Kept, it would take what this device sends, and nobody
+                    // would read it; dropped, the next send fails until a Welcome brings it in.
+                    if (isFirstMessage) await this.forgetFoundedGroup(conversationId)
+                    throw e
+                }
                 // eslint-disable-next-line no-console
                 console.warn(`addContactToGroup: device ${keyPackage.device_id} left to its siblings`, e)
             }
         }
         if (isFirstMessage) this.announceGroupHeld(conversationId)
+    }
+
+    private async forgetFoundedGroup(conversationId: ConversationId): Promise<void> {
+        await this.mls.deleteGroup(conversationId)
+        await this.persistMlsState()
     }
 
     /** One device into the group: a commit of its own, then its Welcome. */
@@ -891,8 +912,11 @@ export class E2eeAdapter implements IE2eePort {
         // device that somehow reached this path before login bootstrap
         // landed.
         await this.ensureInitialized(null)
-        if (await this.mls.hasGroup(conversationId)) return
-        await this.addContactToGroup(idpUrl, accessToken, conversationId, recipientActorUri)
+        // Checked in the same run as the founding, so two sends at once found it once.
+        await this.inGroup(conversationId, async () => {
+            if (await this.mls.hasGroup(conversationId)) return
+            await this.doAddContactToGroup(idpUrl, accessToken, conversationId, recipientActorUri)
+        })
     }
 
     async consumePendingWelcomes(
@@ -906,16 +930,16 @@ export class E2eeAdapter implements IE2eePort {
         const joined: ConversationId[] = []
         for (const w of welcomes) {
             try {
-                if (await this.mls.hasGroup(w.conversation_id)) {
-                    if (await this.mls.rejoinGroup(w.conversation_id, w.welcome_blob)) {
-                        joined.push(w.conversation_id)
+                const held = await this.inGroup(w.conversation_id, async () => {
+                    if (await this.mls.hasGroup(w.conversation_id)) {
+                        return this.mls.rejoinGroup(w.conversation_id, w.welcome_blob)
                     }
-                    continue
-                }
-                // Every member's Welcome carries the ratchet tree (the
-                // extension, set on create and join), so `null` is correct.
-                await this.mls.joinGroup(w.conversation_id, w.welcome_blob, null)
-                joined.push(w.conversation_id)
+                    // Every member's Welcome carries the ratchet tree (the
+                    // extension, set on create and join), so `null` is correct.
+                    await this.mls.joinGroup(w.conversation_id, w.welcome_blob, null)
+                    return true
+                })
+                if (held) joined.push(w.conversation_id)
             } catch (e) {
                 // eslint-disable-next-line no-console
                 console.warn(`Failed to join group ${w.conversation_id} from welcome:`, e)
@@ -1087,42 +1111,64 @@ export class E2eeAdapter implements IE2eePort {
         roster: readonly string[],
     ): Promise<{ removed: number }> {
         await this.ensureInitialized(null)
-        const me = await this.storage.getBoundActorUri()
-        if (!me || !(await this.mls.hasGroup(conversationId))) return { removed: 0 }
-        let removed = 0
-        let conflicts = 0
-        // One leaf a commit, and the leaves looked at again after each: a commit moves the epoch,
-        // and one lost to another member's may have removed what was left.
-        for (;;) {
-            const [leaf] = leavesToRemove(await this.mls.groupMembers(conversationId), roster, me)
-            if (leaf === undefined) return { removed }
-            const commit = await this.mls.removeMember(conversationId, leaf)
-            const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
-            try {
-                await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, commit)
-            } catch (e) {
-                await this.mls.clearPendingCommit(conversationId)
-                if (!(e instanceof IdpError && e.status === 409) || ++conflicts > MAX_EPOCH_CONFLICTS) {
-                    throw e
+        return this.inGroup(conversationId, async () => {
+            const me = await this.storage.getBoundActorUri()
+            if (!me || !(await this.mls.hasGroup(conversationId))) return { removed: 0 }
+            let removed = 0
+            let conflicts = 0
+            // One leaf a commit, and the leaves looked at again after each: a commit moves the
+            // epoch, and one lost to another member's may have removed what was left.
+            for (;;) {
+                const [leaf] = leavesToRemove(await this.mls.groupMembers(conversationId), roster, me)
+                if (leaf === undefined) return { removed }
+                const commit = await this.mls.removeMember(conversationId, leaf)
+                const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
+                try {
+                    await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, commit)
+                } catch (e) {
+                    await this.mls.clearPendingCommit(conversationId)
+                    if (!(e instanceof IdpError && e.status === 409) || ++conflicts > MAX_EPOCH_CONFLICTS) {
+                        throw e
+                    }
+                    await this.catchUpCommits(idpUrl, accessToken, conversationId)
+                    continue
                 }
-                await this.catchUpCommits(idpUrl, accessToken, conversationId)
-                continue
+                await this.mls.mergePendingCommit(conversationId)
+                await this.persistMlsState()
+                removed++
             }
-            await this.mls.mergePendingCommit(conversationId)
-            await this.persistMlsState()
-            removed++
-        }
+        })
     }
 
     async catchUp(idpUrl: string, accessToken: string, conversationId: ConversationId): Promise<void> {
         await this.ensureInitialized(null)
-        if (!(await this.mls.hasGroup(conversationId))) return
-        const before = await this.mls.getEpoch(conversationId)
-        await this.catchUpCommits(idpUrl, accessToken, conversationId)
-        if ((await this.mls.getEpoch(conversationId)) !== before) await this.persistMlsState()
+        await this.inGroup(conversationId, async () => {
+            if (!(await this.mls.hasGroup(conversationId))) return
+            const before = await this.mls.getEpoch(conversationId)
+            await this.catchUpCommits(idpUrl, accessToken, conversationId)
+            if ((await this.mls.getEpoch(conversationId)) !== before) await this.persistMlsState()
+        })
     }
 
-    private ownDevicesRun: Promise<unknown> = Promise.resolve()
+    private readonly groupRuns = new Map<ConversationId, Promise<void>>()
+
+    /**
+     * One change to a group's MLS state at a time. Each awaits the network between its steps, so
+     * two interleaved would apply a commit — this device's own, pushed back by the DS — over the
+     * one still pending.
+     */
+    private inGroup<T>(conversationId: ConversationId, run: () => Promise<T>): Promise<T> {
+        const next = (this.groupRuns.get(conversationId) ?? Promise.resolve()).then(run)
+        const settled = next.then(
+            () => {},
+            () => {},
+        )
+        this.groupRuns.set(conversationId, settled)
+        void settled.then(() => {
+            if (this.groupRuns.get(conversationId) === settled) this.groupRuns.delete(conversationId)
+        })
+        return next
+    }
 
     async addOwnDevices(
         idpUrl: string,
@@ -1130,13 +1176,11 @@ export class E2eeAdapter implements IE2eePort {
         conversationId: ConversationId,
         devices: readonly DeviceId[],
     ): Promise<{ added: number }> {
-        // A device-list refresh and a `device_joined` push can start runs together; the second
-        // finds what the first added.
-        const run = this.ownDevicesRun.then(() =>
+        // A device-list refresh and a group just held can start runs together; the second finds
+        // what the first added.
+        return this.inGroup(conversationId, () =>
             this.doAddOwnDevices(idpUrl, accessToken, conversationId, devices),
         )
-        this.ownDevicesRun = run.catch(() => {})
-        return run
     }
 
     private async doAddOwnDevices(
@@ -1195,8 +1239,10 @@ export class E2eeAdapter implements IE2eePort {
 
     async forgetGroup(conversationId: ConversationId): Promise<void> {
         await this.ensureInitialized(null)
-        await this.mls.deleteGroup(conversationId)
-        await this.persistMlsState()
+        await this.inGroup(conversationId, async () => {
+            await this.mls.deleteGroup(conversationId)
+            await this.persistMlsState()
+        })
     }
 
     // ─── Device revocation ─────────────────────────────────────────────
@@ -1213,27 +1259,29 @@ export class E2eeAdapter implements IE2eePort {
 
         const removed: ConversationId[] = []
         for (const conversationId of conversationIds) {
-            // Skip groups we don't have local state for — those would
-            // be conversations we joined under a different device.
-            if (!(await this.mls.hasGroup(conversationId))) continue
+            await this.inGroup(conversationId, async () => {
+                // Skip groups we don't have local state for — those would
+                // be conversations we joined under a different device.
+                if (!(await this.mls.hasGroup(conversationId))) return
 
-            const leafIndex = await this.mls.findLeafByDeviceId(conversationId, actorUri, deviceId)
-            if (leafIndex == null) continue
+                const leafIndex = await this.mls.findLeafByDeviceId(conversationId, actorUri, deviceId)
+                if (leafIndex == null) return
 
-            try {
-                const commit = await this.mls.removeMember(conversationId, leafIndex)
-                const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
-                await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, commit)
-                await this.mls.mergePendingCommit(conversationId)
-                removed.push(conversationId)
-                await this.persistMlsState()
-            } catch (e) {
-                // A commit left pending would block the group's next one.
-                await this.mls.clearPendingCommit(conversationId).catch(() => {})
-                // Per-group failure (often 409 epoch race) shouldn't block the rest.
-                // eslint-disable-next-line no-console
-                console.warn(`revokeDevice: per-group commit failed for ${conversationId}`, e)
-            }
+                try {
+                    const commit = await this.mls.removeMember(conversationId, leafIndex)
+                    const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
+                    await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, commit)
+                    await this.mls.mergePendingCommit(conversationId)
+                    removed.push(conversationId)
+                    await this.persistMlsState()
+                } catch (e) {
+                    // A commit left pending would block the group's next one.
+                    await this.mls.clearPendingCommit(conversationId).catch(() => {})
+                    // Per-group failure (often 409 epoch race) shouldn't block the rest.
+                    // eslint-disable-next-line no-console
+                    console.warn(`revokeDevice: per-group commit failed for ${conversationId}`, e)
+                }
+            })
         }
 
         if (opts?.also_clear_recovery) {
