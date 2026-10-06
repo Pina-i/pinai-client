@@ -2,7 +2,7 @@ import { app, BrowserWindow, shell } from "electron"
 
 const rendererUrl = process.env.ELECTRON_RENDERER_URL
 
-// A packaged renderer needs a privileged scheme, a desktop OAuth client and the IdP's CORS allowance first.
+// A packaged renderer needs a privileged scheme and the deep-link sign-in (a desktop OAuth client) first.
 if (!rendererUrl) throw new Error("Only `electron-vite dev` is supported for now")
 
 function createWindow(url: string): void {

@@ -115,8 +115,8 @@ pinai-client/                 # pnpm workspace root
     │                         #   vite.config.ts so plugins are never duplicated.
     │                         #   Shares :5173 with web (FRONTEND_URL and the seeded
     │                         #   callbacks point there), so run one at a time.
-    │                         #   No packaged build until the IdP accepts a desktop
-    │                         #   OAuth client and the app's origin in CORS.
+    │                         #   No packaged build until sign-in goes through the
+    │                         #   system browser and a `pinai://callback` deep link.
     └── web/                  # The browser client (@pinai/web)
         ├── index.html, vite.config.ts, vitest.config.ts, tsconfig*.json
         ├── components.json    # React Aria registry config for the CLI
