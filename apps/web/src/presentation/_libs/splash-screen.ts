@@ -3,9 +3,8 @@
 // that are still loading hold it; the last release fades it out.
 
 const SPLASH_ID = "pn-splash"
-// Read by index.html to resume the loop (and a carried title) after a redirect instead of restarting.
+// Read by index.html to resume the loop after a redirect instead of restarting.
 const PHASE_KEY = "pn-splash-t0"
-const TITLE_KEY = "pn-splash-title"
 // Once the app is up, a hold shorter than this (a warm gate probe) never brings it back.
 const SHOW_DELAY_MS = 150
 const MIN_SHOWN_MS = 600
@@ -28,12 +27,10 @@ function cancelPending() {
     frame = undefined
 }
 
-function writePhase(startedAt: number | null, title?: string) {
+function writePhase(startedAt: number | null) {
     try {
         if (startedAt === null) sessionStorage.removeItem(PHASE_KEY)
         else sessionStorage.setItem(PHASE_KEY, String(startedAt))
-        if (title === undefined) sessionStorage.removeItem(TITLE_KEY)
-        else sessionStorage.setItem(TITLE_KEY, title)
     } catch {
         // Storage can be unavailable; the loop then restarts on the next page.
     }
@@ -112,10 +109,4 @@ export function holdSplashScreen({ reshow = "delayed" }: SplashHoldOptions = {})
         holds -= 1
         if (holds === 0) settle(el)
     }
-}
-
-// For a loader shown right before a redirect: the next page's splash resumes its loop, and says the same.
-export function carrySplashLoop(title: string): () => void {
-    writePhase(Date.now(), title)
-    return () => writePhase(null)
 }

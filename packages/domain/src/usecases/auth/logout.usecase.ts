@@ -14,6 +14,10 @@ export function logoutUseCase(
     platform: AuthPlatform,
 ): void {
     clearSession()
-    const postLogoutRedirect = encodeURIComponent(platform.navigation.postLogoutUrl())
-    platform.navigation.navigateTo(`${idpUrl}/logout?post_logout_redirect_uri=${postLogoutRedirect}`)
+    // The IdP sends the browser back only to a URI this client's document lists.
+    const params = new URLSearchParams({
+        client_id: platform.clientId,
+        post_logout_redirect_uri: platform.navigation.postLogoutUrl(),
+    })
+    platform.navigation.navigateTo(`${idpUrl}/logout?${params.toString()}`)
 }

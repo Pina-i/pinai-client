@@ -4,6 +4,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "env": ["PUBLIC_ORIGIN"],
       "outputs": ["dist/**"]
     },
     "typecheck": {

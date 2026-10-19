@@ -49,11 +49,12 @@ something else holds it, Vite fails rather than quietly moving.
 
 ### Pointing it at a backend
 
-The client is multi-IdP by design — you type the identity provider's URL on the
-landing page and it drives the OIDC flow from there. The field is pre-filled
-with `http://localhost:8080`, which is where the backend's compose file puts
-the identity provider, so if you are running `Pina-i/pinai` locally there is
-nothing to configure.
+The client is multi-IdP by design — you type the identity provider's address on
+the landing page, it checks the instance (its NodeInfo), and Continue takes you
+to that instance's own sign-in page. The field is pre-filled with
+`localhost:8088`, which is where the backend's compose file puts the identity
+provider, so if you are running `Pina-i/pinai` locally there is nothing to
+configure.
 
 To pre-fill something else, copy the example env file and edit it:
 
@@ -71,7 +72,7 @@ finishes in under a second.
 |---|---|
 | `pnpm dev` | Build the WASM bundle if stale, then start Vite on :5173 |
 | `pnpm dev:desktop` | The same client in an Electron window — also on :5173, so not alongside `pnpm dev` |
-| `pnpm build` | Type-check and build to `apps/web/dist` |
+| `pnpm build` | Type-check and build to `apps/web/dist`. Needs `PUBLIC_ORIGIN` (see `apps/web/.env.example`): the origin the build is served from, written into its `/oauth-client.json` |
 | `pnpm test` | Run the whole Vitest suite once |
 | `pnpm typecheck` | `tsc --noEmit` across the app and every package |
 | `pnpm lint` | ESLint over the whole workspace (one config, at the root) |
@@ -127,7 +128,7 @@ client, so anything it can read, a user can read.
 
 | Variable | Effect |
 |---|---|
-| `VITE_DEFAULT_IDP_URL` | Pre-fills the identity provider field. Defaults to `http://localhost:8080`. |
+| `VITE_DEFAULT_IDP_URL` | Pre-fills the identity provider field. Defaults to `http://localhost:8088`. |
 | `VITE_KLIPY_API_KEY` | Enables the GIF picker. Without it the picker renders a note saying so. |
 
 Sensitive configuration is supplied by the user at runtime, never baked into

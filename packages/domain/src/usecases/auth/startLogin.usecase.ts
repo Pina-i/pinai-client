@@ -1,10 +1,14 @@
 import type { AuthPlatform, IAuthPort } from "../../ports/auth.port"
 
-export async function startLoginUseCase(
+/**
+ * Everything a sign-in needs before the browser leaves: discovery, PKCE, the
+ * scratch space the callback reads. Resolves to the `/authorize` URL to go to.
+ */
+export async function prepareLoginUseCase(
     idpUrl: string,
     authPort: IAuthPort,
     platform: AuthPlatform,
-): Promise<void> {
+): Promise<string> {
     const { clientId, pkce, session, navigation } = platform
     const config = await authPort.discoverConfig(idpUrl)
 
@@ -32,10 +36,23 @@ export async function startLoginUseCase(
         code_challenge_method: "S256",
         nonce,
     })
+    const appearance = platform.appearance()
+    if (appearance) {
+        params.set("theme", appearance.theme)
+        params.set("motif", appearance.motif)
+    }
 
     // Use idpUrl directly rather than config.authorization_endpoint. The discovery
     // doc returns URLs based on the server's DOMAIN (e.g. host.docker.internal:8080),
     // which may differ from what the user configured (e.g. localhost:8080). Navigating
     // to a different origin would orphan the session cookie, breaking silent refresh.
-    navigation.navigateTo(`${idpUrl.replace(/\/$/, "")}/authorize?${params.toString()}`)
+    return `${idpUrl.replace(/\/$/, "")}/authorize?${params.toString()}`
+}
+
+export async function startLoginUseCase(
+    idpUrl: string,
+    authPort: IAuthPort,
+    platform: AuthPlatform,
+): Promise<void> {
+    platform.navigation.navigateTo(await prepareLoginUseCase(idpUrl, authPort, platform))
 }

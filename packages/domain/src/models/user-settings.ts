@@ -60,7 +60,7 @@ export interface AccountSettingsChange {
 }
 
 export const DEFAULT_ACCOUNT_SETTINGS: AccountSettings = {
-    appearance: { family: "pearl", motif: "kowhaiwhai" },
+    appearance: { family: "pearl", motif: "tapa2" },
     notifications: { muteAll: false, muteAllUntil: null, mutedConversations: [] },
 }
 
@@ -157,4 +157,20 @@ export function sameAccountSettings(a: AccountSettings, b: AccountSettings): boo
 /** Whether this device holds a change for `account` that the IdP hasn't received. */
 export function hasUnsyncedChange(copy: AccountSettingsCopy, account: string): boolean {
     return copy.owner === account && copy.unsynced.length > 0
+}
+
+/** The appearance an IdP's sign-in pages are asked to paint (`theme` and `motif` on `/authorize`). */
+export interface AppearanceHints {
+    theme: ThemeId
+    motif: MotifKey
+}
+
+/**
+ * What this device paints, once someone has signed in on it: before that the
+ * appearance is only the defaults, and the IdP shows its own.
+ */
+export function appearanceHints(copy: AccountSettingsCopy, mode: ThemeMode): AppearanceHints | null {
+    if (copy.owner === null) return null
+    const { family, motif } = copy.settings.appearance
+    return { theme: themeId(family, mode), motif }
 }

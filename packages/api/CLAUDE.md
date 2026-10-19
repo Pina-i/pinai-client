@@ -2,11 +2,12 @@
 
 The IdP's HTTP and WebSocket surface, as adapters implementing domain ports.
 
-Thirteen files, one per resource: OIDC, DMs, groups, social, privacy (blocks
-and the contact setting), presence, TOTP, user, user settings, device
-directory, the E2EE key directory, the history archive, and the WebSocket
-connection. `ky` for REST, `XMLHttpRequest` in `dm-api` where upload
-progress is needed, the platform `WebSocket` for the live connection.
+Fourteen files, one per resource: OIDC, NodeInfo (what an instance says
+about itself before any sign-in), DMs, groups, social, privacy (blocks and
+the contact setting), presence, TOTP, user, user settings, device directory,
+the E2EE key directory, the history archive, and the WebSocket connection.
+`ky` for REST, `XMLHttpRequest` in `dm-api` where upload progress is needed,
+the platform `WebSocket` for the live connection.
 
 Nothing here is browser-specific. `fetch`, `XMLHttpRequest`, `FormData`,
 `File`, `Blob` and `WebSocket` all exist on React Native, so this package is

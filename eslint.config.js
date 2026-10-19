@@ -48,7 +48,8 @@ export default defineConfig([
   // exist). It is neither built nor type-checked, so linting it only produces
   // noise. Delete it, or wire it in and drop this ignore.
   // `crypto/openmls-pkg` is wasm-pack output — generated, never committed.
-  globalIgnores(['**/dist', '**/out', 'apps/web/src/components/ui', 'crypto/openmls-pkg']),
+  // `tmp/` is a local scratch area (design exports and the like), gitignored.
+  globalIgnores(['**/dist', '**/out', 'apps/web/src/components/ui', 'crypto/openmls-pkg', 'tmp']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

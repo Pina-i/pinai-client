@@ -1,4 +1,9 @@
-import { Button as AriaButton, type ButtonProps as AriaButtonProps } from "react-aria-components"
+import {
+    Button as AriaButton,
+    Link as AriaLink,
+    type ButtonProps as AriaButtonProps,
+    type LinkProps as AriaLinkProps,
+} from "react-aria-components"
 import { tv, type VariantProps } from "tailwind-variants"
 
 const buttonVariants = tv({
@@ -63,4 +68,15 @@ export function Button({ variant, size, className, ...props }: ButtonProps) {
             {...props}
         />
     )
+}
+
+export interface ButtonLinkProps extends Omit<AriaLinkProps, "className"> {
+    variant?: ButtonVariantProps["variant"]
+    size?: ButtonVariantProps["size"]
+    className?: string
+}
+
+/** A link that looks like a button: it goes somewhere rather than doing something. */
+export function ButtonLink({ variant, size, className, ...props }: ButtonLinkProps) {
+    return <AriaLink className={buttonVariants({ variant, size, className })} {...props} />
 }

@@ -16,6 +16,8 @@ export default defineConfig(async (env) => {
             root: webRoot,
             envDir: webRoot,
             build: { rolldownOptions: { input: path.join(webRoot, "index.html") } },
+            // The renderer is the web app, built knowing it runs inside the desktop app.
+            define: { "import.meta.env.PINAI_DESKTOP": "true" },
         }),
     }
 })

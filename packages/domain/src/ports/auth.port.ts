@@ -1,4 +1,5 @@
 import type { OidcConfig, UserProfile } from "../models/auth"
+import type { AppearanceHints } from "../models/user-settings"
 
 export const AUTH_PORT = "AUTH_PORT"
 
@@ -103,4 +104,6 @@ export interface AuthPlatform {
     pkce: IPkcePort
     session: IAuthSessionStore
     navigation: IAuthNavigationPort
+    /** What the IdP's sign-in pages should paint, read where this platform keeps the appearance. */
+    appearance(): AppearanceHints | null
 }

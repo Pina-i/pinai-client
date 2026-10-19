@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
-import { getDmPort, getE2eePort, getGroupPort, getWsPort } from "@/ioc"
+import { getDmPort, getE2eePort, getGroupPort, getNotificationSoundPort, getWsPort } from "@/ioc"
 import type {
     ApplicationMessage,
     ArchiveEnvelope,
@@ -25,7 +25,6 @@ import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsP
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 import { profileCardQueryKey, profileCardsQueryKey } from "@/presentation/hooks/useProfileCard"
 import { groupMembersQueryKey } from "@/presentation/pages/home/GroupMembersPanel/GroupMembersPanel.viewmodel"
-import { playDmNotificationSound } from "@/presentation/_libs/notification-sound"
 import { useAppearance } from "@/presentation/providers/AppearanceProvider/AppearanceProvider.context"
 import { useNotificationSettings } from "@/presentation/providers/AppearanceProvider/NotificationSettings.context"
 
@@ -472,7 +471,7 @@ export function useIdpWebSocket(): void {
                             senderBlocked,
                         )
                     ) {
-                        playDmNotificationSound()
+                        getNotificationSoundPort().playDmReceived()
                     }
 
                     if (isActive) {

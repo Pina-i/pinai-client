@@ -113,10 +113,13 @@ pinai-client/                 # pnpm workspace root
     │                         #   electron.vite.config.ts builds src/main and serves
     │                         #   apps/web as the renderer, loading web's own
     │                         #   vite.config.ts so plugins are never duplicated.
-    │                         #   Shares :5173 with web (FRONTEND_URL and the seeded
-    │                         #   callbacks point there), so run one at a time.
+    │                         #   Shares :5173 with web (the port is strict), so run
+    │                         #   one at a time. Its renderer is built with
+    │                         #   `import.meta.env.PINAI_DESKTOP`, which hides the
+    │                         #   landing's "Get the client".
     │                         #   No packaged build until sign-in goes through the
-    │                         #   system browser and a `pinai://callback` deep link.
+    │                         #   system browser and an `io.github.pina-i:/callback`
+    │                         #   deep link.
     └── web/                  # The browser client (@pinai/web)
         ├── index.html, vite.config.ts, vitest.config.ts, tsconfig*.json
         ├── components.json    # React Aria registry config for the CLI
@@ -213,20 +216,44 @@ Two things the workspace layout forces on whoever writes it:
 
 ## OIDC Authentication Flow
 
-1. User enters their IdP URL (e.g. `idp.alice.com`)
-2. Client fetches `/.well-known/openid-configuration` to discover endpoints
-3. Client generates PKCE `code_verifier` + `code_challenge` (S256)
-4. Client redirects to IdP `/authorize` with `code_challenge`
-5. After login, IdP redirects back to `/callback?code=...`
+The client is known to every IdP by the document it publishes, `/oauth-client.json`: its
+`client_id` is that URL, and its redirect URIs are its own `/callback` and `/`. Nothing is
+registered on an IdP, so one deployment signs users in to any of them
+(`identity-provider/specs/auth.md § 1` "Clients"). `apps/web/vite.config.ts` serves the document
+in dev for the host it is reached on, and writes it at build time from `PUBLIC_ORIGIN`.
+
+The sign-in and sign-up forms, the email code and the second factor are the **IdP's own pages**:
+the password is only ever typed on the server that checks it. The client has no `/login`,
+`/verify-email` or `/login/totp` page; `/login` survives only as a guard that restarts a sign-in
+for a known IdP.
+
+1. User enters their IdP's address on the landing (`aotearoa.nz`, `localhost:8080`; a bare host
+   is `https`, a loopback one `http` — `instanceAddress` in `@pinai/domain/models/instance`)
+2. While they type, the landing reads the instance's **NodeInfo** (`/.well-known/nodeinfo`, then
+   the 2.1 document it links to) and shows `✓ resolved · <nodeName> · N people`. Continue is
+   enabled only for a Pīna'i instance (`software.name` = `pinai`)
+3. Continue shows the hand-off screen ("Taking you to …") while the client fetches
+   `/.well-known/openid-configuration` and generates PKCE `code_verifier` + `code_challenge` (S256)
+4. Client redirects to IdP `/authorize` with its `client_id` and `code_challenge`; the IdP fetches
+   the client's document. Once someone has signed in on this device, it also sends `theme`
+   (`<family>-<mode>`, the mode as painted) and `motif`, so the IdP's pages wear this device's
+   appearance; otherwise the IdP shows Black Pearl dark with Tapa 1
+5. After sign-in, IdP redirects back to `/callback?code=...`; the instance joins the landing's
+   "Recent" chips (3, on this device). `?error=access_denied` (the IdP's "← Another home") goes
+   back to the landing silently; any other `error` shows "Sign-in failed" with its code. `state`
+   is checked before either is trusted
 6. Client exchanges `code` + `code_verifier` for tokens at `/token`
 7. Access token stored in memory only (never localStorage)
-8. Refresh token stored in an HttpOnly cookie (set by IdP)
-9. Silent refresh via a hidden iframe or background fetch before expiry
+8. No refresh token yet: a reload or an expired token goes through `/authorize` again, silent
+   while the IdP's session cookie lives (30 days) — the IdP signs in silently only to an app its
+   account signed in to with the password, so a new client's first sign-in always asks it. The
+   session redesign (steps 13a–13f) replaces this
+9. Logout sends `client_id` with `post_logout_redirect_uri`, which the document lists
 
 ## Key Design Decisions
 
 - **Access tokens in memory only** — never `localStorage` or `sessionStorage` to mitigate XSS token theft
-- **Refresh tokens via HttpOnly cookie** — set by the IdP, not accessible to JavaScript
+- **No refresh token yet** — sessions last as long as the IdP's HttpOnly session cookie (see the flow above)
 - **PKCE mandatory** — `plain` challenge method never used
 - **Multi-IdP aware** — the client is not hardcoded to a single IdP; the user's configured IdP URL is stored in `localStorage` only (not the token)
 - **Two separate WebSocket connections**: one to the identity-provider (for DMs), one to the active chat-server (for channels)
@@ -239,8 +266,11 @@ Two things the workspace layout forces on whoever writes it:
 ```env
 VITE_DEFAULT_IDP_URL=https://idp.example.com   # optional; pre-fills the landing
                                                #   page field, defaults to
-                                               #   http://localhost:8080
+                                               #   http://localhost:8088
 VITE_KLIPY_API_KEY=                            # optional; enables the GIF picker (Klipy)
+PUBLIC_ORIGIN=https://app.example.com          # required by `vite build`: the origin the build
+                                               #   is served from, written into
+                                               #   /oauth-client.json. Not read in dev
 ```
 
 (`VITE_APP_NAME` used to be listed here. Nothing reads it — the document title

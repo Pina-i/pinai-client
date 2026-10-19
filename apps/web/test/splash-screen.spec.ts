@@ -121,17 +121,6 @@ describe("splash screen", () => {
         expect(shown(el)).toBe(true)
     })
 
-    it("hands a loader's loop and title to the next page, until the loader goes away", async () => {
-        const { splash } = await boot()
-        const stop = splash.carrySplashLoop("Connection to the island…")
-        expect(Number(sessionStorage.getItem("pn-splash-t0"))).toBe(Date.now())
-        expect(sessionStorage.getItem("pn-splash-title")).toBe("Connection to the island…")
-
-        stop()
-        expect(sessionStorage.getItem("pn-splash-t0")).toBeNull()
-        expect(sessionStorage.getItem("pn-splash-title")).toBeNull()
-    })
-
     it("does nothing on a page without the splash", async () => {
         const { splash } = await boot()
         document.body.innerHTML = ""

@@ -50,8 +50,8 @@ describe("RiseLoader", () => {
         expect(normalized(boot.cloneNode(true)).isEqualNode(normalized(rendered))).toBe(true)
     })
 
-    // The landing's Continue shows the loader in this panel and hands over to that copy on the IdP's login page.
-    it("inside an AuthShell, is exactly what index.html paints for the pages that open on one", () => {
+    // The landing boots inside its shell, the loader where its panel will be.
+    it("inside an AuthShell, is exactly what index.html paints for the landing", () => {
         const boot = bootSplash().querySelector("#pn-splash > .pn-splash-shell > *")!
         const rendered = parse(renderToStaticMarkup(createElement(AuthShell, null, createElement(RiseLoader))))
 

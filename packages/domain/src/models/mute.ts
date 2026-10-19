@@ -31,3 +31,10 @@ export function shouldPingForMessage(
 ): boolean {
     return !senderBlocked && myStatus !== "dnd" && !isConversationMuted(notifications, conversationId)
 }
+
+/** Pings closer together than this ring once: a burst — a reconnect catching up — is one sound. */
+export const PING_SPACING_MS = 420
+
+export function pingsAgain(lastPingAt: number | null, now: number): boolean {
+    return lastPingAt === null || now - lastPingAt >= PING_SPACING_MS
+}

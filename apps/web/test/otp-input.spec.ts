@@ -1,8 +1,7 @@
 /**
  * `onComplete` timing for `OtpInput`. Callers read the code from their own
- * state (Settings → Security, TOTP enroll) or from the form's hidden input
- * (verify-email, TOTP challenge), so the callback must run only after the
- * parent has committed the sixth digit. Rendered with raw `createRoot`
+ * state (Settings → Security, TOTP enroll) or from a form's hidden input, so
+ * the callback must run only after the parent has committed the sixth digit. Rendered with raw `createRoot`
  * because the behaviour under test is React's commit order.
  */
 import { createElement, act, useState } from "react"

@@ -1,21 +1,36 @@
 import type { AuthPlatform, IAuthPort } from "../../ports/auth.port"
-import type { AuthSession } from "../../models/auth"
+import type { CallbackResult } from "../../models/auth"
+
+const ERROR_CODE = /^[a-z_]{1,64}$/
 
 export async function handleCallbackUseCase(
     searchParams: URLSearchParams,
     authPort: IAuthPort,
     platform: AuthPlatform,
-): Promise<AuthSession> {
+): Promise<CallbackResult> {
     const { clientId, session, navigation } = platform
 
     const code = searchParams.get("code")
     const state = searchParams.get("state")
+    const error = searchParams.get("error")
 
-    if (!code) throw new Error("Missing authorization code in callback")
+    if (!code && error === null) throw new Error("Missing authorization code in callback")
 
     const storedState = session.get("pkce_state")
     if (!storedState || storedState !== state) {
         throw new Error("State mismatch — possible CSRF attack")
+    }
+
+    if (error !== null) {
+        // The flow is over: nothing of it may be replayed. `idp_url` stays, so the landing offers it again.
+        session.remove("pkce_verifier")
+        session.remove("pkce_state")
+        session.remove("pkce_nonce")
+        session.remove("token_endpoint")
+        session.remove("userinfo_endpoint")
+        session.remove("post_login_redirect")
+        if (error === "access_denied") return { kind: "cancelled" }
+        return { kind: "refused", error: ERROR_CODE.test(error) ? error : null }
     }
 
     const codeVerifier = session.get("pkce_verifier")
@@ -24,7 +39,7 @@ export async function handleCallbackUseCase(
 
     const idpUrl = session.get("idp_url") ?? ""
 
-    if (!codeVerifier || !tokenEndpoint || !userinfoEndpoint) {
+    if (!code || !codeVerifier || !tokenEndpoint || !userinfoEndpoint) {
         throw new Error("Missing PKCE session data — please restart login")
     }
 
@@ -47,5 +62,5 @@ export async function handleCallbackUseCase(
     session.remove("token_endpoint")
     session.remove("userinfo_endpoint")
 
-    return { accessToken, user, idpUrl }
+    return { kind: "signed-in", session: { accessToken, user, idpUrl } }
 }

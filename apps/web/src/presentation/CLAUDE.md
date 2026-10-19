@@ -61,10 +61,10 @@ The film grain covers everything, overlays and the splash included. It is one el
 
 ## Splash screen
 
-A full-page loading state doesn't draw a loader: it holds the splash. A loader inside a panel renders `<RiseLoader title? host? carryOver? />` (atoms), the same loader the splash shows.
+A full-page loading state doesn't draw a loader: it holds the splash. A loader inside a panel renders `<RiseLoader title? host? />` (atoms), the same loader the splash shows.
 
-- The splash is static markup in `index.html`, outside React, so it is the first paint of every page load: `<RiseLoader />` alone for the app, or inside `<AuthShell>` for the pages that open on one (`/`, the IdP's `/login?client_id`, `/verify-email`, `/login/totp`), so their loader sits where the page's panel will be. `test/rise-loader.spec.ts` fails if either copy drifts from the components; regenerate it from `renderToStaticMarkup` when `AuthShell` changes.
-- Its loop carries across page loads (`pn-splash-t0` in `sessionStorage`): through the sign-in redirect, and from a `<RiseLoader carryOver />` shown right before one (the landing's Continue), whose title it takes over too.
+- The splash is static markup in `index.html`, outside React, so it is the first paint of every page load: `<RiseLoader />` alone for the app, or inside `<AuthShell>` for the landing (`/`), so its loader sits where the page's panel will be. `test/rise-loader.spec.ts` fails if either copy drifts from the components; regenerate it from `renderToStaticMarkup` when `AuthShell` changes.
+- Its loop carries across page loads (`pn-splash-t0` in `sessionStorage`), through the sign-in redirect. The landing's Continue doesn't hand a loader over: it shows the hand-off screen, and the next page is the IdP's own.
 - `index.html` preloads the faces it paints first, so a page load's first frame doesn't draw in a fallback face.
 - `main.tsx` holds it until the router has rendered the first location. A screen still loading then holds it too, with `useHoldSplashScreen(isLoading)`: `CallbackPage` while the code is exchanged, the `_authenticated` gate while it probes. The last release fades it out (`_libs/splash-screen.ts`).
 - Holds hand over within one commit, so going from one loading screen to the next never uncovers the page.

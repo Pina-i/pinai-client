@@ -80,6 +80,10 @@ describe("parseAccountSettings", () => {
             expect(parseAccountSettings(raw)).toEqual(DEFAULT_ACCOUNT_SETTINGS)
         }
     })
+
+    it("paints an account that never chose in Black Pearl with Tapa 2", () => {
+        expect(parseAccountSettings({}).appearance).toEqual({ family: "pearl", motif: "tapa2" })
+    })
 })
 
 describe("parseDeviceSettings", () => {

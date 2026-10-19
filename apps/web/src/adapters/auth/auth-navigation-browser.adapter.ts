@@ -11,7 +11,7 @@ export class BrowserAuthNavigationAdapter implements IAuthNavigationPort {
     }
 
     postLogoutUrl(): string {
-        return window.location.origin
+        return `${window.location.origin}/`
     }
 
     currentLocation(): string {

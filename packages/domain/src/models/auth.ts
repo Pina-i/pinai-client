@@ -51,6 +51,16 @@ export interface AuthSession {
 }
 
 /**
+ * How a sign-in came back. `cancelled` is the user's "Another home" on the
+ * IdP (`access_denied`); `refused` is any other `error` the IdP sent, its code
+ * kept only when it looks like one (RFC 6749 § 4.1.2.1), never its description.
+ */
+export type CallbackResult =
+    | { kind: "signed-in"; session: AuthSession }
+    | { kind: "cancelled" }
+    | { kind: "refused"; error: string | null }
+
+/**
  * True when the access token is present and its `exp` claim is still in the
  * future. The signature is deliberately not verified — that is the IdP's
  * job; this is the client deciding whether it still has a usable session.

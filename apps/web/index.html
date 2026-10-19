@@ -59,23 +59,12 @@
                 try {
                     var saved = Number(sessionStorage.getItem("pn-splash-t0"))
                     if (now - saved < 15000) t0 = saved
-                    else {
-                        sessionStorage.setItem("pn-splash-t0", String(now))
-                        sessionStorage.removeItem("pn-splash-title")
-                    }
+                    else sessionStorage.setItem("pn-splash-t0", String(now))
                 } catch (e) {}
                 document.documentElement.style.setProperty("--pn-splash-at", t0 - now + "ms")
-                // The pages that open straight on <AuthShell> boot inside it, so their loader sits
-                // where the page's panel will be (the landing's Continue hands over to it).
-                var path = location.pathname
-                var query = new URLSearchParams(location.search)
-                if (
-                    path === "/" ||
-                    (path === "/login" && query.has("client_id")) ||
-                    (path === "/verify-email" && query.has("pending_user_id")) ||
-                    (path === "/login/totp" && query.has("ticket"))
-                )
-                    document.documentElement.dataset.splash = "shell"
+                // The landing opens straight on <AuthShell>, so it boots inside it, its loader where
+                // the page's panel will be.
+                if (location.pathname === "/") document.documentElement.dataset.splash = "shell"
             })()
         </script>
         <div id="root"></div>
@@ -114,7 +103,7 @@
                     <span class="eye pointer-events-auto">Self-hosted · Federated · Open-source</span>
                 </div>
                 <div class="relative z-[2] grid min-h-screen grid-cols-1 lg:grid-cols-[1.1fr_1fr]">
-                    <aside class="flex flex-col justify-between border-line px-14 pb-14 pt-[84px] lg:border-r">
+                    <aside class="flex flex-col justify-between gap-7 border-line px-14 pb-10 pt-[84px] lg:border-r">
                         <span class="inline-flex items-center gap-3 text-foreground">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="510 400 1025 755" preserveAspectRatio="xMidYMid meet" class="block h-[34px] w-[46px]" aria-hidden="true">
                                 <path fill="currentColor" d="M 867.732 737.6 C 874.2 742.647 897.639 771.811 904.658 779.965 C 939.386 819.929 973.672 860.274 1007.51 900.994 L 1145.38 1064.38 C 1162.81 1085.26 1188.51 1113.97 1204.11 1135.13 C 1170.5 1136.33 1128.43 1134.99 1094.16 1134.96 L 872.5 1135.08 L 534.201 1135.26 C 546.068 1119.09 562.028 1101.57 575.102 1085.85 C 606.77 1047.73 638.669 1009.8 670.795 972.062 C 715.856 917.277 761.462 862.943 807.607 809.069 C 827.243 785.797 847.643 760.047 867.732 737.6 z M 737.696 958.584 C 751.89 952.35 769.123 943.139 783.071 935.936 C 803.596 925.338 825.232 914.501 845.491 903.483 C 847.195 918.28 854.676 952.992 859.517 966.597 C 869.226 954.171 895.851 922.367 907.222 911.248 C 930.319 921.913 977.043 944.718 998.303 957.359 C 981.129 934.118 953.588 904.074 934.381 881.132 C 920.081 863.964 905.676 846.884 891.166 829.894 C 885.288 823 874.558 809.827 868.428 803.904 L 782.355 905.543 C 770.591 919.447 747.455 945.089 737.696 958.584 z"></path>
@@ -128,17 +117,19 @@
                             <span class="title text-[24px] font-semibold">Pīna&#x27;i</span>
                         </span>
                         <div class="my-12 lg:my-0">
-                            <h1 class="title m-0 text-[74px] font-normal leading-[0.96] tracking-[-0.025em] text-foreground">Quiet<br/><em class="italic text-acc">rooms</em>,<br/>loud<br/><em class="italic text-sec">voices</em>.</h1>
+                            <h1 class="title m-0 text-[length:min(74px,11.5vh)] font-normal leading-[0.96] tracking-[-0.025em] text-foreground">Quiet<br/><em class="italic text-acc">rooms</em>,<br/>loud<br/><em class="italic text-sec">voices</em>.</h1>
                             <p class="mt-[26px] max-w-[38ch] text-[14px] leading-[1.6] text-muted-foreground">A community space you host yourself. Federated by design, owned by the people who gather in it.</p>
-                            <div aria-hidden="true" class="pointer-events-none mt-[30px] h-2.5 max-w-[300px] opacity-55" style="background-color:var(--acc);mask-image:url(&quot;/src/assets/motifs/kowhaiwhai.svg&quot;);-webkit-mask-image:url(&quot;/src/assets/motifs/kowhaiwhai.svg&quot;);mask-size:223.21px 15px;-webkit-mask-size:223.21px 15px;mask-repeat:repeat;-webkit-mask-repeat:repeat"></div>
+                            <div aria-hidden="true" class="pointer-events-none mt-[30px] h-2.5 max-w-[300px] opacity-55" style="background-color:var(--acc);mask-image:url(&quot;/src/assets/motifs/tapa2.svg&quot;);-webkit-mask-image:url(&quot;/src/assets/motifs/tapa2.svg&quot;);mask-size:311.28px 16px;-webkit-mask-size:311.28px 16px;mask-repeat:repeat;-webkit-mask-repeat:repeat"></div>
                         </div>
-                        <nav class="flex gap-5">
-                            <a href="#docs" class="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground no-underline transition-colors hover:text-foreground">↳ Docs</a>
-                            <a href="#status" class="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground no-underline transition-colors hover:text-foreground">↳ Status</a>
-                            <a href="#source" class="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground no-underline transition-colors hover:text-foreground">↳ Source</a>
-                        </nav>
+                        <div class="flex flex-col gap-[22px]">
+                            <nav class="flex gap-5">
+                                <a href="#docs" class="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground no-underline transition-colors hover:text-foreground">↳ Docs</a>
+                                <a href="#status" class="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground no-underline transition-colors hover:text-foreground">↳ Status</a>
+                                <a href="#source" class="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground no-underline transition-colors hover:text-foreground">↳ Source</a>
+                            </nav>
+                        </div>
                     </aside>
-                    <main class="flex items-center justify-center px-10 pb-14 pt-[84px]">
+                    <main class="flex items-center justify-center px-10 pb-10 pt-[84px]">
                         <div class="w-full max-w-[380px]">
                             <div role="status" class="pn-rise">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="510 400 1025 755" preserveAspectRatio="xMidYMid meet" class="block pn-rise-mark" aria-hidden="true">
@@ -162,16 +153,10 @@
             </div>
             </div>
         </div>
-        <!-- The title a loader carried over from the previous page, if any. Then the instance being
-             reached: the sign-in in progress (the auth session store), else the last one signed in to
-             (the auth slice). -->
+        <!-- The instance being reached: the sign-in in progress (the auth session store), else the last
+             one signed in to (the auth slice). -->
         <script>
             try {
-                var title = sessionStorage.getItem("pn-splash-title")
-                if (title)
-                    document.querySelectorAll("#pn-splash .pn-rise-title").forEach(function (line) {
-                        line.textContent = title
-                    })
                 var host = new URL(sessionStorage.getItem("idp_url") || localStorage.getItem("idp_url")).host
                 document.querySelectorAll("#pn-splash .pn-rise-host").forEach(function (line) {
                     line.textContent = host

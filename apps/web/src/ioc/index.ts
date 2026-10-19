@@ -13,6 +13,9 @@ import { MlsAdapter } from "@pinai/mls/wasm.adapter"
 import { NobleRecoveryAdapter } from "@pinai/crypto/recovery.adapter"
 import { JwksCacheAdapter } from "@/adapters/jwks/jwks-cache.adapter"
 import { UserSettingsLocalStorageAdapter } from "@/adapters/user-settings/user-settings-local-storage.adapter"
+import { RecentInstancesLocalStorageAdapter } from "@/adapters/instance/recent-instances-local-storage.adapter"
+import { NotificationSoundWebAudioAdapter } from "@/adapters/sound/notification-sound-web-audio.adapter"
+import { NodeInfoApiAdapter } from "@pinai/api/instance/nodeinfo-api.adapter"
 import { SocialApiAdapter } from "@pinai/api/social/social-api.adapter"
 import { PrivacyApiAdapter } from "@pinai/api/privacy/privacy-api.adapter"
 import { DmApiAdapter } from "@pinai/api/dm/dm-api.adapter"
@@ -41,23 +44,38 @@ import type { IPresencePort } from "@pinai/domain/ports/presence.port"
 import type { ITotpPort } from "@pinai/domain/ports/totp.port"
 import type { IUserPort } from "@pinai/domain/ports/user.port"
 import type { IAccountSettingsPort, IUserSettingsStorePort } from "@pinai/domain/ports/user-settings.port"
+import type { INodeInfoPort, IRecentInstancesPort } from "@pinai/domain/ports/instance.port"
+import type { INotificationSoundPort } from "@pinai/domain/ports/notification-sound.port"
+import { appearanceHints, resolveMode } from "@pinai/domain/models/user-settings"
+import { loadUserSettingsUseCase } from "@pinai/domain/usecases/user-settings/load-user-settings.usecase"
 
 /**
  * Singleton instances.
  * Replace with tsyringe container when DI is added.
  */
 const authPort: IAuthPort = new OidcAdapter()
+const userSettingsStore: IUserSettingsStorePort = new UserSettingsLocalStorageAdapter()
 
 // The platform half of the OIDC flow. A React Native container swaps these
 // three for a deep-link navigator, secure storage and its own client id;
 // nothing in `domain/usecases/auth/` changes.
 const authSessionStore: IAuthSessionStore = new BrowserAuthSessionStore()
 const authPlatform: AuthPlatform = {
-    clientId: "web-client",
+    // This deployment's own document, published by the `oauthClientDocument` Vite plugin.
+    clientId: new URL("/oauth-client.json", window.location.origin).href,
     pkce: new WebCryptoPkceAdapter(),
     session: authSessionStore,
     navigation: new BrowserAuthNavigationAdapter(),
+    // What this page paints: the settings index.html applies, with `system` resolved the same way.
+    appearance: () => {
+        const { account, device } = loadUserSettingsUseCase(userSettingsStore)
+        const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches
+        return appearanceHints(account, resolveMode(device.mode, systemPrefersDark))
+    },
 }
+const nodeInfoPort: INodeInfoPort = new NodeInfoApiAdapter()
+const recentInstancesPort: IRecentInstancesPort = new RecentInstancesLocalStorageAdapter()
+const notificationSoundPort: INotificationSoundPort = new NotificationSoundWebAudioAdapter()
 const socialPort: ISocialPort = new SocialApiAdapter()
 const privacyPort: IPrivacyPort = new PrivacyApiAdapter()
 const dmPort: IDmPort = new DmApiAdapter()
@@ -73,7 +91,6 @@ const attachmentCryptoPort: IAttachmentCryptoPort = new WebCryptoAttachmentCrypt
 // plumbing — keeps the per-issuer JWKS and the in-memory History Archive
 // Key persistent across calls.
 const jwksCache = new JwksCacheAdapter()
-const userSettingsStore: IUserSettingsStorePort = new UserSettingsLocalStorageAdapter()
 const accountSettingsPort: IAccountSettingsPort = new UserSettingsApiAdapter()
 const historyArchivePort: IHistoryArchivePort = new HistoryArchiveApiAdapter()
 const historyArchiveCrypto = new HistoryArchiveAdapter()
@@ -162,6 +179,18 @@ export function getAuthPlatform(): AuthPlatform {
 
 export function getAuthSessionStore(): IAuthSessionStore {
     return authSessionStore
+}
+
+export function getNodeInfoPort(): INodeInfoPort {
+    return nodeInfoPort
+}
+
+export function getRecentInstancesPort(): IRecentInstancesPort {
+    return recentInstancesPort
+}
+
+export function getNotificationSoundPort(): INotificationSoundPort {
+    return notificationSoundPort
 }
 
 export function getSocialPort(): ISocialPort {

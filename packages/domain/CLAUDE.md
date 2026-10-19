@@ -26,6 +26,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `UserProfile` — sub, email, preferred_username
 - `OidcConfig` — authorization/token/userinfo endpoints
 - `AuthSession` — access token + user profile
+- `CallbackResult` — how a sign-in came back: `signed-in`, `cancelled` (the
+  IdP's "Another home", `access_denied`) or `refused` (any other `error`, its
+  code kept only when it looks like one — never the IdP's description)
 - `isTokenValid(token)` — checks the JWT `exp` claim (no signature
   verification — that is the IdP's job). Used by the route guards.
 
@@ -40,6 +43,11 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   - `IAuthSessionStore` — sync scratch space keyed by `AuthSessionKey`,
     surviving the hand-off to the IdP (`sessionStorage` on the web)
   - `IAuthNavigationPort` — callback/post-logout URLs and the hand-off
+  - `appearance()` — the `theme` and `motif` the IdP's sign-in pages should
+    paint (`appearanceHints` in `models/user-settings.ts`): this device's,
+    once someone has signed in on it (its settings copy has an `owner`),
+    else nothing and the IdP shows its own. Read where the platform keeps
+    the appearance, so each platform answers it
 
 ### ports/mls-engine.port.ts
 - `IMlsEngine` — the MLS engine as the rest of the client sees it, plus
@@ -115,16 +123,36 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   every implementation must agree byte-for-byte.
 
 ### usecases/auth/startLogin.usecase.ts
-- Generates PKCE verifier + challenge (S256) and random state/nonce via `IPkcePort`
-- Stores verifier/state/nonce/endpoints in the `IAuthSessionStore` for the round-trip
-- Hands control to IdP `/authorize` via `IAuthNavigationPort`
+- `prepareLoginUseCase` — discovery, PKCE verifier + challenge (S256) and
+  random state/nonce via `IPkcePort`, the scratch space in `IAuthSessionStore`,
+  and the platform's appearance hints; resolves to the `/authorize` URL
+  without going there, so the landing can show its hand-off first
+- `startLoginUseCase` — the same, then hands control to the IdP via
+  `IAuthNavigationPort` (the route guards' silent re-auth)
 
 ### usecases/auth/handleCallback.usecase.ts
-- Reads `code` + `state` from URL params
-- Validates `state` against the `IAuthSessionStore` (CSRF protection)
-- Calls `IAuthPort.exchangeCode` then `fetchUserInfo`
-- Clears the scratch space (keeping `post_login_redirect` for the caller),
-  returns `AuthSession`
+- Reads `code` or `error`, and `state`, from URL params
+- Validates `state` against the `IAuthSessionStore` (CSRF protection) before
+  trusting either
+- An `error` ends the flow: the scratch space is cleared but for `idp_url`
+  (the landing offers it again), and the result is `cancelled` or `refused`
+- A `code`: `IAuthPort.exchangeCode` then `fetchUserInfo`, the scratch space
+  cleared (keeping `post_login_redirect` for the caller), `signed-in`
+
+### models/instance.ts + ports/instance.port.ts + usecases/instance/
+- What the landing knows of an IdP before any sign-in. `instanceAddress`
+  turns what was typed into an origin (a bare host is `https`, a loopback
+  one `http`; a host needs a top-level name or a port); `displayAddress`
+  writes it back.
+- NodeInfo, the fediverse's self-description: `INodeInfoPort` reads
+  `/.well-known/nodeinfo` and the document it links to (2.1, else 2.0 —
+  `nodeInfoHref`); `parseNodeInfo` takes the name, the account count and
+  `openRegistrations`, and only from `software.name` = `pinai`;
+  `describeInstance` is the landing's `✓ resolved · …` line.
+  `resolve-instance.usecase.ts` chains them.
+- `IRecentInstancesPort` — the instances this device signed in to, as
+  origins; `parseRecentInstances` / `addRecentInstance` keep 3, newest first,
+  once each. `rememberInstanceUseCase` runs when a callback succeeds.
 
 ### usecases/auth/logout.usecase.ts
 - Clears the local session via an injected `clearSession` callback
@@ -203,6 +231,10 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   incoming-message sound: silent in DND, in a muted conversation, or from
   someone blocked. A muted conversation also gets no server-strip bubble, but
   keeps its unread pill in the list.
+- `pingsAgain(lastPingAt, now)` — pings within `PING_SPACING_MS` (420 ms) of the
+  last ring once, so a burst (a reconnect catching up) is one sound.
+- `ports/notification-sound.port.ts` — `INotificationSoundPort.playDmReceived()`:
+  the sound itself, Tō‘ere, is each platform's (`apps/web/src/adapters/sound/`).
 
 ### models/block.ts + ports/privacy.port.ts + usecases/privacy/
 - The IdP enforces blocks and the contact setting; the client only keeps

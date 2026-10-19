@@ -683,7 +683,7 @@
 }
 
 /* Boot splash — the Rise loader, full screen, or in the panel of an <AuthShell>
-   for the pages that open on one. Static markup in index.html, so it is the
+   for the landing, which opens on one. Static markup in index.html, so it is the
    first paint of every page load, the IdP redirect included; React only
    holds and releases it (presentation/_libs/splash-screen.ts).
    --pn-splash-at is a negative delay that resumes the loop where the previous
@@ -722,6 +722,27 @@
 :root[data-splash="shell"] .pn-splash-app,
 :root:not([data-splash="shell"]) .pn-splash-shell {
     display: none;
+}
+
+/* The landing's hand-off to an instance: a bar grows from the mark to the
+   instance, the caption rises under it. */
+.pn-hand-grow {
+    animation: pn-hand-grow 1.15s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes pn-hand-grow {
+    from { transform: scaleX(0); }
+}
+.pn-auth-rise {
+    animation: pn-auth-rise 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes pn-auth-rise {
+    from { opacity: 0; transform: translateY(10px); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .pn-hand-grow,
+    .pn-auth-rise {
+        animation: none;
+    }
 }
 
 @keyframes pn-bounce {
