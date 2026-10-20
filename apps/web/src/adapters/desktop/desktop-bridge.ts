@@ -2,8 +2,9 @@ import type { HeldRefreshToken } from "@pinai/domain/ports/auth.port"
 import type { Renewal } from "@pinai/domain/usecases/auth/renew-session.usecase"
 
 /**
- * What the desktop app's preload exposes as `window.pinaiDesktop` — the main process's half of
- * the renderer. Kept in step with `apps/desktop/src/preload/index.ts` by hand.
+ * What the desktop app's preload exposes as `window.pinaiDesktop` to the app's own pages — the
+ * main process's half of the renderer. Kept in step with `apps/desktop/src/preload/index.ts` by
+ * hand.
  */
 export interface DesktopBridge {
     session: {
@@ -14,8 +15,11 @@ export interface DesktopBridge {
         /** Revokes the refresh token at the IdP, then forgets it. */
         clear(): Promise<void>
     }
-    /** Opens an `http(s)` URL in the system browser. */
-    openExternal(url: string): Promise<void>
+    /**
+     * Shows the IdP's sign-in pages in this window, as the web app does in its tab; the IdP's
+     * answer comes back to `/callback`.
+     */
+    signIn(url: string): Promise<void>
 }
 
 export function desktopBridge(): DesktopBridge {

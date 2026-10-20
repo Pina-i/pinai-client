@@ -4,13 +4,13 @@ import type { DesktopBridge } from "./desktop-bridge"
 
 /** Where every IdP serves the desktop app's client document: its `client_id` there. */
 export const DESKTOP_DOCUMENT_PATH = "/clients/desktop.json"
-/** The callback every IdP's desktop document lists: the main process hands it to this window. */
+/** The callback every IdP's desktop document lists: the main process catches it in the window. */
 export const DESKTOP_REDIRECT_URI = "io.github.pina-i:/callback"
 
 /**
- * {@link IAuthNavigationPort} for the desktop: the IdP's pages open in the system browser (RFC
- * 8252), which comes back through the `io.github.pina-i:` deep link; the app's own pages load in
- * its window.
+ * {@link IAuthNavigationPort} for the desktop: the IdP's pages load in the app's own window, as
+ * they do in the web app's tab. The main process lets the window go to that IdP only, and turns
+ * its answer to the desktop callback into the app's `/callback`.
  */
 export class DesktopAuthNavigationAdapter implements IAuthNavigationPort {
     private readonly bridge: DesktopBridge
@@ -33,6 +33,6 @@ export class DesktopAuthNavigationAdapter implements IAuthNavigationPort {
 
     navigateTo(url: string): void {
         if (new URL(url, window.location.href).origin === window.location.origin) window.location.href = url
-        else void this.bridge.openExternal(url)
+        else void this.bridge.signIn(url)
     }
 }

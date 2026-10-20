@@ -86,9 +86,9 @@ export default defineConfig([
     // whole project, including `src`. Nothing under `src` ships to Node: it
     // runs in a browser today and on Hermes tomorrow, where none of these
     // exist. The type checker can no longer say so, so the linter does.
-    // Electron's main process is the exception: it is Node.
+    // Electron's main process and preload are the exception: Node, and Electron's own `process`.
     files: ['apps/*/src/**/*.{ts,tsx}'],
-    ignores: ['apps/desktop/src/main/**'],
+    ignores: ['apps/desktop/src/main/**', 'apps/desktop/src/preload/**'],
     rules: {
       'no-restricted-globals': [
         'error',

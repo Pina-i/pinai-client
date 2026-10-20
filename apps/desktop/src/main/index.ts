@@ -4,45 +4,22 @@ import { OidcAdapter } from "@pinai/api/auth/oidc.adapter"
 import type { HeldRefreshToken } from "@pinai/domain/ports/auth.port"
 import { app, BrowserWindow, type IpcMainInvokeEvent, ipcMain, shell } from "electron"
 
-import { SCHEME, callbackPath, linkIn } from "./deep-link"
+import { route } from "./navigation"
 import { KeychainSessionTokenStore, MainSession, keychain } from "./session"
 
-// One app at a time: a deep link launches a second instance, which hands it to the first and quits.
+// One app at a time: a second launch focuses the first.
 if (!app.requestSingleInstanceLock()) app.quit()
 else start()
 
 function start(): void {
     let window: BrowserWindow | null = null
-    // A link that arrived before the window: Windows and Linux pass it to a cold start's argv.
-    let pending = linkIn(process.argv)
+    // The IdP whose pages the window shows, from the sign-in the app started until its answer.
+    let signingInTo: string | null = null
 
-    const deliver = (link: string) => {
-        const to = callbackPath(link)
-        if (!to) return
-        if (!window) {
-            pending = link
-            return
-        }
-        void window.loadURL(new URL(to, rendererUrl()).href)
-        if (window.isMinimized()) window.restore()
-        window.focus()
-    }
-
-    app.on("second-instance", (_event, argv) => {
-        const link = linkIn(argv)
-        if (link) deliver(link)
-        else window?.focus()
+    app.on("second-instance", () => {
+        if (window?.isMinimized()) window.restore()
+        window?.focus()
     })
-    // macOS hands the link to the running app, before `ready` on a cold start.
-    app.on("open-url", (event, link) => {
-        event.preventDefault()
-        deliver(link)
-    })
-    // Linux in development is registered by `scripts/register-scheme.mjs`; a packaged app's
-    // installer declares the scheme.
-    if (process.defaultApp && process.platform !== "linux") {
-        app.setAsDefaultProtocolClient(SCHEME, process.execPath, [path.resolve(process.argv[1])])
-    }
 
     void app.whenReady().then(() => {
         const session = new MainSession(
@@ -52,18 +29,23 @@ function start(): void {
         handle("session:hold", (held: HeldRefreshToken) => session.hold(checked(held)))
         handle("session:renew", () => session.renew())
         handle("session:sign-out", () => session.signOut())
-        handle("open-external", (url: string) => {
-            if (typeof url === "string" && /^https?:\/\//.test(url)) return shell.openExternal(url)
+        // The IdP's sign-in pages, in this window, as the web app shows them in its tab.
+        handle("sign-in", (url: string) => {
+            if (typeof url !== "string" || !/^https?:\/\//.test(url)) throw new Error("Not a sign-in page")
+            signingInTo = new URL(url).origin
+            return window?.loadURL(url)
         })
 
-        window = createWindow()
+        window = createWindow((to) => {
+            const next = route(to, rendererUrl(), signingInTo)
+            if (next.kind === "callback") {
+                signingInTo = null
+                void window?.loadURL(new URL(next.path, rendererUrl()).href)
+            }
+            return next.kind === "allow"
+        })
         window.on("closed", () => {
             window = null
-        })
-        if (pending) deliver(pending)
-        pending = null
-        app.on("activate", () => {
-            if (BrowserWindow.getAllWindows().length === 0) window = createWindow()
         })
     })
 
@@ -79,12 +61,23 @@ function rendererUrl(): string {
     return url
 }
 
-function createWindow(): BrowserWindow {
+/** The window, held to `navigable`: what it says no to doesn't load. */
+function createWindow(navigable: (url: string) => boolean): BrowserWindow {
     const window = new BrowserWindow({
         width: 1280,
         height: 800,
-        webPreferences: { preload: path.join(import.meta.dirname, "../preload/index.cjs") },
+        webPreferences: {
+            preload: path.join(import.meta.dirname, "../preload/index.cjs"),
+            // The preload exposes the bridge to the app's own pages only, never the IdP's.
+            additionalArguments: [`--pinai-app-origin=${new URL(rendererUrl()).origin}`],
+        },
     })
+    const guard = (event: Electron.Event, url: string) => {
+        if (!navigable(url)) event.preventDefault()
+    }
+    // A link, a form, a script — and the IdP's redirect to the desktop callback.
+    window.webContents.on("will-navigate", guard)
+    window.webContents.on("will-redirect", guard)
     window.webContents.setWindowOpenHandler(({ url }) => {
         if (/^https?:\/\//.test(url)) void shell.openExternal(url)
         return { action: "deny" }

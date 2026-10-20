@@ -103,10 +103,6 @@ export function useLandingPageViewModel() {
         if (handoff?.url && handoff.barDone) getAuthPlatform().navigation.navigateTo(handoff.url)
     }, [handoff])
 
-    function openAgain() {
-        if (handoff?.url) getAuthPlatform().navigation.navigateTo(handoff.url)
-    }
-
     return {
         input,
         changeAddress,
@@ -118,12 +114,8 @@ export function useLandingPageViewModel() {
         handoff: handoff && {
             name: handoff.name,
             endpoint: handoff.url && endpointOf(handoff.url),
-            // The desktop app hands the request to the system browser and stays, until the deep link brings it back.
-            inBrowser: !getAuthPlatform().browserSession && handoff.url !== null && handoff.barDone,
         },
         barDone,
-        openAgain,
-        cancelHandoff: () => setHandoff(null),
     }
 }
 

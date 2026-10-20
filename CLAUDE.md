@@ -117,9 +117,9 @@ pinai-client/                 # pnpm workspace root
     │                         #   one at a time. Its renderer is built with
     │                         #   `import.meta.env.PINAI_DESKTOP`, which hides the
     │                         #   landing's "Get the client" and swaps in the desktop's
-    │                         #   sign-in (see its CLAUDE.md): the system browser, the
-    │                         #   `io.github.pina-i:/callback` deep link, the refresh
-    │                         #   token sealed in the OS keychain by the main process.
+    │                         #   sign-in (see its CLAUDE.md): the IdP's pages in the
+    │                         #   app's own window, the refresh token sealed in the OS
+    │                         #   keychain by the main process.
     │                         #   No packaged build yet: the renderer needs a
     │                         #   privileged scheme of its own first.
     └── web/                  # The browser client (@pinai/web)
@@ -264,13 +264,13 @@ for a known IdP.
    password, so a new client's first sign-in always asks it
 9. Logout drops the refresh token, then sends `client_id` with `post_logout_redirect_uri`, which
    the document lists; the IdP ends the session, its refresh tokens with it
-10. **The desktop app** signs in through the system browser instead (RFC 8252): its client is
-   the IdP's own `/clients/desktop.json`, it asks `offline_access` (an app session of its own)
-   and `prompt=login` (the browser may hold another account), and the IdP's redirect comes back
-   through `io.github.pina-i:/callback`, which the main process loads in the window. The refresh
-   token is handed to the main process once, sealed with the OS keychain, renewed there; a
-   restart picks the session up without the browser. Signing out revokes the token (`/revoke`)
-   and leaves the browser signed in. `AuthPlatform.browserSession` is what tells the two apart
+10. **The desktop app** shows the IdP's pages in its own window, as the web app does in its tab:
+   its client is the IdP's own `/clients/desktop.json`, it asks `offline_access` (an app session
+   of its own) and `prompt=login` (the window keeps the IdP's cookie), and the main process turns
+   the IdP's answer to `io.github.pina-i:/callback` into the app's `/callback`. The refresh token
+   is handed to the main process once, sealed with the OS keychain, renewed there; a restart
+   picks the session up. Signing out revokes the token (`/revoke`).
+   `AuthPlatform.browserSession` is what tells the two apart
 11. Once the account's device storage is open and its E2EE device exists, `requireSession` names
    the device to the IdP (`PUT /api/sessions/current/device`, once per page load —
    `presentation/_libs/session-device.ts`): revoking the device in Settings → Devices then signs

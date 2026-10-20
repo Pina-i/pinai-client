@@ -67,8 +67,8 @@ import { loadUserSettingsUseCase } from "@pinai/domain/usecases/user-settings/lo
 const authPort: IAuthPort = new OidcAdapter()
 const userSettingsStore: IUserSettingsStorePort = new UserSettingsLocalStorageAdapter()
 
-// The platform half of the OIDC flow. The desktop app swaps in its client, the system browser and
-// the main process's keychain; a React Native container would swap the same; nothing in
+// The platform half of the OIDC flow. The desktop app swaps in its client, its window and the main
+// process's keychain; a React Native container would swap the same; nothing in
 // `domain/usecases/auth/` changes.
 const desktop = import.meta.env.PINAI_DESKTOP === true ? desktopBridge() : null
 const authSessionStore: IAuthSessionStore = new BrowserAuthSessionStore()

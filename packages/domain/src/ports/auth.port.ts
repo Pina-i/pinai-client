@@ -142,9 +142,8 @@ export interface AuthPlatform {
      * The session lives in this browser, behind the IdP's cookie: `/authorize` signs in again
      * silently, and the IdP's `/logout` ends it. False for an app that holds a session of its own
      * through its refresh token — the desktop: it asks to stay signed in (`offline_access`, an
-     * app session of its own), signs in through the system browser asking the password each time
-     * (`prompt=login`), so the user can pick another account than the browser's, and signs out by
-     * revoking its token.
+     * app session of its own), asks the password each time (`prompt=login`) so the user can pick
+     * another account, and signs out by revoking its token.
      */
     browserSession: boolean
     pkce: IPkcePort

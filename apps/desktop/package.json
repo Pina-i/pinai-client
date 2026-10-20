@@ -6,7 +6,7 @@
   "main": "./out/main/index.js",
   "scripts": {
     "wasm": "node ../../scripts/build-wasm.mjs",
-    "dev": "pnpm run wasm && install-electron && node scripts/register-scheme.mjs && electron-vite dev",
+    "dev": "pnpm run wasm && install-electron && electron-vite dev",
     "typecheck": "tsc -b",
     "test": "vitest run"
   },

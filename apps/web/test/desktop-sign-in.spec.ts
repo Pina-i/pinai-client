@@ -1,7 +1,7 @@
 /**
- * Signing in from the desktop app: the system browser, the IdP's own desktop client, the password
- * asked each time, the refresh token handed to the main process, and the session it keeps picked
- * up at the next launch.
+ * Signing in from the desktop app: the IdP's pages in the app's window, the IdP's own desktop
+ * client, the password asked each time, the refresh token handed to the main process, and the
+ * session it keeps picked up at the next launch.
  */
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -31,7 +31,7 @@ function bridge() {
             renew: vi.fn(async () => ({ kind: "ended" as const })),
             clear: vi.fn(async () => {}),
         },
-        openExternal: vi.fn(async () => {}),
+        signIn: vi.fn(async () => {}),
     }
     return { bridge: value, handedOver }
 }
@@ -85,7 +85,7 @@ afterEach(() => {
 })
 
 describe("a desktop sign-in", () => {
-    it("asks the IdP's own desktop client in, to stay signed in, with the password asked again, back through the deep link", async () => {
+    it("asks the IdP's own desktop client in, to stay signed in, with the password asked again, back to the desktop callback", async () => {
         const { platform } = desktop()
         const url = new URL(await prepareLoginUseCase(IDP, authPort, platform))
 
@@ -111,19 +111,19 @@ describe("a desktop sign-in", () => {
         expect(platform.tokens.take(), "the page keeps no copy").toBeNull()
     })
 
-    it("never opens the browser on its own when signed out: the landing offers the IdP again", async () => {
+    it("never signs in behind the user's back when signed out: the landing offers the IdP again", async () => {
         const { platform, bridge: b } = desktop()
 
         await expect(ensureAuthenticatedUseCase(false, IDP, authPort, platform)).rejects.toThrow()
-        expect(b.openExternal).not.toHaveBeenCalled()
+        expect(b.signIn).not.toHaveBeenCalled()
     })
 
-    it("opens the IdP's pages in the system browser", () => {
+    it("shows the IdP's pages in the app's own window, through the main process", () => {
         const { platform, bridge: b } = desktop()
 
         platform.navigation.navigateTo(`${IDP}/authorize?client_id=x`)
 
-        expect(b.openExternal).toHaveBeenCalledWith(`${IDP}/authorize?client_id=x`)
+        expect(b.signIn).toHaveBeenCalledWith(`${IDP}/authorize?client_id=x`)
     })
 
     it("revokes the refresh token through the main process when it is cleared", () => {
