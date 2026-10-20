@@ -70,6 +70,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     const [systemPrefersDark, setSystemPrefersDark] = useState(() => window.matchMedia(DARK_QUERY).matches)
 
     const accessToken = useAppStore((s) => s.accessToken)
+    const signedIn = useAppStore((s) => s.accessToken !== null)
     const idpUrl = useAppStore((s) => s.idpUrl)
     const actorUri = useAppStore((s) => s.user?.actor_uri ?? null)
 
@@ -116,13 +117,14 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     // Every page load signs in again (tokens live in memory), so this runs once
     // per load, with the settings `/userinfo` just delivered.
     useEffect(() => {
+        const accessToken = useAppStore.getState().accessToken
         if (!accessToken || !idpUrl || !actorUri) return
         const remote = useAppStore.getState().user?.settings
         syncAccountSettingsOnSignInUseCase(idpUrl, accessToken, remote, actorUri, getAccountSettingsPort(), getUserSettingsStore())
             .then(showAccountSettings)
             // Unreachable IdP: keep painting this device's copy; an unsynced change retries next sign-in.
             .catch(() => {})
-    }, [accessToken, idpUrl, actorUri, showAccountSettings])
+    }, [signedIn, idpUrl, actorUri, showAccountSettings])
 
     const updateAccount = useCallback(
         (change: AccountSettingsChange) => {

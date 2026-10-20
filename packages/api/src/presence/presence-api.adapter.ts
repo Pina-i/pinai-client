@@ -1,4 +1,5 @@
-import ky, { HTTPError } from "ky"
+import { HTTPError } from "ky"
+import { idp } from "../http"
 import type { PresenceSnapshotEntry } from "@pinai/domain/models/presence"
 import type { IPresencePort } from "@pinai/domain/ports/presence.port"
 
@@ -19,7 +20,7 @@ export class PresenceApiAdapter implements IPresencePort {
         for (const uri of actorUris) searchParams.append("actors[]", uri)
 
         try {
-            const res = await ky
+            const res = await idp
                 .get(url, {
                     headers: { Authorization: `Bearer ${accessToken}` },
                     searchParams,

@@ -2,8 +2,9 @@
 
 The IdP's HTTP and WebSocket surface, as adapters implementing domain ports.
 
-Fourteen files, one per resource: OIDC, NodeInfo (what an instance says
-about itself before any sign-in), DMs, groups, social, privacy (blocks and
+Fifteen files, one per resource: OIDC, NodeInfo (what an instance says
+about itself before any sign-in), the caller's sessions (which device each
+signed in, signing out the others), DMs, groups, social, privacy (blocks and
 the contact setting), presence, TOTP, user, user settings, device directory,
 the E2EE key directory, the history archive, and the WebSocket connection.
 `ky` for REST, `XMLHttpRequest` in `dm-api` where upload progress is needed,
@@ -20,6 +21,14 @@ domain as `IKeyDirectoryPort`, which is what keeps the two independent.
 
 ## Conventions
 
+- `OidcAdapter` also revokes (`/revoke`, RFC 7009) for the desktop's sign-out; it runs in
+  Electron's main process as well as in pages, so it stays free of browser globals.
+- Every bearer route goes through `idp` (`http.ts`), a `ky` instance whose `401` hook renews the
+  session (`retryUnauthorizedWith`, wired by the app) and sends the request once more with the
+  new token. OIDC and NodeInfo use plain `ky`: a refused `/token` must never renew. The DM
+  upload's `XMLHttpRequest` isn't covered; the timed renewal keeps its token fresh.
+- The WebSocket reads the access token at each attempt (`connect(idpUrl, accessToken)`), and
+  reports a close with `1008` — the IdP ended its session — instead of reconnecting.
 - Bytes in, bytes out. Base64 is the wire format for binary fields; decoding
   happens here, via `@pinai/domain/lib/bytes`, so callers never see it.
 - Errors are unwrapped from `HTTPError` into plain `Error` with the server's

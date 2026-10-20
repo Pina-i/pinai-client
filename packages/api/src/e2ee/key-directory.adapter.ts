@@ -7,7 +7,7 @@
  * shape).
  */
 
-import ky from "ky"
+import { idp } from "../http"
 import { idpErrorFrom } from "../idp-error"
 
 import type {
@@ -44,7 +44,7 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
     ): Promise<RegisterDeviceResponse> {
         const url = `${trimSlash(idpUrl)}/api/keys/devices`
         const body = await guarded(() =>
-            ky.post(url, {
+            idp.post(url, {
                 headers: authHeader(accessToken),
                 json: { device_id: deviceId, drk_public_key: b64(drkPublicKey) },
             }).json<{
@@ -81,7 +81,7 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
     ): Promise<{ uploaded: number; available_after: number }> {
         const url = `${trimSlash(idpUrl)}/api/keys/packages`
         return guarded(() =>
-            ky
+            idp
                 .post(url, {
                     headers: authHeader(accessToken),
                     json: {
@@ -106,7 +106,7 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
         const body: Record<string, unknown> = { actor_uri: actorUri }
         if (deviceId) body.device_id = deviceId
         const json = await guarded(() =>
-            ky
+            idp
                 .post(url, {
                     headers: authHeader(accessToken),
                     json: body,
@@ -135,7 +135,7 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
     ): Promise<ClaimedKeyPackage[]> {
         const url = `${trimSlash(idpUrl)}/api/keys/packages/claim/devices`
         const json = await guarded(() =>
-            ky
+            idp
                 .post(url, {
                     headers: authHeader(accessToken),
                     json: { actor_uri: actorUri },
@@ -165,7 +165,7 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
     ): Promise<KeyPackageStatusResponse> {
         const url = `${trimSlash(idpUrl)}/api/keys/packages/status`
         return guarded(() =>
-            ky.get(url, { headers: authHeader(accessToken) }).json<KeyPackageStatusResponse>(),
+            idp.get(url, { headers: authHeader(accessToken) }).json<KeyPackageStatusResponse>(),
         )
     }
 
@@ -180,7 +180,7 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
             conversationId,
         )}/commits`
         const json = await guarded(() =>
-            ky
+            idp
                 .post(url, {
                     headers: authHeader(accessToken),
                     json: { epoch, commit_blob: b64(commitBlob) },
@@ -200,7 +200,7 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
             conversationId,
         )}/commits`
         const json = await guarded(() =>
-            ky
+            idp
                 .get(url, {
                     headers: authHeader(accessToken),
                     searchParams: { since: sinceEpoch },
@@ -217,7 +217,7 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
     ): Promise<WelcomeView[]> {
         const url = `${trimSlash(idpUrl)}/api/mls/welcomes`
         const json = await guarded(() =>
-            ky
+            idp
                 .get(url, {
                     headers: authHeader(accessToken),
                     searchParams: { device_id: deviceId },
@@ -245,7 +245,7 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
     ): Promise<{ id: string }> {
         const url = `${trimSlash(idpUrl)}/api/mls/welcomes`
         return guarded(() =>
-            ky
+            idp
                 .post(url, {
                     headers: authHeader(accessToken),
                     json: {

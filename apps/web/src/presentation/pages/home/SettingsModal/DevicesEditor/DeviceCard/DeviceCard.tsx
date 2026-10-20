@@ -1,5 +1,7 @@
 import { Laptop, Smartphone, Tablet, HelpCircle } from "lucide-react"
 
+import { deviceStatus } from "@pinai/domain/models/device"
+
 import type { DeviceRow } from "@/presentation/hooks/useDevices"
 import { deviceFingerprint } from "@/presentation/_libs/device-fingerprint"
 import { formatLastSeen } from "@/presentation/_libs/format-last-seen"
@@ -37,14 +39,26 @@ function pairedDateLabel(iso: string): string {
     })
 }
 
+function statusLabel(device: DeviceRow): string {
+    // This device is in use as the list is read, whatever its session's last renewal says.
+    if (device.is_current) return "Active now"
+    const status = deviceStatus(device)
+    switch (status.kind) {
+        case "revoked":
+            return `Revoked ${pairedDateLabel(status.at)}`
+        case "signed-in":
+            return status.lastActiveAt ? `Active ${formatLastSeen(status.lastActiveAt)}` : "Signed in"
+        case "signed-out":
+            return "Signed out"
+    }
+}
+
 export function DeviceCard({ device, onRevoke, isRevoking }: DeviceCardProps) {
     const isRevoked = device.revoked_at !== null
     const isCurrent = device.is_current
 
-    const lastSeenLabel = isRevoked
-        ? `Signed out ${pairedDateLabel(device.revoked_at!)}`
-        : formatLastSeen(device.last_seen_at)
-    const showLivePulse = !isRevoked && lastSeenLabel === "just now"
+    const lastSeenLabel = statusLabel(device)
+    const showLivePulse = lastSeenLabel === "Active now" || lastSeenLabel === "Active just now"
 
     return (
         <div
@@ -77,7 +91,7 @@ export function DeviceCard({ device, onRevoke, isRevoking }: DeviceCardProps) {
                         )}
                         {isRevoked && (
                             <span className="rounded-full bg-surf3 px-[7px] py-px font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground">
-                                signed out
+                                revoked
                             </span>
                         )}
                     </div>

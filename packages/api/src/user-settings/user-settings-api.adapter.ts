@@ -1,4 +1,5 @@
-import ky, { HTTPError } from "ky"
+import { HTTPError } from "ky"
+import { idp } from "../http"
 import type { AccountSettings } from "@pinai/domain/models/user-settings"
 import type { IAccountSettingsPort } from "@pinai/domain/ports/user-settings.port"
 
@@ -7,7 +8,7 @@ export class UserSettingsApiAdapter implements IAccountSettingsPort {
     async update(idpUrl: string, accessToken: string, sections: Partial<AccountSettings>): Promise<unknown> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/settings`
         try {
-            return await ky.patch(url, {
+            return await idp.patch(url, {
                 headers: { Authorization: `Bearer ${accessToken}` },
                 json: sections,
             }).json<unknown>()

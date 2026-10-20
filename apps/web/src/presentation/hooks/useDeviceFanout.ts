@@ -18,7 +18,7 @@ export function useDeviceFanout(): {
     onDeviceJoined: (e: DeviceJoinedPayload) => void
 } {
     const idpUrl = useAppStore((s) => s.idpUrl)
-    const accessToken = useAppStore((s) => s.accessToken)
+    const signedIn = useAppStore((s) => s.accessToken !== null)
     const localDmConvos = useAppStore((s) => s.localDmConvos)
     const queryClient = useQueryClient()
 
@@ -28,10 +28,10 @@ export function useDeviceFanout(): {
     const { data: devices } = useQuery({
         queryKey: devicesQueryKey(idpUrl ?? ""),
         queryFn: async () => {
-            const res = await getDeviceDirectoryPort().listDevices(idpUrl!, accessToken!)
+            const res = await getDeviceDirectoryPort().listDevices(idpUrl!, useAppStore.getState().accessToken!)
             return res.devices
         },
-        enabled: !!idpUrl && !!accessToken,
+        enabled: !!idpUrl && signedIn,
     })
 
     // The ids alone: the list's rows change on every typing-status flip.
@@ -41,6 +41,7 @@ export function useDeviceFanout(): {
     useEffect(() => getE2eePort().onGroupHeld(() => setGroupsHeld((n) => n + 1)), [])
 
     useEffect(() => {
+        const accessToken = useAppStore.getState().accessToken
         if (!devices || !idpUrl || !accessToken || !conversationIds) return
         const e2ee = getE2eePort()
         let cancelled = false
@@ -63,7 +64,7 @@ export function useDeviceFanout(): {
         return () => {
             cancelled = true
         }
-    }, [devices, idpUrl, accessToken, conversationIds, groupsHeld])
+    }, [devices, idpUrl, signedIn, conversationIds, groupsHeld])
 
     const onDeviceJoined = useCallback(() => {
         if (!idpUrl) return

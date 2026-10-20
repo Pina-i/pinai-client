@@ -296,8 +296,11 @@ export interface IE2eePort {
         plaintext: Uint8Array,
     ): void
 
-    /** History-archive upload lifecycle — the auth layout starts/stops these. */
-    startFlushing(idpUrl: string, accessToken: string): void
+    /**
+     * History-archive upload lifecycle — the auth layout starts/stops these. The access token is
+     * read at each upload, so the loop outlives renewals.
+     */
+    startFlushing(idpUrl: string, accessToken: () => string | null): void
     stopFlushing(): void
 
     /**

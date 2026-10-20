@@ -1,4 +1,4 @@
-import ky from "ky"
+import { idp } from "../http"
 import { idpErrorFrom } from "../idp-error"
 import type { GroupMember, GroupRole, GroupView } from "@pinai/domain/models/group"
 import type { DirectMessage } from "@pinai/domain/models/dm"
@@ -14,7 +14,7 @@ export class GroupApiAdapter implements IGroupPort {
     ): Promise<GroupView> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/groups`
         try {
-            return await ky
+            return await idp
                 .post(url, {
                     headers: { Authorization: `Bearer ${accessToken}` },
                     json: { name, member_actor_uris: memberActorUris },
@@ -28,7 +28,7 @@ export class GroupApiAdapter implements IGroupPort {
     async listMembers(idpUrl: string, accessToken: string, conversationId: string): Promise<GroupMember[]> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/groups/${conversationId}/members`
         try {
-            return await ky.get(url, { headers: { Authorization: `Bearer ${accessToken}` } }).json<GroupMember[]>()
+            return await idp.get(url, { headers: { Authorization: `Bearer ${accessToken}` } }).json<GroupMember[]>()
         } catch (error) {
             throw await idpErrorFrom(error, "Failed to load members")
         }
@@ -42,7 +42,7 @@ export class GroupApiAdapter implements IGroupPort {
     ): Promise<GroupMember> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/groups/${conversationId}/members`
         try {
-            return await ky
+            return await idp
                 .post(url, {
                     headers: { Authorization: `Bearer ${accessToken}` },
                     json: { actor_uri: actorUri },
@@ -61,7 +61,7 @@ export class GroupApiAdapter implements IGroupPort {
     ): Promise<void> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/groups/${conversationId}/members/${encodeURIComponent(actorUri)}`
         try {
-            await ky.delete(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+            await idp.delete(url, { headers: { Authorization: `Bearer ${accessToken}` } })
         } catch (error) {
             throw await idpErrorFrom(error, "Failed to remove member")
         }
@@ -70,7 +70,7 @@ export class GroupApiAdapter implements IGroupPort {
     async dismissGroup(idpUrl: string, accessToken: string, conversationId: string): Promise<void> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/groups/${conversationId}`
         try {
-            await ky.delete(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+            await idp.delete(url, { headers: { Authorization: `Bearer ${accessToken}` } })
         } catch (error) {
             throw await idpErrorFrom(error, "Failed to remove the group from the list")
         }
@@ -84,7 +84,7 @@ export class GroupApiAdapter implements IGroupPort {
     ): Promise<GroupView> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/groups/${conversationId}`
         try {
-            return await ky
+            return await idp
                 .patch(url, {
                     headers: { Authorization: `Bearer ${accessToken}` },
                     json: { name },
@@ -104,7 +104,7 @@ export class GroupApiAdapter implements IGroupPort {
     ): Promise<GroupMember> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/groups/${conversationId}/members/${encodeURIComponent(actorUri)}/role`
         try {
-            return await ky
+            return await idp
                 .post(url, {
                     headers: { Authorization: `Bearer ${accessToken}` },
                     json: { role },
@@ -128,7 +128,7 @@ export class GroupApiAdapter implements IGroupPort {
         if (replyToId) json.reply_to_id = replyToId
         if (attachmentIds && attachmentIds.length > 0) json.attachment_ids = attachmentIds
         try {
-            return await ky
+            return await idp
                 .post(url, { headers: { Authorization: `Bearer ${accessToken}` }, json })
                 .json<DirectMessage>()
         } catch (error) {

@@ -1,4 +1,4 @@
-import type { OidcConfig, UserProfile } from "../models/auth"
+import type { IssuedTokens, OidcConfig, UserProfile } from "../models/auth"
 import type { AppearanceHints } from "../models/user-settings"
 
 export const AUTH_PORT = "AUTH_PORT"
@@ -7,14 +7,24 @@ export interface IAuthPort {
     /** Fetch OIDC discovery document from the IdP. */
     discoverConfig(idpUrl: string): Promise<OidcConfig>
 
-    /** Exchange an authorization code + PKCE verifier for an access token. */
+    /** Exchange an authorization code + PKCE verifier for the session's tokens. */
     exchangeCode(params: {
         tokenEndpoint: string
         code: string
         codeVerifier: string
         redirectUri: string
         clientId: string
-    }): Promise<string>
+    }): Promise<IssuedTokens>
+
+    /**
+     * Trade the refresh token for the next pair (RFC 6749 § 6). `null` when the IdP refused it:
+     * the session is over. Rejects when the IdP couldn't be reached or failed — the token is then
+     * still good to present again, within the minute the IdP allows for a lost answer.
+     */
+    refresh(params: { tokenEndpoint: string; clientId: string; refreshToken: string }): Promise<IssuedTokens | null>
+
+    /** Revoke the refresh token, and its session with it (RFC 7009). */
+    revoke(params: { revocationEndpoint: string; clientId: string; refreshToken: string }): Promise<void>
 
     /** Fetch the authenticated user's profile using an access token. */
     fetchUserInfo(userinfoEndpoint: string, accessToken: string): Promise<UserProfile>
@@ -45,6 +55,8 @@ export type AuthSessionKey =
     | "idp_url"
     | "token_endpoint"
     | "userinfo_endpoint"
+    | "revocation_endpoint"
+    | "client_id"
 
 export const AUTH_SESSION_KEYS: readonly AuthSessionKey[] = [
     "post_login_redirect",
@@ -54,6 +66,8 @@ export const AUTH_SESSION_KEYS: readonly AuthSessionKey[] = [
     "idp_url",
     "token_endpoint",
     "userinfo_endpoint",
+    "revocation_endpoint",
+    "client_id",
 ]
 
 /**
@@ -69,6 +83,26 @@ export interface IAuthSessionStore {
     set(key: AuthSessionKey, value: string): void
     remove(key: AuthSessionKey): void
     /** Drop every {@link AuthSessionKey} — used when a flow is abandoned. */
+    clear(): void
+}
+
+/** The refresh token a session renews with: where it goes, and the client it was issued to. */
+export interface HeldRefreshToken {
+    refreshToken: string
+    tokenEndpoint: string
+    clientId: string
+    /** Where it is revoked at sign-out; `null` when the IdP names no such endpoint. */
+    revocationEndpoint: string | null
+}
+
+/**
+ * Where the refresh token waits between renewals: memory on the web, never web storage, where
+ * any script on the page could read it; the OS keychain on a device.
+ */
+export interface ISessionTokenStore {
+    set(held: HeldRefreshToken): void
+    /** The token, removed: a renewal holds it until it puts back the next one. */
+    take(): HeldRefreshToken | null
     clear(): void
 }
 
@@ -99,10 +133,23 @@ export interface IAuthNavigationPort {
  * instead of four. Each app composes its own in the IoC container.
  */
 export interface AuthPlatform {
-    /** OIDC client id this build is registered under (per platform). */
-    clientId: string
+    /**
+     * This build's client at the IdP whose `issuer` it is: the web deployment's own document, the
+     * same at every IdP; the desktop app's, which every IdP describes itself.
+     */
+    clientId(issuer: string): string
+    /**
+     * The session lives in this browser, behind the IdP's cookie: `/authorize` signs in again
+     * silently, and the IdP's `/logout` ends it. False for an app that holds a session of its own
+     * through its refresh token — the desktop: it asks to stay signed in (`offline_access`, an
+     * app session of its own), signs in through the system browser asking the password each time
+     * (`prompt=login`), so the user can pick another account than the browser's, and signs out by
+     * revoking its token.
+     */
+    browserSession: boolean
     pkce: IPkcePort
     session: IAuthSessionStore
+    tokens: ISessionTokenStore
     navigation: IAuthNavigationPort
     /** What the IdP's sign-in pages should paint, read where this platform keeps the appearance. */
     appearance(): AppearanceHints | null

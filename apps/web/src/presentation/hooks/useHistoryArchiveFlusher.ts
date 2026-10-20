@@ -10,14 +10,14 @@ import { useAppStore } from "@/store/store"
  */
 export function useHistoryArchiveFlusher(): void {
     const idpUrl = useAppStore((s) => s.idpUrl)
-    const accessToken = useAppStore((s) => s.accessToken)
+    const signedIn = useAppStore((s) => s.accessToken !== null)
 
     useEffect(() => {
-        if (!idpUrl || !accessToken) return
+        if (!idpUrl || !signedIn) return
         const port = getE2eePort()
-        port.startFlushing(idpUrl, accessToken)
+        port.startFlushing(idpUrl, () => useAppStore.getState().accessToken)
         return () => {
             port.stopFlushing()
         }
-    }, [idpUrl, accessToken])
+    }, [idpUrl, signedIn])
 }

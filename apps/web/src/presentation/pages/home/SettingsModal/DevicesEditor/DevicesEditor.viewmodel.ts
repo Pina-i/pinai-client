@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { revokeDeviceUseCase } from "@pinai/domain/usecases/e2ee/revoke-device.usecase"
-import { getDeviceDirectoryPort, getE2eePort } from "@/ioc"
+import { getDeviceDirectoryPort, getE2eePort, getSessionPort } from "@/ioc"
 import { devicesQueryKey, useDevices, type DeviceRow } from "@/presentation/hooks/useDevices"
 import { useAppStore } from "@/store/store"
 
@@ -19,6 +19,9 @@ export interface DevicesEditorViewModel {
 
     revokingDeviceId: string | null
     onRevokeDevice: (deviceId: string) => Promise<void>
+
+    isSigningOutOthers: boolean
+    onSignOutOthers: () => Promise<void>
 }
 
 /**
@@ -48,6 +51,7 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
     const [isPassphraseLoading, setIsPassphraseLoading] = useState(true)
     const [isClearingRecovery, setIsClearingRecovery] = useState(false)
     const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null)
+    const [isSigningOutOthers, setIsSigningOutOthers] = useState(false)
 
     useEffect(() => {
         let cancelled = false
@@ -97,10 +101,9 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
                     deviceId,
                     conversationIds,
                 })
-                // Step 2 — flip the server-side directory flag so the
-                // row shows as "signed out" on every device's next list
-                // refresh (and so this device's KeyPackages stop being
-                // claimed for new conversations).
+                // Step 2 — flip the server-side directory flag: the IdP
+                // signs the device out at once, and its KeyPackages stop
+                // being claimed for new conversations.
                 await getDeviceDirectoryPort().markRevoked(idpUrl, accessToken, deviceId)
                 await queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
                 toast.success("Device revoked")
@@ -113,6 +116,21 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
         [idpUrl, accessToken, ownActorUri, localDmConvos, queryClient],
     )
 
+    // Their devices stay: each may sign in again, as the same device.
+    const onSignOutOthers = useCallback(async () => {
+        if (!idpUrl || !accessToken) return
+        setIsSigningOutOthers(true)
+        try {
+            await getSessionPort().signOutOtherDevices(idpUrl, accessToken)
+            await queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
+            toast.success("Signed out of your other devices")
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Could not sign out the other devices")
+        } finally {
+            setIsSigningOutOthers(false)
+        }
+    }, [idpUrl, accessToken, queryClient])
+
     return {
         rows,
         isLoading,
@@ -123,5 +141,7 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
         onClearRecovery,
         revokingDeviceId,
         onRevokeDevice,
+        isSigningOutOthers,
+        onSignOutOthers,
     }
 }

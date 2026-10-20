@@ -1,4 +1,4 @@
-import ky from "ky"
+import { idp } from "../http"
 import type { BlockedActorEntry, ContactPolicy } from "@pinai/domain/models/block"
 import type { IPrivacyPort } from "@pinai/domain/ports/privacy.port"
 import { idpErrorFrom } from "../idp-error"
@@ -6,7 +6,7 @@ import { idpErrorFrom } from "../idp-error"
 export class PrivacyApiAdapter implements IPrivacyPort {
     async listBlocks(idpUrl: string, accessToken: string): Promise<BlockedActorEntry[]> {
         try {
-            return await ky
+            return await idp
                 .get(`${idpUrl.replace(/\/$/, "")}/api/blocks`, {
                     headers: { Authorization: `Bearer ${accessToken}` },
                 })
@@ -18,7 +18,7 @@ export class PrivacyApiAdapter implements IPrivacyPort {
 
     async block(idpUrl: string, accessToken: string, actorUri: string): Promise<void> {
         try {
-            await ky.post(`${idpUrl.replace(/\/$/, "")}/api/blocks`, {
+            await idp.post(`${idpUrl.replace(/\/$/, "")}/api/blocks`, {
                 headers: { Authorization: `Bearer ${accessToken}` },
                 json: { actor_uri: actorUri },
             })
@@ -29,7 +29,7 @@ export class PrivacyApiAdapter implements IPrivacyPort {
 
     async unblock(idpUrl: string, accessToken: string, actorUri: string): Promise<void> {
         try {
-            await ky.delete(`${idpUrl.replace(/\/$/, "")}/api/blocks/${encodeURIComponent(actorUri)}`, {
+            await idp.delete(`${idpUrl.replace(/\/$/, "")}/api/blocks/${encodeURIComponent(actorUri)}`, {
                 headers: { Authorization: `Bearer ${accessToken}` },
             })
         } catch (error) {
@@ -39,7 +39,7 @@ export class PrivacyApiAdapter implements IPrivacyPort {
 
     async setContactPolicy(idpUrl: string, accessToken: string, policy: ContactPolicy): Promise<ContactPolicy> {
         try {
-            const saved = await ky
+            const saved = await idp
                 .patch(`${idpUrl.replace(/\/$/, "")}/api/privacy`, {
                     headers: { Authorization: `Bearer ${accessToken}` },
                     json: { contact_policy: policy },

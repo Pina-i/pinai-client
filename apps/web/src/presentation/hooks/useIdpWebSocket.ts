@@ -27,6 +27,7 @@ import { profileCardQueryKey, profileCardsQueryKey } from "@/presentation/hooks/
 import { groupMembersQueryKey } from "@/presentation/pages/home/GroupMembersPanel/GroupMembersPanel.viewmodel"
 import { useAppearance } from "@/presentation/providers/AppearanceProvider/AppearanceProvider.context"
 import { useNotificationSettings } from "@/presentation/providers/AppearanceProvider/NotificationSettings.context"
+import { renewAccessToken } from "@/presentation/_libs/session-renewal"
 
 const UNDECRYPTABLE_PLACEHOLDER = "[encrypted]"
 
@@ -105,7 +106,8 @@ async function tryDecryptKind<K extends ApplicationMessage["kind"]>(
  * Dispatches incoming events to the Zustand store.
  */
 export function useIdpWebSocket(): void {
-    const accessToken = useAppStore((s) => s.accessToken)
+    // Signed in or not: a renewed token keeps the socket, and each reconnect reads the token anew.
+    const signedIn = useAppStore((s) => s.accessToken !== null)
     const idpUrl = useAppStore((s) => s.idpUrl)
     const user = useAppStore((s) => s.user)
     const setWsStatus = useAppStore((s) => s.setWsStatus)
@@ -160,15 +162,17 @@ export function useIdpWebSocket(): void {
     })
 
     useEffect(() => {
-        if (!accessToken || !idpUrl) return
+        if (!signedIn || !idpUrl) return
 
         const wsPort = getWsPort()
+        const currentToken = () => useAppStore.getState().accessToken
 
         wsPort.onStatusChange((status: WsConnectionStatus) => {
             actionsRef.current.setWsStatus(status)
         })
 
         wsPort.onEvent(async (event: WsServerEvent) => {
+            const accessToken = currentToken()
             // heartbeat_ack is purely a keep-alive — no UI side effect.
             if (event.type === "heartbeat_ack") return
 
@@ -710,12 +714,16 @@ export function useIdpWebSocket(): void {
             }
         })
 
-        // Build WebSocket URL: convert http(s) scheme to ws(s).
-        const wsUrl = `${idpUrl.replace(/^http/, "ws")}/ws?token=${accessToken}`
-        wsPort.connect(wsUrl)
+        // The IdP ended the session: a renewal says whether it is over for this page too.
+        wsPort.onSessionEnded(() => {
+            void renewAccessToken().then((token) => {
+                if (token) wsPort.connect(idpUrl, currentToken)
+            })
+        })
+        wsPort.connect(idpUrl, currentToken)
 
         return () => {
             wsPort.disconnect()
         }
-    }, [accessToken, idpUrl])
+    }, [signedIn, idpUrl])
 }

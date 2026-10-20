@@ -9,10 +9,20 @@ interface HandoffScreenProps {
     endpoint: string | null
     /** The bar reached the instance. */
     onBarDone: () => void
+    /** The desktop app sent the sign-in to the system browser, and waits for it. */
+    inBrowser: boolean
+    onOpenAgain: () => void
+    onCancel: () => void
 }
 
-/** Between Continue and the instance's own sign-in page: the browser is leaving this app. */
-export function HandoffScreen({ name, endpoint, onBarDone }: HandoffScreenProps) {
+const quiet =
+    "cursor-pointer border-none bg-transparent p-0 text-[12.5px] text-muted-foreground underline-offset-[3px] hover:text-foreground hover:underline"
+
+/**
+ * Between Continue and the instance's own sign-in page: the browser is leaving this app — or, in
+ * the desktop app, the system browser has the sign-in, and this window waits for it to come back.
+ */
+export function HandoffScreen({ name, endpoint, onBarDone, inBrowser, onOpenAgain, onCancel }: HandoffScreenProps) {
     return (
         <div className="relative flex min-h-screen overflow-hidden bg-background">
             <Backdrop />
@@ -28,11 +38,21 @@ export function HandoffScreen({ name, endpoint, onBarDone }: HandoffScreenProps)
                     </span>
                 </div>
                 <div className="pn-auth-rise [animation-delay:80ms]">
-                    <p className="eye">— Leaving {window.location.host}</p>
+                    <p className="eye">{inBrowser ? `— Signing in to ${name}` : `— Leaving ${window.location.host}`}</p>
                     <h2 className="title mt-2 text-[34px] font-normal tracking-[-0.015em] text-foreground">
-                        Taking you to {name}
+                        {inBrowser ? "Continue in your browser" : `Taking you to ${name}`}
                     </h2>
                     <p className="fact fact-plain mt-3 min-h-3">{endpoint}</p>
+                    {inBrowser && (
+                        <div className="mt-6 flex items-center justify-center gap-5">
+                            <button type="button" className={quiet} onClick={onOpenAgain}>
+                                Open it again
+                            </button>
+                            <button type="button" className={quiet} onClick={onCancel}>
+                                ← Another home
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

@@ -31,23 +31,60 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   code kept only when it looks like one — never the IdP's description)
 - `isTokenValid(token)` — checks the JWT `exp` claim (no signature
   verification — that is the IdP's job). Used by the route guards.
+- `IssuedTokens` — what `/token` answers: access + refresh token
+- `renewAfter(token)` — when to renew: 80 % of the lifetime (`exp - iat`),
+  counted from the token's arrival rather than its `iat`, so a device whose
+  clock disagrees with the IdP's still renews on time
 
 ### ports/auth.port.ts
 - `IAuthPort` — interface for OIDC operations
   - `discoverConfig(idpUrl)` — fetch `.well-known/openid-configuration`
-  - `exchangeCode(params)` — POST to `/token`, returns access token string
+  - `exchangeCode(params)` — POST to `/token`, returns `IssuedTokens`
+  - `refresh(params)` — the refresh grant: the next pair, `null` when the IdP
+    refused the token (the session is over), a rejection when it couldn't be
+    reached (the token is then still good to present again)
+  - `revoke(params)` — RFC 7009: the refresh token, and its session with it
   - `fetchUserInfo(endpoint, token)` — GET `/userinfo`, returns UserProfile
 - `AuthPlatform` — the platform half of the flow, injected as one argument:
-  - `clientId` — this build's OIDC registration (`web-client`)
+  - `clientId(issuer)` — this build's client at that IdP: the web deployment's
+    own document, or the desktop's, which every IdP serves itself
+  - `browserSession` — the session is the browser's (the IdP's cookie signs in
+    again silently, `/logout` ends it); false on the desktop, whose session is
+    its own: `offline_access` and `prompt=login` at sign-in, no silent sign-in,
+    sign-out by revoking its refresh token
   - `IPkcePort` — randomness + SHA-256
   - `IAuthSessionStore` — sync scratch space keyed by `AuthSessionKey`,
     surviving the hand-off to the IdP (`sessionStorage` on the web)
+  - `ISessionTokenStore` — where the refresh token waits (`set`, `take`,
+    `clear`): memory on the web, never web storage; the keychain on a device
   - `IAuthNavigationPort` — callback/post-logout URLs and the hand-off
   - `appearance()` — the `theme` and `motif` the IdP's sign-in pages should
     paint (`appearanceHints` in `models/user-settings.ts`): this device's,
     once someone has signed in on it (its settings copy has an `owner`),
     else nothing and the IdP shows its own. Read where the platform keeps
     the appearance, so each platform answers it
+
+### usecases/auth/resume-session.usecase.ts
+- Picks up a session the platform kept across restarts (the desktop's, in the
+  keychain): a renewal, then `/userinfo`. Nothing to pick up on the web. Run by
+  the route guard and the landing before anything else
+
+### usecases/auth/renew-session.usecase.ts
+- `renewSessionUseCase(authPort, platform)` — the page's one renewer:
+  `renewed`, `ended` (refused, or no token held) or `unreachable` (the token
+  put back)
+- One renewal at a time, whoever asks — a timer, a refused request, a closed
+  socket: the IdP rotates the token at each use, and a token presented twice
+  outside its minute of grace ends the session
+
+### ports/session.port.ts · usecases/auth/link-session-device.usecase.ts
+- `ISessionPort` — `linkDevice` names the E2EE device this session signed in,
+  so revoking the device signs it out; `signOutOtherDevices` ends every other
+  session of the account
+- `linkSessionDeviceUseCase` links only once the device exists: on a first
+  sign-in, the onboarding creates it after the route guard first runs
+- `deviceStatus` (`models/device.ts`) — revoked, signed in (active when its
+  session was last used), or signed out and free to sign in again
 
 ### ports/mls-engine.port.ts
 - `IMlsEngine` — the MLS engine as the rest of the client sees it, plus

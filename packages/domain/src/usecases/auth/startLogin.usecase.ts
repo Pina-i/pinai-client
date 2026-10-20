@@ -9,8 +9,9 @@ export async function prepareLoginUseCase(
     authPort: IAuthPort,
     platform: AuthPlatform,
 ): Promise<string> {
-    const { clientId, pkce, session, navigation } = platform
+    const { pkce, session, navigation } = platform
     const config = await authPort.discoverConfig(idpUrl)
+    const clientId = platform.clientId(config.issuer)
 
     const codeVerifier = pkce.generateCodeVerifier()
     const codeChallenge = await pkce.computeCodeChallenge(codeVerifier)
@@ -25,17 +26,22 @@ export async function prepareLoginUseCase(
     session.set("idp_url", idpUrl)
     session.set("token_endpoint", config.token_endpoint)
     session.set("userinfo_endpoint", config.userinfo_endpoint)
+    session.set("client_id", clientId)
+    if (config.revocation_endpoint) session.set("revocation_endpoint", config.revocation_endpoint)
+    else session.remove("revocation_endpoint")
 
     const params = new URLSearchParams({
         response_type: "code",
         client_id: clientId,
         redirect_uri: navigation.callbackUrl(),
-        scope: "openid profile email",
+        // An app holding its own session asks to keep it on the device: the IdP opens it an app session.
+        scope: platform.browserSession ? "openid profile email" : "openid profile email offline_access",
         state,
         code_challenge: codeChallenge,
         code_challenge_method: "S256",
         nonce,
     })
+    if (!platform.browserSession) params.set("prompt", "login")
     const appearance = platform.appearance()
     if (appearance) {
         params.set("theme", appearance.theme)

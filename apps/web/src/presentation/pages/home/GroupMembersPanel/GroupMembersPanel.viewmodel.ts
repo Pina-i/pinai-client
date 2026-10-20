@@ -14,6 +14,7 @@ export const groupMembersQueryKey = (conversationId: string) => ["group-members"
 
 export function useGroupMembersPanelViewModel(conversationId: string) {
     const accessToken = useAppStore((s) => s.accessToken)
+    const signedIn = useAppStore((s) => s.accessToken !== null)
     const idpUrl = useAppStore((s) => s.idpUrl)
     const myActorUri = useAppStore((s) => s.user?.actor_uri ?? null)
     // Local instance host, used to flag federated members in the roster.
@@ -35,6 +36,7 @@ export function useGroupMembersPanelViewModel(conversationId: string) {
 
     // Opening the group catches up on what a departure left: devices still in its MLS state.
     useEffect(() => {
+        const accessToken = useAppStore.getState().accessToken
         if (!idpUrl || !accessToken || !myActorUri) return
         reconcileGroupKeysUseCase(idpUrl, accessToken, conversationId, myActorUri, getGroupPort(), getE2eePort()).catch(
             (e) => {
@@ -42,7 +44,7 @@ export function useGroupMembersPanelViewModel(conversationId: string) {
                 console.warn("Committing departed members' devices out failed:", e)
             },
         )
-    }, [idpUrl, accessToken, conversationId, myActorUri])
+    }, [idpUrl, signedIn, conversationId, myActorUri])
 
     const admins = useMemo(() => members.filter((m) => m.role === "admin"), [members])
     const regularMembers = useMemo(() => members.filter((m) => m.role !== "admin"), [members])

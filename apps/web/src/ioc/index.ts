@@ -1,8 +1,17 @@
 import { BrowserAuthNavigationAdapter } from "@/adapters/auth/auth-navigation-browser.adapter"
 import { BrowserAuthSessionStore } from "@/adapters/auth/auth-session-browser.adapter"
+import { MemorySessionTokenStore } from "@/adapters/auth/session-token-memory.adapter"
+import {
+    DESKTOP_DOCUMENT_PATH,
+    DesktopAuthNavigationAdapter,
+} from "@/adapters/desktop/auth-navigation-desktop.adapter"
+import { desktopBridge } from "@/adapters/desktop/desktop-bridge"
+import { DesktopSessionTokenStore } from "@/adapters/desktop/session-token-desktop.adapter"
+import { type RenewAccessToken, retryUnauthorizedWith } from "@pinai/api/http"
 import { OidcAdapter } from "@pinai/api/auth/oidc.adapter"
 import { WebCryptoPkceAdapter } from "@/adapters/auth/pkce"
 import { DeviceDirectoryApiAdapter } from "@pinai/api/device-directory/device-directory-api.adapter"
+import { SessionApiAdapter } from "@pinai/api/session/session-api.adapter"
 import { WebCryptoAttachmentCryptoAdapter } from "@pinai/crypto/attachment-crypto"
 import { E2eeAdapter } from "@pinai/crypto/e2ee.adapter"
 import { HistoryArchiveAdapter } from "@pinai/crypto/history-archive.adapter"
@@ -31,7 +40,9 @@ import type { Message } from "@/lib/types"
 import type { IAttachmentCryptoPort } from "@pinai/domain/ports/attachment-crypto.port"
 import type { IAccountStoragePort } from "@pinai/domain/ports/account-storage.port"
 import type { AuthPlatform, IAuthPort, IAuthSessionStore } from "@pinai/domain/ports/auth.port"
+import { type Renewal, renewSessionUseCase } from "@pinai/domain/usecases/auth/renew-session.usecase"
 import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
+import type { ISessionPort } from "@pinai/domain/ports/session.port"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
 import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
 import type { IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
@@ -56,16 +67,23 @@ import { loadUserSettingsUseCase } from "@pinai/domain/usecases/user-settings/lo
 const authPort: IAuthPort = new OidcAdapter()
 const userSettingsStore: IUserSettingsStorePort = new UserSettingsLocalStorageAdapter()
 
-// The platform half of the OIDC flow. A React Native container swaps these
-// three for a deep-link navigator, secure storage and its own client id;
-// nothing in `domain/usecases/auth/` changes.
+// The platform half of the OIDC flow. The desktop app swaps in its client, the system browser and
+// the main process's keychain; a React Native container would swap the same; nothing in
+// `domain/usecases/auth/` changes.
+const desktop = import.meta.env.PINAI_DESKTOP === true ? desktopBridge() : null
 const authSessionStore: IAuthSessionStore = new BrowserAuthSessionStore()
 const authPlatform: AuthPlatform = {
-    // This deployment's own document, published by the `oauthClientDocument` Vite plugin.
-    clientId: new URL("/oauth-client.json", window.location.origin).href,
+    // The web deployment's own document, published by the `oauthClientDocument` Vite plugin; the
+    // desktop app's, which every IdP serves itself.
+    clientId: (issuer) =>
+        desktop
+            ? `${issuer.replace(/\/$/, "")}${DESKTOP_DOCUMENT_PATH}`
+            : new URL("/oauth-client.json", window.location.origin).href,
+    browserSession: !desktop,
     pkce: new WebCryptoPkceAdapter(),
     session: authSessionStore,
-    navigation: new BrowserAuthNavigationAdapter(),
+    tokens: desktop ? new DesktopSessionTokenStore(desktop) : new MemorySessionTokenStore(),
+    navigation: desktop ? new DesktopAuthNavigationAdapter(desktop) : new BrowserAuthNavigationAdapter(),
     // What this page paints: the settings index.html applies, with `system` resolved the same way.
     appearance: () => {
         const { account, device } = loadUserSettingsUseCase(userSettingsStore)
@@ -85,6 +103,7 @@ const presencePort: IPresencePort = new PresenceApiAdapter()
 const totpPort: ITotpPort = new TotpApiAdapter()
 const userPort: IUserPort = new UserApiAdapter()
 const deviceDirectoryPort: IDeviceDirectoryPort = new DeviceDirectoryApiAdapter()
+const sessionPort: ISessionPort = new SessionApiAdapter()
 const attachmentCryptoPort: IAttachmentCryptoPort = new WebCryptoAttachmentCryptoAdapter()
 
 // JWKS cache + history-archive singletons live alongside the other E2EE
@@ -181,6 +200,21 @@ export function getAuthSessionStore(): IAuthSessionStore {
     return authSessionStore
 }
 
+// One for the whole page: it is what keeps renewals one at a time. On the desktop, the main
+// process holds the token and runs the renewals.
+const renewSession: () => Promise<Renewal> = desktop
+    ? () => desktop.session.renew()
+    : renewSessionUseCase(authPort, authPlatform.tokens)
+
+export function getSessionRenewal(): () => Promise<Renewal> {
+    return renewSession
+}
+
+/** What every IdP request refused with `401` goes through before it is sent once more. */
+export function onAccessTokenRefused(renew: RenewAccessToken): void {
+    retryUnauthorizedWith(renew)
+}
+
 export function getNodeInfoPort(): INodeInfoPort {
     return nodeInfoPort
 }
@@ -231,6 +265,10 @@ export function getE2eePort(): IE2eePort {
 
 export function getAccountStoragePort(): IAccountStoragePort {
     return getAccountStorage()
+}
+
+export function getSessionPort(): ISessionPort {
+    return sessionPort
 }
 
 export function getDeviceDirectoryPort(): IDeviceDirectoryPort {

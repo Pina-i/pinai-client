@@ -1,4 +1,5 @@
-import ky, { HTTPError } from "ky"
+import { HTTPError } from "ky"
+import { idp } from "../http"
 
 import type { DeviceListResponse } from "@pinai/domain/models/device"
 import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
@@ -8,7 +9,7 @@ export class DeviceDirectoryApiAdapter implements IDeviceDirectoryPort {
     async listDevices(idpUrl: string, accessToken: string): Promise<DeviceListResponse> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/keys/devices`
         try {
-            return await ky
+            return await idp
                 .get(url, {
                     headers: { Authorization: `Bearer ${accessToken}` },
                 })
@@ -33,7 +34,7 @@ export class DeviceDirectoryApiAdapter implements IDeviceDirectoryPort {
             deviceId,
         )}/revoke`
         try {
-            await ky.post(url, {
+            await idp.post(url, {
                 headers: { Authorization: `Bearer ${accessToken}` },
             })
         } catch (error) {

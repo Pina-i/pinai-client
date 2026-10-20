@@ -6,14 +6,20 @@
   "main": "./out/main/index.js",
   "scripts": {
     "wasm": "node ../../scripts/build-wasm.mjs",
-    "dev": "pnpm run wasm && install-electron && electron-vite dev",
-    "typecheck": "tsc -b"
+    "dev": "pnpm run wasm && install-electron && node scripts/register-scheme.mjs && electron-vite dev",
+    "typecheck": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@pinai/api": "workspace:*",
+    "@pinai/domain": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
     "electron": "^44.5.1",
     "electron-vite": "6.0.0-beta.5",
     "typescript": "~5.9.3",
-    "vite": "^8.3.0"
+    "vite": "^8.3.0",
+    "vitest": "^4.1.5"
   }
 }

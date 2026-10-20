@@ -34,7 +34,7 @@ export interface GateResult {
  * being asked to mint a new passphrase that would orphan their backup.
  */
 export function useIdentityOnboardingGate(): GateResult {
-    const accessToken = useAppStore((s) => s.accessToken)
+    const signedIn = useAppStore((s) => s.accessToken !== null)
     const idpUrl = useAppStore((s) => s.idpUrl)
     const ownActorUri = useAppStore((s) => s.user?.actor_uri ?? null)
     const navigate = useNavigate()
@@ -46,11 +46,12 @@ export function useIdentityOnboardingGate(): GateResult {
     // It also closes a staleness hole: a result probed for one account can no
     // longer be shown to the next one to sign in on this device.
     const probeKey =
-        accessToken && idpUrl && ownActorUri ? `${idpUrl}|${ownActorUri}|${retryNonce}` : null
+        signedIn && idpUrl && ownActorUri ? `${idpUrl}|${ownActorUri}|${retryNonce}` : null
     const [probed, setProbed] = useState<{ key: string; status: GateStatus } | null>(null)
     const status: GateStatus = probeKey !== null && probed?.key === probeKey ? probed.status : "loading"
 
     useEffect(() => {
+        const accessToken = useAppStore.getState().accessToken
         if (probeKey === null || !accessToken || !idpUrl || !ownActorUri) return
         const setStatus = (next: GateStatus) => setProbed({ key: probeKey, status: next })
         let cancelled = false
@@ -129,7 +130,7 @@ export function useIdentityOnboardingGate(): GateResult {
             // cancelled, stranding the gate at status="loading".
             cancelled = true
         }
-    }, [probeKey, accessToken, idpUrl, ownActorUri, navigate])
+    }, [probeKey, idpUrl, ownActorUri, navigate])
 
     return {
         status,

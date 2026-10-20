@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from "vitest"
 
-import type { AuthPlatform, AuthSessionKey, IAuthPort } from "@pinai/domain/ports/auth.port"
+import type { AuthPlatform, AuthSessionKey, HeldRefreshToken, IAuthPort } from "@pinai/domain/ports/auth.port"
 import {
     appearanceHints,
     DEFAULT_ACCOUNT_SETTINGS,
@@ -22,9 +22,11 @@ const ALICE = "https://idp.alice.test/users/alice_xk9mp"
 
 function platform(appearance: AppearanceHints | null = null) {
     const store = new Map<AuthSessionKey, string>()
+    let held: HeldRefreshToken | null = null
     const navigateTo = vi.fn<(url: string) => void>()
     const value: AuthPlatform = {
-        clientId: CLIENT_ID,
+        clientId: () => CLIENT_ID,
+        browserSession: true,
         pkce: {
             generateCodeVerifier: () => "verifier",
             computeCodeChallenge: async () => "challenge",
@@ -36,6 +38,11 @@ function platform(appearance: AppearanceHints | null = null) {
             remove: (key) => void store.delete(key),
             clear: () => store.clear(),
         },
+        tokens: {
+            set: (next) => void (held = next),
+            take: () => held,
+            clear: () => void (held = null),
+        },
         navigation: {
             callbackUrl: () => "https://app.example/callback",
             postLogoutUrl: () => "https://app.example/",
@@ -44,16 +51,20 @@ function platform(appearance: AppearanceHints | null = null) {
         },
         appearance: () => appearance,
     }
-    return { platform: value, store, navigateTo }
+    return { platform: value, store, navigateTo, held: () => held }
 }
 
 const authPort: IAuthPort = {
     discoverConfig: async () => ({
+        issuer: IDP,
         authorization_endpoint: `${IDP}/authorize`,
+        revocation_endpoint: `${IDP}/revoke`,
         token_endpoint: `${IDP}/token`,
         userinfo_endpoint: `${IDP}/userinfo`,
     }),
-    exchangeCode: async () => "access-token",
+    exchangeCode: async () => ({ accessToken: "access-token", refreshToken: "refresh-token" }),
+    refresh: async () => null,
+    revoke: async () => {},
     fetchUserInfo: async () => ({ actor_uri: ALICE }) as UserProfile,
 }
 
@@ -110,13 +121,19 @@ describe("handleCallbackUseCase", () => {
         return fixture
     }
 
-    it("signs in with the code", async () => {
-        const { platform: p } = await started()
+    it("signs in with the code, and keeps the refresh token where the platform keeps it", async () => {
+        const { platform: p, held } = await started()
         const result = await handleCallbackUseCase(new URLSearchParams({ code: "c", state: "random" }), authPort, p)
 
         expect(result).toEqual({
             kind: "signed-in",
             session: { accessToken: "access-token", user: { actor_uri: ALICE }, idpUrl: IDP },
+        })
+        expect(held()).toEqual({
+            refreshToken: "refresh-token",
+            tokenEndpoint: `${IDP}/token`,
+            clientId: CLIENT_ID,
+            revocationEndpoint: `${IDP}/revoke`,
         })
     })
 

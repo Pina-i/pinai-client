@@ -1,6 +1,6 @@
 import ky, { HTTPError } from "ky"
 import type { IAuthPort } from "@pinai/domain/ports/auth.port"
-import type { OidcConfig, UserProfile } from "@pinai/domain/models/auth"
+import type { IssuedTokens, OidcConfig, UserProfile } from "@pinai/domain/models/auth"
 
 export class OidcAdapter implements IAuthPort {
     async discoverConfig(idpUrl: string): Promise<OidcConfig> {
@@ -21,7 +21,7 @@ export class OidcAdapter implements IAuthPort {
         codeVerifier: string
         redirectUri: string
         clientId: string
-    }): Promise<string> {
+    }): Promise<IssuedTokens> {
         const body = new URLSearchParams({
             grant_type: "authorization_code",
             code: params.code,
@@ -31,8 +31,7 @@ export class OidcAdapter implements IAuthPort {
         })
 
         try {
-            const data = await ky.post(params.tokenEndpoint, { body }).json<{ access_token: string }>()
-            return data.access_token
+            return issued(await ky.post(params.tokenEndpoint, { body }).json<TokenAnswer>())
         } catch (error) {
             if (error instanceof HTTPError) {
                 const err = await error.response.json().catch(() => ({})) as { error_description?: string }
@@ -40,6 +39,30 @@ export class OidcAdapter implements IAuthPort {
             }
             throw error
         }
+    }
+
+    async refresh(params: { tokenEndpoint: string; clientId: string; refreshToken: string }): Promise<IssuedTokens | null> {
+        const body = new URLSearchParams({
+            grant_type: "refresh_token",
+            client_id: params.clientId,
+            refresh_token: params.refreshToken,
+        })
+        // Not retried: a second presentation of a token the IdP rotated would be a reuse.
+        const response = await ky.post(params.tokenEndpoint, { body, retry: 0, throwHttpErrors: false })
+        if (response.ok) return issued(await response.json<TokenAnswer>())
+        const err = await response.json<{ error?: string }>().catch(() => ({ error: undefined }))
+        if (err.error === "invalid_grant" || err.error === "invalid_client") return null
+        throw new Error(`Token refresh failed: ${response.status}`)
+    }
+
+    async revoke(params: { revocationEndpoint: string; clientId: string; refreshToken: string }): Promise<void> {
+        const body = new URLSearchParams({
+            client_id: params.clientId,
+            token: params.refreshToken,
+            token_type_hint: "refresh_token",
+        })
+        const response = await ky.post(params.revocationEndpoint, { body, retry: 0, throwHttpErrors: false })
+        if (!response.ok) throw new Error(`Token revocation failed: ${response.status}`)
     }
 
     async fetchUserInfo(userinfoEndpoint: string, accessToken: string): Promise<UserProfile> {
@@ -54,4 +77,13 @@ export class OidcAdapter implements IAuthPort {
             throw error
         }
     }
+}
+
+interface TokenAnswer {
+    access_token: string
+    refresh_token: string
+}
+
+function issued(answer: TokenAnswer): IssuedTokens {
+    return { accessToken: answer.access_token, refreshToken: answer.refresh_token }
 }

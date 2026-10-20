@@ -8,7 +8,7 @@ export async function handleCallbackUseCase(
     authPort: IAuthPort,
     platform: AuthPlatform,
 ): Promise<CallbackResult> {
-    const { clientId, session, navigation } = platform
+    const { session, navigation } = platform
 
     const code = searchParams.get("code")
     const state = searchParams.get("state")
@@ -28,6 +28,8 @@ export async function handleCallbackUseCase(
         session.remove("pkce_nonce")
         session.remove("token_endpoint")
         session.remove("userinfo_endpoint")
+        session.remove("revocation_endpoint")
+        session.remove("client_id")
         session.remove("post_login_redirect")
         if (error === "access_denied") return { kind: "cancelled" }
         return { kind: "refused", error: ERROR_CODE.test(error) ? error : null }
@@ -36,20 +38,23 @@ export async function handleCallbackUseCase(
     const codeVerifier = session.get("pkce_verifier")
     const tokenEndpoint = session.get("token_endpoint")
     const userinfoEndpoint = session.get("userinfo_endpoint")
+    const clientId = session.get("client_id")
+    const revocationEndpoint = session.get("revocation_endpoint")
 
     const idpUrl = session.get("idp_url") ?? ""
 
-    if (!code || !codeVerifier || !tokenEndpoint || !userinfoEndpoint) {
+    if (!code || !codeVerifier || !tokenEndpoint || !userinfoEndpoint || !clientId) {
         throw new Error("Missing PKCE session data — please restart login")
     }
 
-    const accessToken = await authPort.exchangeCode({
+    const { accessToken, refreshToken } = await authPort.exchangeCode({
         tokenEndpoint,
         code,
         codeVerifier,
         redirectUri: navigation.callbackUrl(),
         clientId,
     })
+    platform.tokens.set({ refreshToken, tokenEndpoint, clientId, revocationEndpoint })
 
     const user = await authPort.fetchUserInfo(userinfoEndpoint, accessToken)
 
@@ -61,6 +66,8 @@ export async function handleCallbackUseCase(
     session.remove("pkce_nonce")
     session.remove("token_endpoint")
     session.remove("userinfo_endpoint")
+    session.remove("revocation_endpoint")
+    session.remove("client_id")
 
     return { kind: "signed-in", session: { accessToken, user, idpUrl } }
 }

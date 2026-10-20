@@ -116,10 +116,12 @@ pinai-client/                 # pnpm workspace root
     │                         #   Shares :5173 with web (the port is strict), so run
     │                         #   one at a time. Its renderer is built with
     │                         #   `import.meta.env.PINAI_DESKTOP`, which hides the
-    │                         #   landing's "Get the client".
-    │                         #   No packaged build until sign-in goes through the
-    │                         #   system browser and an `io.github.pina-i:/callback`
-    │                         #   deep link.
+    │                         #   landing's "Get the client" and swaps in the desktop's
+    │                         #   sign-in (see its CLAUDE.md): the system browser, the
+    │                         #   `io.github.pina-i:/callback` deep link, the refresh
+    │                         #   token sealed in the OS keychain by the main process.
+    │                         #   No packaged build yet: the renderer needs a
+    │                         #   privileged scheme of its own first.
     └── web/                  # The browser client (@pinai/web)
         ├── index.html, vite.config.ts, vitest.config.ts, tsconfig*.json
         ├── components.json    # React Aria registry config for the CLI
@@ -242,18 +244,50 @@ for a known IdP.
    "Recent" chips (3, on this device). `?error=access_denied` (the IdP's "← Another home") goes
    back to the landing silently; any other `error` shows "Sign-in failed" with its code. `state`
    is checked before either is trusted
-6. Client exchanges `code` + `code_verifier` for tokens at `/token`
-7. Access token stored in memory only (never localStorage)
-8. No refresh token yet: a reload or an expired token goes through `/authorize` again, silent
-   while the IdP's session cookie lives (30 days) — the IdP signs in silently only to an app its
-   account signed in to with the password, so a new client's first sign-in always asks it. The
-   session redesign (steps 13a–13f) replaces this
-9. Logout sends `client_id` with `post_logout_redirect_uri`, which the document lists
+6. Client exchanges `code` + `code_verifier` at `/token` for an access token (1 h) and a refresh
+   token; the refresh token goes to `AuthPlatform.tokens` (`ISessionTokenStore`), in memory on
+   the web
+7. Access token stored in memory only (the auth slice, never persisted)
+8. Staying signed in: `requireSession` starts `keepSessionAlive`
+   (`apps/web/src/presentation/_libs/session-renewal.ts`). The access token is renewed at 80 % of
+   its lifetime (`renewAfter`, `@pinai/domain/models/auth`), checked every 10 s against the wall
+   clock — a timer stops while the device sleeps — and when the page comes back to the
+   foreground or online. A `401` from `@pinai/api` renews once and sends the request again. The
+   IdP rotates the refresh token at each use, so renewals run one at a time
+   (`renewSessionUseCase`); an unreachable IdP keeps the token, tried again within the minute the
+   IdP allows for a lost answer. The socket keeps going across renewals and reconnects with the
+   token of the moment; a close with `1008` (its session ended) asks for a renewal. A refused
+   refresh token (`invalid_grant`) means the session is over: the store is cleared and the
+   browser goes through `/authorize` once, which shows the login page. A reload loses the
+   refresh token: `/authorize` signs in again, silent while the IdP's browser session lives (90
+   days, sliding) — the IdP signs in silently only to an app its account signed in to with the
+   password, so a new client's first sign-in always asks it
+9. Logout drops the refresh token, then sends `client_id` with `post_logout_redirect_uri`, which
+   the document lists; the IdP ends the session, its refresh tokens with it
+10. **The desktop app** signs in through the system browser instead (RFC 8252): its client is
+   the IdP's own `/clients/desktop.json`, it asks `offline_access` (an app session of its own)
+   and `prompt=login` (the browser may hold another account), and the IdP's redirect comes back
+   through `io.github.pina-i:/callback`, which the main process loads in the window. The refresh
+   token is handed to the main process once, sealed with the OS keychain, renewed there; a
+   restart picks the session up without the browser. Signing out revokes the token (`/revoke`)
+   and leaves the browser signed in. `AuthPlatform.browserSession` is what tells the two apart
+11. Once the account's device storage is open and its E2EE device exists, `requireSession` names
+   the device to the IdP (`PUT /api/sessions/current/device`, once per page load —
+   `presentation/_libs/session-device.ts`): revoking the device in Settings → Devices then signs
+   it out at once, and the screen tells each device's state — "Active 3 days ago", "Signed out",
+   revoked — with "Sign out other devices"
 
 ## Key Design Decisions
 
 - **Access tokens in memory only** — never `localStorage` or `sessionStorage` to mitigate XSS token theft
-- **No refresh token yet** — sessions last as long as the IdP's HttpOnly session cookie (see the flow above)
+- **Refresh token in memory only on the web**, outside the store, rotated at each use; the
+  desktop's lives in the main process, sealed with the OS keychain (`safeStorage`), and the page
+  never holds it. See the flow above
+- **Effects follow being signed in, not the token** — the access token changes every 48 minutes.
+  An effect keys on `useAppStore((s) => s.accessToken !== null)` and reads
+  `useAppStore.getState().accessToken` when it calls the IdP; anything long-lived (the socket,
+  the history flusher) takes a getter. An effect keyed on the token itself would re-run at every
+  renewal: a new TOTP secret mid-enrolment, the onboarding gate unmounting the app
 - **PKCE mandatory** — `plain` challenge method never used
 - **Multi-IdP aware** — the client is not hardcoded to a single IdP; the user's configured IdP URL is stored in `localStorage` only (not the token)
 - **Two separate WebSocket connections**: one to the identity-provider (for DMs), one to the active chat-server (for channels)

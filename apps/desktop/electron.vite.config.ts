@@ -11,7 +11,10 @@ export default defineConfig(async (env) => {
     if (!web) throw new Error(`No Vite config found in ${webRoot}`)
 
     return {
-        main: {},
+        // The workspace packages are TypeScript sources: bundled, not loaded from node_modules.
+        main: { build: { externalizeDeps: { exclude: ["@pinai/api", "@pinai/domain"] } } },
+        // Sandboxed preloads run as classic scripts: no ES modules.
+        preload: { build: { rolldownOptions: { output: { format: "cjs" as const, entryFileNames: "[name].cjs" } } } },
         renderer: mergeConfig(web.config, {
             root: webRoot,
             envDir: webRoot,

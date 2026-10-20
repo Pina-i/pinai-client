@@ -29,5 +29,12 @@ and it is the list a React Native app has to reimplement for auth.
   `localStorage`: the PKCE verifier is single-use and must not outlive
   the tab. No access token ever goes here.
 
+### session-token-memory.adapter.ts
+- `MemorySessionTokenStore` — `ISessionTokenStore` in the page's memory: the
+  refresh token never touches web storage or the persisted store. A reload
+  loses it, and `/authorize` signs in again, silent while the IdP's session
+  lives. Renewing is `presentation/_libs/session-renewal.ts`, started by the
+  route guard.
+
 (`isTokenValid` lives in `@pinai/domain/models/auth` — it is a business rule
 about session validity, not a technical adapter.)

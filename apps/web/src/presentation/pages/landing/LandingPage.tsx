@@ -8,7 +8,16 @@ export function LandingPage() {
     const vm = useLandingPageViewModel()
 
     if (vm.handoff) {
-        return <HandoffScreen name={vm.handoff.name} endpoint={vm.handoff.endpoint} onBarDone={vm.barDone} />
+        return (
+            <HandoffScreen
+                name={vm.handoff.name}
+                endpoint={vm.handoff.endpoint}
+                onBarDone={vm.barDone}
+                inBrowser={vm.handoff.inBrowser}
+                onOpenAgain={vm.openAgain}
+                onCancel={vm.cancelHandoff}
+            />
+        )
     }
 
     return (

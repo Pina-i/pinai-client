@@ -9,11 +9,12 @@ import { useAppStore } from "@/store/store"
  * Deduplication in addNotification prevents double-entries with live WS events.
  */
 export function useLoadPendingNotifications(): void {
-    const accessToken = useAppStore((s) => s.accessToken)
+    const signedIn = useAppStore((s) => s.accessToken !== null)
     const idpUrl = useAppStore((s) => s.idpUrl)
     const addNotification = useAppStore((s) => s.addNotification)
 
     useEffect(() => {
+        const accessToken = useAppStore.getState().accessToken
         if (!accessToken || !idpUrl) return
 
         getPendingFriendRequestsUseCase(idpUrl, accessToken, getSocialPort())
@@ -32,5 +33,5 @@ export function useLoadPendingNotifications(): void {
             .catch(() => {
                 // Non-fatal: live WS events will still arrive
             })
-    }, [accessToken, idpUrl, addNotification])
+    }, [signedIn, idpUrl, addNotification])
 }

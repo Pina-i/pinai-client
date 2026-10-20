@@ -5,6 +5,7 @@ import { getAuthPort, getTotpPort } from "@/ioc/index"
 
 export function useTotpEnrollPageViewModel() {
     const accessToken = useAppStore((s) => s.accessToken)
+    const signedIn = useAppStore((s) => s.accessToken !== null)
     const idpUrl = useAppStore((s) => s.idpUrl)
     const user = useAppStore((s) => s.user)
     const setUser = useAppStore((s) => s.setUser)
@@ -20,6 +21,7 @@ export function useTotpEnrollPageViewModel() {
     const navigate = useNavigate()
 
     useEffect(() => {
+        const accessToken = useAppStore.getState().accessToken
         if (!accessToken || !idpUrl) return
         let cancelled = false
         ;(async () => {
@@ -35,7 +37,7 @@ export function useTotpEnrollPageViewModel() {
         return () => {
             cancelled = true
         }
-    }, [accessToken, idpUrl])
+    }, [signedIn, idpUrl])
 
     const verify = useCallback(async () => {
         if (!accessToken || !idpUrl) return

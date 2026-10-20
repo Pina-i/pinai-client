@@ -23,7 +23,7 @@ export interface RecoverySetupViewModel {
  * and Skip both navigate to /home — the cryptographic state is the same.
  */
 export function useRecoverySetupPageViewModel(): RecoverySetupViewModel {
-    const accessToken = useAppStore((s) => s.accessToken)
+    const signedIn = useAppStore((s) => s.accessToken !== null)
     const idpUrl = useAppStore((s) => s.idpUrl)
     const ownActorUri = useAppStore((s) => s.user?.actor_uri ?? null)
     const navigate = useNavigate()
@@ -34,6 +34,7 @@ export function useRecoverySetupPageViewModel(): RecoverySetupViewModel {
     const [attemptNonce, setAttemptNonce] = useState(0)
 
     useEffect(() => {
+        const accessToken = useAppStore.getState().accessToken
         if (!accessToken || !idpUrl || !ownActorUri) return
         let cancelled = false
         ;(async () => {
@@ -85,7 +86,7 @@ export function useRecoverySetupPageViewModel(): RecoverySetupViewModel {
             // overwrite), so two passes are safe.
             cancelled = true
         }
-    }, [accessToken, idpUrl, ownActorUri, attemptNonce])
+    }, [signedIn, idpUrl, ownActorUri, attemptNonce])
 
     const onCopy = useCallback(() => {
         if (words.length === 0) return

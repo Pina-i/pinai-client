@@ -1,4 +1,5 @@
-import ky, { HTTPError } from "ky"
+import { HTTPError } from "ky"
+import { idp } from "../http"
 import type { ProfilePatch, UserProfile } from "@pinai/domain/models/auth"
 import type { LocalFile } from "@pinai/domain/models/file"
 import type { ProfileCard } from "@pinai/domain/models/profile"
@@ -13,7 +14,7 @@ export class UserApiAdapter implements IUserPort {
     ): Promise<{ avatar_url: string }> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/avatar`
         try {
-            return await ky.put(url, {
+            return await idp.put(url, {
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
                     "Content-Type": avatar.mimeType,
@@ -32,7 +33,7 @@ export class UserApiAdapter implements IUserPort {
     async deleteAvatar(idpUrl: string, accessToken: string): Promise<void> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/avatar`
         try {
-            await ky.delete(url, {
+            await idp.delete(url, {
                 headers: { Authorization: `Bearer ${accessToken}` },
             })
         } catch (error) {
@@ -51,7 +52,7 @@ export class UserApiAdapter implements IUserPort {
     ): Promise<UserProfile> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/profile`
         try {
-            return await ky.patch(url, {
+            return await idp.patch(url, {
                 headers: { Authorization: `Bearer ${accessToken}` },
                 json: patch,
             }).json<UserProfile>()
@@ -71,7 +72,7 @@ export class UserApiAdapter implements IUserPort {
     ): Promise<ProfileCard | null> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/profiles`
         try {
-            return await ky.get(url, {
+            return await idp.get(url, {
                 headers: { Authorization: `Bearer ${accessToken}` },
                 searchParams: { actor: actorUri },
             }).json<ProfileCard>()

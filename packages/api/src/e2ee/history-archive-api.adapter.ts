@@ -1,4 +1,5 @@
-import ky, { HTTPError } from "ky"
+import { HTTPError } from "ky"
+import { idp } from "../http"
 
 import type {
     ArchiveEntry,
@@ -30,7 +31,7 @@ export class HistoryArchiveApiAdapter implements IHistoryArchivePort {
                 client_message_id: e.client_message_id,
             })),
         }
-        const res = await ky
+        const res = await idp
             .post(`${idpUrl.replace(/\/$/, "")}/api/history/messages`, {
                 headers: { Authorization: `Bearer ${accessToken}` },
                 json: body,
@@ -51,7 +52,7 @@ export class HistoryArchiveApiAdapter implements IHistoryArchivePort {
             url.searchParams.set("after_id", cursor.after_id)
             url.searchParams.set("after_created_at", cursor.after_created_at)
         }
-        const body = await ky
+        const body = await idp
             .get(url.toString(), {
                 headers: { Authorization: `Bearer ${accessToken}` },
             })
@@ -80,7 +81,7 @@ export class HistoryArchiveApiAdapter implements IHistoryArchivePort {
     }
 
     async wipeArchive(idpUrl: string, accessToken: string): Promise<number> {
-        const res = await ky
+        const res = await idp
             .delete(`${idpUrl.replace(/\/$/, "")}/api/history/messages`, {
                 headers: { Authorization: `Bearer ${accessToken}` },
             })
@@ -90,7 +91,7 @@ export class HistoryArchiveApiAdapter implements IHistoryArchivePort {
 
     async getSalt(idpUrl: string, accessToken: string): Promise<Uint8Array | null> {
         try {
-            const res = await ky
+            const res = await idp
                 .get(`${idpUrl.replace(/\/$/, "")}/api/history/salt`, {
                     headers: { Authorization: `Bearer ${accessToken}` },
                 })
@@ -103,7 +104,7 @@ export class HistoryArchiveApiAdapter implements IHistoryArchivePort {
     }
 
     async setSalt(idpUrl: string, accessToken: string, salt: Uint8Array): Promise<Uint8Array> {
-        const res = await ky
+        const res = await idp
             .post(`${idpUrl.replace(/\/$/, "")}/api/history/salt`, {
                 headers: { Authorization: `Bearer ${accessToken}` },
                 json: { salt_base64: bytesToBase64(salt) },

@@ -1,4 +1,4 @@
-import ky from "ky"
+import { idp } from "../http"
 import { idpErrorFrom } from "../idp-error"
 import type { Attachment, ConversationHistory, DirectMessage, DmConversationSummary } from "@pinai/domain/models/dm"
 import type { GroupEvent } from "@pinai/domain/models/group-event"
@@ -41,7 +41,7 @@ export class DmApiAdapter implements IDmPort {
     async listConversations(idpUrl: string, accessToken: string): Promise<DmConversationSummary[]> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/dm`
         try {
-            return await ky.get(url, {
+            return await idp.get(url, {
                 headers: { Authorization: `Bearer ${accessToken}` },
             }).json<DmConversationSummary[]>()
         } catch (error) {
@@ -63,7 +63,7 @@ export class DmApiAdapter implements IDmPort {
         }
         let items: HistoryItem[]
         try {
-            items = await ky.get(base, {
+            items = await idp.get(base, {
                 headers: { Authorization: `Bearer ${accessToken}` },
                 searchParams,
             }).json<HistoryItem[]>()
@@ -98,7 +98,7 @@ export class DmApiAdapter implements IDmPort {
         if (conversationId) json.conversation_id = conversationId
         if (clientId) json.client_id = clientId
         try {
-            return await ky.post(url, {
+            return await idp.post(url, {
                 headers: { Authorization: `Bearer ${accessToken}` },
                 json,
             }).json<DirectMessage>()
@@ -170,7 +170,7 @@ export class DmApiAdapter implements IDmPort {
     ): Promise<string> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/attachments/${encodeURIComponent(attachmentId)}`
         try {
-            const body = await ky.get(url, {
+            const body = await idp.get(url, {
                 headers: { Authorization: `Bearer ${accessToken}` },
             }).json<{ url: string }>()
             return body.url
@@ -186,7 +186,7 @@ export class DmApiAdapter implements IDmPort {
     ): Promise<void> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/dm/${encodeURIComponent(conversationId)}/read`
         try {
-            await ky.post(url, {
+            await idp.post(url, {
                 headers: { Authorization: `Bearer ${accessToken}` },
             })
         } catch (error) {
@@ -197,7 +197,7 @@ export class DmApiAdapter implements IDmPort {
     async editMessage(idpUrl: string, accessToken: string, messageId: string, mlsCiphertext: string): Promise<void> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/dm/${messageId}/edit`
         try {
-            await ky.patch(url, {
+            await idp.patch(url, {
                 headers: { Authorization: `Bearer ${accessToken}` },
                 json: { mls_ciphertext: mlsCiphertext },
             })

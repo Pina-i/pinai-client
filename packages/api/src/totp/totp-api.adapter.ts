@@ -1,4 +1,5 @@
-import ky, { HTTPError } from "ky"
+import { HTTPError } from "ky"
+import { idp } from "../http"
 import type {
     ITotpPort,
     TotpEnrollResponse,
@@ -25,7 +26,7 @@ async function readError(error: unknown, fallback: string): Promise<Error> {
 export class TotpApiAdapter implements ITotpPort {
     async startEnrollment(idpUrl: string, accessToken: string): Promise<TotpEnrollResponse> {
         try {
-            return await ky
+            return await idp
                 .post(`${base(idpUrl)}/api/totp/enroll`, {
                     headers: { Authorization: `Bearer ${accessToken}` },
                 })
@@ -41,7 +42,7 @@ export class TotpApiAdapter implements ITotpPort {
         code: string,
     ): Promise<TotpEnrollVerifyResponse> {
         try {
-            return await ky
+            return await idp
                 .post(`${base(idpUrl)}/api/totp/enroll/verify`, {
                     headers: { Authorization: `Bearer ${accessToken}` },
                     json: { code },
@@ -54,7 +55,7 @@ export class TotpApiAdapter implements ITotpPort {
 
     async disable(idpUrl: string, accessToken: string, code: string): Promise<void> {
         try {
-            await ky.post(`${base(idpUrl)}/api/totp/disable`, {
+            await idp.post(`${base(idpUrl)}/api/totp/disable`, {
                 headers: { Authorization: `Bearer ${accessToken}` },
                 json: { code },
             })
@@ -69,7 +70,7 @@ export class TotpApiAdapter implements ITotpPort {
         code: string,
     ): Promise<TotpEnrollVerifyResponse> {
         try {
-            return await ky
+            return await idp
                 .post(`${base(idpUrl)}/api/totp/recovery-codes/regenerate`, {
                     headers: { Authorization: `Bearer ${accessToken}` },
                     json: { code },

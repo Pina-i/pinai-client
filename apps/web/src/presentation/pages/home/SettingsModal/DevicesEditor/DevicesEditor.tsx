@@ -1,4 +1,4 @@
-import { Plus, RotateCcw } from "lucide-react"
+import { LogOut, Plus, RotateCcw } from "lucide-react"
 import { Link } from "@tanstack/react-router"
 
 import { RecoveryPassphraseCard } from "@/presentation/molecules/RecoveryPassphraseCard/RecoveryPassphraseCard"
@@ -39,7 +39,20 @@ export function DevicesEditor() {
                             anything that isn't you.
                         </p>
                     </div>
-                    <div className="flex shrink-0 items-center gap-2">
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => void vm.onSignOutOthers()}
+                            disabled={vm.isSigningOutOthers}
+                            className={cn(
+                                actionPill,
+                                "cursor-pointer border-line2 bg-transparent text-foreground hover:bg-surf2",
+                                "disabled:cursor-not-allowed disabled:opacity-50",
+                            )}
+                        >
+                            <LogOut className="h-3 w-3" strokeWidth={2} />
+                            {vm.isSigningOutOthers ? "Signing out…" : "Sign out other devices"}
+                        </button>
                         <Link
                             to="/onboarding/recovery-restore"
                             className={cn(actionPill, "border-line2 bg-transparent text-foreground hover:bg-surf2")}

@@ -48,6 +48,7 @@ export interface RecoveryRestoreViewModel {
 export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
     const idpUrl = useAppStore((s) => s.idpUrl)
     const accessToken = useAppStore((s) => s.accessToken)
+    const signedIn = useAppStore((s) => s.accessToken !== null)
     const user = useAppStore((s) => s.user)
     const navigate = useNavigate()
 
@@ -67,6 +68,7 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
 
     const ownActorUri = user?.actor_uri ?? null
     useEffect(() => {
+        const accessToken = useAppStore.getState().accessToken
         if (!idpUrl || !accessToken || !ownActorUri) return
         const port = getE2eePort()
         // Already done in a previous mount on the same session — just
@@ -92,7 +94,7 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
         return () => {
             cancelled = true
         }
-    }, [idpUrl, accessToken, ownActorUri])
+    }, [idpUrl, signedIn, ownActorUri])
 
     const canRestore = useMemo(() => isPassphraseComplete(words), [words])
     const filledCount = useMemo(

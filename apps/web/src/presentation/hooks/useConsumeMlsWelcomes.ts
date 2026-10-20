@@ -15,7 +15,7 @@ import { useAppStore } from "@/store/store"
  * next reload.
  */
 export function useConsumeMlsWelcomes(): void {
-    const accessToken = useAppStore((s) => s.accessToken)
+    const signedIn = useAppStore((s) => s.accessToken !== null)
     const idpUrl = useAppStore((s) => s.idpUrl)
     // The canonical actor URI is sourced from `/userinfo` — never
     // re-derive client-side, otherwise a browser reaching the IdP via
@@ -24,6 +24,7 @@ export function useConsumeMlsWelcomes(): void {
     const ownActorUri = useAppStore((s) => s.user?.actor_uri ?? null)
 
     useEffect(() => {
+        const accessToken = useAppStore.getState().accessToken
         if (!accessToken || !idpUrl || !ownActorUri) return
 
         let cancelled = false
@@ -46,5 +47,5 @@ export function useConsumeMlsWelcomes(): void {
         return () => {
             cancelled = true
         }
-    }, [accessToken, idpUrl, ownActorUri])
+    }, [signedIn, idpUrl, ownActorUri])
 }

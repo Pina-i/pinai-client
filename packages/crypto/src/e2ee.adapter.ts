@@ -200,7 +200,7 @@ export class E2eeAdapter implements IE2eePort {
     private flushTimer: ReturnType<typeof setInterval> | null = null
     private cachedHistoryArchiveKey: Uint8Array | null = null
     private flushIdpUrl: string | null = null
-    private flushAccessToken: string | null = null
+    private flushAccessToken: (() => string | null) | null = null
 
     /** Buffer a freshly decrypted plaintext for the archive. No-op when unwired. */
     bufferDecryptedForArchive(
@@ -213,7 +213,7 @@ export class E2eeAdapter implements IE2eePort {
         if (this.archiveBuffer.length >= 10) void this.flushArchiveNow()
     }
 
-    startFlushing(idpUrl: string, accessToken: string): void {
+    startFlushing(idpUrl: string, accessToken: () => string | null): void {
         this.flushIdpUrl = idpUrl
         this.flushAccessToken = accessToken
         if (this.flushTimer || !this.historyArchive) return
@@ -302,10 +302,12 @@ export class E2eeAdapter implements IE2eePort {
         ) {
             return
         }
+        const accessToken = this.flushAccessToken()
+        if (!accessToken) return
         if (!this.cachedHistoryArchiveKey) {
             const phrase = await this.storage.loadRecoveryPassphrase()
             if (!phrase) return
-            const salt = await this.historyArchive.getSalt(this.flushIdpUrl, this.flushAccessToken)
+            const salt = await this.historyArchive.getSalt(this.flushIdpUrl, accessToken)
             if (!salt) return
             this.cachedHistoryArchiveKey = await this.historyCrypto.deriveKey(phrase, salt)
         }
@@ -325,11 +327,7 @@ export class E2eeAdapter implements IE2eePort {
                     }
                 }),
             )
-            await this.historyArchive.uploadBatch(
-                this.flushIdpUrl,
-                this.flushAccessToken,
-                entries,
-            )
+            await this.historyArchive.uploadBatch(this.flushIdpUrl, accessToken, entries)
         } catch (err) {
             // Re-queue so the next tick retries.
             // eslint-disable-next-line no-console
