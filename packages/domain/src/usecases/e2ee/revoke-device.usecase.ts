@@ -1,8 +1,10 @@
 import type { ActorUri, ConversationId, DeviceId } from "../../models/e2ee"
+import type { IDeviceDirectoryPort } from "../../ports/device-directory.port"
 import type { IE2eePort } from "../../ports/e2ee.port"
 
 export interface RevokeDeviceDeps {
     e2eePort: IE2eePort
+    deviceDirectoryPort: IDeviceDirectoryPort
 }
 
 export interface RevokeDeviceInput {
@@ -27,9 +29,11 @@ export interface RevokeDeviceInput {
 }
 
 /**
- * Settings → Devices → "Revoke other device". Builds + delivers an
- * MLS Remove commit per group the user is in, removing the targeted
- * leaf. Post-compromise security recovers within each commit cycle.
+ * Settings → Devices → "Revoke other device". The IdP first: it signs the
+ * device out and takes it out of the directory — or refuses, asking for the
+ * password again, before anything was done. Then an MLS Remove commit per
+ * group the user is in, removing the targeted leaf. Post-compromise
+ * security recovers within each commit cycle.
  *
  * Returns the list of conversations the device was actually removed
  * from (skipping groups we have no local state for, plus any per-
@@ -39,8 +43,9 @@ export interface RevokeDeviceInput {
  * outcome breakdown.
  */
 export const revokeDeviceUseCase =
-    ({ e2eePort }: RevokeDeviceDeps) =>
+    ({ e2eePort, deviceDirectoryPort }: RevokeDeviceDeps) =>
     async (input: RevokeDeviceInput): Promise<{ removed_from: ConversationId[] }> => {
+        await deviceDirectoryPort.markRevoked(input.idpUrl, input.accessToken, input.deviceId)
         return e2eePort.revokeDevice(
             input.idpUrl,
             input.accessToken,

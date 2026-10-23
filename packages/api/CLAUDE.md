@@ -25,7 +25,8 @@ domain as `IKeyDirectoryPort`, which is what keeps the two independent.
   Electron's main process as well as in pages, so it stays free of browser globals.
 - Every bearer route goes through `idp` (`http.ts`), a `ky` instance whose `401` hook renews the
   session (`retryUnauthorizedWith`, wired by the app) and sends the request once more with the
-  new token. OIDC and NodeInfo use plain `ky`: a refused `/token` must never renew. The DM
+  new token — but not for a challenge asking the password again
+  (`insufficient_user_authentication`): a renewal brings no newer one. OIDC and NodeInfo use plain `ky`: a refused `/token` must never renew. The DM
   upload's `XMLHttpRequest` isn't covered; the timed renewal keeps its token fresh.
 - The WebSocket reads the access token at each attempt (`connect(idpUrl, accessToken)`), and
   reports a close with `1008` — the IdP ended its session — instead of reconnecting.
@@ -33,7 +34,8 @@ domain as `IKeyDirectoryPort`, which is what keeps the two independent.
   happens here, via `@pinai/domain/lib/bytes`, so callers never see it.
 - Errors are unwrapped from `HTTPError` into plain `Error` with the server's
   message where there is one, so use cases do not import `ky` to read a
-  failure. The DM, group, social, privacy and key-directory adapters, whose
-  refusals the UI tells apart, raise the domain's `IdpError` instead
+  failure. The DM, group, social, privacy, key-directory, session, TOTP and
+  device-directory adapters and the history wipe, whose refusals the UI tells
+  apart, raise the domain's `IdpError` instead
   (`idp-error.ts`): status, `error` code and `actor_uri`, with the
   `error_description` as the message. Match on the code, never the words.

@@ -1,5 +1,6 @@
 import { HTTPError } from "ky"
 import { idp } from "../http"
+import { idpErrorFrom } from "../idp-error"
 
 import type {
     ArchiveEntry,
@@ -81,12 +82,16 @@ export class HistoryArchiveApiAdapter implements IHistoryArchivePort {
     }
 
     async wipeArchive(idpUrl: string, accessToken: string): Promise<number> {
-        const res = await idp
-            .delete(`${idpUrl.replace(/\/$/, "")}/api/history/messages`, {
-                headers: { Authorization: `Bearer ${accessToken}` },
-            })
-            .json<{ deleted: number }>()
-        return res.deleted
+        try {
+            const res = await idp
+                .delete(`${idpUrl.replace(/\/$/, "")}/api/history/messages`, {
+                    headers: { Authorization: `Bearer ${accessToken}` },
+                })
+                .json<{ deleted: number }>()
+            return res.deleted
+        } catch (error) {
+            throw await idpErrorFrom(error, "Clearing the history backup failed")
+        }
     }
 
     async getSalt(idpUrl: string, accessToken: string): Promise<Uint8Array | null> {

@@ -309,8 +309,10 @@ above, the sections above win.
   reads again once added back.
 - `forgetGroup` drops a group's MLS state from the device, for a group the
   user was removed from and cleared from their list.
-- The use case (`revoke-device.usecase.ts`) is the integration seam;
-  Phase 6's Devices UI pulls the conversation list from the
+- The use case (`revoke-device.usecase.ts`) is the integration seam:
+  the IdP first (`IDeviceDirectoryPort.markRevoked` — it may refuse,
+  asking for the password again, before anything was done), then these
+  Remove commits. The Devices UI pulls the conversation list from the
   zustand store and invokes it.
 
 ### MLS group-state persistence (landed)
@@ -494,10 +496,9 @@ number written here is wrong by the next commit.
 - **`IDeviceDirectoryPort`** (`@pinai/domain/ports/device-directory.port`)
   and **`DeviceDirectoryApiAdapter`** — separate from `IE2eePort` so
   the directory REST surface (`/api/keys/devices`,
-  `/api/keys/devices/:id/revoke`) stays free of MLS crypto. Revoke
-  is a two-step orchestration in the viewmodel: `IE2eePort.revokeDevice`
-  emits the Remove commits, then `IDeviceDirectoryPort.markRevoked`
-  flips the server flag.
+  `/api/keys/devices/:id/revoke`) stays free of MLS crypto. Revoking
+  is `revokeDeviceUseCase`: `IDeviceDirectoryPort.markRevoked` signs the
+  device out, then `IE2eePort.revokeDevice` emits the Remove commits.
 - **`useDevices`** in `presentation/hooks/`. TanStack Query hook —
   fetches `/api/keys/devices`, augments each row with `is_current`
   client-side. Query key `["devices", idpUrl]` is invalidated by

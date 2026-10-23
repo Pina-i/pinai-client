@@ -1,5 +1,6 @@
 import { HTTPError } from "ky"
 import { idp } from "../http"
+import { idpErrorFrom } from "../idp-error"
 
 import type { DeviceListResponse } from "@pinai/domain/models/device"
 import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
@@ -38,13 +39,7 @@ export class DeviceDirectoryApiAdapter implements IDeviceDirectoryPort {
                 headers: { Authorization: `Bearer ${accessToken}` },
             })
         } catch (error) {
-            if (error instanceof HTTPError) {
-                const err = (await error.response.json().catch(() => ({}))) as { error?: string }
-                throw new Error(
-                    err.error ?? `Failed to revoke device: ${error.response.status}`,
-                )
-            }
-            throw error
+            throw await idpErrorFrom(error, "Failed to revoke device")
         }
     }
 }

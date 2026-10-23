@@ -16,8 +16,9 @@ only a desktop app can do: keep its session across restarts. Dev only for now
   differs: the system auth sheet (`ASWebAuthenticationSession`, Custom Tabs) stays over the app.
 - **The session** (`session.ts`): the refresh token the page hands over once, sealed with
   `safeStorage` into `userData/session`. Renewals run here (`renewSessionUseCase`, the same as
-  the web's), one at a time; the page gets access tokens only. Sign-out revokes the token at the
-  IdP (`/revoke`), then deletes the file. Without a keychain (`basic_text` on Linux) it is kept
+  the web's), one at a time; the page gets access tokens only. The password typed again for a
+  sensitive action hands over a new token, of a new app session: it replaces the one held, which
+  is revoked. Sign-out revokes the token at the IdP (`/revoke`), then deletes the file. Without a keychain (`basic_text` on Linux) it is kept
   in memory only. Sync `safeStorage` behind a bounded wait for availability: the async API waits
   on the XDG portal, which may never answer. A token is forgotten only when the IdP refused it,
   never because the keychain wasn't ready.

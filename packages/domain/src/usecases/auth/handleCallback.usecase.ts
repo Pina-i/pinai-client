@@ -22,6 +22,7 @@ export async function handleCallbackUseCase(
     }
 
     if (error !== null) {
+        const returnTo = session.get("reauthenticating") ? session.get("post_login_redirect") : null
         // The flow is over: nothing of it may be replayed. `idp_url` stays, so the landing offers it again.
         session.remove("pkce_verifier")
         session.remove("pkce_state")
@@ -31,7 +32,8 @@ export async function handleCallbackUseCase(
         session.remove("revocation_endpoint")
         session.remove("client_id")
         session.remove("post_login_redirect")
-        if (error === "access_denied") return { kind: "cancelled" }
+        session.remove("reauthenticating")
+        if (error === "access_denied") return { kind: "cancelled", returnTo }
         return { kind: "refused", error: ERROR_CODE.test(error) ? error : null }
     }
 
@@ -68,6 +70,7 @@ export async function handleCallbackUseCase(
     session.remove("userinfo_endpoint")
     session.remove("revocation_endpoint")
     session.remove("client_id")
+    session.remove("reauthenticating")
 
     return { kind: "signed-in", session: { accessToken, user, idpUrl } }
 }

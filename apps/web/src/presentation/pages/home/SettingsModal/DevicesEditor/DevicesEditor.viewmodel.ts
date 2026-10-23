@@ -1,11 +1,15 @@
 import { useQueryClient } from "@tanstack/react-query"
+import { useLocation } from "@tanstack/react-router"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { revokeDeviceUseCase } from "@pinai/domain/usecases/e2ee/revoke-device.usecase"
 import { getDeviceDirectoryPort, getE2eePort, getSessionPort } from "@/ioc"
 import { devicesQueryKey, useDevices, type DeviceRow } from "@/presentation/hooks/useDevices"
+import { type RecentSignIn, useRecentSignIn } from "@/presentation/hooks/use-recent-sign-in"
 import { useAppStore } from "@/store/store"
+
+import { settingsHref } from "../SettingsModal.viewmodel"
 
 export interface DevicesEditorViewModel {
     rows: DeviceRow[] | undefined
@@ -22,6 +26,9 @@ export interface DevicesEditorViewModel {
 
     isSigningOutOthers: boolean
     onSignOutOthers: () => Promise<void>
+
+    /** Revoking, signing the others out and clearing the backup take a recent password. */
+    recentSignIn: RecentSignIn
 }
 
 /**
@@ -29,11 +36,13 @@ export interface DevicesEditorViewModel {
  *
  *  - device list via `useDevices` (TanStack Query)
  *  - local passphrase via `IE2eePort.loadStoredPassphrase`
- *  - per-device revoke = `revokeDeviceUseCase` (MLS Remove commits) +
- *    `IDeviceDirectoryPort.markRevoked` (server flag), then invalidate
- *    the devices query so the list re-renders
+ *  - per-device revoke = `revokeDeviceUseCase` (server flag, then MLS
+ *    Remove commits), then invalidate the devices query so the list
+ *    re-renders
  *  - "Clear recovery key" = `IE2eePort.clearRecoveryKey` (server blob
  *    DELETE + local wipe), then clears local passphrase state
+ *  - a refusal for a password typed too long ago asks for it again, and
+ *    comes back to this pane
  *
  * Revoke + clear both run sequentially to avoid two concurrent MLS
  * commits racing each other against the same conversation epoch.
@@ -44,6 +53,9 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
     const ownActorUri = useAppStore((s) => s.user?.actor_uri ?? null)
     const localDmConvos = useAppStore((s) => s.localDmConvos)
     const queryClient = useQueryClient()
+    const location = useLocation()
+    const recentSignIn = useRecentSignIn(useCallback(() => settingsHref(location, "devices"), [location]))
+    const { refused } = recentSignIn
 
     const { rows, isLoading, error } = useDevices()
 
@@ -78,42 +90,35 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
             setPassphraseWords(null)
             toast.success("History backup cleared")
         } catch (e) {
+            if (refused(e, "clear the history backup")) return
             toast.error(e instanceof Error ? e.message : "Could not clear history backup")
         } finally {
             setIsClearingRecovery(false)
         }
-    }, [idpUrl, accessToken])
+    }, [idpUrl, accessToken, refused])
 
     const onRevokeDevice = useCallback(
         async (deviceId: string) => {
             if (!idpUrl || !accessToken || !ownActorUri) return
             setRevokingDeviceId(deviceId)
             try {
-                // Step 1 — MLS Remove commits across every conversation
-                // the device is in. The use case iterates and swallows
-                // per-conversation failures, so a single broken group
-                // won't block the directory mark below.
-                const conversationIds = localDmConvos.map((c) => c.id)
-                await revokeDeviceUseCase({ e2eePort: getE2eePort() })({
+                await revokeDeviceUseCase({ e2eePort: getE2eePort(), deviceDirectoryPort: getDeviceDirectoryPort() })({
                     idpUrl,
                     accessToken,
                     actorUri: ownActorUri,
                     deviceId,
-                    conversationIds,
+                    conversationIds: localDmConvos.map((c) => c.id),
                 })
-                // Step 2 — flip the server-side directory flag: the IdP
-                // signs the device out at once, and its KeyPackages stop
-                // being claimed for new conversations.
-                await getDeviceDirectoryPort().markRevoked(idpUrl, accessToken, deviceId)
                 await queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
                 toast.success("Device revoked")
             } catch (e) {
+                if (refused(e, "revoke a device")) return
                 toast.error(e instanceof Error ? e.message : "Revoke failed")
             } finally {
                 setRevokingDeviceId(null)
             }
         },
-        [idpUrl, accessToken, ownActorUri, localDmConvos, queryClient],
+        [idpUrl, accessToken, ownActorUri, localDmConvos, queryClient, refused],
     )
 
     // Their devices stay: each may sign in again, as the same device.
@@ -125,11 +130,12 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
             await queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
             toast.success("Signed out of your other devices")
         } catch (e) {
+            if (refused(e, "sign out your other devices")) return
             toast.error(e instanceof Error ? e.message : "Could not sign out the other devices")
         } finally {
             setIsSigningOutOthers(false)
         }
-    }, [idpUrl, accessToken, queryClient])
+    }, [idpUrl, accessToken, queryClient, refused])
 
     return {
         rows,
@@ -143,5 +149,6 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
         onRevokeDevice,
         isSigningOutOthers,
         onSignOutOthers,
+        recentSignIn,
     }
 }

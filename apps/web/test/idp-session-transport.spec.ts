@@ -98,6 +98,27 @@ describe("the IdP client's answer to a refused bearer token", () => {
         expect(fetch).toHaveBeenCalledTimes(1)
     })
 
+    it("never renews when the IdP asks for the password again: a renewal wouldn't bring it", async () => {
+        const fetch = serving(
+            new Response(
+                JSON.stringify({ error: "insufficient_user_authentication", error_description: "Type your password again to do this" }),
+                {
+                    status: 401,
+                    headers: {
+                        "Content-Type": "application/json",
+                        "WWW-Authenticate": 'Bearer error="insufficient_user_authentication", max_age="600"',
+                    },
+                },
+            ),
+        )
+        const renew = vi.fn(async () => "access-2")
+        retryUnauthorizedWith(renew)
+
+        await expect(friends("Bearer access-1")).rejects.toMatchObject({ response: { status: 401 } })
+        expect(renew).not.toHaveBeenCalled()
+        expect(fetch).toHaveBeenCalledTimes(1)
+    })
+
     it("never renews for a request that carried no bearer token", async () => {
         serving(json(401, {}))
         const renew = vi.fn(async () => "access-2")

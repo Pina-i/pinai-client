@@ -27,7 +27,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `OidcConfig` — authorization/token/userinfo endpoints
 - `AuthSession` — access token + user profile
 - `CallbackResult` — how a sign-in came back: `signed-in`, `cancelled` (the
-  IdP's "Another home", `access_denied`) or `refused` (any other `error`, its
+  IdP's "Another home", `access_denied`; `returnTo` where the user was, when
+  only the password was asked again) or `refused` (any other `error`, its
   code kept only when it looks like one — never the IdP's description)
 - `isTokenValid(token)` — checks the JWT `exp` claim (no signature
   verification — that is the IdP's job). Used by the route guards.
@@ -166,6 +167,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   without going there, so the landing can show its hand-off first
 - `startLoginUseCase` — the same, then hands control to the IdP via
   `IAuthNavigationPort` (the route guards' silent re-auth)
+- `LoginOptions`: `reauthenticate` asks the password again (`prompt=login`) for
+  a sensitive action, and marks the flow (`reauthenticating`) so a cancel comes
+  back signed in; `returnTo` replaces the current location as where to come back
 
 ### usecases/auth/handleCallback.usecase.ts
 - Reads `code` or `error`, and `state`, from URL params
@@ -315,6 +319,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   `error_description` as the message, and the `actor_uri` it names (the
   group invitee who can't be added). `@pinai/api` builds it (`idpErrorFrom`)
   so the UI matches on the code, never on the words.
+- `needsRecentSignIn(error)` — the IdP asking the password again before a
+  sensitive action (`RECENT_SIGN_IN_REQUIRED`, RFC 9470's
+  `insufficient_user_authentication`): the user signs in again, then retries.
 
 ### usecases/e2ee/distribute-group-keys.usecase.ts
 - Keys new group members one at a time: concurrent Add commits race the epoch.

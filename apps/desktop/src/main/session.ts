@@ -114,10 +114,18 @@ export class MainSession {
         this.renewer = renewSessionUseCase(oidc, store)
     }
 
-    /** The refresh token the page hands over once, after the code exchange. */
-    hold(held: HeldRefreshToken): Promise<void> {
+    /**
+     * The refresh token the page hands over once, after the code exchange. One from the password
+     * typed again replaces the token held, whose session then ends at the IdP.
+     */
+    async hold(held: HeldRefreshToken): Promise<void> {
+        // A renewal under way would set its successor over this one.
+        await this.renewing?.catch(() => undefined)
+        await this.store.load()
+        const replaced = this.store.take()
         this.store.set(held)
-        return this.store.flushed()
+        await this.store.flushed()
+        if (replaced && replaced.refreshToken !== held.refreshToken) await this.revoke(replaced)
     }
 
     async renew(): Promise<Renewal> {
@@ -138,10 +146,14 @@ export class MainSession {
         const held = this.store.take()
         this.store.clear()
         await this.store.flushed()
-        if (!held?.revocationEndpoint) return
+        if (held) await this.revoke(held)
+    }
+
+    private async revoke(held: HeldRefreshToken): Promise<void> {
+        if (!held.revocationEndpoint) return
         await this.oidc
             .revoke({ revocationEndpoint: held.revocationEndpoint, clientId: held.clientId, refreshToken: held.refreshToken })
-            // Signed out here all the same; the session idles out at the IdP within 90 days.
+            // Gone from here all the same; the session idles out at the IdP within 90 days.
             // eslint-disable-next-line no-console
             .catch((error: unknown) => console.warn("Revoking the refresh token failed", error))
     }

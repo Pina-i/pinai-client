@@ -39,12 +39,13 @@ export function useCallbackPageViewModel() {
                         rememberInstanceUseCase(idpUrl, getRecentInstancesPort())
                         const redirect = getAuthSessionStore().get("post_login_redirect")
                         getAuthSessionStore().remove("post_login_redirect")
-                        void navigate({ to: redirect ?? "/home" })
+                        void navigate({ href: redirect ?? "/home" })
                         break
                     }
                     case "cancelled":
-                        // "Another home" on the IdP: back to picking one, nothing to say.
-                        void navigate({ to: "/", replace: true })
+                        // "Another home" on the IdP: back to picking one, nothing to say — or, asked
+                        // for the password again, back where the user was, still signed in.
+                        void navigate({ href: result.returnTo ?? "/", replace: true })
                         break
                     case "refused":
                         setFailure({ message: "Your identity provider ended the sign-in.", code: result.error })

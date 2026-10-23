@@ -1,6 +1,7 @@
 import { LogOut, Plus, RotateCcw } from "lucide-react"
 import { Link } from "@tanstack/react-router"
 
+import { RecentSignInModal } from "@/presentation/molecules/RecentSignInModal/RecentSignInModal"
 import { RecoveryPassphraseCard } from "@/presentation/molecules/RecoveryPassphraseCard/RecoveryPassphraseCard"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { cn } from "@/presentation/_libs/utils"
@@ -118,6 +119,14 @@ export function DevicesEditor() {
                     works everywhere else.
                 </p>
             </ScrollArea>
+
+            <RecentSignInModal
+                action={vm.recentSignIn.asking}
+                host={vm.recentSignIn.host}
+                isLeaving={vm.recentSignIn.isLeaving}
+                onCancel={vm.recentSignIn.dismiss}
+                onContinue={vm.recentSignIn.signInAgain}
+            />
         </div>
     )
 }

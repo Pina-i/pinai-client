@@ -57,6 +57,7 @@ export type AuthSessionKey =
     | "userinfo_endpoint"
     | "revocation_endpoint"
     | "client_id"
+    | "reauthenticating"
 
 export const AUTH_SESSION_KEYS: readonly AuthSessionKey[] = [
     "post_login_redirect",
@@ -68,6 +69,7 @@ export const AUTH_SESSION_KEYS: readonly AuthSessionKey[] = [
     "userinfo_endpoint",
     "revocation_endpoint",
     "client_id",
+    "reauthenticating",
 ]
 
 /**

@@ -276,6 +276,13 @@ for a known IdP.
    `presentation/_libs/session-device.ts`): revoking the device in Settings → Devices then signs
    it out at once, and the screen tells each device's state — "Active 3 days ago", "Signed out",
    revoked — with "Sign out other devices"
+12. **Sensitive actions** — revoking a device, signing out the others, turning TOTP on, clearing
+   the history backup — take a password typed in the last 10 minutes. The IdP refuses an older
+   one with `401 insufficient_user_authentication` (its `WWW-Authenticate` challenge; the `401`
+   hook doesn't renew for it): `useRecentSignIn` tells the user, then `startLoginUseCase` with
+   `{ reauthenticate: true, returnTo }` sends `prompt=login`, and the callback comes back where
+   they were — Settings reopens on its section through `?settings=<section>`. They do it again;
+   nothing is replayed. "← Another home" comes back there too, still signed in
 
 ## Key Design Decisions
 

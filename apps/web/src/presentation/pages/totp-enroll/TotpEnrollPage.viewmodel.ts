@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useAppStore } from "@/store/store"
 import { getAuthPort, getTotpPort } from "@/ioc/index"
+import { useRecentSignIn } from "@/presentation/hooks/use-recent-sign-in"
+
+const returnHere = () => "/settings/totp/enroll"
 
 export function useTotpEnrollPageViewModel() {
     const accessToken = useAppStore((s) => s.accessToken)
@@ -19,6 +22,8 @@ export function useTotpEnrollPageViewModel() {
     const [submitting, setSubmitting] = useState(false)
 
     const navigate = useNavigate()
+    const recentSignIn = useRecentSignIn(returnHere)
+    const { refused } = recentSignIn
 
     useEffect(() => {
         const accessToken = useAppStore.getState().accessToken
@@ -31,13 +36,14 @@ export function useTotpEnrollPageViewModel() {
                 setProvisioningUrl(res.provisioning_url)
                 setSecretBase32(res.secret_base32)
             } catch (e) {
-                if (!cancelled) setBootError(e instanceof Error ? e.message : "Failed to start enrollment")
+                if (cancelled || refused(e, "turn on two-factor authentication")) return
+                setBootError(e instanceof Error ? e.message : "Failed to start enrollment")
             }
         })()
         return () => {
             cancelled = true
         }
-    }, [signedIn, idpUrl])
+    }, [signedIn, idpUrl, refused])
 
     const verify = useCallback(async () => {
         if (!accessToken || !idpUrl) return
@@ -79,5 +85,6 @@ export function useTotpEnrollPageViewModel() {
         submitting,
         verify,
         userEmail: user?.email ?? "",
+        recentSignIn,
     }
 }

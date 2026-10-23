@@ -16,3 +16,11 @@ export class IdpError extends Error {
         this.actorUri = actorUri
     }
 }
+
+/** RFC 9470: the action takes a password typed on this session in the last minutes. */
+export const RECENT_SIGN_IN_REQUIRED = "insufficient_user_authentication"
+
+/** The IdP asks for the password again before it does this: the user signs in again, then retries. */
+export function needsRecentSignIn(error: unknown): boolean {
+    return error instanceof IdpError && error.code === RECENT_SIGN_IN_REQUIRED
+}

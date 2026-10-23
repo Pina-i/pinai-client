@@ -104,6 +104,26 @@ describe("prepareLoginUseCase", () => {
         expect(url.searchParams.get("code_challenge_method")).toBe("S256")
     })
 
+    it("asks for the password again whatever session the IdP holds, to come back where it was asked", async () => {
+        const { platform: p, store } = platform()
+        const url = new URL(
+            await prepareLoginUseCase(IDP, authPort, p, { reauthenticate: true, returnTo: "/home?settings=devices" }),
+        )
+
+        expect(url.searchParams.get("prompt")).toBe("login")
+        expect(url.searchParams.get("scope")).toBe("openid profile email")
+        expect(store.get("post_login_redirect")).toBe("/home?settings=devices")
+    })
+
+    it("lets the IdP sign a browser in silently otherwise", async () => {
+        const { platform: p, store } = platform()
+        const url = new URL(await prepareLoginUseCase(IDP, authPort, p))
+
+        expect(url.searchParams.has("prompt")).toBe(false)
+        expect(store.get("post_login_redirect")).toBe("/")
+        expect(store.has("reauthenticating")).toBe(false)
+    })
+
     it("leaves the browser where it is; startLoginUseCase is what goes", async () => {
         const { platform: p, navigateTo } = platform()
         const url = await prepareLoginUseCase(IDP, authPort, p)
@@ -145,8 +165,32 @@ describe("handleCallbackUseCase", () => {
             p,
         )
 
-        expect(result).toEqual({ kind: "cancelled" })
+        expect(result).toEqual({ kind: "cancelled", returnTo: null })
         expect([...store.keys()]).toEqual(["idp_url"])
+    })
+
+    it("goes back where the user was, still signed in, when they cancelled typing the password again", async () => {
+        const { platform: p, store } = platform()
+        await prepareLoginUseCase(IDP, authPort, p, { reauthenticate: true, returnTo: "/settings/totp/enroll" })
+
+        const result = await handleCallbackUseCase(
+            new URLSearchParams({ error: "access_denied", state: "random" }),
+            authPort,
+            p,
+        )
+
+        expect(result).toEqual({ kind: "cancelled", returnTo: "/settings/totp/enroll" })
+        expect([...store.keys()]).toEqual(["idp_url"])
+    })
+
+    it("forgets it was asking the password again once signed in", async () => {
+        const { platform: p, store } = platform()
+        await prepareLoginUseCase(IDP, authPort, p, { reauthenticate: true, returnTo: "/home?settings=devices" })
+
+        await handleCallbackUseCase(new URLSearchParams({ code: "c", state: "random" }), authPort, p)
+
+        expect(store.has("reauthenticating")).toBe(false)
+        expect(store.get("post_login_redirect")).toBe("/home?settings=devices")
     })
 
     it("reports any other error by its code, and only a code-shaped one", async () => {

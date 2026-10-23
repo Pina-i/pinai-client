@@ -55,12 +55,14 @@ export interface AuthSession {
 
 /**
  * How a sign-in came back. `cancelled` is the user's "Another home" on the
- * IdP (`access_denied`); `refused` is any other `error` the IdP sent, its code
- * kept only when it looks like one (RFC 6749 § 4.1.2.1), never its description.
+ * IdP (`access_denied`) — `returnTo` where they were, when they were signed in
+ * there and only asked for the password again; `refused` is any other `error`
+ * the IdP sent, its code kept only when it looks like one (RFC 6749 § 4.1.2.1),
+ * never its description.
  */
 export type CallbackResult =
     | { kind: "signed-in"; session: AuthSession }
-    | { kind: "cancelled" }
+    | { kind: "cancelled"; returnTo: string | null }
     | { kind: "refused"; error: string | null }
 
 /** What `/token` answers: the access token, and the refresh token that renews it. */

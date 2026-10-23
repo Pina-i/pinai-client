@@ -1,5 +1,5 @@
-import { HTTPError } from "ky"
 import { idp } from "../http"
+import { idpErrorFrom } from "../idp-error"
 import type {
     ITotpPort,
     TotpEnrollResponse,
@@ -8,19 +8,6 @@ import type {
 
 function base(idpUrl: string): string {
     return idpUrl.replace(/\/$/, "")
-}
-
-async function readError(error: unknown, fallback: string): Promise<Error> {
-    if (error instanceof HTTPError) {
-        const body = (await error.response.json().catch(() => ({}))) as {
-            error?: string
-            error_description?: string
-        }
-        return new Error(
-            body.error_description ?? body.error ?? `${fallback}: ${error.response.status}`,
-        )
-    }
-    return error instanceof Error ? error : new Error(fallback)
 }
 
 export class TotpApiAdapter implements ITotpPort {
@@ -32,7 +19,7 @@ export class TotpApiAdapter implements ITotpPort {
                 })
                 .json<TotpEnrollResponse>()
         } catch (e) {
-            throw await readError(e, "TOTP enrollment failed")
+            throw await idpErrorFrom(e, "TOTP enrollment failed")
         }
     }
 
@@ -49,7 +36,7 @@ export class TotpApiAdapter implements ITotpPort {
                 })
                 .json<TotpEnrollVerifyResponse>()
         } catch (e) {
-            throw await readError(e, "TOTP verification failed")
+            throw await idpErrorFrom(e, "TOTP verification failed")
         }
     }
 
@@ -60,7 +47,7 @@ export class TotpApiAdapter implements ITotpPort {
                 json: { code },
             })
         } catch (e) {
-            throw await readError(e, "Failed to disable TOTP")
+            throw await idpErrorFrom(e, "Failed to disable TOTP")
         }
     }
 
@@ -77,7 +64,7 @@ export class TotpApiAdapter implements ITotpPort {
                 })
                 .json<TotpEnrollVerifyResponse>()
         } catch (e) {
-            throw await readError(e, "Failed to regenerate recovery codes")
+            throw await idpErrorFrom(e, "Failed to regenerate recovery codes")
         }
     }
 }

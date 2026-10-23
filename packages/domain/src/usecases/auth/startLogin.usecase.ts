@@ -1,5 +1,16 @@
 import type { AuthPlatform, IAuthPort } from "../../ports/auth.port"
 
+export interface LoginOptions {
+    /**
+     * Signed in already, asked for the password again: a sensitive action takes a recent one.
+     * The IdP shows its login page whatever session it holds, and a cancel comes back to
+     * `returnTo`, still signed in.
+     */
+    reauthenticate?: boolean
+    /** Where the sign-in comes back to; where the app is now otherwise. */
+    returnTo?: string
+}
+
 /**
  * Everything a sign-in needs before the browser leaves: discovery, PKCE, the
  * scratch space the callback reads. Resolves to the `/authorize` URL to go to.
@@ -8,6 +19,7 @@ export async function prepareLoginUseCase(
     idpUrl: string,
     authPort: IAuthPort,
     platform: AuthPlatform,
+    options: LoginOptions = {},
 ): Promise<string> {
     const { pkce, session, navigation } = platform
     const config = await authPort.discoverConfig(idpUrl)
@@ -19,7 +31,9 @@ export async function prepareLoginUseCase(
     const nonce = pkce.generateRandomString(16)
 
     // Has to survive the hand-off to the IdP, but not the session.
-    session.set("post_login_redirect", navigation.currentLocation())
+    session.set("post_login_redirect", options.returnTo ?? navigation.currentLocation())
+    if (options.reauthenticate) session.set("reauthenticating", "1")
+    else session.remove("reauthenticating")
     session.set("pkce_verifier", codeVerifier)
     session.set("pkce_state", state)
     session.set("pkce_nonce", nonce)
@@ -41,7 +55,7 @@ export async function prepareLoginUseCase(
         code_challenge_method: "S256",
         nonce,
     })
-    if (!platform.browserSession) params.set("prompt", "login")
+    if (options.reauthenticate || !platform.browserSession) params.set("prompt", "login")
     const appearance = platform.appearance()
     if (appearance) {
         params.set("theme", appearance.theme)
@@ -59,6 +73,7 @@ export async function startLoginUseCase(
     idpUrl: string,
     authPort: IAuthPort,
     platform: AuthPlatform,
+    options: LoginOptions = {},
 ): Promise<void> {
-    platform.navigation.navigateTo(await prepareLoginUseCase(idpUrl, authPort, platform))
+    platform.navigation.navigateTo(await prepareLoginUseCase(idpUrl, authPort, platform, options))
 }

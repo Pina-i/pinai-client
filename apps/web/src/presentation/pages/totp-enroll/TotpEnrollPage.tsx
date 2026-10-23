@@ -45,6 +45,19 @@ export function TotpEnrollPage() {
                 </p>
             )}
 
+            {vm.recentSignIn.asking && (
+                <div className="flex flex-col gap-[18px]">
+                    <p className="text-[13.5px] leading-[1.55] text-muted-foreground">
+                        To {vm.recentSignIn.asking}, sign in again on{" "}
+                        <span className="font-medium text-foreground">{vm.recentSignIn.host}</span>. You'll come back
+                        right here.
+                    </p>
+                    <Button onPress={vm.recentSignIn.signInAgain} isDisabled={vm.recentSignIn.isLeaving}>
+                        {vm.recentSignIn.isLeaving ? "Taking you there…" : "Type your password again"}
+                    </Button>
+                </div>
+            )}
+
             {vm.provisioningUrl && (
                 <div className="flex flex-col gap-[18px]">
                     <div className="flex items-start gap-4">

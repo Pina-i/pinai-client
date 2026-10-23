@@ -111,6 +111,19 @@ describe("MainSession", () => {
         expect(existsSync(at)).toBe(true)
     })
 
+    it("holds the token of a password typed again in place of the kept one, revoked at the IdP", async () => {
+        const at = file()
+        await kept(at)
+        const port = oidc(async () => null)
+
+        await new MainSession(new KeychainSessionTokenStore(at, sealer()), port).hold({ ...HELD, refreshToken: "refresh-again" })
+
+        expect(port.revoke).toHaveBeenCalledWith(expect.objectContaining({ refreshToken: "refresh-1" }))
+        const next = new KeychainSessionTokenStore(at, sealer())
+        await next.load()
+        expect(next.take()?.refreshToken).toBe("refresh-again")
+    })
+
     it("signs out by revoking the token at the IdP and deleting it here", async () => {
         const at = file()
         await kept(at)
