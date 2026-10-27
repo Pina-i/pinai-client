@@ -19,12 +19,34 @@ const NONCE_BYTES = 12
  */
 export class WebCryptoDeviceKeyAdapter implements IDeviceKeyPort {
     private readonly store: IdbKeyValueStore
+    // Kept once loaded: a later read of the slot failing must not be taken for a row the key can't open.
+    #key: CryptoKey | null = null
+    #loading: Promise<CryptoKey> | null = null
 
     constructor(store: IdbKeyValueStore) {
         this.store = store
     }
 
-    private async getOrCreateKey(): Promise<CryptoKey> {
+    // One load at a time: two first calls racing would mint two keys, the second overwriting the first.
+    #getOrCreateKey(): Promise<CryptoKey> {
+        if (this.#key) return Promise.resolve(this.#key)
+        if (!this.#loading) {
+            const loading: Promise<CryptoKey> = this.#loadOrMint()
+                .then((key) => {
+                    // Unless wiped meanwhile.
+                    if (this.#loading === loading) this.#key = key
+                    return key
+                })
+                .finally(() => {
+                    if (this.#loading === loading) this.#loading = null
+                })
+            this.#loading = loading
+        }
+        return this.#loading
+    }
+
+    // A read that fails throws: only a key truly absent is minted.
+    async #loadOrMint(): Promise<CryptoKey> {
         const existing = await this.store.getCryptoKey()
         if (existing) return existing
         const key = await crypto.subtle.generateKey(
@@ -36,8 +58,12 @@ export class WebCryptoDeviceKeyAdapter implements IDeviceKeyPort {
         return key
     }
 
+    async ready(): Promise<void> {
+        await this.#getOrCreateKey()
+    }
+
     async seal(plaintext: Uint8Array): Promise<SealedBytes> {
-        const key = await this.getOrCreateKey()
+        const key = await this.#getOrCreateKey()
         const nonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES))
         const ciphertext = await crypto.subtle.encrypt(
             { name: "AES-GCM", iv: nonce },
@@ -48,7 +74,7 @@ export class WebCryptoDeviceKeyAdapter implements IDeviceKeyPort {
     }
 
     async open(sealed: SealedBytes): Promise<Uint8Array> {
-        const key = await this.getOrCreateKey()
+        const key = await this.#getOrCreateKey()
         const plaintext = await crypto.subtle.decrypt(
             { name: "AES-GCM", iv: sealed.nonce as BufferSource },
             key,
@@ -58,6 +84,8 @@ export class WebCryptoDeviceKeyAdapter implements IDeviceKeyPort {
     }
 
     async wipe(): Promise<void> {
+        this.#key = null
+        this.#loading = null
         await this.store.deleteCryptoKey()
     }
 }

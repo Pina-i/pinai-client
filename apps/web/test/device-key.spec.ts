@@ -7,11 +7,12 @@
  * has to satisfy — seal/open round-trips, and a tampered ciphertext fails
  * closed rather than returning garbage.
  */
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import "fake-indexeddb/auto"
 
 import { WebCryptoDeviceKeyAdapter } from "@/adapters/e2ee/device-key.adapter"
 import { IdbKeyValueStore } from "@/adapters/storage/idb-key-value-store.adapter"
+import type { IDeviceKeyPort } from "@pinai/domain/ports/device-key.port"
 
 let store: IdbKeyValueStore
 let deviceKey: WebCryptoDeviceKeyAdapter
@@ -75,9 +76,38 @@ describe("WebCryptoDeviceKeyAdapter", () => {
         await expect(deviceKey.open(sealed)).rejects.toThrow()
     })
 
-    it("does not expose the key itself", () => {
-        expect(
-            Object.getOwnPropertyNames(Object.getPrototypeOf(deviceKey)).sort(),
-        ).toEqual(["constructor", "getOrCreateKey", "open", "seal", "wipe"])
+    it("does not expose the key itself", async () => {
+        const port: (keyof IDeviceKeyPort)[] = ["open", "ready", "seal", "wipe"]
+        const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(deviceKey))
+        expect(methods.filter((name) => (port as string[]).includes(name)).sort()).toEqual(port.sort())
+
+        await deviceKey.ready()
+        expect(Object.values(deviceKey).some((value) => value instanceof CryptoKey)).toBe(false)
+    })
+
+    it("mints one key when first used twice at once", async () => {
+        const minted = vi.spyOn(store, "putCryptoKey")
+
+        const [a, b] = await Promise.all([
+            deviceKey.seal(new TextEncoder().encode("a")),
+            deviceKey.seal(new TextEncoder().encode("b")),
+        ])
+
+        expect(minted).toHaveBeenCalledOnce()
+        const other = new WebCryptoDeviceKeyAdapter(store)
+        expect(new TextDecoder().decode(await other.open(a))).toBe("a")
+        expect(new TextDecoder().decode(await other.open(b))).toBe("b")
+    })
+
+    it("never mints over a key it failed to read", async () => {
+        const sealed = await deviceKey.seal(new TextEncoder().encode("kept"))
+        const minted = vi.spyOn(store, "putCryptoKey")
+        vi.spyOn(store, "getCryptoKey").mockRejectedValueOnce(new Error("IndexedDB unavailable"))
+        const fresh = new WebCryptoDeviceKeyAdapter(store)
+
+        await expect(fresh.ready()).rejects.toThrow("IndexedDB unavailable")
+
+        expect(minted).not.toHaveBeenCalled()
+        expect(new TextDecoder().decode(await fresh.open(sealed))).toBe("kept")
     })
 })

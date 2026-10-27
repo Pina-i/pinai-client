@@ -23,7 +23,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 ## Modules
 
 ### models/auth.ts
-- `UserProfile` — sub, email, preferred_username
+- `UserProfile` — sub, email, preferred_username; `admin`, an admin of the
+  instance (`/userinfo`)
 - `OidcConfig` — authorization/token/userinfo endpoints
 - `AuthSession` — access token + user profile
 - `CallbackResult` — how a sign-in came back: `signed-in`, `cancelled` (the
@@ -154,6 +155,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   other
 - What it seals never leaves the device, so implementations need not agree
   on a format — unlike the protocol-level crypto, which must
+- `ready()` loads the key, minting it on first use, and rejects when it can't
+  be read — never minting over one that exists. A storage calls it first, to
+  tell a failed read from a row the key can't open
 
 ### ports/attachment-crypto.port.ts
 - `IAttachmentCryptoPort` — per-attachment AES-256-GCM seal/open. Protocol
@@ -194,6 +198,35 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `IRecentInstancesPort` — the instances this device signed in to, as
   origins; `parseRecentInstances` / `addRecentInstance` keep 3, newest first,
   once each. `rememberInstanceUseCase` runs when a callback succeeds.
+- `instanceArrival(asked, signedInTo)` — the app opened on `?instance=`:
+  `none` (no address), `here` (the instance it signs in to: on to the app) or
+  `pick` (the landing, filled in; `leaving` another instance). `sameInstance`
+  compares authorities, `host[:port]` of `instanceAddress`, never the strings:
+  `http://` and `https://` name one instance. `arrive-at-instance.usecase.ts`
+  (in `usecases/auth/`) drops the other instance's session through the
+  platform's token store and an injected `dropSession`, and is ignored where
+  `browserSession` is false: no link opens the desktop app.
+
+### models/instance-admin.ts + ports/instance-admin.port.ts
+- Settings → Instance, an admin's panel. `managesInstance(admin, info)` —
+  only on an invite-only instance (NodeInfo `openRegistrations: false`): on
+  an open one people sign up themselves, and the IdP refuses to invite.
+  `managed-instance.usecase.ts` reads NodeInfo for an admin only.
+- `IInstanceAdminPort` — `/api/admin/*`: the members, the open invitations,
+  making and revoking one, a member's reset link. A link's token is in the
+  answer that made it, never in a list: the client can't show it twice.
+- `InstanceMember` names a member by display name only — the IdP never
+  sends a handle or an address. `offersPasswordReset` — not to an admin,
+  who recovers through `ADMIN_EMAIL` / `ADMIN_PASSWORD`. `memberActivity` —
+  online, seen (a session's last use), or signed out everywhere.
+- `refusedAsNonAdmin` — every admin route's `403`. `revoke-invitation.usecase.ts`
+  takes a `404` as `gone` (used, expired or revoked meanwhile): the row leaves
+  the list either way.
+
+### models/relative-time.ts
+- Times as the screens word them: `formatLastSeen` ("3 days ago") and
+  `expiryWording` ("expires in 7 days", rounded up as the IdP's invitation
+  page does, or "expired"). Both answer `null` for a date they can't read.
 
 ### usecases/auth/logout.usecase.ts
 - Clears the local session via an injected `clearSession` callback

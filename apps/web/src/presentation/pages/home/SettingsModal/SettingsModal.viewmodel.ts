@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react"
-import { useLocation, useNavigate, useRouter } from "@tanstack/react-router"
+import { useQuery } from "@tanstack/react-query"
+import { useLocation, useRouter } from "@tanstack/react-router"
 
+import type { InstanceInfo } from "@pinai/domain/models/instance"
+import { managedInstanceUseCase } from "@pinai/domain/usecases/instance/managed-instance.usecase"
+import { getNodeInfoPort } from "@/ioc"
+import { dropSearchParam } from "@/presentation/_libs/search-param"
 import { useAppStore } from "@/store/store"
 
 const SECTIONS = [
@@ -13,6 +18,7 @@ const SECTIONS = [
     "keybinds",
     "devices",
     "connections",
+    "instance",
 ] as const
 
 export type SettingsSection = (typeof SECTIONS)[number]
@@ -32,9 +38,17 @@ function askedIn(searchStr: string): SettingsSection | null {
     return SECTIONS.find((section) => section === asked) ?? null
 }
 
+/** Settings → Instance, an admin's on an invite-only instance: unknown until NodeInfo answers. */
+export type InstancePanel = { kind: "unknown" } | { kind: "hidden" } | { kind: "shown"; info: InstanceInfo }
+
 export interface SettingsModalViewModel {
-    activeSection: SettingsSection
     selectSection: (section: SettingsSection) => void
+    instance: InstancePanel
+    /**
+     * The section the right pane shows: Profile in place of an Instance panel the account doesn't
+     * have, `null` while that is unknown — no panel, and no admin request, before NodeInfo answers.
+     */
+    shownSection: SettingsSection | null
 }
 
 export function useSettingsModalViewModel(): SettingsModalViewModel {
@@ -43,17 +57,36 @@ export function useSettingsModalViewModel(): SettingsModalViewModel {
     const [activeSection, setActiveSection] = useState<SettingsSection>(asked ?? "profile")
     const setShowSettings = useAppStore((s) => s.setShowSettings)
     const router = useRouter()
-    const navigate = useNavigate()
+    const instance = useInstancePanel()
 
     useEffect(() => {
         if (!asked) return
         setShowSettings(true)
-        const { pathname, searchStr } = router.state.location
-        const search = new URLSearchParams(searchStr)
-        search.delete(PARAM)
-        const rest = search.toString()
-        void navigate({ href: rest ? `${pathname}?${rest}` : pathname, replace: true })
-    }, [asked, setShowSettings, router, navigate])
+        dropSearchParam(router, PARAM)
+    }, [asked, setShowSettings, router])
 
-    return { activeSection, selectSection: setActiveSection }
+    const shownSection =
+        activeSection !== "instance"
+            ? activeSection
+            : instance.kind === "shown"
+              ? "instance"
+              : instance.kind === "hidden"
+                ? "profile"
+                : null
+
+    return { selectSection: setActiveSection, instance, shownSection }
+}
+
+function useInstancePanel(): InstancePanel {
+    const idpUrl = useAppStore((s) => s.idpUrl)
+    const admin = useAppStore((s) => s.user?.admin === true)
+    const query = useQuery({
+        queryKey: ["managed-instance", idpUrl, admin],
+        queryFn: () => managedInstanceUseCase(idpUrl!, admin, getNodeInfoPort()),
+        enabled: idpUrl !== null && admin,
+        staleTime: 60_000,
+    })
+    if (!idpUrl || !admin || query.isError) return { kind: "hidden" }
+    if (query.data === undefined) return { kind: "unknown" }
+    return query.data ? { kind: "shown", info: query.data } : { kind: "hidden" }
 }

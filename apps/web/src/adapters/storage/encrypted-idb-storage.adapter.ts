@@ -15,7 +15,8 @@
  * Storage layout
  * - DB: `pinai-zustand-store:<actor URI>` (v1), one per account
  * - Object store: `slices`
- * - Key: zustand's `name` field (one entry per partialized state)
+ * - Key: zustand's `name` field (one entry per partialized state); a row
+ *   that couldn't be decoded is kept as `<name>:unreadable:<ISO time>`
  * - Value: a `SealedBytes` — the same at-rest shape `storage.adapter.ts`
  *   writes, so there is one sealed-row format in the app
  *
@@ -81,23 +82,22 @@ export function createEncryptedIdbStorage<T>(
     const openSlicesDb = () => (dbPromise ??= openSlicesDatabase(dbName))
     return {
         async getItem(name: string): Promise<StorageValue<T> | null> {
+            // The key first: one that can't be loaded, like IndexedDB failing, is a failed read —
+            // thrown, nothing touched, tried again at the next page load.
+            await deviceKey.ready()
             const db = await openSlicesDb()
             const sealed = (await db.get(SLICES_STORE, name)) as SealedBytes | undefined
             if (!sealed) return null
             try {
                 return unpack(await deviceKey.open(sealed)) as StorageValue<T>
             } catch (e) {
-                // Corrupt, wrong key, or a row from an older on-disk
-                // format — drop it
-                // so the next save starts clean. Returning null
-                // makes Zustand boot with the slice's default state,
-                // which is the right failure mode (vs. blowing up
-                // the whole app). For an evicted JSON row, the next
-                // live message + the next history fetch repopulate
-                // `dmMessages` from the server.
+                // Corrupt, sealed under another key, or an older format: kept aside, never deleted, and
+                // the app starts empty. A move that fails is a failed read: the row stays where it was.
+                const aside = `${name}:unreadable:${new Date().toISOString()}`
                 // eslint-disable-next-line no-console
-                console.warn(`Persisted slice "${name}" failed to decode; dropping`, e)
-                await db.delete(SLICES_STORE, name).catch(() => undefined)
+                console.warn(`Persisted slice "${name}" failed to decode; kept as "${aside}"`, e)
+                const tx = db.transaction(SLICES_STORE, "readwrite")
+                await Promise.all([tx.store.add(sealed, aside), tx.store.delete(name), tx.done])
                 return null
             }
         },

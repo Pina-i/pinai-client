@@ -1,11 +1,26 @@
 import type { ReactNode } from "react"
-import { Bell, Headphones, Laptop, Lock, MessageSquare, Settings as SettingsIcon, ShieldCheck, Sparkles, Sun } from "lucide-react"
+import {
+    Bell,
+    Headphones,
+    KeyRound,
+    Laptop,
+    Lock,
+    MessageSquare,
+    Settings as SettingsIcon,
+    ShieldCheck,
+    Sparkles,
+    Sun,
+} from "lucide-react"
 import type { UserProfile } from "@pinai/domain/models/auth"
+import { addressParts } from "@pinai/domain/models/identity"
+import { peopleCount, type InstanceInfo } from "@pinai/domain/models/instance"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { AppearanceEditor } from "./AppearanceEditor/AppearanceEditor"
 import { DevicesEditor } from "./DevicesEditor/DevicesEditor"
+import { editorFrame } from "./editor-styles"
 import { IdentityTile } from "./IdentityTile/IdentityTile"
+import { InstanceEditor } from "./InstanceEditor/InstanceEditor"
 import { PlaceholderEditor } from "./PlaceholderEditor/PlaceholderEditor"
 import { PrivacyEditor } from "./PrivacyEditor/PrivacyEditor"
 import { CONTACT_POLICY_CHOICES, DEFAULT_CONTACT_POLICY } from "./PrivacyEditor/PrivacyEditor.viewmodel"
@@ -128,14 +143,31 @@ const SECTIONS: SectionDescriptor[] = [
     },
 ]
 
+/** Shown to an admin of an invite-only instance only, after the others. */
+function instanceSection(host: string, info: InstanceInfo): SectionDescriptor {
+    return {
+        id: "instance",
+        label: "Instance",
+        title: "Invitations and password resets.",
+        description: `Invitations and password resets for ${host}. You see this because you administer it.`,
+        icon: <KeyRound className={ICON_PROPS} />,
+        preview: (
+            <span className={`${FACT_PREVIEW} text-muted-foreground`}>
+                <span className="text-idle">●</span> private{info.users ? ` · ${peopleCount(info.users)}` : ""}
+            </span>
+        ),
+    }
+}
+
 export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModalProps) {
-    const { activeSection, selectSection } = useSettingsModalViewModel()
+    const { selectSection, instance, shownSection } = useSettingsModalViewModel()
 
     const displayName = user.display_name ?? user.preferred_username
     const initials = displayName.slice(0, 2).toUpperCase()
     const handle = user.preferred_username
-    const host = user.address.split("@")[1] ?? ""
-    const activeDescriptor = SECTIONS.find((s) => s.id === activeSection) ?? SECTIONS[0]
+    const { host } = addressParts(user.address)
+    const sections = instance.kind === "shown" ? [...SECTIONS, instanceSection(host, instance.info)] : SECTIONS
+    const activeDescriptor = sections.find((s) => s.id === shownSection) ?? null
     const contactPolicy = user.privacy?.contact_policy ?? DEFAULT_CONTACT_POLICY
     const contactPolicyLabel = CONTACT_POLICY_CHOICES.find((c) => c.value === contactPolicy)?.label
 
@@ -157,14 +189,14 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
                         />
 
                         <div className="grid grid-cols-2 gap-3 max-[1040px]:grid-cols-1">
-                            {SECTIONS.map((s) => (
+                            {sections.map((s) => (
                                 <SettingTile
                                     key={s.id}
                                     icon={s.icon}
                                     label={s.label}
                                     description={s.description}
                                     preview={s.id === "privacy" ? <span className={`${FACT_PREVIEW} text-on`}>● {contactPolicyLabel}</span> : s.preview}
-                                    state={s.id === activeSection ? "active" : "idle"}
+                                    state={s.id === shownSection ? "active" : "idle"}
                                     onPress={() => selectSection(s.id)}
                                 />
                             ))}
@@ -185,7 +217,11 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
 
                 {/* RIGHT — drill-in editor */}
                 <div className="relative flex min-w-0 flex-[0.95] flex-col bg-surf max-[700px]:min-h-[420px] max-[700px]:flex-none">
-                    {activeDescriptor.id === "profile" ? (
+                    {activeDescriptor === null ? (
+                        <div className={editorFrame} aria-busy="true" />
+                    ) : activeDescriptor.id === "instance" ? (
+                        <InstanceEditor host={host} />
+                    ) : activeDescriptor.id === "profile" ? (
                         <ProfileEditor user={user} />
                     ) : activeDescriptor.id === "security" ? (
                         <SecurityEditor />

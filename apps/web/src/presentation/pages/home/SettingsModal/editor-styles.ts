@@ -28,6 +28,8 @@ export const pill = tv({
             save: "border-transparent bg-action px-4 py-2 text-[12px] font-semibold text-action-foreground hover:opacity-90",
             /** Destructive commit (disable 2FA). */
             danger: "border-transparent bg-dnd px-4 py-2 text-[12px] font-semibold text-background hover:opacity-90",
+            /** `.dv-rev` — revoking something listed: a device, an invitation. */
+            revoke: "h-7 shrink-0 border-dnd bg-transparent px-[11px] text-[11px] text-dnd hover:bg-[color-mix(in_oklab,var(--dnd)_10%,transparent)]",
         },
     },
     defaultVariants: { variant: "cancel" },

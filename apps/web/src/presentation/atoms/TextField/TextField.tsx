@@ -4,7 +4,7 @@ import {
     Input,
     type TextFieldProps as AriaTextFieldProps,
 } from "react-aria-components"
-import type { ReactNode } from "react"
+import type { ReactNode, Ref } from "react"
 import { cn } from "@/presentation/_libs/utils"
 
 export interface TextFieldProps extends Omit<AriaTextFieldProps, "children" | "className"> {
@@ -19,9 +19,10 @@ export interface TextFieldProps extends Omit<AriaTextFieldProps, "children" | "c
     /** The value is accepted (an address resolved): the accent border and icons, as on focus. */
     valid?: boolean
     className?: string
+    inputRef?: Ref<HTMLInputElement>
 }
 
-export function TextField({ label, placeholder, error, icon, trailing, mono, valid, className, ...props }: TextFieldProps) {
+export function TextField({ label, placeholder, error, icon, trailing, mono, valid, className, inputRef, ...props }: TextFieldProps) {
     return (
         <AriaTextField
             {...props}
@@ -42,6 +43,7 @@ export function TextField({ label, placeholder, error, icon, trailing, mono, val
             >
                 {icon && <span className="pointer-events-none flex shrink-0">{icon}</span>}
                 <Input
+                    ref={inputRef}
                     placeholder={placeholder}
                     className={cn(
                         "min-w-0 flex-1 bg-transparent text-foreground placeholder:text-muted-foreground outline-none",

@@ -1,11 +1,13 @@
 import { Laptop, Smartphone, Tablet, HelpCircle } from "lucide-react"
 
 import { deviceStatus } from "@pinai/domain/models/device"
+import { formatLastSeen } from "@pinai/domain/models/relative-time"
 
 import type { DeviceRow } from "@/presentation/hooks/useDevices"
 import { deviceFingerprint } from "@/presentation/_libs/device-fingerprint"
-import { formatLastSeen } from "@/presentation/_libs/format-last-seen"
 import { cn } from "@/presentation/_libs/utils"
+
+import { pill } from "../../editor-styles"
 
 interface DeviceCardProps {
     device: DeviceRow
@@ -46,8 +48,10 @@ function statusLabel(device: DeviceRow): string {
     switch (status.kind) {
         case "revoked":
             return `Revoked ${pairedDateLabel(status.at)}`
-        case "signed-in":
-            return status.lastActiveAt ? `Active ${formatLastSeen(status.lastActiveAt)}` : "Signed in"
+        case "signed-in": {
+            const seen = status.lastActiveAt && formatLastSeen(status.lastActiveAt, new Date())
+            return seen ? `Active ${seen}` : "Signed in"
+        }
         case "signed-out":
             return "Signed out"
     }
@@ -118,16 +122,7 @@ export function DeviceCard({ device, onRevoke, isRevoking }: DeviceCardProps) {
                     </div>
                 </div>
                 {!isRevoked && !isCurrent && (
-                    <button
-                        type="button"
-                        onClick={onRevoke}
-                        disabled={isRevoking}
-                        className={cn(
-                            "h-7 shrink-0 cursor-pointer rounded-full border border-dnd bg-transparent px-[11px]",
-                            "font-sans text-[11px] text-dnd transition-colors duration-150",
-                            "hover:bg-[color-mix(in_oklab,var(--dnd)_10%,transparent)] disabled:cursor-not-allowed disabled:opacity-50",
-                        )}
-                    >
+                    <button type="button" onClick={onRevoke} disabled={isRevoking} className={pill({ variant: "revoke" })}>
                         {isRevoking ? "Revoking…" : "Revoke"}
                     </button>
                 )}

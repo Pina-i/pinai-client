@@ -1,6 +1,10 @@
+/**
+ * Times as the screens word them: how long ago something was, and when a link stops working.
+ * Neither words a date it can't read.
+ */
 import { describe, expect, it } from "vitest"
 
-import { formatLastSeen } from "@/presentation/_libs/format-last-seen"
+import { expiryWording, formatLastSeen } from "@pinai/domain/models/relative-time"
 
 const NOW = new Date("2026-05-14T12:00:00.000Z")
 
@@ -54,5 +58,31 @@ describe("formatLastSeen", () => {
     it("clamps future timestamps to 'just now' (clock-skew safety)", () => {
         const future = new Date(NOW.getTime() + 60_000).toISOString()
         expect(formatLastSeen(future, NOW)).toBe("just now")
+    })
+
+    it("words nothing for a date it can't read", () => {
+        expect(formatLastSeen("not a date", NOW)).toBeNull()
+    })
+})
+
+describe("expiryWording", () => {
+    const now = new Date("2026-10-27T12:00:00Z")
+
+    it("counts days, rounded up, as the IdP's invitation page does", () => {
+        expect(expiryWording("2026-11-03T12:00:00Z", now)).toBe("expires in 7 days")
+        expect(expiryWording("2026-11-03T11:59:00Z", now)).toBe("expires in 7 days")
+        expect(expiryWording("2026-10-28T13:00:00Z", now)).toBe("expires in 2 days")
+        expect(expiryWording("2026-10-28T12:00:00Z", now)).toBe("expires in 1 day")
+    })
+
+    it("counts hours under a day", () => {
+        expect(expiryWording("2026-10-28T11:00:00Z", now)).toBe("expires in 23 hours")
+        expect(expiryWording("2026-10-27T12:30:00Z", now)).toBe("expires in 1 hour")
+    })
+
+    it("says expired once the time has passed, and nothing for a date it can't read", () => {
+        expect(expiryWording("2026-10-27T12:00:00Z", now)).toBe("expired")
+        expect(expiryWording("2026-10-27T11:00:00Z", now)).toBe("expired")
+        expect(expiryWording("soon", now)).toBeNull()
     })
 })

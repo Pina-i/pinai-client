@@ -23,7 +23,23 @@ open: the E2EE store rejects every call and the message cache is inert.
 - `idb-key-value-store.adapter.ts` — `IdbKeyValueStore`, the `IKeyValueStore`
   over one database, plus the device-key slot only IndexedDB can hold
 - `encrypted-idb-storage.adapter.ts` — the zustand `PersistStorage`, msgpack
-  inside AES-GCM
+  inside AES-GCM. A read loads the device key first (`IDeviceKeyPort.ready`):
+  - the key or IndexedDB failing is a failed read: thrown, nothing touched,
+    tried again at the next page load;
+  - a row that can't be decoded with the key loaded (corrupt, sealed under
+    another key, an older format) is moved to `<name>:unreadable:<ISO time>`
+    — never deleted, never overwritten — and the app starts empty. A move
+    that fails is a failed read.
+- `store.ts` wraps it in `guardPersistStorage` (`store/persist-guard.ts`): no
+  write until hydration applied a successful read, none for the page load
+  after a failed one, none when no persisted field changed, one at a time —
+  `persist` would otherwise save its empty defaults over a cache not yet read
+  back
+- The device key (`adapters/e2ee/device-key.adapter.ts`) is loaded one call at
+  a time — two first uses racing would mint two keys, the second overwriting
+  the first —, only an absent key is minted, never one that failed to read,
+  and it is kept once loaded (until `wipe`): a later read of its slot failing
+  can't be taken for a row it can't open
 - `account-storage-browser.adapter.ts` — `IAccountStoragePort`. `switchTo`
   records the account and reloads, which is also what clears the previous
   account's in-memory state; the route guard (`routes/-require-session.ts`)

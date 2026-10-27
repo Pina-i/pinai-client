@@ -277,12 +277,37 @@ for a known IdP.
    it out at once, and the screen tells each device's state — "Active 3 days ago", "Signed out",
    revoked — with "Sign out other devices"
 12. **Sensitive actions** — revoking a device, signing out the others, turning TOTP on, clearing
-   the history backup — take a password typed in the last 10 minutes. The IdP refuses an older
+   the history backup, making a member's password reset link — take a password typed in the last
+   10 minutes. The IdP refuses an older
    one with `401 insufficient_user_authentication` (its `WWW-Authenticate` challenge; the `401`
    hook doesn't renew for it): `useRecentSignIn` tells the user, then `startLoginUseCase` with
    `{ reauthenticate: true, returnTo }` sends `prompt=login`, and the callback comes back where
    they were — Settings reopens on its section through `?settings=<section>`. They do it again;
    nothing is replayed. "← Another home" comes back there too, still signed in
+13. **Arriving with `/?instance=<domain>`** — where the IdP sends people after an invitation's
+   sign-up (its browser session open, the web app already consented to) and from a reset link's
+   last page. The landing's `beforeLoad` decides, at every location (`instanceArrival` in
+   `@pinai/domain/models/instance`, against the IdP the app signs in to, `idpUrl`; instances are
+   the same by their authority, `host[:port]` — `sameInstance` —, whatever the scheme;
+   `arriveAtInstanceUseCase`; `presentation/_libs/instance-arrival.ts`):
+   - not signed in: the landing with the instance filled in and resolved, as if typed, and
+     Continue focused — the field instead when it doesn't resolve. One click; never a redirect to
+     `/authorize` by itself, so the official web app can't lend a link to any instance's sign-in
+     page its name. After an invitation, that click signs in without the IdP's page;
+   - signed in to another instance: that session is dropped at once, on this device only, as a
+     refused refresh token drops it — the refresh token cleared, then the store's session and
+     the IdP forgotten in one `set` (`leaveIdp`); no IdP logout, so that instance's browser
+     session lives on, and the account's `pinai-e2ee:<actor>` and `pinai-zustand-store:<actor>`
+     stay as they are (the cache guard below keeps that early `set` off them). Then the landing
+     as above;
+   - signed in to that instance: on to the app, `/home`, whose guard goes to its `/authorize` —
+     silent while its browser session lives, else its login page. The one exception to "one
+     click", and no phishing risk: the device chose that instance itself, and the reset page's
+     "changed" link points there;
+   - anything that isn't an address: the landing as usual.
+
+   The landing takes the parameter, then drops it from the URL: a sign-in started there comes
+   back to that URL. The desktop app ignores it: no link opens it
 
 ## Key Design Decisions
 
@@ -300,6 +325,17 @@ for a known IdP.
 - **Two separate WebSocket connections**: one to the identity-provider (for DMs), one to the active chat-server (for channels)
 - **JWT never sent to wrong backend** — the chat-server JWT and IdP session are kept strictly separate in the store
 - **MLS E2EE is end-to-end client-driven**: encryption/decryption happens in `packages/crypto/`, server is opaque to message content. Per-device identity (Phase 7) — each device generates a Device Root Key (Ed25519) signed by the IdP into an attestation; peers verify via the issuer's JWKS. DRK + MLS provider state + per-device 24-word recovery passphrase all live in IndexedDB, encrypted at rest under a per-device non-extractable AES-256-GCM `CryptoKey`. The same device key encrypts the persisted message-plaintext cache (`pinai-zustand-store` IDB) so MLS forward secrecy doesn't blank conversation history on reload. Both databases are kept **per account** (`pinai-e2ee:<actor URI>`, `pinai-zustand-store:<actor URI>`), so several accounts can take turns on one browser without erasing each other's device; the route guard opens the signed-in account's before the app shell mounts (`apps/web/src/adapters/storage/CLAUDE.md`). The recovery passphrase derives a History Archive Key (Argon2id) used to encrypt every decrypted plaintext for opt-out server-side history backup. See `packages/crypto/CLAUDE.md` and `identity-provider/specs/e2ee.md` in the `pinai` monorepo.
+- **The persisted cache is written only over what hydration applied** (`apps/web/src/store/persist-guard.ts`,
+  wired in `store.ts` through `onRehydrateStorage`). zustand's `persist` saves on every `set`,
+  hydrated or not, so a `set` before what was read is in the store — the callback's `setSession`,
+  the desktop's resumed session — would save the empty defaults over the account's history. Writes are dropped until hydration has applied a successful read (an empty
+  database counts); after a failed read they stay dropped for that page load, and the next load
+  reads again. A save whose every persisted field is the object last read or written is skipped,
+  so a `set` outside the cache doesn't seal it all again — which is why slices replace a persisted
+  field, never mutate it. Writes go out one at a time, the newest waiting value replacing older
+  unsent ones. A row that can't be decoded is kept aside, never deleted
+  (`apps/web/src/adapters/storage/CLAUDE.md`). Each binding has its own guard; switching accounts
+  reloads
 - **Persistence inner format is msgpack** (not JSON). `Uint8Array` fields (`AttachmentBlobKey.key` / `.nonce`, identity bytes) round-trip natively — JSON would turn them into indexed-property objects that Web Crypto APIs reject.
 
 ## Environment Variables

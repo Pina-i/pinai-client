@@ -2,11 +2,13 @@
 
 The IdP's HTTP and WebSocket surface, as adapters implementing domain ports.
 
-Fifteen files, one per resource: OIDC, NodeInfo (what an instance says
-about itself before any sign-in), the caller's sessions (which device each
-signed in, signing out the others), DMs, groups, social, privacy (blocks and
-the contact setting), presence, TOTP, user, user settings, device directory,
-the E2EE key directory, the history archive, and the WebSocket connection.
+Sixteen files, one per resource: OIDC, NodeInfo (what an instance says
+about itself before any sign-in), the instance's administration (members,
+invitations, reset links — `/api/admin/*`, an admin's token only), the
+caller's sessions (which device each signed in, signing out the others), DMs,
+groups, social, privacy (blocks and the contact setting), presence, TOTP,
+user, user settings, device directory, the E2EE key directory, the history
+archive, and the WebSocket connection.
 `ky` for REST, `XMLHttpRequest` in `dm-api` where upload progress is needed,
 the platform `WebSocket` for the live connection.
 
@@ -34,8 +36,8 @@ domain as `IKeyDirectoryPort`, which is what keeps the two independent.
   happens here, via `@pinai/domain/lib/bytes`, so callers never see it.
 - Errors are unwrapped from `HTTPError` into plain `Error` with the server's
   message where there is one, so use cases do not import `ky` to read a
-  failure. The DM, group, social, privacy, key-directory, session, TOTP and
-  device-directory adapters and the history wipe, whose refusals the UI tells
+  failure. The DM, group, social, privacy, key-directory, session, admin, TOTP
+  and device-directory adapters and the history wipe, whose refusals the UI tells
   apart, raise the domain's `IdpError` instead
   (`idp-error.ts`): status, `error` code and `actor_uri`, with the
   `error_description` as the message. Match on the code, never the words.

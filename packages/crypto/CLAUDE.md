@@ -516,12 +516,12 @@ number written here is wrong by the next commit.
   + flicker-free). Show / Hide / Copy / Clear actions. Empty-state
   copy when `loadStoredPassphrase()` returns null (the device was
   paired via QR and never saw the mnemonic).
-- **Pure helpers** in `presentation/_libs/`:
-  - `format-last-seen.ts` — "just now" / "N minutes ago" /
-    "yesterday" / "N days ago" / etc.
-  - `device-fingerprint.ts` — `sha256(uuid)` → RFC 4648 base32 →
+- **Pure helpers**:
+  - `formatLastSeen` (`@pinai/domain/models/relative-time`) — "just now" /
+    "N minutes ago" / "yesterday" / "N days ago" / etc.
+  - `device-fingerprint.ts` (`presentation/_libs/`) — `sha256(uuid)` → RFC 4648 base32 →
     8 chars formatted "XXXX-XXXX". Display-only.
-- **Test additions**: `test/format-last-seen.spec.ts`,
+- **Test additions**: `test/relative-time.spec.ts`,
   `test/device-fingerprint.spec.ts`.
 
 ## Phase 7 additions (per-device identity + history backup)

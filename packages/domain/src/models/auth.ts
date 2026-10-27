@@ -9,6 +9,8 @@ export interface UserProfile {
     email: string
     email_verified: boolean
     totp_enabled: boolean
+    /** An admin of the instance the account is on. */
+    admin: boolean
     preferred_username: string
     display_name: string | null
     address: string

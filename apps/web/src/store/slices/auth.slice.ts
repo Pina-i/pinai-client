@@ -14,6 +14,8 @@ export interface AuthSlice {
 
     setSession: (accessToken: string, user: UserProfile, idpUrl: string) => void
     clearSession: () => void
+    /** Drop the session and forget its IdP, so nothing signs in to it again behind the user's back. */
+    leaveIdp: () => void
     setMyStatus: (status: UserStatus) => void
     setAvatarUrl: (url: string | null) => void
     /** Replace the user profile (after a successful PATCH /api/profile). */
@@ -52,6 +54,11 @@ export const createAuthSlice: StateCreator<AppStore, [["zustand/devtools", never
             false,
             "auth/clearSession",
         ),
+
+    leaveIdp: () => {
+        localStorage.removeItem("idp_url")
+        set({ accessToken: null, user: null, idpUrl: null, fingerprintsByActorUri: {} }, false, "auth/leaveIdp")
+    },
 
     setMyStatus: (status) => set({ myStatus: status }, false, "auth/setMyStatus"),
 

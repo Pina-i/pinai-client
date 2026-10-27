@@ -25,6 +25,7 @@ import { UserSettingsLocalStorageAdapter } from "@/adapters/user-settings/user-s
 import { RecentInstancesLocalStorageAdapter } from "@/adapters/instance/recent-instances-local-storage.adapter"
 import { NotificationSoundWebAudioAdapter } from "@/adapters/sound/notification-sound-web-audio.adapter"
 import { NodeInfoApiAdapter } from "@pinai/api/instance/nodeinfo-api.adapter"
+import { InstanceAdminApiAdapter } from "@pinai/api/admin/instance-admin-api.adapter"
 import { SocialApiAdapter } from "@pinai/api/social/social-api.adapter"
 import { PrivacyApiAdapter } from "@pinai/api/privacy/privacy-api.adapter"
 import { DmApiAdapter } from "@pinai/api/dm/dm-api.adapter"
@@ -56,6 +57,7 @@ import type { ITotpPort } from "@pinai/domain/ports/totp.port"
 import type { IUserPort } from "@pinai/domain/ports/user.port"
 import type { IAccountSettingsPort, IUserSettingsStorePort } from "@pinai/domain/ports/user-settings.port"
 import type { INodeInfoPort, IRecentInstancesPort } from "@pinai/domain/ports/instance.port"
+import type { IInstanceAdminPort } from "@pinai/domain/ports/instance-admin.port"
 import type { INotificationSoundPort } from "@pinai/domain/ports/notification-sound.port"
 import { appearanceHints, resolveMode } from "@pinai/domain/models/user-settings"
 import { loadUserSettingsUseCase } from "@pinai/domain/usecases/user-settings/load-user-settings.usecase"
@@ -93,6 +95,7 @@ const authPlatform: AuthPlatform = {
 }
 const nodeInfoPort: INodeInfoPort = new NodeInfoApiAdapter()
 const recentInstancesPort: IRecentInstancesPort = new RecentInstancesLocalStorageAdapter()
+const instanceAdminPort: IInstanceAdminPort = new InstanceAdminApiAdapter()
 const notificationSoundPort: INotificationSoundPort = new NotificationSoundWebAudioAdapter()
 const socialPort: ISocialPort = new SocialApiAdapter()
 const privacyPort: IPrivacyPort = new PrivacyApiAdapter()
@@ -221,6 +224,10 @@ export function getNodeInfoPort(): INodeInfoPort {
 
 export function getRecentInstancesPort(): IRecentInstancesPort {
     return recentInstancesPort
+}
+
+export function getInstanceAdminPort(): IInstanceAdminPort {
+    return instanceAdminPort
 }
 
 export function getNotificationSoundPort(): INotificationSoundPort {

@@ -11,6 +11,7 @@ import { SealedStorage } from "@pinai/crypto/sealed-storage"
 import { BrowserAccountStorageAdapter } from "@/adapters/storage/account-storage-browser.adapter"
 import { createEncryptedIdbStorage, slicesDatabaseName } from "@/adapters/storage/encrypted-idb-storage.adapter"
 import { IdbKeyValueStore, e2eeDatabaseName } from "@/adapters/storage/idb-key-value-store.adapter"
+import { guardPersistStorage } from "./persist-guard"
 import { createAuthSlice, type AuthSlice } from "./slices/auth.slice"
 import { createUiSlice, type UiSlice } from "./slices/ui.slice"
 import { createDataSlice, type DataSlice } from "./slices/data.slice"
@@ -83,6 +84,11 @@ export function getSharedE2eeStorage() {
     return sharedE2eeStorage
 }
 
+// Written only over what hydration applied: see persist-guard.ts.
+const cacheStorage = guardPersistStorage(
+    createEncryptedIdbStorage<PersistedAppState>(deviceKeyPort, openAccount ? slicesDatabaseName(openAccount) : null),
+)
+
 export const useAppStore = create<AppStore>()(
     devtools(
         persist(
@@ -98,16 +104,16 @@ export const useAppStore = create<AppStore>()(
             }),
             {
                 name: "pinai-app-state",
-                storage: createEncryptedIdbStorage<PersistedAppState>(
-                    deviceKeyPort,
-                    openAccount ? slicesDatabaseName(openAccount) : null,
-                ),
+                storage: cacheStorage,
+                onRehydrateStorage: () => (state, error) => cacheStorage.hydrated(state, error),
                 partialize: (s): PersistedAppState => ({
                     dmMessages: s.dmMessages,
                     appliedReactionIds: s.appliedReactionIds,
                     groupEvents: s.groupEvents,
                     dmUnread: s.dmUnread,
                 }),
+                // Never changed without a `migrate`: on a mismatch persist hydrates the defaults, and
+                // the first save writes them over the history.
                 version: 1,
             },
         ),

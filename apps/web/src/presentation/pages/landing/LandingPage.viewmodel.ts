@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useRouteContext, useRouter } from "@tanstack/react-router"
 import {
     describeInstance,
     displayAddress,
@@ -16,6 +17,8 @@ import {
     getNodeInfoPort,
     getRecentInstancesPort,
 } from "@/ioc/index"
+import { ARRIVAL_PARAM } from "@/presentation/_libs/instance-arrival"
+import { dropSearchParam } from "@/presentation/_libs/search-param"
 import type { ResolutionTone } from "./home-picker/home-picker"
 
 const DEFAULT_IDP_URL = import.meta.env.VITE_DEFAULT_IDP_URL ?? "http://localhost:8088"
@@ -37,13 +40,36 @@ function initialAddress(): string {
 }
 
 export function useLandingPageViewModel() {
-    const [input, setInput] = useState(initialAddress)
+    // Each load of the landing decides anew, `?instance=` reached in-app included.
+    const arrival = useRouteContext({ from: "/", select: (context) => context.arrival })
+    const arrivingAt = arrival.kind === "pick" ? arrival.address : null
+    const [input, setInput] = useState(() => (arrivingAt ? displayAddress(arrivingAt) : initialAddress()))
+    // Until the user types or the focus has moved once: the focus goes to the arrival's next step.
+    const [arrived, setArrived] = useState(arrivingAt !== null)
     const [recent] = useState(() => loadRecentInstancesUseCase(getRecentInstancesPort()))
     const [resolved, setResolved] = useState<{ origin: string; info: InstanceInfo | null } | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [handoff, setHandoff] = useState<Handoff | null>(null)
+    const [taken, setTaken] = useState(arrival)
+    // Taken during render, as React advises for a prop that changes.
+    if (arrival !== taken) {
+        setTaken(arrival)
+        if (arrivingAt) {
+            setInput(displayAddress(arrivingAt))
+            setArrived(true)
+            setError(null)
+        }
+    }
 
     const address = useMemo(() => instanceAddress(input), [input])
+    // Taken once: a focus moved elsewhere afterwards is left there.
+    const arrivalFocused = useCallback(() => setArrived(false), [])
+
+    const router = useRouter()
+    useEffect(() => {
+        // A sign-in started here comes back to this URL. Not before the arrival is taken: that cancels the load deciding it.
+        dropSearchParam(router, ARRIVAL_PARAM)
+    }, [router, arrival])
 
     useEffect(() => {
         if (!address) return
@@ -73,6 +99,7 @@ export function useLandingPageViewModel() {
 
     function changeAddress(value: string) {
         setError(null)
+        setArrived(false)
         setInput(value)
     }
 
@@ -108,6 +135,9 @@ export function useLandingPageViewModel() {
         changeAddress,
         resolution,
         resolvedHost: info && address ? address.host : null,
+        // Once resolution settles: Continue for a Pīna'i instance, else the field to correct.
+        arrivalFocus: !arrived || !settled ? null : info ? ("continue" as const) : ("field" as const),
+        arrivalFocused,
         recent,
         pickRecent,
         continueToInstance,

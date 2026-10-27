@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react"
 import { ArrowRight, Check, Globe } from "lucide-react"
 import type { InstanceAddress } from "@pinai/domain/models/instance"
 import { Button, ButtonLink } from "@/presentation/atoms/Button/Button"
@@ -14,6 +15,9 @@ interface HomePickerProps {
     resolution: { line: string; tone: ResolutionTone }
     /** The host the field resolved to, once it did. */
     resolvedHost: string | null
+    /** Arriving with an instance: where the focus goes once it has resolved, or failed to. */
+    arrivalFocus: "continue" | "field" | null
+    onArrivalFocused: () => void
     recent: InstanceAddress[]
     onPickRecent: (address: InstanceAddress) => void
     onContinue: () => void
@@ -26,10 +30,20 @@ export function HomePicker({
     onAddressChange,
     resolution,
     resolvedHost,
+    arrivalFocus,
+    onArrivalFocused,
     recent,
     onPickRecent,
     onContinue,
 }: HomePickerProps) {
+    const fieldRef = useRef<HTMLInputElement>(null)
+    const continueRef = useRef<HTMLButtonElement>(null)
+    useEffect(() => {
+        if (arrivalFocus === null) return
+        ;(arrivalFocus === "continue" ? continueRef : fieldRef).current?.focus()
+        onArrivalFocused()
+    }, [arrivalFocus, onArrivalFocused])
+
     return (
         <div className="rounded-[22px] border border-line bg-surf px-7 pb-7 pt-[26px] backdrop-blur-[14px]">
             <p className="eye">— Welcome</p>
@@ -47,6 +61,7 @@ export function HomePicker({
                 value={address}
                 onChange={onAddressChange}
                 placeholder="aotearoa.nz"
+                inputRef={fieldRef}
                 autoFocus
                 aria-describedby="home-resolution"
                 onKeyDown={(e) => {
@@ -84,6 +99,7 @@ export function HomePicker({
 
             <div className="mt-5">
                 <Button
+                    ref={continueRef}
                     variant="primary"
                     onPress={onContinue}
                     isDisabled={resolvedHost === null}

@@ -35,6 +35,30 @@ export function instanceAddress(input: string): InstanceAddress | null {
     return { origin: url.origin, host: url.host }
 }
 
+/**
+ * How the app opens on `?instance=`, where an invitation's sign-up and a reset link send people:
+ * `none` for no address, or one that can't be one (the landing as usual); `here` for the instance
+ * the app signs in to (on to the app); `pick` for the landing with it filled in, `leaving` the
+ * other instance the app signed in to.
+ */
+export type InstanceArrival =
+    | { kind: "none" }
+    | { kind: "here" }
+    | { kind: "pick"; address: InstanceAddress; leaving: boolean }
+
+export function instanceArrival(asked: string | null, signedInTo: string | null): InstanceArrival {
+    const address = asked === null ? null : instanceAddress(asked)
+    if (!address) return { kind: "none" }
+    if (signedInTo === null) return { kind: "pick", address, leaving: false }
+    if (sameInstance(address, signedInTo)) return { kind: "here" }
+    return { kind: "pick", address, leaving: true }
+}
+
+/** One instance by its authority, `host[:port]`: a scheme written differently names the same one. */
+export function sameInstance(address: InstanceAddress, other: string): boolean {
+    return instanceAddress(other)?.host === address.host
+}
+
 /** How an address is written back into the field: its bare host when the scheme is the one assumed. */
 export function displayAddress(address: InstanceAddress): string {
     return `${assumedScheme(address.host)}://${address.host}` === address.origin ? address.host : address.origin
@@ -91,10 +115,15 @@ export function parseNodeInfo(raw: unknown, address: InstanceAddress): InstanceI
     }
 }
 
+/** `1 person`, `1,204 people`. */
+export function peopleCount(count: number): string {
+    return `${count.toLocaleString("en")} ${count === 1 ? "person" : "people"}`
+}
+
 /** The landing's resolution line: `✓ resolved · Aotearoa · 1,204 people · invite only`. */
 export function describeInstance(info: InstanceInfo): string {
     const parts = ["✓ resolved", info.name]
-    if (info.users) parts.push(`${info.users.toLocaleString("en")} ${info.users === 1 ? "person" : "people"}`)
+    if (info.users) parts.push(peopleCount(info.users))
     if (!info.openRegistrations) parts.push("invite only")
     return parts.join(" · ")
 }

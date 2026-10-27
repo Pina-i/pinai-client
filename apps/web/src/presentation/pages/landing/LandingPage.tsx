@@ -18,6 +18,8 @@ export function LandingPage() {
                 onAddressChange={vm.changeAddress}
                 resolution={vm.resolution}
                 resolvedHost={vm.resolvedHost}
+                arrivalFocus={vm.arrivalFocus}
+                onArrivalFocused={vm.arrivalFocused}
                 recent={vm.recent}
                 onPickRecent={vm.pickRecent}
                 onContinue={() => void vm.continueToInstance()}

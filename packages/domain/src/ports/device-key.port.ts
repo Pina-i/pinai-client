@@ -25,6 +25,12 @@ export interface SealedBytes {
  * what they themselves sealed.
  */
 export interface IDeviceKeyPort {
+    /**
+     * The key, loaded — minted on first use. Rejects when it can't be read: a failed read is never
+     * taken for an absent key, since minting over the one that exists would make everything sealed
+     * under it unreadable.
+     */
+    ready(): Promise<void>
     seal(plaintext: Uint8Array): Promise<SealedBytes>
     open(sealed: SealedBytes): Promise<Uint8Array>
 

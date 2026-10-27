@@ -4,6 +4,7 @@ import {
     type ButtonProps as AriaButtonProps,
     type LinkProps as AriaLinkProps,
 } from "react-aria-components"
+import type { Ref } from "react"
 import { tv, type VariantProps } from "tailwind-variants"
 
 const buttonVariants = tv({
@@ -59,11 +60,13 @@ export interface ButtonProps extends Omit<AriaButtonProps, "className"> {
     variant?: ButtonVariantProps["variant"]
     size?: ButtonVariantProps["size"]
     className?: string
+    ref?: Ref<HTMLButtonElement>
 }
 
-export function Button({ variant, size, className, ...props }: ButtonProps) {
+export function Button({ variant, size, className, ref, ...props }: ButtonProps) {
     return (
         <AriaButton
+            ref={ref}
             className={buttonVariants({ variant, size, className })}
             {...props}
         />
