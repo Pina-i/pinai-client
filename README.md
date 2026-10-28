@@ -16,84 +16,55 @@ This repository is a pnpm workspace. The backend lives separately, in
 
 ## Host the web app
 
-The web app, from the published image `ghcr.io/pina-i/pinai-web`, behind Caddy for
-HTTPS. It signs people in to any Pīna'i instance: an instance registers no app, it
+The web app, from the published image `ghcr.io/pina-i/pinai-web`. It serves plain
+HTTP on one port of the server, and your reverse proxy serves it over HTTPS at its
+domain. It signs people in to any Pīna'i instance: an instance registers no app, it
 reads the document the app publishes, `https://your.domain/oauth-client.json`.
 
 You need:
 
-- a Linux server, amd64 or arm64, with Docker and its Compose plugin, 2.23.1 or later.
-  On an instance's server, whose Caddy already holds ports 80 and 443, see
-  [Beside an instance](#beside-an-instance-or-behind-your-own-reverse-proxy);
-- a domain whose DNS (A / AAAA records) points at the server, with ports 80 and 443
-  open: `app.example.org`, say. Browsers keep each account's device, its keys and its
-  message history, under the app's domain: on a new domain, every browser starts as a
-  new device.
+- a Linux server, amd64 or arm64, with Docker and its Compose plugin;
+- a domain for the app: `app.example.org`, say. Browsers keep each account's device,
+  its keys and its message history, under the app's domain: on a new domain, every
+  browser starts as a new device;
+- a reverse proxy that serves that domain over HTTPS, with its certificate: Caddy,
+  nginx, Traefik… An instance accepts a web app only at an `https` address. The proxy
+  in front of your instance can serve both.
 
-Then three steps on the server.
+Then four steps on the server.
 
 **1. `compose.yaml`.** Save this file as `compose.yaml` in an empty directory. It is
-`deploy/compose.yaml`, Caddy's configuration included:
+`deploy/compose.yaml`:
 
 <!-- deploy/compose.yaml -->
 ```yaml
-# The Pīna'i web app from the published image, behind Caddy for HTTPS.
-# Needs Docker Compose 2.23.1 or later, for Caddy's configuration inlined at the end.
-# Its settings are in .env beside it. It stores nothing but Caddy's certificates,
-# under ./data.
+# The Pīna'i web app from the published image, in plain HTTP on one port: your
+# reverse proxy serves it over HTTPS at DOMAIN.
+# Its settings are in .env beside it. It stores nothing on the server.
 name: pinai-web
 
-# Docker keeps container logs forever by default.
-x-logging: &logging
-  driver: json-file
-  options:
-    max-size: "10m"
-    max-file: "3"
-
 services:
-  # HTTPS in front of the web app; gets and renews the certificate. Its ports are
-  # the only published ones (443/udp: HTTP/3).
-  caddy:
-    image: caddy:2.11-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      DOMAIN: ${DOMAIN:?set it in .env}
-    configs:
-      - source: caddyfile
-        target: /etc/caddy/Caddyfile
-    volumes:
-      - ./data/caddy/data:/data
-      - ./data/caddy/config:/config
-    depends_on:
-      - web
-    logging: *logging
-
-  # The web app. Identity providers know it by https://DOMAIN/oauth-client.json,
-  # which it writes from PUBLIC_ORIGIN; it refuses to start without one.
+  # Identity providers know the app by https://DOMAIN/oauth-client.json, which it
+  # writes from PUBLIC_ORIGIN; it refuses to start without one.
   # PINAI_WEB_VERSION in .env picks another version than this minor's latest.
   web:
     image: ghcr.io/pina-i/pinai-web:${PINAI_WEB_VERSION:-0.1}
     restart: unless-stopped
     read_only: true
+    # On loopback unless BIND_ADDRESS says otherwise: ports Docker publishes skip
+    # the host's firewall. 8081, so that an instance beside it keeps 8080.
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8081}:8080"
     environment:
-      PUBLIC_ORIGIN: https://${DOMAIN}
+      PUBLIC_ORIGIN: https://${DOMAIN:?set it in .env}
       DEFAULT_IDP_URL: ${DEFAULT_IDP_URL:-}
       KLIPY_API_KEY: ${KLIPY_API_KEY:-}
-    logging: *logging
-
-# Caddy's configuration. $$ is Compose's escape for $: Caddy reads {$DOMAIN}
-# from its own environment.
-configs:
-  caddyfile:
-    content: |
-      {$$DOMAIN} {
-      	header Strict-Transport-Security "max-age=31536000"
-      	reverse_proxy web:8080
-      }
+    # Docker keeps container logs forever by default.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 ```
 
 **2. `.env`**, beside it, names the app's domain and the instance its landing page
@@ -108,51 +79,56 @@ Without `DEFAULT_IDP_URL`, people type their instance's address; any instance ca
 reached either way. `KLIPY_API_KEY` enables the GIF picker. `deploy/.env.example`
 lists every setting.
 
+The app listens on `127.0.0.1:8081`, for a proxy on the same machine; an instance's
+bundle takes 8080, so both fit on one server. `PORT` changes the port. For a proxy on
+another machine, set `BIND_ADDRESS` to an address of this server that only the proxy
+reaches, a private network's: ports Docker publishes skip the host's firewall, so
+`0.0.0.0` would serve the app in plain HTTP to anyone.
+
 **3. Start it:**
 
 ```bash
 docker compose up -d
 ```
 
-`https://app.example.org/oauth-client.json` answers once Caddy has its certificate,
-and names `https://app.example.org`. Then point your instance at the app: set
+`curl http://127.0.0.1:8081/oauth-client.json` shows the document, naming
+`https://app.example.org`.
+
+**4. Route the domain to it** in your reverse proxy. The app is only files: browsers
+talk to the instance directly, so the proxy needs no WebSocket or upload setting.
+The app sends its own `Strict-Transport-Security`. With Caddy, which gets the
+certificate and redirects `http://` by itself:
+
+```
+app.example.org {
+	reverse_proxy 127.0.0.1:8081
+}
+```
+
+With nginx, next to its usual redirect from `http://`:
+
+```nginx
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name app.example.org;
+    ssl_certificate     /etc/letsencrypt/live/app.example.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/app.example.org/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8081;
+    }
+}
+```
+
+Once `https://app.example.org` opens the app, point your instance at it: set
 `WEB_APP_ORIGIN=https://app.example.org` in the instance's `.env` and run
 `docker compose up -d` there. Invitations and password-reset pages then send people
 to this app.
 
 `docker compose pull && docker compose up -d` upgrades the app within its minor
 version; `PINAI_WEB_VERSION` in `.env` runs another one. There is nothing to back
-up: the app keeps nothing on the server, and `./data` holds only Caddy's certificates.
-
-### Beside an instance, or behind your own reverse proxy
-
-Ports 80 and 443 belong to one proxy. Behind your own, remove the `caddy` service and
-the `configs:` block, publish the app on loopback (`ports: ["127.0.0.1:8090:8080"]`
-on `web`), and route the domain to it over HTTPS: an instance accepts a web app only
-at an `https` address.
-
-On an instance's server, that proxy is the instance's Caddy. Remove the `caddy`
-service and the `configs:` block here too, and put the app on the instance's
-network by adding this to the app's `compose.yaml`:
-
-```yaml
-networks:
-  default:
-    name: pinai_default
-    external: true
-```
-
-Then add the app's site to Caddy's configuration in the instance's `compose.yaml`,
-the `configs:` block at its end, and run `docker compose up -d` in both directories:
-
-```
-app.example.org {
-	header Strict-Transport-Security "max-age=31536000"
-	reverse_proxy web:8080
-}
-```
-
-An upgrade of the instance replaces its `compose.yaml`: add the site again.
+up: the app keeps nothing on the server.
 
 ---
 

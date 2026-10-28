@@ -199,9 +199,11 @@ code does. Some existing code breaks this table; it is not a precedent.
 ## Deployment
 
 The published image, `ghcr.io/pina-i/pinai-web`, is `apps/web/dist` served by Caddy on
-`:8080` as the non-root user 65532 (`docker/`). `deploy/compose.yaml` runs it behind a second
-Caddy for HTTPS; the root `README.md` shows that file verbatim (`pnpm readme-compose` checks
-it) and § Host the web app walks through it. `.github/workflows/image.yml` publishes `edge`
+`:8080` as the non-root user 65532 (`docker/`). `deploy/compose.yaml` publishes it on
+`${BIND_ADDRESS:-127.0.0.1}:${PORT:-8081}` and nothing else: HTTPS is the hoster's reverse
+proxy, and the image sends HSTS itself. The root `README.md` shows that file verbatim
+(`pnpm readme-compose` checks it) and § Host the web app walks through it, proxy examples
+included. `.github/workflows/image.yml` publishes `edge`
 from `main` and `X.Y.Z` / `X.Y` / `latest` from a tag `vX.Y.Z`, which must name
 `apps/web/package.json`'s version.
 

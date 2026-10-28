@@ -1,57 +1,27 @@
-# The Pīna'i web app from the published image, behind Caddy for HTTPS.
-# Needs Docker Compose 2.23.1 or later, for Caddy's configuration inlined at the end.
-# Its settings are in .env beside it. It stores nothing but Caddy's certificates,
-# under ./data.
+# The Pīna'i web app from the published image, in plain HTTP on one port: your
+# reverse proxy serves it over HTTPS at DOMAIN.
+# Its settings are in .env beside it. It stores nothing on the server.
 name: pinai-web
 
-# Docker keeps container logs forever by default.
-x-logging: &logging
-  driver: json-file
-  options:
-    max-size: "10m"
-    max-file: "3"
-
 services:
-  # HTTPS in front of the web app; gets and renews the certificate. Its ports are
-  # the only published ones (443/udp: HTTP/3).
-  caddy:
-    image: caddy:2.11-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      DOMAIN: ${DOMAIN:?set it in .env}
-    configs:
-      - source: caddyfile
-        target: /etc/caddy/Caddyfile
-    volumes:
-      - ./data/caddy/data:/data
-      - ./data/caddy/config:/config
-    depends_on:
-      - web
-    logging: *logging
-
-  # The web app. Identity providers know it by https://DOMAIN/oauth-client.json,
-  # which it writes from PUBLIC_ORIGIN; it refuses to start without one.
+  # Identity providers know the app by https://DOMAIN/oauth-client.json, which it
+  # writes from PUBLIC_ORIGIN; it refuses to start without one.
   # PINAI_WEB_VERSION in .env picks another version than this minor's latest.
   web:
     image: ghcr.io/pina-i/pinai-web:${PINAI_WEB_VERSION:-0.1}
     restart: unless-stopped
     read_only: true
+    # On loopback unless BIND_ADDRESS says otherwise: ports Docker publishes skip
+    # the host's firewall. 8081, so that an instance beside it keeps 8080.
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8081}:8080"
     environment:
-      PUBLIC_ORIGIN: https://${DOMAIN}
+      PUBLIC_ORIGIN: https://${DOMAIN:?set it in .env}
       DEFAULT_IDP_URL: ${DEFAULT_IDP_URL:-}
       KLIPY_API_KEY: ${KLIPY_API_KEY:-}
-    logging: *logging
-
-# Caddy's configuration. $$ is Compose's escape for $: Caddy reads {$DOMAIN}
-# from its own environment.
-configs:
-  caddyfile:
-    content: |
-      {$$DOMAIN} {
-      	header Strict-Transport-Security "max-age=31536000"
-      	reverse_proxy web:8080
-      }
+    # Docker keeps container logs forever by default.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
