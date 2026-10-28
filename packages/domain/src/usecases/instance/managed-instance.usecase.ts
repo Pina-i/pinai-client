@@ -5,7 +5,8 @@ import { resolveInstanceUseCase } from "./resolve-instance.usecase"
 
 /**
  * The instance at `idpUrl` as its admin manages it in Settings → Instance, or `null` when there is
- * no such panel: not an admin, or an open instance. NodeInfo is read only for an admin.
+ * no such panel: not an admin, or no Pīna'i identity provider there. NodeInfo is read only for an
+ * admin.
  */
 export async function managedInstanceUseCase(
     idpUrl: string,

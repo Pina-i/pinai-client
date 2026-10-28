@@ -49,7 +49,8 @@ export default defineConfig([
   // noise. Delete it, or wire it in and drop this ignore.
   // `crypto/openmls-pkg` is wasm-pack output — generated, never committed.
   // `tmp/` is a local scratch area (design exports and the like), gitignored.
-  globalIgnores(['**/dist', '**/out', 'apps/web/src/components/ui', 'crypto/openmls-pkg', 'tmp']),
+  // `docker/config.js` is a Caddy template, JavaScript only once rendered.
+  globalIgnores(['**/dist', '**/out', 'apps/web/src/components/ui', 'crypto/openmls-pkg', 'tmp', 'docker/config.js']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

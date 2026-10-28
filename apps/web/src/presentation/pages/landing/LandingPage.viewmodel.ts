@@ -17,11 +17,10 @@ import {
     getNodeInfoPort,
     getRecentInstancesPort,
 } from "@/ioc/index"
+import { DEFAULT_IDP_URL } from "@/presentation/_libs/deployment-config"
 import { ARRIVAL_PARAM } from "@/presentation/_libs/instance-arrival"
 import { dropSearchParam } from "@/presentation/_libs/search-param"
 import type { ResolutionTone } from "./home-picker/home-picker"
-
-const DEFAULT_IDP_URL = import.meta.env.VITE_DEFAULT_IDP_URL ?? "http://localhost:8088"
 
 // Long enough that typing a host doesn't ask every prefix of it.
 const RESOLVE_DEBOUNCE_MS = 350

@@ -1,17 +1,18 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
+import { KLIPY_API_KEY } from "@/presentation/_libs/deployment-config"
 
 /**
  * Klipy v1 wrapper.
  *
- * Wired only when `VITE_KLIPY_API_KEY` is set at build time. Without a key the
- * popover renders a "not configured" placeholder instead of calling the API.
+ * Wired only when the deployment has a key (`KLIPY_API_KEY` in the published image,
+ * `VITE_KLIPY_API_KEY` in a build). Without a key the popover renders a "not
+ * configured" placeholder instead of calling the API.
  *
  * Endpoint reference: https://docs.klipy.com (auth via api key in URL path).
  */
 const KLIPY_BASE = "https://api.klipy.com/api/v1"
-const KLIPY_KEY = (import.meta.env.VITE_KLIPY_API_KEY as string | undefined) ?? ""
 
-export const KLIPY_ENABLED = KLIPY_KEY.length > 0
+export const KLIPY_ENABLED = KLIPY_API_KEY.length > 0
 
 /** Stable per-browser id Klipy uses for de-duplication / pagination affinity. */
 function customerId(): string {
@@ -103,7 +104,7 @@ export function useKlipySearch(query: string): { gifs: KlipyGif[]; isLoading: bo
             })
             const path = trimmed.length > 0 ? "search" : "trending"
             if (trimmed.length > 0) params.set("q", trimmed)
-            const endpoint = `${KLIPY_BASE}/${KLIPY_KEY}/gifs/${path}?${params.toString()}`
+            const endpoint = `${KLIPY_BASE}/${KLIPY_API_KEY}/gifs/${path}?${params.toString()}`
             const resp = await fetch(endpoint)
             if (!resp.ok) throw new Error(`Klipy request failed: ${resp.status}`)
             return resp.json() as Promise<KlipyEnvelope>

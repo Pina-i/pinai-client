@@ -1,14 +1,20 @@
 /**
- * Settings → Instance: shown to an admin of an invite-only instance only; members by display
- * name, with their last activity and a reset link for those who are no admin; invitations with
- * how long they stay open; and a link made in a row lasting only as long as the row is open.
+ * Settings → Instance: shown to any admin, the roster on an invite-only instance only; the name
+ * and description as the IdP would take them, and how the sign-in pages would read them; members
+ * by display name, with their last activity and a reset link for those who are no admin;
+ * invitations with how long they stay open; and a link made in a row lasting only as long as the
+ * row is open.
  */
 import { describe, expect, it, vi } from "vitest"
 
 import { IdpError } from "@pinai/domain/models/idp-error"
 import {
+    DEFAULT_HEADLINE,
     type InstanceMember,
+    introDraft,
+    introPreview,
     managesInstance,
+    managesRoster,
     memberActivity,
     offersPasswordReset,
     refusedAsNonAdmin,
@@ -35,14 +41,66 @@ function member(change: Partial<InstanceMember>): InstanceMember {
 describe("managesInstance", () => {
     const invite = { name: "Aotearoa", users: 9, openRegistrations: false }
 
-    it("is an admin's, on an invite-only instance", () => {
+    it("is an admin's, on an invite-only instance and an open one alike", () => {
         expect(managesInstance(true, invite)).toBe(true)
+        expect(managesInstance(true, { ...invite, openRegistrations: true })).toBe(true)
     })
 
-    it("is nobody's on an open instance, where people sign up themselves, nor a member's", () => {
-        expect(managesInstance(true, { ...invite, openRegistrations: true })).toBe(false)
+    it("is no member's, nor anyone's before NodeInfo says what the instance is", () => {
         expect(managesInstance(false, invite)).toBe(false)
         expect(managesInstance(true, null)).toBe(false)
+    })
+})
+
+describe("managesRoster", () => {
+    it("is an invite-only instance's: on an open one, people sign up and reset their passwords themselves", () => {
+        expect(managesRoster({ name: "Aotearoa", users: 9, openRegistrations: false })).toBe(true)
+        expect(managesRoster({ name: "Aotearoa", users: 9, openRegistrations: true })).toBe(false)
+    })
+})
+
+describe("introDraft", () => {
+    it("trims each field, and takes a blank one for the default", () => {
+        expect(introDraft("  Aotearoa \n", "\tWhere the long white cloud gathers.  ").text).toEqual({
+            name: "Aotearoa",
+            description: "Where the long white cloud gathers.",
+        })
+        expect(introDraft("   ", "").text).toEqual({ name: null, description: null })
+    })
+
+    it("counts characters as the IdP does: an emoji and ō one each", () => {
+        expect(introDraft("🌺".repeat(40), "").length.name).toBe(40)
+        expect(introDraft("🌺".repeat(40), "").over).toEqual([])
+        expect(introDraft("ō".repeat(40), "ō".repeat(90))).toMatchObject({
+            length: { name: 40, description: 90 },
+            over: [],
+        })
+    })
+
+    it("names the field past its limit, after trimming", () => {
+        expect(introDraft("ō".repeat(41), "").over).toEqual(["name"])
+        expect(introDraft("", "🌺".repeat(91)).over).toEqual(["description"])
+        expect(introDraft(`  ${"ō".repeat(40)}  `, "").over).toEqual([])
+        expect(introDraft("ō".repeat(41), "ō".repeat(91)).over).toEqual(["name", "description"])
+    })
+})
+
+describe("introPreview", () => {
+    it("reads as the sign-in pages do with no text: their own headline, and the host to sign in to", () => {
+        expect(introPreview({ name: null, description: null }, "aotearoa.nz")).toEqual({
+            headline: DEFAULT_HEADLINE,
+            defaultHeadline: true,
+            signIn: "Sign in to aotearoa.nz",
+        })
+        expect(DEFAULT_HEADLINE).toBe("An identity provider.")
+    })
+
+    it("sets the description as the headline, and signs in to the name", () => {
+        expect(introPreview({ name: "Aotearoa", description: "Where the long white cloud gathers." }, "aotearoa.nz")).toEqual({
+            headline: "Where the long white cloud gathers.",
+            defaultHeadline: false,
+            signIn: "Sign in to Aotearoa",
+        })
     })
 })
 
@@ -70,9 +128,9 @@ describe("managedInstanceUseCase", () => {
         })
     })
 
-    it("has no panel on an open instance", async () => {
+    it("reads an open instance too, where the panel holds the name and description only", async () => {
         const { port } = nodeInfo(true)
-        expect(await managedInstanceUseCase("https://aotearoa.nz", true, port)).toBeNull()
+        expect(await managedInstanceUseCase("https://aotearoa.nz", true, port)).toMatchObject({ openRegistrations: true })
     })
 
     it("asks NodeInfo nothing for a member", async () => {

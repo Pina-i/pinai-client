@@ -1,12 +1,14 @@
 import { ChevronDown, ChevronUp, Plus } from "lucide-react"
 import { useId, useRef } from "react"
 
+import type { InstanceInfo } from "@pinai/domain/models/instance"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { RecentSignInModal } from "@/presentation/molecules/RecentSignInModal/RecentSignInModal"
 import { cn } from "@/presentation/_libs/utils"
 
 import { editorFrame, editorTitle, pill } from "../editor-styles"
 import { useInstanceEditorViewModel } from "./InstanceEditor.viewmodel"
+import { IntroForm } from "./IntroForm/IntroForm"
 import { MemberRow } from "./MemberRow/MemberRow"
 import { OneTimeLink } from "./OneTimeLink/OneTimeLink"
 import { PendingInvitationRow } from "./PendingInvitationRow/PendingInvitationRow"
@@ -23,10 +25,12 @@ const failurePanel =
 interface InstanceEditorProps {
     /** The instance's domain, as its members' addresses carry it. */
     host: string
+    /** What its NodeInfo says: whether it is invite-only, how many people it counts. */
+    info: InstanceInfo
 }
 
-export function InstanceEditor({ host }: InstanceEditorProps) {
-    const vm = useInstanceEditorViewModel()
+export function InstanceEditor({ host, info }: InstanceEditorProps) {
+    const vm = useInstanceEditorViewModel(host, info)
     const inviteRef = useRef<HTMLButtonElement>(null)
     const revokeRefs = useRef(new Map<string, HTMLButtonElement>())
     const invitePanelId = useId()
@@ -55,10 +59,34 @@ export function InstanceEditor({ host }: InstanceEditorProps) {
 
             {vm.noLongerAdmin ? (
                 <div className={cn(failurePanel, "mt-[18px]")}>
-                    Only the admins of {host} see its members and invitations, and this account is no longer one.
+                    Only the admins of {host} {vm.hasRoster ? "see its members and invitations" : "change how it introduces itself"},
+                    and this account is no longer one.
+                </div>
+            ) : vm.intro.saved ? (
+                <IntroForm intro={vm.intro} />
+            ) : vm.intro.loadFailed ? (
+                <div className={cn(failurePanel, "mt-[26px]")}>
+                    <span>Could not load the name and description.</span>
+                    <IconButton onPress={vm.intro.retry} className={pill({ variant: "outline" })}>
+                        Try again
+                    </IconButton>
                 </div>
             ) : (
-                <div className="mt-[18px] flex flex-col gap-0.5">
+                <div role="status" className={cn(statePanel, "mt-[26px]")}>
+                    Loading the name and description…
+                </div>
+            )}
+
+            {!vm.noLongerAdmin && !vm.hasRoster && (
+                <p className="fact fact-plain mt-[22px]">
+                    registration is open · no invitations or reset links to manage — people reset their own passwords
+                    from the sign-in page
+                </p>
+            )}
+
+            {!vm.noLongerAdmin && vm.hasRoster && (
+                <div className="flex flex-col gap-0.5">
+                    <h3 className="eye mb-1.5 mt-[26px]">People</h3>
                     <div>
                         <IconButton
                             ref={inviteRef}

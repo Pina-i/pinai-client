@@ -1,25 +1,29 @@
 /**
  * The IdP's admin API as the client calls it: each route's method and path, an id put in the path
- * safely, the bearer token, and refusals the screen tells apart — a member's 403, the password
- * asked again before a reset link.
+ * safely, the bearer token, the name and description sent with both keys, and refusals the screen
+ * tells apart — a member's 403, a field past its limit, the password asked again before a reset
+ * link.
  */
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { InstanceAdminApiAdapter } from "@pinai/api/admin/instance-admin-api.adapter"
-import { needsRecentSignIn } from "@pinai/domain/models/idp-error"
+import { IdpError, needsRecentSignIn } from "@pinai/domain/models/idp-error"
 import { refusedAsNonAdmin } from "@pinai/domain/models/instance-admin"
 
 const IDP = "http://localhost:8097"
 
 function answering(status: number, body?: unknown, headers: Record<string, string> = {}) {
-    const fetch = vi.fn().mockResolvedValue(
-        new Response(body === undefined ? null : JSON.stringify(body), {
+    const sent: string[] = []
+    const fetch = vi.fn(async (request: Request) => {
+        // Read here: ky has used the body up by the time the call returns.
+        sent.push(await request.clone().text())
+        return new Response(body === undefined ? null : JSON.stringify(body), {
             status,
             headers: { "Content-Type": "application/json", ...headers },
-        }),
-    )
+        })
+    })
     vi.stubGlobal("fetch", fetch)
-    return fetch
+    return Object.assign(fetch, { sent })
 }
 
 function requested(fetch: ReturnType<typeof vi.fn>): Request {
@@ -28,6 +32,51 @@ function requested(fetch: ReturnType<typeof vi.fn>): Request {
 
 describe("InstanceAdminApiAdapter", () => {
     afterEach(() => vi.unstubAllGlobals())
+
+    it("reads the name and description with the admin's token, null for a default", async () => {
+        const fetch = answering(200, { name: null, description: "Where the long white cloud gathers." })
+
+        expect(await new InstanceAdminApiAdapter().getIntro(`${IDP}/`, "tok")).toEqual({
+            name: null,
+            description: "Where the long white cloud gathers.",
+        })
+        const request = requested(fetch)
+        expect([request.method, new URL(request.url).pathname]).toEqual(["GET", "/api/admin/intro"])
+        expect(request.headers.get("Authorization")).toBe("Bearer tok")
+    })
+
+    it("saves both fields as one JSON text, a default sent as null, and reads the text saved", async () => {
+        const fetch = answering(200, { name: "Aotearoa", description: null })
+
+        expect(
+            await new InstanceAdminApiAdapter().saveIntro(IDP, "tok", { name: "Aotearoa", description: null }),
+        ).toEqual({ name: "Aotearoa", description: null })
+        const request = requested(fetch)
+        expect([request.method, new URL(request.url).pathname]).toEqual(["PUT", "/api/admin/intro"])
+        expect(request.headers.get("Authorization")).toBe("Bearer tok")
+        expect(request.headers.get("Content-Type")).toBe("application/json")
+        expect(fetch.sent.map((text) => JSON.parse(text))).toEqual([{ name: "Aotearoa", description: null }])
+    })
+
+    it("passes on the rule a save broke, in the IdP's words", async () => {
+        answering(400, { error: "invalid_request", error_description: "instance name: 40 characters at most" })
+
+        const refusal = new InstanceAdminApiAdapter().saveIntro(IDP, "tok", { name: "ō".repeat(41), description: null })
+        await expect(refusal).rejects.toBeInstanceOf(IdpError)
+        await expect(refusal).rejects.toMatchObject({
+            status: 400,
+            code: "invalid_request",
+            message: "instance name: 40 characters at most",
+        })
+    })
+
+    it("refuses a member's save as no admin (403)", async () => {
+        answering(403, { error: "access_denied", error_description: "Only an admin may do this" })
+
+        await expect(
+            new InstanceAdminApiAdapter().saveIntro(IDP, "tok", { name: null, description: null }),
+        ).rejects.toSatisfy(refusedAsNonAdmin)
+    })
 
     it("lists the members with the admin's token", async () => {
         const members = [{ id: "m1", display_name: "Mika", admin: false, last_active_at: null, online: false }]

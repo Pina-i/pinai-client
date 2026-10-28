@@ -3,12 +3,12 @@
 The IdP's HTTP and WebSocket surface, as adapters implementing domain ports.
 
 Sixteen files, one per resource: OIDC, NodeInfo (what an instance says
-about itself before any sign-in), the instance's administration (members,
-invitations, reset links — `/api/admin/*`, an admin's token only), the
-caller's sessions (which device each signed in, signing out the others), DMs,
-groups, social, privacy (blocks and the contact setting), presence, TOTP,
-user, user settings, device directory, the E2EE key directory, the history
-archive, and the WebSocket connection.
+about itself before any sign-in), the instance's administration (its name and
+description, members, invitations, reset links — `/api/admin/*`, an admin's
+token only), the caller's sessions (which device each signed in, signing out
+the others), DMs, groups, social, privacy (blocks and the contact setting),
+presence, TOTP, user, user settings, device directory, the E2EE key
+directory, the history archive, and the WebSocket connection.
 `ky` for REST, `XMLHttpRequest` in `dm-api` where upload progress is needed,
 the platform `WebSocket` for the live connection.
 

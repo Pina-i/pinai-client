@@ -1,4 +1,4 @@
-import type { InstanceMember, IssuedLink, OpenInvitation } from "@pinai/domain/models/instance-admin"
+import type { InstanceIntro, InstanceMember, IssuedLink, OpenInvitation } from "@pinai/domain/models/instance-admin"
 import type { IInstanceAdminPort } from "@pinai/domain/ports/instance-admin.port"
 
 import { idp } from "../http"
@@ -6,6 +6,27 @@ import { idpErrorFrom } from "../idp-error"
 
 /** `/api/admin/*`: what an instance's admins do. */
 export class InstanceAdminApiAdapter implements IInstanceAdminPort {
+    async getIntro(idpUrl: string, accessToken: string): Promise<InstanceIntro> {
+        try {
+            return await idp.get(`${base(idpUrl)}/api/admin/intro`, bearer(accessToken)).json<InstanceIntro>()
+        } catch (error) {
+            throw await idpErrorFrom(error, "Failed to load the name and description")
+        }
+    }
+
+    async saveIntro(idpUrl: string, accessToken: string, intro: InstanceIntro): Promise<InstanceIntro> {
+        try {
+            return await idp
+                .put(`${base(idpUrl)}/api/admin/intro`, {
+                    ...bearer(accessToken),
+                    json: { name: intro.name, description: intro.description },
+                })
+                .json<InstanceIntro>()
+        } catch (error) {
+            throw await idpErrorFrom(error, "Failed to save the name and description")
+        }
+    }
+
     async listMembers(idpUrl: string, accessToken: string): Promise<InstanceMember[]> {
         try {
             return await idp.get(`${base(idpUrl)}/api/admin/members`, bearer(accessToken)).json<InstanceMember[]>()

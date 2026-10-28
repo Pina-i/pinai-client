@@ -1,0 +1,35 @@
+# Plain HTTP on :8080: HTTPS is the proxy's in front, Caddy in deploy/compose.yaml.
+# Nothing is written to disk, so the container can run read-only: no certificate
+# storage to check or clean.
+{
+	admin off
+	persist_config off
+	auto_https off
+	storage_check off
+	storage_clean_interval off
+	servers {
+		protocols h1
+	}
+}
+
+:8080 {
+	root * /srv
+	encode zstd gzip
+
+	# This deployment's, from the container's environment: identity providers know the
+	# app by /oauth-client.json, and /config.js holds its settings.
+	@deployment path /oauth-client.json /config.js
+	templates @deployment {
+		mime application/json text/javascript
+	}
+
+	# Vite names these by their content: a new version has new names.
+	@immutable path /assets/*
+	header @immutable Cache-Control "public, max-age=31536000, immutable"
+	@revalidated not path /assets/*
+	header @revalidated Cache-Control "no-cache"
+
+	# Every other path is one of the app's routes.
+	try_files {path} /index.html
+	file_server
+}

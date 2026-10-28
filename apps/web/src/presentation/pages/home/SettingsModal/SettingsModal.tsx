@@ -14,6 +14,7 @@ import {
 import type { UserProfile } from "@pinai/domain/models/auth"
 import { addressParts } from "@pinai/domain/models/identity"
 import { peopleCount, type InstanceInfo } from "@pinai/domain/models/instance"
+import { managesRoster } from "@pinai/domain/models/instance-admin"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { AppearanceEditor } from "./AppearanceEditor/AppearanceEditor"
@@ -143,14 +144,25 @@ const SECTIONS: SectionDescriptor[] = [
     },
 ]
 
-/** Shown to an admin of an invite-only instance only, after the others. */
+/** Shown to an admin only, after the others. */
 function instanceSection(host: string, info: InstanceInfo): SectionDescriptor {
+    const common = { id: "instance", label: "Instance", icon: <KeyRound className={ICON_PROPS} /> } as const
+    if (!managesRoster(info)) {
+        return {
+            ...common,
+            title: "How it describes itself.",
+            description: `How ${host} describes itself on the sign-in page. You see this because you administer it.`,
+            preview: (
+                <span className={`${FACT_PREVIEW} text-muted-foreground`}>
+                    <span className="text-on">●</span> public · open registration
+                </span>
+            ),
+        }
+    }
     return {
-        id: "instance",
-        label: "Instance",
-        title: "Invitations and password resets.",
-        description: `Invitations and password resets for ${host}. You see this because you administer it.`,
-        icon: <KeyRound className={ICON_PROPS} />,
+        ...common,
+        title: "Description, invitations and password resets.",
+        description: `Description, invitations and password resets for ${host}. You see this because you administer it.`,
         preview: (
             <span className={`${FACT_PREVIEW} text-muted-foreground`}>
                 <span className="text-idle">●</span> private{info.users ? ` · ${peopleCount(info.users)}` : ""}
@@ -219,8 +231,8 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
                 <div className="relative flex min-w-0 flex-[0.95] flex-col bg-surf max-[700px]:min-h-[420px] max-[700px]:flex-none">
                     {activeDescriptor === null ? (
                         <div className={editorFrame} aria-busy="true" />
-                    ) : activeDescriptor.id === "instance" ? (
-                        <InstanceEditor host={host} />
+                    ) : activeDescriptor.id === "instance" && instance.kind === "shown" ? (
+                        <InstanceEditor host={host} info={instance.info} />
                     ) : activeDescriptor.id === "profile" ? (
                         <ProfileEditor user={user} />
                     ) : activeDescriptor.id === "security" ? (

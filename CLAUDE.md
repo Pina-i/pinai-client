@@ -198,23 +198,30 @@ code does. Some existing code breaks this table; it is not a precedent.
 
 ## Deployment
 
-**Not built yet.** There is no `Dockerfile` and no compose file in this repo —
-this section describes the intent, not something that exists.
+The published image, `ghcr.io/pina-i/pinai-web`, is `apps/web/dist` served by Caddy on
+`:8080` as the non-root user 65532 (`docker/`). `deploy/compose.yaml` runs it behind a second
+Caddy for HTTPS; the root `README.md` shows that file verbatim (`pnpm readme-compose` checks
+it) and § Host the web app walks through it. `.github/workflows/image.yml` publishes `edge`
+from `main` and `X.Y.Z` / `X.Y` / `latest` from a tag `vX.Y.Z`, which must name
+`apps/web/package.json`'s version.
 
-The production artefact is `apps/web/dist`, a static Vite build served by
-nginx, whose config has to fall every path back to `index.html` for SPA
-routing.
-
-Two things the workspace layout forces on whoever writes it:
-
-- The **build context is the repo root**, not `apps/web`. The build needs
-  `packages/*`, `pnpm-workspace.yaml` and the lockfile, and it needs
-  `crypto/openmls-wasm` because `openmls-pkg` is generated rather than
-  committed.
-- The image therefore needs a **Rust toolchain and `wasm-pack`** at build
-  time, or a prior stage that produces `crypto/openmls-pkg` and copies it in.
-  `pnpm --filter @pinai/web build` runs `scripts/build-wasm.mjs` first and
-  will fail without them.
+- **One image serves every deployment.** Nothing deployment-specific is built in: Caddy
+  renders `/oauth-client.json` (built with a stand-in origin, replaced by
+  `{{env "PUBLIC_ORIGIN"}}`) and `/config.js` (`docker/config.js`) from the container's
+  environment at each request. `docker/entrypoint.sh` refuses an origin that isn't one, as
+  browsers write it. `/config.js` sets `window.PINAI_CONFIG`, which
+  `presentation/_libs/deployment-config.ts` prefers over the build's `VITE_*` values;
+  `apps/web/public/config.js`, the one a checkout serves, sets nothing.
+- **Built once for every platform.** The WASM and Vite stages run on the build machine
+  (`--platform=$BUILDPLATFORM`); the per-platform stage only copies files, so arm64 needs no
+  emulation.
+- **The build context is the repo root**: the build needs `packages/*`, the workspace files
+  and `crypto/openmls-wasm`. The web stage gets `crypto/openmls-pkg` from the WASM stage and
+  not the crate's sources, so `scripts/build-wasm.mjs` finds it current and never looks for
+  `wasm-pack`. `.dockerignore` keeps local `.env*` files, which can hold a Klipy key, out of
+  the image.
+- **SPA routing**: every path that isn't a file falls back to `index.html`. `/assets/*` is
+  cached for good (Vite names it by content), everything else revalidated.
 
 ## OIDC Authentication Flow
 

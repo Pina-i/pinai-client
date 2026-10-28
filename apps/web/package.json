@@ -7,7 +7,7 @@
   "scripts": {
     "wasm": "node ../../scripts/build-wasm.mjs",
     "dev": "pnpm run wasm && vite",
-    "build": "pnpm run wasm && tsc -b && vite build",
+    "build": "pnpm run wasm && vite build && tsc -b",
     "typecheck": "pnpm run wasm && tsc -b",
     "test": "pnpm run wasm && vitest run",
     "preview": "vite preview"

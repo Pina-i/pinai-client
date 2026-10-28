@@ -9,6 +9,151 @@ server never sees plaintext.
 This repository is a pnpm workspace. The backend lives separately, in
 [`Pina-i/pinai`](https://github.com/Pina-i/pinai).
 
+- [Host the web app](#host-the-web-app) — serve it for your community, on its own server or beside your instance
+- [Development](#what-you-need) — run it from a checkout
+
+---
+
+## Host the web app
+
+The web app, from the published image `ghcr.io/pina-i/pinai-web`, behind Caddy for
+HTTPS. It signs people in to any Pīna'i instance: an instance registers no app, it
+reads the document the app publishes, `https://your.domain/oauth-client.json`.
+
+You need:
+
+- a Linux server, amd64 or arm64, with Docker and its Compose plugin, 2.23.1 or later.
+  On an instance's server, whose Caddy already holds ports 80 and 443, see
+  [Beside an instance](#beside-an-instance-or-behind-your-own-reverse-proxy);
+- a domain whose DNS (A / AAAA records) points at the server, with ports 80 and 443
+  open: `app.example.org`, say. Browsers keep each account's device, its keys and its
+  message history, under the app's domain: on a new domain, every browser starts as a
+  new device.
+
+Then three steps on the server.
+
+**1. `compose.yaml`.** Save this file as `compose.yaml` in an empty directory. It is
+`deploy/compose.yaml`, Caddy's configuration included:
+
+<!-- deploy/compose.yaml -->
+```yaml
+# The Pīna'i web app from the published image, behind Caddy for HTTPS.
+# Needs Docker Compose 2.23.1 or later, for Caddy's configuration inlined at the end.
+# Its settings are in .env beside it. It stores nothing but Caddy's certificates,
+# under ./data.
+name: pinai-web
+
+# Docker keeps container logs forever by default.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # HTTPS in front of the web app; gets and renews the certificate. Its ports are
+  # the only published ones (443/udp: HTTP/3).
+  caddy:
+    image: caddy:2.11-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?set it in .env}
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config
+    depends_on:
+      - web
+    logging: *logging
+
+  # The web app. Identity providers know it by https://DOMAIN/oauth-client.json,
+  # which it writes from PUBLIC_ORIGIN; it refuses to start without one.
+  # PINAI_WEB_VERSION in .env picks another version than this minor's latest.
+  web:
+    image: ghcr.io/pina-i/pinai-web:${PINAI_WEB_VERSION:-0.1}
+    restart: unless-stopped
+    read_only: true
+    environment:
+      PUBLIC_ORIGIN: https://${DOMAIN}
+      DEFAULT_IDP_URL: ${DEFAULT_IDP_URL:-}
+      KLIPY_API_KEY: ${KLIPY_API_KEY:-}
+    logging: *logging
+
+# Caddy's configuration. $$ is Compose's escape for $: Caddy reads {$DOMAIN}
+# from its own environment.
+configs:
+  caddyfile:
+    content: |
+      {$$DOMAIN} {
+      	header Strict-Transport-Security "max-age=31536000"
+      	reverse_proxy web:8080
+      }
+```
+
+**2. `.env`**, beside it, names the app's domain and the instance its landing page
+offers:
+
+```sh
+DOMAIN=app.example.org
+DEFAULT_IDP_URL=chat.example.org
+```
+
+Without `DEFAULT_IDP_URL`, people type their instance's address; any instance can be
+reached either way. `KLIPY_API_KEY` enables the GIF picker. `deploy/.env.example`
+lists every setting.
+
+**3. Start it:**
+
+```bash
+docker compose up -d
+```
+
+`https://app.example.org/oauth-client.json` answers once Caddy has its certificate,
+and names `https://app.example.org`. Then point your instance at the app: set
+`WEB_APP_ORIGIN=https://app.example.org` in the instance's `.env` and run
+`docker compose up -d` there. Invitations and password-reset pages then send people
+to this app.
+
+`docker compose pull && docker compose up -d` upgrades the app within its minor
+version; `PINAI_WEB_VERSION` in `.env` runs another one. There is nothing to back
+up: the app keeps nothing on the server, and `./data` holds only Caddy's certificates.
+
+### Beside an instance, or behind your own reverse proxy
+
+Ports 80 and 443 belong to one proxy. Behind your own, remove the `caddy` service and
+the `configs:` block, publish the app on loopback (`ports: ["127.0.0.1:8090:8080"]`
+on `web`), and route the domain to it over HTTPS: an instance accepts a web app only
+at an `https` address.
+
+On an instance's server, that proxy is the instance's Caddy. Remove the `caddy`
+service and the `configs:` block here too, and put the app on the instance's
+network by adding this to the app's `compose.yaml`:
+
+```yaml
+networks:
+  default:
+    name: pinai_default
+    external: true
+```
+
+Then add the app's site to Caddy's configuration in the instance's `compose.yaml`,
+the `configs:` block at its end, and run `docker compose up -d` in both directories:
+
+```
+app.example.org {
+	header Strict-Transport-Security "max-age=31536000"
+	reverse_proxy web:8080
+}
+```
+
+An upgrade of the instance replaces its `compose.yaml`: add the site again.
+
 ---
 
 ## What you need
@@ -78,6 +223,7 @@ finishes in under a second.
 | `pnpm lint` | ESLint over the whole workspace (one config, at the root) |
 | `pnpm run wasm` | Build the WASM bundle if stale |
 | `pnpm run wasm --force` | Rebuild it regardless |
+| `pnpm readme-compose` | Check that the `compose.yaml` this README shows is `deploy/compose.yaml`: change the file, then copy it into the README |
 
 Narrower targets, when the whole workspace is more than you need:
 
@@ -111,6 +257,9 @@ packages/mls        The MLS engine. One implementation per platform; today
 
 crypto/             The Rust crate (openmls wrapper) and its build output.
 scripts/            build-wasm.mjs — the staleness-checked WASM build.
+
+docker/             The published image: Dockerfile, and the Caddy that serves it.
+deploy/             Hosting the web app: compose.yaml and .env.example.
 ```
 
 The split is deliberate: what is shared is the part where a second
@@ -123,16 +272,54 @@ why. Start with the one at the repository root for the architecture, then
 
 ## Environment variables
 
-All optional, all read at build time, none of them secret — this is a browser
-client, so anything it can read, a user can read.
+Read at build time, none of them secret — this is a browser client, so anything
+it can read, a user can read.
 
 | Variable | Effect |
 |---|---|
 | `VITE_DEFAULT_IDP_URL` | Pre-fills the identity provider field. Defaults to `http://localhost:8088`. |
 | `VITE_KLIPY_API_KEY` | Enables the GIF picker. Without it the picker renders a note saying so. |
+| `PUBLIC_ORIGIN` | Required by `pnpm build`: the origin the build is served from, written into its `/oauth-client.json`. The dev server answers for the host it is reached on instead. |
+
+The published image is built without them, so that one image serves every
+deployment: it reads `PUBLIC_ORIGIN`, `DEFAULT_IDP_URL` and `KLIPY_API_KEY` from
+the container's environment and serves them, at each request, in
+`/oauth-client.json` and `/config.js` (`docker/Caddyfile`). What `/config.js` sets
+wins over the build's values; `apps/web/public/config.js`, the one a checkout
+serves, sets none.
 
 Sensitive configuration is supplied by the user at runtime, never baked into
 the build.
+
+## Releasing
+
+`.github/workflows/image.yml` builds the image from `docker/Dockerfile` for amd64
+and arm64. What it publishes to `ghcr.io/pina-i/pinai-web` depends on what
+triggered it:
+
+| Trigger | Published |
+|---|---|
+| A pull request | nothing |
+| A push to `main` | `edge` and `sha-<short>`, for testing only |
+| A tag `vX.Y.Z` | `X.Y.Z`, `X.Y` and `latest` |
+| A tag `vX.Y.Z-rc.1` | `X.Y.Z-rc.1` |
+
+A tag must name the version of `apps/web/package.json`, or a release candidate of
+it: the run checks it first. For a new minor, first set the default of
+`PINAI_WEB_VERSION` in `deploy/compose.yaml` (`${PINAI_WEB_VERSION:-X.Y}`) to it
+and copy the file into this README: the run refuses a tag `vX.Y.Z` whose minor it
+doesn't name. Tag the commit of `main` whose run passed, and push the tag:
+
+```bash
+git tag -a v0.1.0 -m "v0.1.0" && git push origin v0.1.0
+```
+
+To try the image from a checkout:
+
+```bash
+docker build -f docker/Dockerfile -t pinai-web .
+docker run --rm -p 8090:8080 -e PUBLIC_ORIGIN=http://localhost:8090 -e DEFAULT_IDP_URL=localhost:8088 pinai-web
+```
 
 ## Troubleshooting
 
@@ -171,11 +358,21 @@ before adopting anything from it.
 
 ## License
 
-**There is no license file in this repository yet.** The project describes
-itself as open source, so this is a gap worth closing — without one, the
-default is exclusive copyright and nobody may legally fork, modify or
-redistribute it.
+Copyright (C) 2026 Kilian Tozzini
 
-The Rust crate under `crypto/openmls-wasm/` declares `MIT OR Apache-2.0` in
-its `Cargo.toml`, which is the usual choice in that ecosystem and a reasonable
-starting point for the rest.
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License along
+with this program, in [`LICENSE`](LICENSE). If not, see
+<https://www.gnu.org/licenses/>.
+
+Every package here, the Rust crate under `crypto/openmls-wasm/` included, is
+under this license. Anyone who serves a modified version of the web app to
+users must offer them its source code (§ 13).

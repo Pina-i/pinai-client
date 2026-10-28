@@ -9,6 +9,28 @@ export const editorTitle = "title text-[24px] font-normal leading-[1.2] tracking
 /** Mono field label ("Display name", "Authenticator code"). */
 export const fieldLabel = "mb-[5px] block font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted-foreground"
 
+/** `.pf-in` — a one-line field, or a select. */
+export const textInput = [
+    "h-9 w-full rounded-[12px] border border-line bg-surf2 px-3",
+    "font-sans text-[13px] text-foreground outline-none transition-colors duration-150",
+    "focus-visible:border-acc",
+].join(" ")
+
+/** `.pf-bio` — the box a textarea sits in. */
+export const textArea =
+    "min-h-[72px] rounded-[12px] border border-line bg-surf2 px-3 py-2.5 transition-colors duration-150 focus-within:border-acc"
+
+export const textAreaInput = [
+    "title w-full resize-none bg-transparent text-[13px] italic leading-[1.5] text-foreground outline-none",
+    "placeholder:not-italic placeholder:text-muted-foreground",
+].join(" ")
+
+/** `.pf-count` — what a field holds against its limit. */
+export const fieldCount = "mt-[5px] text-right font-mono text-[10px] text-muted-foreground"
+
+/** `.pf-hint` */
+export const fieldHint = "mt-[5px] font-mono text-[10px] text-muted-foreground"
+
 export const pill = tv({
     base: [
         "inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-full border font-sans outline-none",

@@ -1,0 +1,17 @@
+# What the image builds itself, and local state.
+**/node_modules
+**/dist
+**/out
+**/.turbo
+**/.tanstack
+**/target
+crypto/openmls-pkg
+apps/*/src/routeTree.gen.ts
+.git
+tmp
+docs
+
+# A local env file can hold a key (VITE_KLIPY_API_KEY): never in an image.
+**/.env
+**/.env.*
+!**/.env.example

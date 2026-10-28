@@ -12,7 +12,8 @@
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "lint": "eslint .",
-    "wasm": "node scripts/build-wasm.mjs"
+    "wasm": "node scripts/build-wasm.mjs",
+    "readme-compose": "sh scripts/check-readme-compose.sh"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

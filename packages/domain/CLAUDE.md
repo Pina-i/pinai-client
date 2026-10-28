@@ -208,13 +208,21 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   `browserSession` is false: no link opens the desktop app.
 
 ### models/instance-admin.ts + ports/instance-admin.port.ts
-- Settings → Instance, an admin's panel. `managesInstance(admin, info)` —
-  only on an invite-only instance (NodeInfo `openRegistrations: false`): on
-  an open one people sign up themselves, and the IdP refuses to invite.
+- Settings → Instance, an admin's panel on open and invite-only instances
+  alike (`managesInstance(admin, info)`). `managesRoster(info)` — the members,
+  invitations and reset links, only on an invite-only one (NodeInfo
+  `openRegistrations: false`): on an open one people sign up and reset their
+  passwords themselves, and the IdP refuses to invite.
   `managed-instance.usecase.ts` reads NodeInfo for an admin only.
-- `IInstanceAdminPort` — `/api/admin/*`: the members, the open invitations,
-  making and revoking one, a member's reset link. A link's token is in the
-  answer that made it, never in a list: the client can't show it twice.
+- `InstanceIntro` — the name and description as written, `null` for the
+  IdP's default (the domain, no description). `introDraft` is what a save
+  would send: trimmed, a blank field `null`, counted in code points as the
+  IdP counts characters (`.length` counts an emoji twice), and the fields past
+  `INTRO_LIMITS` (40, 90). `introPreview` — how the sign-in pages read it.
+- `IInstanceAdminPort` — `/api/admin/*`: the name and description (`PUT`
+  answers the text saved), the members, the open invitations, making and
+  revoking one, a member's reset link. A link's token is in the answer that
+  made it, never in a list: the client can't show it twice.
 - `InstanceMember` names a member by display name only — the IdP never
   sends a handle or an address. `offersPasswordReset` — not to an admin,
   who recovers through `ADMIN_EMAIL` / `ADMIN_PASSWORD`. `memberActivity` —

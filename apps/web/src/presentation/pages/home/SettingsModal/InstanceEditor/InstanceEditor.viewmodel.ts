@@ -3,9 +3,11 @@ import { useLocation } from "@tanstack/react-router"
 import { useCallback, useReducer, useState } from "react"
 import { toast } from "sonner"
 
+import type { InstanceInfo } from "@pinai/domain/models/instance"
 import {
     type InstanceMember,
     type IssuedLink,
+    managesRoster,
     memberActivity,
     offersPasswordReset,
     type OpenInvitation,
@@ -18,6 +20,8 @@ import { type RecentSignIn, useRecentSignIn } from "@/presentation/hooks/use-rec
 import { useAppStore } from "@/store/store"
 
 import { settingsHref } from "../SettingsModal.viewmodel"
+import { adminQueryKey, retryUnlessRefused } from "./admin-queries"
+import { type IntroFormViewModel, useIntroFormViewModel } from "./IntroForm/IntroForm.viewmodel"
 
 /** The row that is open: "Invite someone", or a member's "Reset password". */
 export type OpenRow = { kind: "invite" } | { kind: "reset"; memberId: string }
@@ -122,6 +126,9 @@ export function pendingInvitation(invitation: OpenInvitation, now: Date): Pendin
 
 export interface InstanceEditorViewModel {
     title: string
+    intro: IntroFormViewModel
+    /** Members, invitations and reset links: an invite-only instance's. */
+    hasRoster: boolean
     members: RosterMember[] | undefined
     invitations: PendingInvitation[] | undefined
     isLoading: boolean
@@ -150,9 +157,9 @@ export interface InstanceEditorViewModel {
 
 const COPIED_MS = 1_600
 
-const adminQueryKey = (idpUrl: string | null, list: "members" | "invitations") => ["instance-admin", idpUrl, list] as const
-
-export function useInstanceEditorViewModel(): InstanceEditorViewModel {
+export function useInstanceEditorViewModel(host: string, info: InstanceInfo): InstanceEditorViewModel {
+    const hasRoster = managesRoster(info)
+    const intro = useIntroFormViewModel(host, info)
     const idpUrl = useAppStore((s) => s.idpUrl)
     const signedIn = useAppStore((s) => s.accessToken !== null)
     const me = useAppStore((s) => s.user?.sub ?? null)
@@ -168,26 +175,25 @@ export function useInstanceEditorViewModel(): InstanceEditorViewModel {
     const [copiedLink, setCopiedLink] = useState<string | null>(null)
     const [demoted, setDemoted] = useState(false)
 
-    const enabled = idpUrl !== null && signedIn
-    const retry = (failures: number, error: unknown) => !refusedAsNonAdmin(error) && failures < 3
+    const enabled = idpUrl !== null && signedIn && hasRoster
     const membersQuery = useQuery({
         queryKey: adminQueryKey(idpUrl, "members"),
         queryFn: () => getInstanceAdminPort().listMembers(idpUrl!, useAppStore.getState().accessToken!),
         enabled,
-        retry,
+        retry: retryUnlessRefused,
     })
     const invitationsQuery = useQuery({
         queryKey: adminQueryKey(idpUrl, "invitations"),
         queryFn: () => getInstanceAdminPort().listInvitations(idpUrl!, useAppStore.getState().accessToken!),
         enabled,
-        retry,
+        retry: retryUnlessRefused,
     })
 
     const now = new Date()
     const members = membersQuery.data?.map((member) => rosterMember(member, me, now))
     const invitations = invitationsQuery.data?.map((invitation) => pendingInvitation(invitation, now))
     const errors = [membersQuery.error, invitationsQuery.error].filter((e) => e !== null)
-    const noLongerAdmin = demoted || errors.some(refusedAsNonAdmin)
+    const noLongerAdmin = demoted || intro.refused || errors.some(refusedAsNonAdmin)
 
     const toggle = useCallback((row: OpenRow) => dispatch({ type: "toggle", row }), [])
     const close = useCallback(() => dispatch({ type: "close" }), [])
@@ -272,7 +278,9 @@ export function useInstanceEditorViewModel(): InstanceEditorViewModel {
     }, [])
 
     return {
-        title: rosterTitle(members?.length ?? null),
+        title: hasRoster ? rosterTitle(members?.length ?? null) : "Open to anyone.",
+        intro,
+        hasRoster,
         members,
         invitations,
         isLoading: membersQuery.isLoading || invitationsQuery.isLoading,

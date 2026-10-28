@@ -38,7 +38,7 @@ function askedIn(searchStr: string): SettingsSection | null {
     return SECTIONS.find((section) => section === asked) ?? null
 }
 
-/** Settings → Instance, an admin's on an invite-only instance: unknown until NodeInfo answers. */
+/** Settings → Instance, an admin's: unknown until NodeInfo answers. */
 export type InstancePanel = { kind: "unknown" } | { kind: "hidden" } | { kind: "shown"; info: InstanceInfo }
 
 export interface SettingsModalViewModel {

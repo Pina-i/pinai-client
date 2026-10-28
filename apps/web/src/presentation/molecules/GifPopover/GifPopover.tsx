@@ -62,7 +62,7 @@ export function GifPopover({ onPickGif }: GifPopoverProps) {
                 <div className="px-4 py-6 text-center font-mono text-[10.5px] leading-relaxed text-muted-foreground">
                     GIF integration not configured.
                     <br />
-                    Set <span className="text-foreground">VITE_KLIPY_API_KEY</span> at build time to enable.
+                    Set <span className="text-foreground">KLIPY_API_KEY</span> where this app is hosted to enable.
                 </div>
             ) : (
                 <>

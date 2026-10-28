@@ -3,18 +3,12 @@ import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { AvatarCropDialog } from "@/presentation/molecules/AvatarCropDialog/AvatarCropDialog"
 import { cn } from "@/presentation/_libs/utils"
-import { editorFrame, editorTitle, fieldLabel, pill } from "../editor-styles"
+import { editorFrame, editorTitle, fieldCount, fieldHint, fieldLabel, pill, textArea, textAreaInput, textInput } from "../editor-styles"
 import { PRONOUN_OPTIONS, useProfileEditorViewModel } from "./ProfileEditor.viewmodel"
 
 interface ProfileEditorProps {
     user: UserProfile
 }
-
-const inputClass = cn(
-    "h-9 w-full rounded-[12px] border border-line bg-surf2 px-3",
-    "font-sans text-[13px] text-foreground outline-none transition-colors duration-150",
-    "focus-visible:border-acc",
-)
 
 export function ProfileEditor({ user }: ProfileEditorProps) {
     // See VerifyEmailPage: a ref inside the viewmodel object taints every
@@ -55,7 +49,7 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
                             </IconButton>
                         )}
                     </div>
-                    <p className="mt-[5px] font-mono text-[10px] text-muted-foreground">JPG · PNG · WebP · GIF · max 20 MB</p>
+                    <p className={fieldHint}>JPG · PNG · WebP · GIF · max 20 MB</p>
                 </div>
             </div>
 
@@ -70,7 +64,7 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
                 <div>
                     <label className={fieldLabel}>Display name</label>
                     <input
-                        className={inputClass}
+                        className={textInput}
                         value={vm.draft.displayName}
                         onChange={(e) => vm.setDisplayName(e.target.value)}
                     />
@@ -78,7 +72,7 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
                 <div>
                     <label className={fieldLabel}>Pronouns</label>
                     <select
-                        className={cn(inputClass, "cursor-pointer appearance-none")}
+                        className={cn(textInput, "cursor-pointer appearance-none")}
                         value={vm.draft.pronouns}
                         onChange={(e) => vm.setPronouns(e.target.value as "" | Pronouns)}
                     >
@@ -91,24 +85,16 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
                 </div>
                 <div>
                     <label className={fieldLabel}>Bio</label>
-                    <div
-                        className={cn(
-                            "min-h-[72px] rounded-[12px] border border-line bg-surf2 px-3 py-2.5",
-                            "transition-colors duration-150 focus-within:border-acc",
-                        )}
-                    >
+                    <div className={textArea}>
                         <textarea
-                            className={cn(
-                                "title w-full resize-none bg-transparent text-[13px] italic leading-[1.5] text-foreground outline-none",
-                                "placeholder:not-italic placeholder:text-muted-foreground",
-                            )}
+                            className={textAreaInput}
                             rows={3}
                             placeholder="A few words about yourself…"
                             value={vm.draft.bio}
                             onChange={(e) => vm.setBio(e.target.value)}
                         />
                     </div>
-                    <p className="mt-[5px] text-right font-mono text-[10px] text-muted-foreground">
+                    <p className={fieldCount}>
                         {vm.bioCount} / {vm.bioMax}
                     </p>
                 </div>
