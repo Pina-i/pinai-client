@@ -2,6 +2,7 @@
   "name": "@pinai/web",
   "private": true,
   "version": "0.0.0",
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "wasm": "node ../../scripts/build-wasm.mjs",
