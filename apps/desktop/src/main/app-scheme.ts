@@ -27,15 +27,17 @@ export function registerAppScheme(): void {
     ])
 }
 
+// Any instance's sign-in pages load in this window: none may frame the app, which a meta CSP can't say.
+const NOT_FRAMED = "frame-ancestors 'none'"
+
 /** Serves `root`, the built renderer, at `app://pinai/`. */
 export function serveApp(root: string): void {
     protocol.handle(APP_SCHEME, async (request) => {
         const file = resolveAppFile(request.url, root, isFile)
-        if (!file) return new Response(null, { status: 404 })
+        if (!file) return new Response(null, { status: 404, headers: { "Content-Security-Policy": NOT_FRAMED } })
         const response = await net.fetch(pathToFileURL(file).href)
-        // Any instance's sign-in pages load in this window: none may frame the app, which a meta CSP can't say.
         const headers = new Headers(response.headers)
-        headers.set("Content-Security-Policy", "frame-ancestors 'none'")
+        headers.set("Content-Security-Policy", NOT_FRAMED)
         return new Response(response.body, { status: response.status, headers })
     })
 }
