@@ -1,10 +1,10 @@
 /** The `app://pinai` scheme: its privileges, and what it serves from the built renderer. */
-import { mkdtempSync, writeFileSync } from "fs"
+import { mkdtempSync, rmSync, writeFileSync } from "fs"
 import os from "os"
 import path from "path"
 import { pathToFileURL } from "url"
 
-import { describe, expect, it, vi } from "vitest"
+import { afterAll, describe, expect, it, vi } from "vitest"
 
 type Handler = (request: Request) => Promise<Response>
 
@@ -40,6 +40,7 @@ describe("serveApp", () => {
     )
     serveApp(root)
     const [scheme, handler] = electron.handle.mock.lastCall!
+    afterAll(() => rmSync(root, { recursive: true, force: true }))
 
     it("answers the app's routes with its index.html, never framed", async () => {
         expect(scheme).toBe("app")
