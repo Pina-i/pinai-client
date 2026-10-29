@@ -4,7 +4,8 @@ import { OidcAdapter } from "@pinai/api/auth/oidc.adapter"
 import type { HeldRefreshToken } from "@pinai/domain/ports/auth.port"
 import { app, BrowserWindow, type IpcMainInvokeEvent, ipcMain, shell } from "electron"
 
-import { route } from "./navigation"
+import { registerAppScheme, serveApp } from "./app-scheme"
+import { APP_URL, isApp, route } from "./navigation"
 import { KeychainSessionTokenStore, MainSession, keychain } from "./session"
 
 // One app at a time: a second launch focuses the first.
@@ -12,6 +13,7 @@ if (!app.requestSingleInstanceLock()) app.quit()
 else start()
 
 function start(): void {
+    registerAppScheme()
     let window: BrowserWindow | null = null
     // The IdP whose pages the window shows, from the sign-in the app started until its answer.
     let signingInTo: string | null = null
@@ -22,6 +24,8 @@ function start(): void {
     })
 
     void app.whenReady().then(() => {
+        // Built: electron-vite's renderer output, beside out/main.
+        if (appUrl() === APP_URL) serveApp(path.join(import.meta.dirname, "../renderer"))
         const session = new MainSession(
             new KeychainSessionTokenStore(path.join(app.getPath("userData"), "session"), keychain),
             new OidcAdapter(),
@@ -37,10 +41,10 @@ function start(): void {
         })
 
         window = createWindow((to) => {
-            const next = route(to, rendererUrl(), signingInTo)
+            const next = route(to, appUrl(), signingInTo)
             if (next.kind === "callback") {
                 signingInTo = null
-                void window?.loadURL(new URL(next.path, rendererUrl()).href)
+                void window?.loadURL(new URL(next.path, appUrl()).href)
             }
             return next.kind === "allow"
         })
@@ -54,11 +58,12 @@ function start(): void {
     })
 }
 
-function rendererUrl(): string {
-    const url = process.env.ELECTRON_RENDERER_URL
-    // A packaged renderer needs a privileged scheme of its own first.
-    if (!url) throw new Error("Only `electron-vite dev` is supported for now")
-    return url
+/**
+ * The app's address: electron-vite's dev server, or the built renderer at `app://pinai/`. A packaged
+ * app never takes another, whatever its environment says: that page would get the bridge.
+ */
+function appUrl(): string {
+    return (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) || APP_URL
 }
 
 /** The window, held to `navigable`: what it says no to doesn't load. */
@@ -69,7 +74,7 @@ function createWindow(navigable: (url: string) => boolean): BrowserWindow {
         webPreferences: {
             preload: path.join(import.meta.dirname, "../preload/index.cjs"),
             // The preload exposes the bridge to the app's own pages only, never the IdP's.
-            additionalArguments: [`--pinai-app-origin=${new URL(rendererUrl()).origin}`],
+            additionalArguments: [`--pinai-app=${appUrl()}`],
         },
     })
     const guard = (event: Electron.Event, url: string) => {
@@ -82,7 +87,7 @@ function createWindow(navigable: (url: string) => boolean): BrowserWindow {
         if (/^https?:\/\//.test(url)) void shell.openExternal(url)
         return { action: "deny" }
     })
-    void window.loadURL(rendererUrl())
+    void window.loadURL(appUrl())
     return window
 }
 
@@ -90,7 +95,7 @@ function createWindow(navigable: (url: string) => boolean): BrowserWindow {
 function handle<A extends unknown[], R>(channel: string, run: (...args: A) => R): void {
     ipcMain.handle(channel, (event: IpcMainInvokeEvent, ...args: unknown[]) => {
         const from = event.senderFrame?.url
-        if (!from || new URL(from).origin !== new URL(rendererUrl()).origin) {
+        if (!from || !isApp(from, appUrl())) {
             throw new Error(`${channel} refused to ${from ?? "a gone frame"}`)
         }
         return run(...(args as A))

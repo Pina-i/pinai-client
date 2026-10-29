@@ -2,12 +2,15 @@
 
 import { contextBridge, ipcRenderer } from "electron"
 
+import { isApp } from "../main/navigation"
+
 // `window.pinaiDesktop`, as `apps/web/src/adapters/desktop/desktop-bridge.ts` reads it — for the
 // app's own pages only: the IdP's sign-in pages load in the same window, and never see it. The
 // page hands the refresh token over once and never gets it back.
-const appOrigin = process.argv.find((arg) => arg.startsWith("--pinai-app-origin="))?.split("=")[1]
+const FLAG = "--pinai-app="
+const app = process.argv.find((arg) => arg.startsWith(FLAG))?.slice(FLAG.length)
 
-if (appOrigin && window.location.origin === appOrigin) {
+if (app && isApp(window.location.href, app)) {
     contextBridge.exposeInMainWorld("pinaiDesktop", {
         session: {
             store: (held: unknown) => ipcRenderer.invoke("session:hold", held),
