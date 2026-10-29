@@ -54,6 +54,11 @@ describe("withContentSecurityPolicy", () => {
         ])
     })
 
+    it("hashes an inline script as the browser parses it, its CRLF line breaks as LF", () => {
+        const html = withContentSecurityPolicy(HTML.replaceAll("\n", "\r\n"))
+        expect(policyOf(html).get("script-src")).toEqual(["'self'", "'wasm-unsafe-eval'", sha256(THEME), sha256(SPLASH)])
+    })
+
     it("comes right after the charset, before any script", () => {
         const html = withContentSecurityPolicy(HTML)
         const policy = html.indexOf('http-equiv="Content-Security-Policy"')

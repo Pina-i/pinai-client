@@ -12,8 +12,9 @@ const LOOPBACK_SOCKETS = ["ws://localhost:*", "ws://127.0.0.1:*"]
 /** `html` with its Content-Security-Policy, its inline scripts allowed by their sha256. */
 export function withContentSecurityPolicy(html: string): string {
     if (!CHARSET.test(html)) throw new Error("index.html has no <meta charset> for the CSP to follow")
+    // Hashed as the browser's parser reads it, CRLF and CR as LF: a Windows checkout's index.html has CRLF.
     const hashes = [...html.matchAll(INLINE_SCRIPT)].map(
-        ([, script]) => `'sha256-${createHash("sha256").update(script).digest("base64")}'`,
+        ([, script]) => `'sha256-${createHash("sha256").update(script.replace(/\r\n?/g, "\n")).digest("base64")}'`,
     )
     const policy = [
         "default-src 'self'",
