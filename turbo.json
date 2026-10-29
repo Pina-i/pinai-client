@@ -7,6 +7,10 @@
       "env": ["PUBLIC_ORIGIN"],
       "outputs": ["dist/**"]
     },
+    "@pinai/desktop#build": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
     "typecheck": {
       "dependsOn": ["^build"]
     },

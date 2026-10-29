@@ -1,26 +1,34 @@
 import path from "path"
 import { defineConfig } from "electron-vite"
-import { loadConfigFromFile, mergeConfig } from "vite"
+import { loadConfigFromFile, mergeConfig, type PluginOption } from "vite"
 
 const webRoot = path.resolve(import.meta.dirname, "../web")
+
+// The web deployment's /oauth-client.json: the desktop app's client is each IdP's own document.
+const isClientDocument = (plugin: PluginOption) =>
+    !!plugin && typeof plugin === "object" && "name" in plugin && plugin.name === "pinai:oauth-client-document"
 
 export default defineConfig(async (env) => {
     // Loaded through Vite rather than imported: electron-vite's config bundler would resolve
     // the web plugins from apps/desktop, where pnpm does not link them.
     const web = await loadConfigFromFile(env, path.join(webRoot, "vite.config.ts"), webRoot)
     if (!web) throw new Error(`No Vite config found in ${webRoot}`)
+    const webApp = { ...web.config, plugins: web.config.plugins?.filter((plugin) => !isClientDocument(plugin)) }
 
     return {
         // The workspace packages are TypeScript sources: bundled, not loaded from node_modules.
         main: { build: { externalizeDeps: { exclude: ["@pinai/api", "@pinai/domain"] } } },
         // Sandboxed preloads run as classic scripts: no ES modules.
         preload: { build: { rolldownOptions: { output: { format: "cjs" as const, entryFileNames: "[name].cjs" } } } },
-        renderer: mergeConfig(web.config, {
+        renderer: mergeConfig(webApp, {
             root: webRoot,
             envDir: webRoot,
             build: { rolldownOptions: { input: path.join(webRoot, "index.html") } },
             // The renderer is the web app, built knowing it runs inside the desktop app.
             define: { "import.meta.env.PINAI_DESKTOP": "true" },
+            // electron-vite's production preset forces base "./", meant for file://. app:// answers
+            // index.html at every route, so from /dm/alice, "./assets/…" would be index.html again.
+            plugins: [{ name: "pinai:root-base", apply: "build", config: () => ({ base: "/" }) }],
         }),
     }
 })

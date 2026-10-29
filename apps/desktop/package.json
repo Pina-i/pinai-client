@@ -8,6 +8,7 @@
   "scripts": {
     "wasm": "node ../../scripts/build-wasm.mjs",
     "dev": "pnpm run wasm && install-electron && electron-vite dev",
+    "build": "pnpm run wasm && electron-vite build",
     "typecheck": "tsc -b",
     "test": "vitest run"
   },
