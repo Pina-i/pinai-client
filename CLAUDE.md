@@ -204,8 +204,11 @@ The published image, `ghcr.io/pina-i/pinai-web`, is `apps/web/dist` served by Ca
 proxy, and the image sends HSTS itself. The root `README.md` shows that file verbatim
 (`pnpm readme-compose` checks it) and § Host the web app walks through it, proxy examples
 included. `.github/workflows/ci.yml` runs lint, typecheck and the tests first, then
-publishes `edge` from `main` and `X.Y.Z` / `X.Y` / `latest` from a tag `vX.Y.Z`, which
-must name `apps/web/package.json`'s version.
+publishes `edge` from `main` and `X.Y.Z` / `X.Y` / `latest` from a tag `vX.Y.Z`, then
+publishes the GitHub release. The web and desktop apps ship as one version, the one
+`apps/web/package.json` and `apps/desktop/package.json` both carry; release-please
+(`.github/workflows/release-please.yml`) sets it and tags it from Conventional Commits,
+via a release PR — the root `README.md` § Releasing.
 
 - **One image serves every deployment.** Nothing deployment-specific is built in: Caddy
   renders `/oauth-client.json` (built with a stand-in origin, replaced by

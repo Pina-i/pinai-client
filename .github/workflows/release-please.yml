@@ -1,0 +1,33 @@
+name: Release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  # Opens or refreshes the release PR; once it is merged, tags vX.Y.Z with a draft release,
+  # which ci.yml publishes after the image. As the pinai-release-plz App, not GITHUB_TOKEN:
+  # the release PR's checks and the tag's ci.yml run only for events another identity causes.
+  release-please:
+    if: github.repository_owner == 'Pina-i'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    concurrency:
+      group: release-please-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_PLZ_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_PLZ_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

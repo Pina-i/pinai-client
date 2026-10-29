@@ -278,18 +278,42 @@ to `ghcr.io/pina-i/pinai-web` depends on what triggered it:
 |---|---|
 | A pull request | nothing |
 | A push to `main` | `edge` and `sha-<short>`, for testing only |
-| A tag `vX.Y.Z` | `X.Y.Z`, `X.Y` and `latest` |
-| A tag `vX.Y.Z-rc.1` | `X.Y.Z-rc.1` |
+| A tag `vX.Y.Z` | `X.Y.Z`, `X.Y` and `latest`, then the GitHub release |
+| A tag `vX.Y.Z-rc.1` | `X.Y.Z-rc.1`, then a pre-release |
 
-A tag must name the version of `apps/web/package.json`, or a release candidate of
-it: the run checks it first. For a new minor, first set the default of
-`PINAI_WEB_VERSION` in `deploy/compose.yaml` (`${PINAI_WEB_VERSION:-X.Y}`) to it
-and copy the file into this README: the run refuses a tag `vX.Y.Z` whose minor it
-doesn't name. Tag the commit of `main` whose run passed, and push the tag:
+The web app and the desktop app ship as one version: `apps/web/package.json` and
+`apps/desktop/package.json` always carry the same one, and a tag must name it, or
+a release candidate of it. Every run checks both.
 
-```bash
-git tag -a v0.1.0 -m "v0.1.0" && git push origin v0.1.0
-```
+[release-please](https://github.com/googleapis/release-please)
+(`.github/workflows/release-please.yml`, configured by `release-please-config.json`)
+sets that version and makes the tags, from commit messages written as
+[Conventional Commits](https://www.conventionalcommits.org). On every push to
+`main` it opens or refreshes a release PR, which sets the next version and adds
+its section to `CHANGELOG.md`. Merging that PR tags `vX.Y.Z` with a draft
+release, which `ci.yml` publishes once the image is out.
+
+- **The version.** In 0.x, a breaking change (`feat!:`, a `BREAKING CHANGE:`
+  footer) opens a new minor, anything else a patch. `deploy/compose.yaml` follows
+  its minor's latest patch.
+- **A new minor.** Every run checks that the default of `PINAI_WEB_VERSION` in
+  `deploy/compose.yaml` (`${PINAI_WEB_VERSION:-X.Y}`) names the version's minor.
+  The release PR of a minor therefore fails until you push to its branch a commit
+  that sets it, with the file copied into this README. Merge right after:
+  release-please rewrites its branch at the next push to `main`.
+- **A release candidate.** Tag the head of the release PR with its version and
+  push the tag; the run publishes a pre-release:
+
+  ```bash
+  git fetch origin release-please--branches--main--components--pinai-client
+  git tag -a v0.2.0-rc.1 FETCH_HEAD -m "v0.2.0-rc.1" && git push origin v0.2.0-rc.1
+  ```
+
+release-please authenticates as the `pinai-release-plz` GitHub App, as in
+`Pina-i/pinai`: unlike `GITHUB_TOKEN`, its token runs `ci.yml` on the release PR
+and on the tag. The App must be installed on this repository, with its client ID
+in the `RELEASE_PLZ_CLIENT_ID` variable and a private key in the
+`RELEASE_PLZ_PRIVATE_KEY` secret.
 
 To try the image from a checkout:
 
