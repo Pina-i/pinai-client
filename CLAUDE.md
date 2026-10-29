@@ -109,7 +109,7 @@ pinai-client/                 # pnpm workspace root
 │                             #   as source TS; `exports` maps
 │                             #   `@pinai/domain/<path>` to `src/<path>.ts`.
 └── apps/
-    ├── desktop/              # Electron shell (@pinai/desktop), dev only for now.
+    ├── desktop/              # Electron shell (@pinai/desktop).
     │                         #   electron.vite.config.ts builds src/main and serves
     │                         #   apps/web as the renderer, loading web's own
     │                         #   vite.config.ts so plugins are never duplicated.
@@ -120,8 +120,8 @@ pinai-client/                 # pnpm workspace root
     │                         #   sign-in (see its CLAUDE.md): the IdP's pages in the
     │                         #   app's own window, the refresh token sealed in the OS
     │                         #   keychain by the main process.
-    │                         #   No packaged build yet: the renderer needs a
-    │                         #   privileged scheme of its own first.
+    │                         #   Built, it loads app://pinai/ — permanent: its
+    │                         #   storage lives under that origin.
     └── web/                  # The browser client (@pinai/web)
         ├── index.html, vite.config.ts, vitest.config.ts, tsconfig*.json
         ├── components.json    # React Aria registry config for the CLI
@@ -217,6 +217,13 @@ via a release PR — the root `README.md` § Releasing.
   browsers write it. `/config.js` sets `window.PINAI_CONFIG`, which
   `presentation/_libs/deployment-config.ts` prefers over the build's `VITE_*` values;
   `apps/web/public/config.js`, the one a checkout serves, sets nothing.
+- **The web build's CSP is in the document**: the build puts a `<meta>` Content-Security-Policy
+  right after `<meta charset>` (`apps/web/vite-plugins/content-security-policy.ts`), the desktop
+  app's included. Scripts are the app's own only, its inline ones allowed by their sha256,
+  computed at build time. `frame-ancestors`, which a `<meta>` can't carry, is a header:
+  `docker/Caddyfile`'s, and the desktop scheme's.
+- **The fonts are bundled** (Fontsource, at the weights Google Fonts served), each one's OFL text
+  in `/licenses/`.
 - **Built once for every platform.** The WASM and Vite stages run on the build machine
   (`--platform=$BUILDPLATFORM`); the per-platform stage only copies files, so arm64 needs no
   emulation.

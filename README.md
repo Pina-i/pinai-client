@@ -193,6 +193,7 @@ finishes in under a second.
 |---|---|
 | `pnpm dev` | Build the WASM bundle if stale, then start Vite on :5173 |
 | `pnpm dev:desktop` | The same client in an Electron window — also on :5173, so not alongside `pnpm dev` |
+| `pnpm --filter @pinai/desktop build` | The desktop app built into `apps/desktop/out`, loading `app://pinai/`; `apps/desktop/CLAUDE.md` says how to run it |
 | `pnpm build` | Type-check and build to `apps/web/dist`. Needs `PUBLIC_ORIGIN` (see `apps/web/.env.example`): the origin the build is served from, written into its `/oauth-client.json` |
 | `pnpm test` | Run the whole Vitest suite once |
 | `pnpm typecheck` | `tsc --noEmit` across the app and every package |
@@ -218,7 +219,7 @@ pnpm --filter @pinai/web exec vitest
 ## How the repository is laid out
 
 ```
-apps/desktop        Electron shell around apps/web. Dev only for now.
+apps/desktop        Electron shell around apps/web.
 apps/web            The browser client. UI, routing, and the adapters that are
                     genuinely browser-specific: WASM, WebCrypto, IndexedDB,
                     sessionStorage, window.location.
