@@ -31,21 +31,16 @@
                 document.documentElement.dataset.theme = family + "-" + mode
             })()
         </script>
-        <!-- The faces the splash paints first, fetched alongside the stylesheets so its first frame has
-             them: the latin files fonts.googleapis.com serves for the link below (and Instrument Serif's
-             latin-ext, for the ī of Pīna'i). After a Google version bump they go unused, and a page load's
-             first frame may draw in a fallback face again. -->
-        <link rel="preload" as="font" type="font/woff2" crossorigin href="https://fonts.gstatic.com/s/instrumentserif/v5/jizBRFtNs2ka5fXjeivQ4LroWlx-6zUTjg.woff2" />
-        <link rel="preload" as="font" type="font/woff2" crossorigin href="https://fonts.gstatic.com/s/instrumentserif/v5/jizBRFtNs2ka5fXjeivQ4LroWlx-6zsTjmbI.woff2" />
-        <link rel="preload" as="font" type="font/woff2" crossorigin href="https://fonts.gstatic.com/s/instrumentserif/v5/jizHRFtNs2ka5fXjeivQ4LroWlx-6zAjjH7M.woff2" />
-        <link rel="preload" as="font" type="font/woff2" crossorigin href="https://fonts.gstatic.com/s/dmsans/v17/rP2Yp2ywxg089UriI5-g4vlH9VoD8Cmcqbu0-K4.woff2" />
-        <link rel="preload" as="font" type="font/woff2" crossorigin href="https://fonts.gstatic.com/s/azeretmono/v21/3XFuErsiyJsY9O_Gepph-HHhZfk.woff2" />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-        <link
-            rel="stylesheet"
-            href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;700&family=Instrument+Serif:ital@0;1&display=swap"
-        />
+        <!-- The faces the splash paints first, fetched alongside the stylesheet so its first frame has
+             them: the latin files of index.css's @font-face rules (and Instrument Serif's latin-ext,
+             for the ī of Pīna'i). The build bundles each file once, for these links and the CSS alike
+             (vite-plugins/font-preloads.ts). -->
+        <link rel="preload" as="font" type="font/woff2" crossorigin href="/node_modules/@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2" />
+        <link rel="preload" as="font" type="font/woff2" crossorigin href="/node_modules/@fontsource/instrument-serif/files/instrument-serif-latin-400-italic.woff2" />
+        <link rel="preload" as="font" type="font/woff2" crossorigin href="/node_modules/@fontsource/instrument-serif/files/instrument-serif-latin-ext-400-normal.woff2" />
+        <link rel="preload" as="font" type="font/woff2" crossorigin href="/node_modules/@fontsource/dm-sans/files/dm-sans-latin-400-normal.woff2" />
+        <link rel="preload" as="font" type="font/woff2" crossorigin href="/node_modules/@fontsource/dm-sans/files/dm-sans-latin-500-normal.woff2" />
+        <link rel="preload" as="font" type="font/woff2" crossorigin href="/node_modules/@fontsource/azeret-mono/files/azeret-mono-latin-400-normal.woff2" />
         <!-- Linked rather than imported from main.tsx, so the splash below is styled on the first paint. -->
         <link rel="stylesheet" href="/src/index.css" />
     </head>

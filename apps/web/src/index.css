@@ -1,4 +1,12 @@
 @import "tailwindcss";
+@import "@fontsource/dm-sans/300.css";
+@import "@fontsource/dm-sans/400.css";
+@import "@fontsource/dm-sans/500.css";
+@import "@fontsource/dm-sans/700.css";
+@import "@fontsource/azeret-mono/400.css";
+@import "@fontsource/azeret-mono/500.css";
+@import "@fontsource/instrument-serif/400.css";
+@import "@fontsource/instrument-serif/400-italic.css";
 
 @plugin "tailwindcss-react-aria-components";
 @plugin "tailwindcss-animate";
@@ -372,7 +380,9 @@
     /* Instrument Serif for names and titles, DM Sans for the interface,
        Azeret Mono for facts. Instrument Serif ships a single weight, so a
        600 name is the browser's synthesised bold — that is the design. The
-       faces are linked from index.html, so they load alongside this file. */
+       faces are Fontsource's, imported at the top of this file at the
+       weights Google Fonts served: a weight in between renders with the
+       nearest one, as it always has. */
     --font-sans:                  "DM Sans", system-ui, sans-serif;
     --font-serif:                 "Instrument Serif", Georgia, serif;
     --font-mono:                  "Azeret Mono", ui-monospace, monospace;

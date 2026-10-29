@@ -5,6 +5,9 @@ import { readFileSync } from "fs"
 import path from "path"
 import { defineConfig, loadEnv, type Plugin } from "vite"
 
+import { fontLicenses } from "./vite-plugins/font-licenses.ts"
+import { fontPreloads } from "./vite-plugins/font-preloads.ts"
+
 const DOCUMENT_PATH = "/oauth-client.json"
 
 function clientDocument(origin: string): string {
@@ -60,6 +63,8 @@ export default defineConfig({
         react(),
         tailwindcss(),
         oauthClientDocument(),
+        fontLicenses(),
+        fontPreloads(),
     ],
     resolve: {
         alias: {
