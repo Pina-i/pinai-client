@@ -51,6 +51,9 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm --filter @pinai/desktop build
+      # Built at base "/", not the "./" electron-vite's preset forces: a reload two levels deep
+      # under app:// would get index.html for its assets. An upgrade could undo the override.
+      - run: grep -q 'src="/assets/' apps/desktop/out/renderer/index.html
       - run: cargo test --locked --manifest-path crypto/openmls-wasm/Cargo.toml
 
   # One runner builds both platforms: the files are built once, and arm64's last stage only

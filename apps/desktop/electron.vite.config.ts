@@ -13,7 +13,13 @@ export default defineConfig(async (env) => {
     // the web plugins from apps/desktop, where pnpm does not link them.
     const web = await loadConfigFromFile(env, path.join(webRoot, "vite.config.ts"), webRoot)
     if (!web) throw new Error(`No Vite config found in ${webRoot}`)
-    const webApp = { ...web.config, plugins: web.config.plugins?.filter((plugin) => !isClientDocument(plugin)) }
+    const webPlugins = web.config.plugins ?? []
+    const plugins = webPlugins.filter((plugin) => !isClientDocument(plugin))
+    // Renamed in apps/web, it would stay in: the build would fail without PUBLIC_ORIGIN, ship the document with one.
+    if (plugins.length !== webPlugins.length - 1) {
+        throw new Error("The web's pinai:oauth-client-document plugin wasn't found: rename it here too")
+    }
+    const webApp = { ...web.config, plugins }
 
     return {
         // The workspace packages are TypeScript sources: bundled, not loaded from node_modules.
