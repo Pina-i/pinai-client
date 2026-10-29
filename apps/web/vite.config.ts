@@ -5,6 +5,7 @@ import { readFileSync } from "fs"
 import path from "path"
 import { defineConfig, loadEnv, type Plugin } from "vite"
 
+import { contentSecurityPolicy } from "./vite-plugins/content-security-policy.ts"
 import { fontLicenses } from "./vite-plugins/font-licenses.ts"
 import { fontPreloads } from "./vite-plugins/font-preloads.ts"
 
@@ -65,6 +66,7 @@ export default defineConfig({
         oauthClientDocument(),
         fontLicenses(),
         fontPreloads(),
+        contentSecurityPolicy(),
     ],
     resolve: {
         alias: {

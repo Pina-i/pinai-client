@@ -19,6 +19,9 @@
 	# Here rather than in each hoster's proxy; browsers heed it only over HTTPS.
 	header Strict-Transport-Security "max-age=31536000"
 
+	# The one directive the page's own CSP can't carry; browsers apply both policies.
+	header Content-Security-Policy "frame-ancestors 'none'"
+
 	# This deployment's, from the container's environment: identity providers know the
 	# app by /oauth-client.json, and /config.js holds its settings.
 	@deployment path /oauth-client.json /config.js
