@@ -8,7 +8,7 @@
     "wasm": "node ../../scripts/build-wasm.mjs",
     "dev": "pnpm run wasm && vite",
     "build": "pnpm run wasm && vite build && tsc -b",
-    "typecheck": "pnpm run wasm && tsc -b",
+    "typecheck": "pnpm run wasm && tsr generate && tsc -b",
     "test": "pnpm run wasm && vitest run",
     "preview": "vite preview"
   },
@@ -48,6 +48,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@tanstack/router-cli": "^1.167.46",
     "@tanstack/router-plugin": "^1.164.0",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
