@@ -20,7 +20,6 @@ export function registerAppScheme(): void {
                 standard: true,
                 secure: true,
                 supportFetchAPI: true,
-                corsEnabled: true,
                 codeCache: true,
             },
         },

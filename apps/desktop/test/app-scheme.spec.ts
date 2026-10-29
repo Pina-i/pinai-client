@@ -1,11 +1,61 @@
-/** What `app://pinai/<path>` serves from the built renderer. */
+/** The `app://pinai` scheme: its privileges, and what it serves from the built renderer. */
+import { mkdtempSync, writeFileSync } from "fs"
+import os from "os"
 import path from "path"
+import { pathToFileURL } from "url"
 
 import { describe, expect, it, vi } from "vitest"
 
-vi.mock("electron", () => ({ net: {}, protocol: {} }))
+type Handler = (request: Request) => Promise<Response>
 
-const { resolveAppFile } = await import("../src/main/app-scheme")
+const electron = vi.hoisted(() => ({
+    registerSchemesAsPrivileged: vi.fn<(schemes: unknown[]) => void>(),
+    handle: vi.fn<(scheme: string, handler: Handler) => void>(),
+    fetch: vi.fn<(url: string) => Promise<Response>>(),
+}))
+
+vi.mock("electron", () => ({
+    net: { fetch: electron.fetch },
+    protocol: { registerSchemesAsPrivileged: electron.registerSchemesAsPrivileged, handle: electron.handle },
+}))
+
+const { registerAppScheme, resolveAppFile, serveApp } = await import("../src/main/app-scheme")
+
+describe("registerAppScheme", () => {
+    // standard + secure are what make the origin, and its storage, the app's for good.
+    it("registers app: with exactly the privileges the app needs", () => {
+        registerAppScheme()
+        expect(electron.registerSchemesAsPrivileged).toHaveBeenCalledOnce()
+        expect(electron.registerSchemesAsPrivileged.mock.lastCall?.[0]).toEqual([
+            { scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true, codeCache: true } },
+        ])
+    })
+})
+
+describe("serveApp", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "pinai-renderer-"))
+    writeFileSync(path.join(root, "index.html"), "<!doctype html>")
+    electron.fetch.mockImplementation(
+        async () => new Response("<!doctype html>", { headers: { "content-type": "text/html" } }),
+    )
+    serveApp(root)
+    const [scheme, handler] = electron.handle.mock.lastCall!
+
+    it("answers the app's routes with its index.html, never framed", async () => {
+        expect(scheme).toBe("app")
+        const response = await handler(new Request("app://pinai/home"))
+        expect(electron.fetch).toHaveBeenCalledWith(pathToFileURL(path.join(root, "index.html")).href)
+        expect(response.status).toBe(200)
+        expect(response.headers.get("content-type")).toBe("text/html")
+        expect(response.headers.get("Content-Security-Policy")).toBe("frame-ancestors 'none'")
+    })
+
+    it("answers another host with a 404, never framed either", async () => {
+        const response = await handler(new Request("app://other/x"))
+        expect(response.status).toBe(404)
+        expect(response.headers.get("Content-Security-Policy")).toBe("frame-ancestors 'none'")
+    })
+})
 
 const ROOT = path.join(path.sep, "srv", "renderer")
 const WASM = path.join(ROOT, "assets", "openmls_wasm_bg-C9o8qWlE.wasm")
