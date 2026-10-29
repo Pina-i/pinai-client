@@ -187,14 +187,15 @@ cp apps/web/.env.example apps/web/.env
 
 Run these from the repository root. Turborepo fans them out across the
 workspace and caches the results — a second `pnpm build` with nothing changed
-finishes in under a second.
+replays it all from the cache but the desktop app, built again every time: its
+renderer comes from outside `apps/desktop`.
 
 | Command | What it does |
 |---|---|
 | `pnpm dev` | Build the WASM bundle if stale, then start Vite on :5173 |
 | `pnpm dev:desktop` | The same client in an Electron window — also on :5173, so not alongside `pnpm dev` |
 | `pnpm --filter @pinai/desktop build` | The desktop app built into `apps/desktop/out`, loading `app://pinai/`; `apps/desktop/CLAUDE.md` says how to run it |
-| `pnpm build` | Type-check and build to `apps/web/dist`. Needs `PUBLIC_ORIGIN` (see `apps/web/.env.example`): the origin the build is served from, written into its `/oauth-client.json` |
+| `pnpm build` | Type-check and build to `apps/web/dist`, and the desktop app to `apps/desktop/out`. Needs `PUBLIC_ORIGIN` (see `apps/web/.env.example`): the origin the build is served from, written into its `/oauth-client.json` |
 | `pnpm test` | Run the whole Vitest suite once |
 | `pnpm typecheck` | `tsc --noEmit` across the app and every package |
 | `pnpm lint` | ESLint over the whole workspace (one config, at the root) |
@@ -271,9 +272,10 @@ the build.
 ## Releasing
 
 `.github/workflows/ci.yml` first runs the checks: the MLS engine built once, then
-`pnpm lint`, `pnpm typecheck`, `pnpm test` and the crate's `cargo test`. Then it
-builds the image from `docker/Dockerfile` for amd64 and arm64. What it publishes
-to `ghcr.io/pina-i/pinai-web` depends on what triggered it:
+`pnpm lint`, `pnpm typecheck`, `pnpm test`, the desktop app's build and the
+crate's `cargo test`. Then it builds the image from `docker/Dockerfile` for amd64
+and arm64. What it publishes to `ghcr.io/pina-i/pinai-web` depends on what
+triggered it:
 
 | Trigger | Published |
 |---|---|
