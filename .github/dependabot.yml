@@ -1,0 +1,25 @@
+# The workflows pin every action to a commit, and pnpm-lock.yaml every package: this keeps
+# both current. A version waits a week before it is proposed, so a compromised release is
+# usually pulled first; security updates don't wait.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    # Majors one PR each: they are the ones that break.
+    groups:
+      packages:
+        patterns: ["*"]
+        update-types: [minor, patch]

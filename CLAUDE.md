@@ -203,9 +203,9 @@ The published image, `ghcr.io/pina-i/pinai-web`, is `apps/web/dist` served by Ca
 `${BIND_ADDRESS:-127.0.0.1}:${PORT:-8081}` and nothing else: HTTPS is the hoster's reverse
 proxy, and the image sends HSTS itself. The root `README.md` shows that file verbatim
 (`pnpm readme-compose` checks it) and § Host the web app walks through it, proxy examples
-included. `.github/workflows/image.yml` publishes `edge`
-from `main` and `X.Y.Z` / `X.Y` / `latest` from a tag `vX.Y.Z`, which must name
-`apps/web/package.json`'s version.
+included. `.github/workflows/ci.yml` runs lint, typecheck and the tests first, then
+publishes `edge` from `main` and `X.Y.Z` / `X.Y` / `latest` from a tag `vX.Y.Z`, which
+must name `apps/web/package.json`'s version.
 
 - **One image serves every deployment.** Nothing deployment-specific is built in: Caddy
   renders `/oauth-client.json` (built with a stand-in origin, replaced by

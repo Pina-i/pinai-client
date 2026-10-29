@@ -1,4 +1,4 @@
-name: Image
+name: CI
 
 on:
   pull_request:
@@ -11,23 +11,17 @@ permissions:
 
 # A newer push waits for the run under way rather than racing it: edge is always main's latest.
 concurrency:
-  group: image-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  # The toolchain of docker/Dockerfile's wasm stage.
+  RUSTUP_TOOLCHAIN: "1.98.1"
   IMAGE: ghcr.io/pina-i/pinai-web
 
 jobs:
-  # One runner builds both platforms: the files are built once, and arm64's last stage only
-  # copies them (docker/Dockerfile). Pull requests only build.
-  image:
+  check:
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      attestations: write
-      artifact-metadata: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: sh scripts/check-readme-compose.sh
@@ -51,6 +45,41 @@ jobs:
                 exit 1
               } ;;
           esac
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --target wasm32-unknown-unknown
+      # Saved from main only: another ref's cache would evict main's, which every run reads.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: crypto/openmls-wasm
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: wasm-pack@0.15.0
+      # Before the install, which links crypto/openmls-pkg; the scripts below then find it current.
+      - run: node scripts/build-wasm.mjs
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: cargo test --locked --manifest-path crypto/openmls-wasm/Cargo.toml
+
+  # One runner builds both platforms: the files are built once, and arm64's last stage only
+  # copies them (docker/Dockerfile). Pull requests only build.
+  image:
+    needs: check
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # main: edge and sha-<short>. A tag: 0.1.0, 0.1 and latest; a release candidate
       # (v0.2.0-rc.1) only its own version.
       # GitHub detects the license as AGPL-3.0, which can't say "or later": named here.

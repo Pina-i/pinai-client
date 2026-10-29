@@ -269,9 +269,10 @@ the build.
 
 ## Releasing
 
-`.github/workflows/image.yml` builds the image from `docker/Dockerfile` for amd64
-and arm64. What it publishes to `ghcr.io/pina-i/pinai-web` depends on what
-triggered it:
+`.github/workflows/ci.yml` first runs the checks: the MLS engine built once, then
+`pnpm lint`, `pnpm typecheck`, `pnpm test` and the crate's `cargo test`. Then it
+builds the image from `docker/Dockerfile` for amd64 and arm64. What it publishes
+to `ghcr.io/pina-i/pinai-web` depends on what triggered it:
 
 | Trigger | Published |
 |---|---|
