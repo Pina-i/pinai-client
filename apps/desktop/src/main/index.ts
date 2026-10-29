@@ -5,7 +5,7 @@ import type { HeldRefreshToken } from "@pinai/domain/ports/auth.port"
 import { app, BrowserWindow, type IpcMainInvokeEvent, ipcMain, shell } from "electron"
 
 import { registerAppScheme, serveApp } from "./app-scheme"
-import { APP_URL, isApp, route } from "./navigation"
+import { APP_URL, appUrlFor, isApp, route } from "./navigation"
 import { KeychainSessionTokenStore, MainSession, keychain } from "./session"
 
 // One app at a time: a second launch focuses the first.
@@ -58,12 +58,8 @@ function start(): void {
     })
 }
 
-/**
- * The app's address: electron-vite's dev server, or the built renderer at `app://pinai/`. A packaged
- * app never takes another, whatever its environment says: that page would get the bridge.
- */
 function appUrl(): string {
-    return (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) || APP_URL
+    return appUrlFor(app.isPackaged, process.env.ELECTRON_RENDERER_URL)
 }
 
 /** The window, held to `navigable`: what it says no to doesn't load. */

@@ -7,6 +7,14 @@ export const SCHEME = "io.github.pina-i"
  */
 export const APP_URL = "app://pinai/"
 
+/**
+ * The app's address: electron-vite's dev server while one runs, else the built renderer. A packaged
+ * app never takes another, whatever its environment says: that page would get the bridge.
+ */
+export function appUrlFor(isPackaged: boolean, devServer: string | undefined): string {
+    return (!isPackaged && devServer) || APP_URL
+}
+
 export type Route =
     | { kind: "allow" }
     /** The IdP's answer: the app's `/callback` takes it, in the same window. */

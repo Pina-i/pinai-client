@@ -1,7 +1,7 @@
 /** Where the desktop app's window may go while it signs in, in its own window. */
 import { describe, expect, it } from "vitest"
 
-import { APP_URL, isApp, route } from "../src/main/navigation"
+import { APP_URL, appUrlFor, isApp, route } from "../src/main/navigation"
 
 const APP = "http://localhost:5173"
 const IDP = "https://aotearoa.nz"
@@ -78,5 +78,14 @@ describe("route, in the built app", () => {
             path: "/callback?code=c&state=s",
         })
         expect(new URL("/callback?code=c&state=s", APP_URL).href).toBe("app://pinai/callback?code=c&state=s")
+    })
+})
+
+describe("appUrlFor", () => {
+    it("takes the dev server only while not packaged", () => {
+        expect(appUrlFor(true, APP)).toBe(APP_URL)
+        expect(appUrlFor(false, "http://localhost:5173")).toBe("http://localhost:5173")
+        expect(appUrlFor(false, "")).toBe(APP_URL)
+        expect(appUrlFor(false, undefined)).toBe(APP_URL)
     })
 })
