@@ -123,6 +123,8 @@ pinai-client/                 # pnpm workspace root
     │                         #   keychain by the main process.
     │                         #   Built, it loads app://pinai/ — permanent: its
     │                         #   storage lives under that origin.
+    │                         #   Packaged by electron-builder (electron-builder.yml); the
+    │                         #   installed app updates itself from the GitHub releases.
     └── web/                  # The browser client (@pinai/web)
         ├── index.html, vite.config.ts, vitest.config.ts, tsconfig*.json
         ├── components.json    # React Aria registry config for the CLI
@@ -206,8 +208,10 @@ proxy, and the image sends HSTS itself. The root `README.md` shows that file ver
 (`pnpm readme-compose` checks it) and § Host the web app walks through it, proxy examples
 included. `.github/workflows/ci.yml` runs lint, typecheck, the tests and the desktop app's
 build first, then publishes `edge` from `main` and `X.Y.Z` / `X.Y` / `latest` from a tag
-`vX.Y.Z`, then publishes the GitHub release. The web and desktop apps ship as one version,
-the one `apps/web/package.json` and `apps/desktop/package.json` both carry; release-please
+`vX.Y.Z`; a run on `main` or a tag also packages the desktop app on each system
+(a pull request, Linux x64 only), and the GitHub release, published last, carries
+the installers. The web and desktop apps ship as one version, the one
+`apps/web/package.json` and `apps/desktop/package.json` both carry; release-please
 (`.github/workflows/release-please.yml`) sets it and tags it from Conventional Commits,
 via a release PR — the root `README.md` § Releasing.
 

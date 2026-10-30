@@ -9,8 +9,40 @@ server never sees plaintext.
 This repository is a pnpm workspace. The backend lives separately, in
 [`Pina-i/pinai`](https://github.com/Pina-i/pinai).
 
+- [Install the desktop app](#install-the-desktop-app) — Windows, macOS and Linux
 - [Host the web app](#host-the-web-app) — serve it for your community, on its own server or beside your instance
 - [Development](#what-you-need) — run it from a checkout
+
+---
+
+## Install the desktop app
+
+Download it from "Get the client" on the landing page, or from the
+[latest release](https://github.com/Pina-i/pinai-client/releases/latest). One file
+per system. The landing offers the first three; the ARM Linux file is on the
+release page:
+
+| System | File |
+|---|---|
+| Windows | `Pinai-Setup.exe` |
+| macOS, every Mac | `Pinai.dmg` |
+| Linux, Intel or AMD | `Pinai-x86_64.AppImage` |
+| Linux, ARM | `Pinai-arm64.AppImage` |
+
+On Linux, make the file executable (`chmod +x Pinai-x86_64.AppImage`), then run it.
+On Ubuntu, install FUSE 2 first: `sudo apt install libfuse2t64` (`libfuse2` before 24.04).
+
+The app is not signed yet, so your system asks before it opens it:
+
+- **Windows:** SmartScreen says it protected your PC. Choose "More info", then
+  "Run anyway".
+- **macOS:** open the app once, then go to *System Settings → Privacy & Security*
+  and choose "Open Anyway". Until the app is signed, macOS asks for the keychain
+  password ("Pinai Safe Storage") after each update: allow it ("Always Allow").
+
+It looks for a new version every few hours. On Windows and Linux it downloads the
+update by itself, tells you, and installs it when you restart or quit. On macOS it
+only tells you that a new version is out, and you download `Pinai.dmg` again.
 
 ---
 
@@ -188,6 +220,7 @@ renderer comes from outside `apps/desktop`.
 | `pnpm dev:desktop` | The same client in an Electron window — also on :5173, so not alongside `pnpm dev` |
 | `pnpm --filter @pinai/desktop build` | The desktop app built into `apps/desktop/out`, loading `app://pinai/`; `apps/desktop/CLAUDE.md` says how to run it |
 | `pnpm build` | Type-check and build to `apps/web/dist`, and the desktop app to `apps/desktop/out`. Needs `PUBLIC_ORIGIN` (see `apps/web/.env.example`): the origin the build is served from, written into its `/oauth-client.json` |
+| `pnpm --filter @pinai/desktop package --linux` | After a `build`: the installers, into `apps/desktop/dist` |
 | `pnpm test` | Run the whole Vitest suite once |
 | `pnpm typecheck` | `tsc --noEmit` across the app and every package |
 | `pnpm lint` | ESLint over the whole workspace (one config, at the root) |
@@ -265,15 +298,17 @@ the build.
 `.github/workflows/ci.yml` first runs the checks: the MLS engine built once, then
 `pnpm lint`, `pnpm typecheck`, `pnpm test`, the desktop app's build and the
 crate's `cargo test`. Then it builds the image from `docker/Dockerfile` for amd64
-and arm64. What it publishes to `ghcr.io/pina-i/pinai-web` depends on what
-triggered it:
+and arm64, and packages the desktop app on a runner of each system (a pull
+request packages Linux x64 only). A `main` run's installers can be downloaded
+from its run page for 3 days, to try them before a release. What it publishes to
+`ghcr.io/pina-i/pinai-web` depends on what triggered it:
 
 | Trigger | Published |
 |---|---|
 | A pull request | nothing |
 | A push to `main` | `edge` and `sha-<short>`, for testing only |
-| A tag `vX.Y.Z` | `X.Y.Z`, `X.Y` and `latest`, then the GitHub release |
-| A tag `vX.Y.Z-rc.1` | `X.Y.Z-rc.1`, then a pre-release |
+| A tag `vX.Y.Z` | `X.Y.Z`, `X.Y` and `latest`, the four installers (`Pinai-Setup.exe`, `Pinai.dmg`, the two AppImages) with the files the app updates from (`latest*.yml`, `Pinai-mac.zip`), then the GitHub release |
+| A tag `vX.Y.Z-rc.1` | `X.Y.Z-rc.1`, the installers, then a pre-release |
 
 The web app and the desktop app ship as one version: `apps/web/package.json` and
 `apps/desktop/package.json` always carry the same one, and a tag must name it, or
@@ -285,7 +320,8 @@ sets that version and makes the tags, from commit messages written as
 [Conventional Commits](https://www.conventionalcommits.org). On every push to
 `main` it opens or refreshes a release PR, which sets the next version and adds
 its section to `CHANGELOG.md`. Merging that PR tags `vX.Y.Z` with a draft
-release, which `ci.yml` publishes once the image is out.
+release, which `ci.yml` publishes once the image and the installers exist.
+The optional `KLIPY_API_KEY` repository secret turns on GIFs in the desktop app.
 
 - **The version.** In 0.x, a breaking change (`feat!:`, a `BREAKING CHANGE:`
   footer) opens a new minor, anything else a patch. `deploy/compose.yaml` follows
