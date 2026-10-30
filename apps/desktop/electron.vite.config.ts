@@ -22,14 +22,15 @@ export default defineConfig(async (env) => {
     const webApp = { ...web.config, plugins }
 
     return {
-        // The workspace packages are TypeScript sources: bundled, not loaded from node_modules.
-        main: { build: { externalizeDeps: { exclude: ["@pinai/api", "@pinai/domain"] } } },
+        // Every package is a devDependency, so bundled: the packaged app ships out/ alone.
+        main: {},
         // Sandboxed preloads run as classic scripts: no ES modules.
         preload: { build: { rolldownOptions: { output: { format: "cjs" as const, entryFileNames: "[name].cjs" } } } },
         renderer: mergeConfig(webApp, {
             root: webRoot,
             envDir: webRoot,
-            build: { rolldownOptions: { input: path.join(webRoot, "index.html") } },
+            // electron-vite's preset leaves the renderer unminified.
+            build: { minify: true, rolldownOptions: { input: path.join(webRoot, "index.html") } },
             // The renderer is the web app, built knowing it runs inside the desktop app.
             define: { "import.meta.env.PINAI_DESKTOP": "true" },
             // electron-vite's production preset forces base "./", meant for file://. app:// answers

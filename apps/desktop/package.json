@@ -3,6 +3,8 @@
   "private": true,
   "version": "0.1.0",
   "license": "AGPL-3.0-or-later",
+  "description": "The Pīna'i desktop client",
+  "author": "Kilian Tozzini",
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
@@ -12,13 +14,13 @@
     "typecheck": "tsc -b",
     "test": "vitest run"
   },
-  "dependencies": {
-    "@pinai/api": "workspace:*",
-    "@pinai/domain": "workspace:*"
-  },
   "devDependencies": {
+    "@pinai/api": "workspace:*",
+    "@pinai/domain": "workspace:*",
     "@types/node": "^24.10.1",
     "electron": "^44.5.1",
+    "electron-builder": "^26.18.0",
+    "electron-updater": "^6.8.11",
     "electron-vite": "6.0.0",
     "typescript": "~5.9.3",
     "vite": "^8.3.5",
