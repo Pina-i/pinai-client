@@ -32,7 +32,7 @@
     "emojibase-data": "^17.0.0",
     "idb": "^8.0.3",
     "ky": "^1.14.3",
-    "lucide-react": "^0.575.0",
+    "lucide-react": "^1.61.0",
     "motion": "^12.34.3",
     "msgpackr": "^2.0.1",
     "next-themes": "^0.4.6",
