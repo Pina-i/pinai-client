@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.0](https://github.com/Pina-i/pinai-client/compare/v0.1.0...v0.2.0) (2026-10-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* **web:** DEFAULT_IDP_URL (image) and VITE_DEFAULT_IDP_URL (build) are gone; the landing pre-fills the last instance submitted, and a link to /?instance= fills one in.
+
+### Features
+
+* **desktop:** check, download and install updates ([f976bf1](https://github.com/Pina-i/pinai-client/commit/f976bf1c7a2a6bcd46a1e418c4c866484b7a9992))
+* **desktop:** tell the page about updates ([fe0cf54](https://github.com/Pina-i/pinai-client/commit/fe0cf54b90aaee08d7bd0db53146a99ac07e73c2))
+* **desktop:** the packaged app refuses a debugger's switches ([7c528bc](https://github.com/Pina-i/pinai-client/commit/7c528bc268a9d4b9c3f9d19c99976526f44a3a52))
+* **domain:** remember the last instance submitted ([67955eb](https://github.com/Pina-i/pinai-client/commit/67955eb7150c1a8835e2c5aebc85719914122347))
+* **web:** a notice when the desktop app has an update ([363f50d](https://github.com/Pina-i/pinai-client/commit/363f50defd32d824e02536b8158f310868c4c66a))
+* **web:** an updates port, the desktop's and the browser's ([32bd1a8](https://github.com/Pina-i/pinai-client/commit/32bd1a8f15d84484bdff149dcf42bcfca10f48d2))
+* **web:** download buttons that download the installer ([c7646b3](https://github.com/Pina-i/pinai-client/commit/c7646b33c2a23dc92512e134567d0afc477abf91))
+* **web:** no default instance, in the build or the image ([6e2ac5d](https://github.com/Pina-i/pinai-client/commit/6e2ac5ddd0bebd3357dfaa47bc14f1818d6a963c))
+* **web:** the landing starts with the last instance submitted ([9490ec2](https://github.com/Pina-i/pinai-client/commit/9490ec2cc39bd7c70e8d2cb2a7a9e0df07eb3dcd))
+
+
+### Bug Fixes
+
+* **desktop:** give the window its icon on Linux ([f9058b4](https://github.com/Pina-i/pinai-client/commit/f9058b4eff4aa68d3937c564c2a05104cdd31ba2))
+* **desktop:** reopen the window from the Dock on macOS ([3c3ca72](https://github.com/Pina-i/pinai-client/commit/3c3ca7229a7724a019e0a93e5d811125cc31b893))
+
 ## 0.1.0 (2026-10-30)
 
 
