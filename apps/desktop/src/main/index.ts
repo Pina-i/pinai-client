@@ -7,9 +7,11 @@ import { app, BrowserWindow, type IpcMainInvokeEvent, ipcMain, shell } from "ele
 import { registerAppScheme, serveApp } from "./app-scheme"
 import { APP_URL, appUrlFor, isApp, route } from "./navigation"
 import { KeychainSessionTokenStore, MainSession, keychain } from "./session"
+import { refusesToStart } from "./startup"
 
+if (refusesToStart(app.isPackaged, (name) => app.commandLine.hasSwitch(name))) app.exit(1)
 // One app at a time: a second launch focuses the first.
-if (!app.requestSingleInstanceLock()) app.quit()
+else if (!app.requestSingleInstanceLock()) app.quit()
 else start()
 
 function start(): void {
@@ -68,6 +70,8 @@ function createWindow(navigable: (url: string) => boolean): BrowserWindow {
         width: 1280,
         height: 800,
         webPreferences: {
+            // Packaged, no console on the app's page: it holds the tokens and the keys.
+            devTools: !app.isPackaged,
             preload: path.join(import.meta.dirname, "../preload/index.cjs"),
             // The preload exposes the bridge to the app's own pages only, never the IdP's.
             additionalArguments: [`--pinai-app=${appUrl()}`],
