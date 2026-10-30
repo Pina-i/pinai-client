@@ -18,3 +18,12 @@ export interface IRecentInstancesPort {
     read(): unknown
     write(origins: string[]): void
 }
+
+/**
+ * The address the user last submitted on the landing, as an origin, kept across sign-outs. Reads
+ * return what was stored, unvalidated: `loadLastInstanceUseCase` cleans it.
+ */
+export interface ILastInstancePort {
+    read(): unknown
+    write(origin: string): void
+}

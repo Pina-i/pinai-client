@@ -15,7 +15,8 @@ import {
     parseRecentInstances,
     type InstanceAddress,
 } from "@pinai/domain/models/instance"
-import type { INodeInfoPort, IRecentInstancesPort } from "@pinai/domain/ports/instance.port"
+import type { ILastInstancePort, INodeInfoPort, IRecentInstancesPort } from "@pinai/domain/ports/instance.port"
+import { loadLastInstanceUseCase, rememberChosenInstanceUseCase } from "@pinai/domain/usecases/instance/last-instance.usecase"
 import { resolveInstanceUseCase } from "@pinai/domain/usecases/instance/resolve-instance.usecase"
 import {
     loadRecentInstancesUseCase,
@@ -190,5 +191,28 @@ describe("recent instances", () => {
         rememberInstanceUseCase("http://localhost:8080", store)
         expect(stored).toEqual(["http://localhost:8080", "https://reef.chat"])
         expect(loadRecentInstancesUseCase(store)).toEqual([LOCAL, reef])
+    })
+})
+
+describe("the last instance submitted", () => {
+    function storeOf(stored: unknown): ILastInstancePort & { written: string[] } {
+        const written: string[] = []
+        return { read: () => stored, write: (origin) => void written.push(origin), written }
+    }
+
+    it("is what the landing starts with", () => {
+        expect(loadLastInstanceUseCase(storeOf("https://aotearoa.nz"))).toEqual(AOTEAROA)
+    })
+
+    it("is nothing when none was submitted, or what was stored isn't an address", () => {
+        expect(loadLastInstanceUseCase(storeOf(null))).toBeNull()
+        expect(loadLastInstanceUseCase(storeOf(42))).toBeNull()
+        expect(loadLastInstanceUseCase(storeOf("not an address at all"))).toBeNull()
+    })
+
+    it("is kept by its origin", () => {
+        const store = storeOf(null)
+        rememberChosenInstanceUseCase(AOTEAROA, store)
+        expect(store.written).toEqual(["https://aotearoa.nz"])
     })
 })
