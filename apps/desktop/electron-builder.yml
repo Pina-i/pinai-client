@@ -1,0 +1,60 @@
+# The installed app. appId and productName name where its data lives on each system: permanent,
+# like its app://pinai origin.
+appId: io.github.pina-i.desktop
+productName: Pinai
+# Electron names the app and its data folder by the packaged package.json's productName; dev keeps
+# @pinai/desktop's. name stops the scoped one naming install and updater-cache folders;
+# desktopName is the Linux window class that matches the menu entry.
+extraMetadata:
+  name: pinai
+  productName: Pinai
+  desktopName: pinai.desktop
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**
+  - package.json
+# Where electron-updater looks; CI uploads the files itself (--publish never).
+publish:
+  provider: github
+  owner: Pina-i
+  repo: pinai-client
+# A local program can't start the packaged app as plain Node, with NODE_OPTIONS or a debugger,
+# nor have it load code from outside its archive.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
+# Stable names: the landing links releases/latest/download/<name>.
+win:
+  target: nsis
+nsis:
+  oneClick: true
+  perMachine: false
+  artifactName: Pinai-Setup.${ext}
+mac:
+  target:
+    - target: dmg
+      arch: universal
+    - target: zip
+      arch: universal
+  artifactName: Pinai-mac.${ext}
+  category: public.app-category.social-networking
+  # Ad hoc until a Developer ID: an Apple Silicon Mac runs no unsigned code. The hardened runtime
+  # is for notarisation, and under ad hoc needs an entitlement to launch at all.
+  identity: "-"
+  hardenedRuntime: false
+dmg:
+  artifactName: Pinai.${ext}
+linux:
+  target: AppImage
+  executableName: pinai
+  # The default adds --no-sandbox to the menu entry; AppRun adds it only where namespaces are blocked.
+  executableArgs: []
+  artifactName: Pinai-${arch}.${ext}
+  category: Network
