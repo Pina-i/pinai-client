@@ -15,6 +15,9 @@ directories:
 files:
   - out/**
   - package.json
+# The Linux window's icon (src/main/index.ts), read from a plain file, not through the archive.
+asarUnpack:
+  - out/main/chunks/*.png
 # Where electron-updater looks; CI uploads the files itself (--publish never).
 publish:
   provider: github

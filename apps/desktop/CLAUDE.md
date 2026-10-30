@@ -54,7 +54,9 @@ modules. Its shape is `apps/web/src/adapters/desktop/desktop-bridge.ts`, kept in
   `Pinai-x86_64.AppImage` (`client-download.ts`); `Pinai-arm64.AppImage` is on the release page
   only, and the Mac's `Pinai-mac.zip` is what the updater reads.
 - **The icon**: `build/icon.svg` is the source, `build/icons/` its sizes; every system's comes
-  from there.
+  from there. Windows and macOS give the window the app's icon; Linux doesn't, so `index.ts`
+  sets the window's (`512x512.png?asset&asarUnpack`, kept out of the archive by `asarUnpack`):
+  the taskbar shows it where the desktop reads window icons (KDE does; GNOME needs a menu entry).
 - **The AppImage**: `executableArgs: []`, since its AppRun adds `--no-sandbox` only where user
   namespaces are blocked and electron-builder's default would add it everywhere. Its runtime
   needs FUSE 2, which stock Ubuntu lacks; electron-builder's static runtime

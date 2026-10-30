@@ -5,6 +5,8 @@ import type { HeldRefreshToken } from "@pinai/domain/ports/auth.port"
 import { app, BrowserWindow, type IpcMainInvokeEvent, ipcMain, powerMonitor, shell } from "electron"
 import electronUpdater from "electron-updater"
 
+import icon from "../../build/icons/512x512.png?asset&asarUnpack"
+
 import { registerAppScheme, serveApp } from "./app-scheme"
 import { APP_URL, appUrlFor, isApp, route } from "./navigation"
 import { KeychainSessionTokenStore, MainSession, keychain } from "./session"
@@ -94,6 +96,8 @@ function createWindow(navigable: (url: string) => boolean): BrowserWindow {
     const window = new BrowserWindow({
         width: 1280,
         height: 800,
+        // Windows and macOS show the app's own icon; on Linux the window carries it.
+        icon: process.platform === "linux" ? icon : undefined,
         webPreferences: {
             // Packaged, no console on the app's page: it holds the tokens and the keys.
             devTools: !app.isPackaged,
