@@ -270,8 +270,8 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       emojibase-data:
-        specifier: ^17.0.0
-        version: 17.0.0(emojibase@17.0.0)
+        specifier: ^18.0.0
+        version: 18.0.0(emojibase@17.0.0)
       idb:
         specifier: ^8.0.3
         version: 8.0.3
@@ -1447,8 +1447,8 @@ packages:
     engines: {node: '>= 22.12.0'}
     hasBin: true
 
-  emojibase-data@17.0.0:
-    resolution: {integrity: sha512-Yvgb5AWoHViHV/gq1qr5ZAarcBip+B27/ZLRsUJkbgAEaLlZ/fof9g882LTpmEpyhBNEC0m2SEmItljHsTygjA==}
+  emojibase-data@18.0.0:
+    resolution: {integrity: sha512-TPPRRYv2zPd0jKI+pTpMquwWNZXYAsC3IVsCMeg2X8y8fEzKwOks4/5bz0YavF5r6d71aGPpb6oDnUEwSLLMoA==}
     peerDependencies:
       emojibase: '*'
 
@@ -3408,7 +3408,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  emojibase-data@17.0.0(emojibase@17.0.0):
+  emojibase-data@18.0.0(emojibase@17.0.0):
     dependencies:
       emojibase: 17.0.0
 
