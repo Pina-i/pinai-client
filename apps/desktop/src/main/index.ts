@@ -2,12 +2,14 @@ import path from "path"
 
 import { OidcAdapter } from "@pinai/api/auth/oidc.adapter"
 import type { HeldRefreshToken } from "@pinai/domain/ports/auth.port"
-import { app, BrowserWindow, type IpcMainInvokeEvent, ipcMain, shell } from "electron"
+import { app, BrowserWindow, type IpcMainInvokeEvent, ipcMain, powerMonitor, shell } from "electron"
+import electronUpdater from "electron-updater"
 
 import { registerAppScheme, serveApp } from "./app-scheme"
 import { APP_URL, appUrlFor, isApp, route } from "./navigation"
 import { KeychainSessionTokenStore, MainSession, keychain } from "./session"
 import { refusesToStart } from "./startup"
+import { AppUpdates } from "./updates"
 
 if (refusesToStart(app.isPackaged, (name) => app.commandLine.hasSwitch(name))) app.exit(1)
 // One app at a time: a second launch focuses the first.
@@ -41,6 +43,21 @@ function start(): void {
             signingInTo = new URL(url).origin
             return window?.loadURL(url)
         })
+
+        const updates = new AppUpdates(electronUpdater.autoUpdater, {
+            canInstall: process.platform !== "darwin",
+            openExternal: (url) => shell.openExternal(url),
+            // The IdP's pages may be showing: their preload never listens.
+            notify: (update) => window?.webContents.send("updates:changed", update),
+        })
+        if (app.isPackaged) {
+            updates.start()
+            // Timers stop while the device sleeps; a minute for the network to come back.
+            powerMonitor.on("resume", () => setTimeout(() => updates.check(), 60_000))
+        }
+        handle("updates:status", () => updates.current())
+        handle("updates:restart", () => updates.restart())
+        handle("updates:download", () => updates.download())
 
         window = createWindow((to) => {
             const next = route(to, appUrl(), signingInTo)

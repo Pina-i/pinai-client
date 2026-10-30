@@ -18,5 +18,15 @@ if (app && isApp(window.location.href, app)) {
             clear: () => ipcRenderer.invoke("session:sign-out"),
         },
         signIn: (url: string) => ipcRenderer.invoke("sign-in", url),
+        updates: {
+            status: () => ipcRenderer.invoke("updates:status"),
+            onChange: (listener: (update: unknown) => void) => {
+                const forward = (_event: Electron.IpcRendererEvent, update: unknown) => listener(update)
+                ipcRenderer.on("updates:changed", forward)
+                return () => void ipcRenderer.removeListener("updates:changed", forward)
+            },
+            restart: () => ipcRenderer.invoke("updates:restart"),
+            download: () => ipcRenderer.invoke("updates:download"),
+        },
     })
 }
