@@ -179,8 +179,8 @@ importers:
         specifier: ^0.5.7
         version: 0.5.7(eslint@9.39.5(jiti@2.7.0)(supports-color@7.2.0))
       globals:
-        specifier: ^16.5.0
-        version: 16.5.0
+        specifier: ^17.13.0
+        version: 17.13.0
       turbo:
         specifier: ^2.11.10
         version: 2.11.10
@@ -207,8 +207,8 @@ importers:
         specifier: ^44.5.1
         version: 44.5.1(supports-color@7.2.0)
       electron-vite:
-        specifier: 6.0.0-beta.5
-        version: 6.0.0-beta.5(supports-color@7.2.0)(vite@8.3.5(@types/node@24.13.6)(jiti@2.7.0))
+        specifier: 6.0.0
+        version: 6.0.0(supports-color@7.2.0)(vite@8.3.0(@types/node@24.13.6)(jiti@2.7.0))
       typescript:
         specifier: ~5.9.3
         version: 5.9.3
@@ -270,8 +270,8 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       emojibase-data:
-        specifier: ^17.0.0
-        version: 17.0.0(emojibase@17.0.0)
+        specifier: ^18.0.0
+        version: 18.0.0(emojibase@17.0.0)
       idb:
         specifier: ^8.0.4
         version: 8.0.4
@@ -279,8 +279,8 @@ importers:
         specifier: ^1.14.3
         version: 1.14.3
       lucide-react:
-        specifier: ^0.575.0
-        version: 0.575.0(react@19.3.1)
+        specifier: ^1.61.0
+        version: 1.61.0(@types/react@19.3.0)(react@19.3.0)
       motion:
         specifier: ^12.34.3
         version: 12.43.0(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -1423,10 +1423,6 @@ packages:
     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
     hasBin: true
 
-  cac@7.0.0:
-    resolution: {integrity: sha512-tixWYgm5ZoOD+3g6UTea91eow5z6AAHaho3g0V9CNSNb45gM8SmflpAc+GRd1InC4AqN/07Unrgp56Y94N9hJQ==}
-    engines: {node: '>=20.19.0'}
-
   cac@7.1.0:
     resolution: {integrity: sha512-LMDU/U2yA4IPIY8KT0NsNPWEYZvAMkbgyspxJ6btJaYV+WMDOHAZCmB0lsTObiHaRS1V/ztKAl7+TSkTqXyeoA==}
     engines: {node: '>=20.19.0'}
@@ -1514,8 +1510,8 @@ packages:
   electron-to-chromium@1.5.433:
     resolution: {integrity: sha512-5lCAbyZBjtmUt/RAGHRqrL2q0oEFRThDAsZHHDn9XHa89Qw7gMYOeSicBTy+AHfvo0r6vwsZvqNJTQIQy1BLzA==}
 
-  electron-vite@6.0.0-beta.5:
-    resolution: {integrity: sha512-e3C3tpwpyFPl6IHq+8hgqIroX8tZGjbqWOyL325el0MYqF4JYc13MtPIqF2tg0zn4xp4Q0ctHNYIrHruz58g2g==}
+  electron-vite@6.0.0:
+    resolution: {integrity: sha512-zafg2uizgll7jdx0BNDkkzO/SowsUBsiHqYN3v9Ieq7XPDHreRGZ4G9IRY/+RslgBktpLOjLM4jlP+IVpV0BGw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
     peerDependencies:
@@ -1530,8 +1526,8 @@ packages:
     engines: {node: '>= 22.12.0'}
     hasBin: true
 
-  emojibase-data@17.0.0:
-    resolution: {integrity: sha512-Yvgb5AWoHViHV/gq1qr5ZAarcBip+B27/ZLRsUJkbgAEaLlZ/fof9g882LTpmEpyhBNEC0m2SEmItljHsTygjA==}
+  emojibase-data@18.0.0:
+    resolution: {integrity: sha512-TPPRRYv2zPd0jKI+pTpMquwWNZXYAsC3IVsCMeg2X8y8fEzKwOks4/5bz0YavF5r6d71aGPpb6oDnUEwSLLMoA==}
     peerDependencies:
       emojibase: '*'
 
@@ -1695,8 +1691,8 @@ packages:
     resolution: {integrity: sha512-oahGvuMGQlPw/ivIYBjVSrWAfWLBeku5tpPE2fOPLi+WHffIWbuh2tCjhyQhTBPMf5E9jDEH4FOmTYgYwbKwtQ==}
     engines: {node: '>=18'}
 
-  globals@16.5.0:
-    resolution: {integrity: sha512-c/c15i26VrJ4IRt5Z89DnIzCGDn9EcebibhAOjw5ibqEHsE1wLUgkPn9RDmNcUKyU87GeaL633nyJ+pplFR2ZQ==}
+  globals@17.13.0:
+    resolution: {integrity: sha512-RwMTC61u7hrG3ZJMkZQOK4JLJrKS8QtoTii63EmWvFXHqycY9FObBJQCbsLxSO8kjKhWE5kV1GC+Vb1g3RI0Zg==}
     engines: {node: '>=18'}
 
   graceful-fs@4.2.11:
@@ -1965,10 +1961,14 @@ packages:
   lru-cache@5.1.1:
     resolution: {integrity: sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==}
 
-  lucide-react@0.575.0:
-    resolution: {integrity: sha512-VuXgKZrk0uiDlWjGGXmKV6MSk9Yy4l10qgVvzGn2AWBx1Ylt0iBexKOAoA6I7JO3m+M9oeovJd3yYENfkUbOeg==}
+  lucide-react@1.61.0:
+    resolution: {integrity: sha512-v2SQPPPNjnr+BlhL9Spuzmo5yR+hLkftfuE4E3jaxdNPgSH0hJKPcLJBP7yAta87jQNPsSERS59PJjCJ/CorBA==}
     peerDependencies:
+      '@types/react': '*'
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
@@ -3422,8 +3422,6 @@ snapshots:
       node-releases: 2.0.56
       update-browserslist-db: 1.3.3(browserslist@4.29.0)
 
-  cac@7.0.0: {}
-
   cac@7.1.0: {}
 
   callsites@3.1.0: {}
@@ -3493,11 +3491,11 @@ snapshots:
 
   electron-to-chromium@1.5.433: {}
 
-  electron-vite@6.0.0-beta.5(supports-color@7.2.0)(vite@8.3.5(@types/node@24.13.6)(jiti@2.7.0)):
+  electron-vite@6.0.0(supports-color@7.2.0)(vite@8.3.0(@types/node@24.13.6)(jiti@2.7.0)):
     dependencies:
       '@babel/core': 7.29.7(supports-color@7.2.0)
       '@babel/plugin-transform-arrow-functions': 7.29.7(@babel/core@7.29.7(supports-color@7.2.0))
-      cac: 7.0.0
+      cac: 7.1.0
       magic-string: 1.4.2
       picocolors: 1.1.1
       rolldown: 1.2.12
@@ -3513,7 +3511,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  emojibase-data@17.0.0(emojibase@17.0.0):
+  emojibase-data@18.0.0(emojibase@17.0.0):
     dependencies:
       emojibase: 17.0.0
 
@@ -3673,7 +3671,7 @@ snapshots:
 
   globals@14.0.0: {}
 
-  globals@16.5.0: {}
+  globals@17.13.0: {}
 
   graceful-fs@4.2.11: {}
 
@@ -3881,9 +3879,11 @@ snapshots:
     dependencies:
       yallist: 3.1.1
 
-  lucide-react@0.575.0(react@19.3.1):
+  lucide-react@1.61.0(@types/react@19.3.0)(react@19.3.0):
     dependencies:
-      react: 19.3.1
+      react: 19.3.0
+    optionalDependencies:
+      '@types/react': 19.3.0
 
   magic-string@0.30.21:
     dependencies:
