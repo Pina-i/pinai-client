@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import { Toaster } from "sonner"
+import { AppUpdateNotice } from "@/presentation/organisms/AppUpdateNotice/AppUpdateNotice"
 import { holdSplashScreen } from "@/presentation/_libs/splash-screen"
 import { AppearanceProvider } from "@/presentation/providers/AppearanceProvider/AppearanceProvider"
 import { routeTree } from "./routeTree.gen"
@@ -29,6 +30,7 @@ createRoot(document.getElementById("root")!).render(
             <AppearanceProvider>
                 <RouterProvider router={router} />
                 <Toaster richColors position="bottom-right" style={{ zIndex: "var(--z-above-grain)" }} />
+                <AppUpdateNotice />
             </AppearanceProvider>
         </QueryClientProvider>
     </StrictMode>
