@@ -2,8 +2,9 @@ import { Download } from "lucide-react"
 import { ButtonLink } from "@/presentation/atoms/Button/Button"
 import {
     currentDesktopPlatform,
+    DESKTOP_DOWNLOADS,
     DESKTOP_PLATFORMS,
-    DESKTOP_RELEASES_URL,
+    DESKTOP_RELEASE_URL,
     DESKTOP_VERSION,
     IN_DESKTOP_APP,
 } from "@/presentation/_libs/client-download"
@@ -19,9 +20,7 @@ export function ClientDownload() {
                 <ButtonLink
                     variant="secondary"
                     size="none"
-                    href={DESKTOP_RELEASES_URL}
-                    target="_blank"
-                    rel="noreferrer"
+                    href={DESKTOP_DOWNLOADS[platform]}
                     className="w-auto p-3"
                 >
                     <Download size={15} strokeWidth={1.9} />
@@ -32,14 +31,20 @@ export function ClientDownload() {
                     {DESKTOP_PLATFORMS.filter((other) => other !== platform).map((other) => (
                         <a
                             key={other}
-                            href={DESKTOP_RELEASES_URL}
-                            target="_blank"
-                            rel="noreferrer"
+                            href={DESKTOP_DOWNLOADS[other]}
                             className="text-muted-foreground no-underline transition-colors hover:text-foreground"
                         >
                             {other}
                         </a>
                     ))}
+                    <a
+                        href={DESKTOP_RELEASE_URL}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-muted-foreground no-underline transition-colors hover:text-foreground"
+                    >
+                        All downloads
+                    </a>
                     <span>·</span>
                     <span>or stay in the browser →</span>
                 </span>
