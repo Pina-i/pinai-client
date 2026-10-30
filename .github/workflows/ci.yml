@@ -51,9 +51,19 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm --filter @pinai/desktop build
+        env:
+          # GIFs in the desktop app only with a key; the web image reads its own at run time.
+          VITE_KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
       # Built at base "/", not the "./" electron-vite's preset forces: a reload two levels deep
       # under app:// would get index.html for its assets. An upgrade could undo the override.
       - run: grep -q 'src="/assets/' apps/desktop/out/renderer/index.html
+      # The app's code, built once with the WASM engine: each system's job only packages it.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-out
+          path: apps/desktop/out
+          if-no-files-found: error
+          retention-days: 3
       - run: cargo test --locked --manifest-path crypto/openmls-wasm/Cargo.toml
 
   # One runner builds both platforms: the files are built once, and arm64's last stage only
@@ -112,25 +122,74 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
-  # Published last, once what it announces exists: release-please's draft, or for a tag pushed
-  # by hand, a new release.
+  # Each system's installers on its own runner. Pull requests package Linux x64 only; main and
+  # tags all four, kept 3 days to try them, and a tag hands them to the release.
+  desktop:
+    name: desktop (${{ matrix.name }})
+    needs: check
+    # A hung hdiutil on the macOS runners would otherwise hold the job for hours.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"runner":"ubuntu-24.04","name":"linux-x64","args":"--linux --x64"}]' || '[{"runner":"ubuntu-24.04","name":"linux-x64","args":"--linux --x64"},{"runner":"ubuntu-24.04-arm","name":"linux-arm64","args":"--linux --arm64"},{"runner":"windows-latest","name":"windows-x64","args":"--win --x64"},{"runner":"macos-15","name":"mac-universal","args":"--mac --universal"}]') }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      # The desktop app's packages only: the WASM engine comes built, inside out/.
+      - run: pnpm install --frozen-lockfile --filter @pinai/desktop
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-out
+          path: apps/desktop/out
+      - run: pnpm --filter @pinai/desktop package ${{ matrix.args }}
+      - if: runner.os == 'macOS'
+        run: codesign --verify --deep --strict --verbose=2 apps/desktop/dist/mac-universal/Pinai.app
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: installers-${{ matrix.name }}
+          # The installers and their blockmaps all start with Pinai (electron-builder.yml's
+          # artifactName); the unpacked folders and the builder's own files don't.
+          path: |
+            apps/desktop/dist/Pinai*
+            apps/desktop/dist/latest*.yml
+          if-no-files-found: error
+          # The installers are compressed already.
+          compression-level: 0
+          retention-days: 3
+
+  # Published last, once the image and the installers exist: release-please's draft, or for a
+  # tag pushed by hand, a new release.
   release:
-    needs: image
+    needs: [image, desktop]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: installers-*
+          path: installers
+          merge-multiple: true
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          files=(installers/*)
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
             gh release edit "$GITHUB_REF_NAME" --draft=false
           else
             prerelease=()
             if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
-            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes \
+            gh release create "$GITHUB_REF_NAME" "${files[@]}" --verify-tag --generate-notes \
               --title "$GITHUB_REF_NAME" "${prerelease[@]}"
           fi
