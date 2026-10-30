@@ -27,6 +27,20 @@ function start(): void {
         window?.focus()
     })
 
+    function openWindow(): void {
+        window = createWindow((to) => {
+            const next = route(to, appUrl(), signingInTo)
+            if (next.kind === "callback") {
+                signingInTo = null
+                void window?.loadURL(new URL(next.path, appUrl()).href)
+            }
+            return next.kind === "allow"
+        })
+        window.on("closed", () => {
+            window = null
+        })
+    }
+
     void app.whenReady().then(() => {
         // Built: electron-vite's renderer output, beside out/main.
         if (appUrl() === APP_URL) serveApp(path.join(import.meta.dirname, "../renderer"))
@@ -59,16 +73,10 @@ function start(): void {
         handle("updates:restart", () => updates.restart())
         handle("updates:download", () => updates.download())
 
-        window = createWindow((to) => {
-            const next = route(to, appUrl(), signingInTo)
-            if (next.kind === "callback") {
-                signingInTo = null
-                void window?.loadURL(new URL(next.path, appUrl()).href)
-            }
-            return next.kind === "allow"
-        })
-        window.on("closed", () => {
-            window = null
+        openWindow()
+        // macOS keeps the app running after its window closes: the Dock opens a new one.
+        app.on("activate", () => {
+            if (!window) openWindow()
         })
     })
 
