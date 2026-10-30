@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/Pina-i/pinai-client/compare/v0.2.0...v0.2.1) (2026-10-30)
+
+
+### Features
+
+* **desktop:** the AppImage adds itself to the applications menu ([88e60cd](https://github.com/Pina-i/pinai-client/commit/88e60cdcc5e9cd70a90a68382c92b14ca931c028))
+
 ## [0.2.0](https://github.com/Pina-i/pinai-client/compare/v0.1.0...v0.2.0) (2026-10-30)
 
 
