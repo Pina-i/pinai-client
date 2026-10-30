@@ -29,7 +29,10 @@ release page:
 | Linux, Intel or AMD | `Pinai-x86_64.AppImage` |
 | Linux, ARM | `Pinai-arm64.AppImage` |
 
-On Linux, make the file executable (`chmod +x Pinai-x86_64.AppImage`), then run it.
+On Linux, make the file executable (`chmod +x Pinai-x86_64.AppImage`), then
+run it. On its first launch it adds Pinai to your applications menu: deleting
+the file hides the entry, and an entry you remove stays gone. Tools like Gear
+Lever may add a second one.
 On Ubuntu, install FUSE 2 first: `sudo apt install libfuse2t64` (`libfuse2` before 24.04).
 
 The app is not signed yet, so your system asks before it opens it:

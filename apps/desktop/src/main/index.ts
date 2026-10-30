@@ -8,6 +8,7 @@ import electronUpdater from "electron-updater"
 import icon from "../../build/icons/512x512.png?asset&asarUnpack"
 
 import { registerAppScheme, serveApp } from "./app-scheme"
+import { syncMenuEntry } from "./menu-entry"
 import { APP_URL, appUrlFor, isApp, route } from "./navigation"
 import { KeychainSessionTokenStore, MainSession, keychain } from "./session"
 import { refusesToStart } from "./startup"
@@ -74,6 +75,16 @@ function start(): void {
         handle("updates:status", () => updates.current())
         handle("updates:restart", () => updates.restart())
         handle("updates:download", () => updates.download())
+
+        const { APPIMAGE: appImage, APPDIR: appDir, XDG_DATA_HOME: xdg } = process.env
+        if (process.platform === "linux" && app.isPackaged && appImage && appDir) {
+            void syncMenuEntry({
+                appImage,
+                appDir,
+                dataHome: xdg && path.isAbsolute(xdg) ? xdg : path.join(app.getPath("home"), ".local/share"),
+                marker: path.join(app.getPath("userData"), "menu-entry"),
+            })
+        }
 
         openWindow()
         // macOS keeps the app running after its window closes: the Dock opens a new one.

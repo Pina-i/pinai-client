@@ -73,6 +73,13 @@ modules. Its shape is `apps/web/src/adapters/desktop/desktop-bridge.ts`, kept in
   download, and install on restart or quit; an unsigned Mac only points at `Pinai.dmg`
   (`canInstall` flips once signed). Its IPC `updates:*` answers `isApp` pages only; the page
   reaches it as `pinaiDesktop.updates`.
+- **`menu-entry.ts`**: each launch of the packaged AppImage (Linux, `APPIMAGE` and `APPDIR` set,
+  not an extracted one) syncs `$XDG_DATA_HOME/applications/pinai.desktop` and its icons, silently;
+  `userData/menu-entry` records the path written. First launch writes; a moved file rewrites,
+  keeping `NoDisplay=`/`Hidden=`, and only if the entry carries `X-Pinai-AppImage=true`; an entry
+  the user removed stays gone; a foreign `pinai.desktop` is untouched; a deleted AppImage hides
+  its entry through `TryExec=`. Refuses a relative path or one with `"` `` ` `` `$` `\` `%` or a
+  control character; swallows every error.
 - **CI** packages the `out/` of the check job on each system's runner.
 
 ## Development
@@ -80,8 +87,8 @@ modules. Its shape is `apps/web/src/adapters/desktop/desktop-bridge.ts`, kept in
 - Every package is a devDependency, so electron-vite bundles it into `out/main` (electron-updater
   included); the packaged app ships `out/` alone, no `node_modules`.
 - `test/` (vitest): the navigation rule, the session store and `MainSession`, `electron`
-  mocked; the startup refusal (`startup.spec.ts`) and `AppUpdates` (`updates.spec.ts`, a fake
-  updater).
+  mocked; the menu entry (`menu-entry.spec.ts`, temp dirs); the startup refusal
+  (`startup.spec.ts`) and `AppUpdates` (`updates.spec.ts`, a fake updater).
 - To drive the app without a screen: a headless sway (`WLR_BACKENDS=headless sway`) and
   `--ozone-platform=wayland`; Ozone's own headless platform crashes Electron.
 - The renderer is `apps/web`'s build without its `/oauth-client.json` (`electron.vite.config.ts`
