@@ -29,7 +29,7 @@
     "@tanstack/react-router": "^1.163.3",
     "@use-gesture/react": "^10.3.1",
     "clsx": "^2.1.1",
-    "emojibase-data": "^17.0.0",
+    "emojibase-data": "^18.0.0",
     "idb": "^8.0.3",
     "ky": "^1.14.3",
     "lucide-react": "^1.61.0",
