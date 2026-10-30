@@ -1,7 +1,7 @@
 import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
-import reactRefresh from 'eslint-plugin-react-refresh'
+import { reactRefresh } from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
@@ -57,7 +57,8 @@ export default defineConfig([
       js.configs.recommended,
       tseslint.configs.recommended,
       reactHooks.configs.flat.recommended,
-      reactRefresh.configs.vite,
+      // A route file's `Route` wraps its components, as an HOC does.
+      reactRefresh.configs.vite({ extraHOCs: ['createFileRoute', 'createRootRoute'] }),
     ],
     languageOptions: {
       ecmaVersion: 2020,
