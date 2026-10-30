@@ -198,6 +198,10 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `IRecentInstancesPort` — the instances this device signed in to, as
   origins; `parseRecentInstances` / `addRecentInstance` keep 3, newest first,
   once each. `rememberInstanceUseCase` runs when a callback succeeds.
+- `ILastInstancePort` — the origin last submitted on the landing (Continue),
+  what the field starts with short of an arrival. `rememberChosenInstanceUseCase`
+  writes it before the sign-in starts, so a failed one keeps it;
+  `loadLastInstanceUseCase` validates what it reads.
 - `instanceArrival(asked, signedInTo)` — the app opened on `?instance=`:
   `none` (no address), `here` (the instance it signs in to: on to the app) or
   `pick` (the landing, filled in; `leaving` another instance). `sameInstance`

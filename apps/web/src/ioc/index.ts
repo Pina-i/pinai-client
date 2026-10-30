@@ -23,6 +23,7 @@ import { NobleRecoveryAdapter } from "@pinai/crypto/recovery.adapter"
 import { JwksCacheAdapter } from "@/adapters/jwks/jwks-cache.adapter"
 import { UserSettingsLocalStorageAdapter } from "@/adapters/user-settings/user-settings-local-storage.adapter"
 import { RecentInstancesLocalStorageAdapter } from "@/adapters/instance/recent-instances-local-storage.adapter"
+import { LastInstanceLocalStorageAdapter } from "@/adapters/instance/last-instance-local-storage.adapter"
 import { NotificationSoundWebAudioAdapter } from "@/adapters/sound/notification-sound-web-audio.adapter"
 import { NodeInfoApiAdapter } from "@pinai/api/instance/nodeinfo-api.adapter"
 import { InstanceAdminApiAdapter } from "@pinai/api/admin/instance-admin-api.adapter"
@@ -56,7 +57,7 @@ import type { IPresencePort } from "@pinai/domain/ports/presence.port"
 import type { ITotpPort } from "@pinai/domain/ports/totp.port"
 import type { IUserPort } from "@pinai/domain/ports/user.port"
 import type { IAccountSettingsPort, IUserSettingsStorePort } from "@pinai/domain/ports/user-settings.port"
-import type { INodeInfoPort, IRecentInstancesPort } from "@pinai/domain/ports/instance.port"
+import type { ILastInstancePort, INodeInfoPort, IRecentInstancesPort } from "@pinai/domain/ports/instance.port"
 import type { IInstanceAdminPort } from "@pinai/domain/ports/instance-admin.port"
 import type { INotificationSoundPort } from "@pinai/domain/ports/notification-sound.port"
 import { appearanceHints, resolveMode } from "@pinai/domain/models/user-settings"
@@ -95,6 +96,7 @@ const authPlatform: AuthPlatform = {
 }
 const nodeInfoPort: INodeInfoPort = new NodeInfoApiAdapter()
 const recentInstancesPort: IRecentInstancesPort = new RecentInstancesLocalStorageAdapter()
+const lastInstancePort: ILastInstancePort = new LastInstanceLocalStorageAdapter()
 const instanceAdminPort: IInstanceAdminPort = new InstanceAdminApiAdapter()
 const notificationSoundPort: INotificationSoundPort = new NotificationSoundWebAudioAdapter()
 const socialPort: ISocialPort = new SocialApiAdapter()
@@ -224,6 +226,10 @@ export function getNodeInfoPort(): INodeInfoPort {
 
 export function getRecentInstancesPort(): IRecentInstancesPort {
     return recentInstancesPort
+}
+
+export function getLastInstancePort(): ILastInstancePort {
+    return lastInstancePort
 }
 
 export function getInstanceAdminPort(): IInstanceAdminPort {

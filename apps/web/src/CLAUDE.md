@@ -12,8 +12,9 @@ MLS engine, one implementation per platform).
 What remains under `adapters/` is the part that is genuinely this platform's:
 the WebCrypto device key, IndexedDB, `sessionStorage` for the PKCE
 round-trip, `localStorage` for the JWKS TTL, for which account's storage is
-open, for this device's appearance and for the instances it signed in to, Web
-Audio for the notification sound, and browser navigation. That list, with the wasm engine in `@pinai/mls`, is the
+open, for this device's appearance and for the instances it signed in to and the
+address last submitted on the landing, Web Audio for the notification sound,
+and browser navigation. That list, with the wasm engine in `@pinai/mls`, is the
 mobile port's inventory.
 
 ```

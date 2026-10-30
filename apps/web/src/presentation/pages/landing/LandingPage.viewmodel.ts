@@ -9,15 +9,15 @@ import {
 } from "@pinai/domain/models/instance"
 import { prepareLoginUseCase } from "@pinai/domain/usecases/auth/startLogin.usecase"
 import { resolveInstanceUseCase } from "@pinai/domain/usecases/instance/resolve-instance.usecase"
+import { loadLastInstanceUseCase, rememberChosenInstanceUseCase } from "@pinai/domain/usecases/instance/last-instance.usecase"
 import { loadRecentInstancesUseCase } from "@pinai/domain/usecases/instance/recent-instances.usecase"
 import {
     getAuthPlatform,
     getAuthPort,
-    getAuthSessionStore,
+    getLastInstancePort,
     getNodeInfoPort,
     getRecentInstancesPort,
 } from "@/ioc/index"
-import { DEFAULT_IDP_URL } from "@/presentation/_libs/deployment-config"
 import { ARRIVAL_PARAM } from "@/presentation/_libs/instance-arrival"
 import { dropSearchParam } from "@/presentation/_libs/search-param"
 import type { ResolutionTone } from "./home-picker/home-picker"
@@ -34,8 +34,8 @@ interface Handoff {
 }
 
 function initialAddress(): string {
-    const stored = instanceAddress(getAuthSessionStore().get("idp_url") ?? DEFAULT_IDP_URL)
-    return stored ? displayAddress(stored) : ""
+    const last = loadLastInstanceUseCase(getLastInstancePort())
+    return last ? displayAddress(last) : ""
 }
 
 export function useLandingPageViewModel() {
@@ -108,6 +108,7 @@ export function useLandingPageViewModel() {
 
     async function continueToInstance() {
         if (!address || !info || handoff) return
+        rememberChosenInstanceUseCase(address, getLastInstancePort())
         setError(null)
         const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
         setHandoff({ name: info.name, url: null, barDone: reducedMotion })
