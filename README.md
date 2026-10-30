@@ -101,21 +101,27 @@ services:
         max-file: "3"
 ```
 
-**2. `.env`**, beside it, names the app's domain:
+**2. `.env`**, beside it, names the app's domain; the rest is optional:
 
 ```sh
 DOMAIN=app.example.org
+
+# Optional
+# The port the app is published on, on 127.0.0.1, for your proxy: 8081 unset.
+PORT=8091
+# Enables the GIF picker (https://docs.klipy.com): no GIFs unset. Every browser
+# that loads the app receives it, so it is no secret.
+KLIPY_API_KEY=your-klipy-key
 ```
 
 People type their instance's address, and the app remembers the last one; a link to
-`/?instance=chat.example.org` fills it in. `KLIPY_API_KEY` enables the GIF picker.
-`deploy/.env.example` lists every setting.
+`/?instance=chat.example.org` fills it in. `deploy/.env.example` lists every setting.
 
-The app listens on `127.0.0.1:8081`, for a proxy on the same machine; an instance's
-bundle takes 8080, so both fit on one server. `PORT` changes the port. For a proxy on
-another machine, set `BIND_ADDRESS` to an address of this server that only the proxy
-reaches, a private network's: ports Docker publishes skip the host's firewall, so
-`0.0.0.0` would serve the app in plain HTTP to anyone.
+With `PORT` set, your proxy sends to `127.0.0.1:<PORT>`; unset, 8081 leaves 8080 to an
+instance's bundle, so both fit on one server. For a proxy on another machine, set
+`BIND_ADDRESS` to an address of this server that only the proxy reaches, a private
+network's: ports Docker publishes skip the host's firewall, so `0.0.0.0` would serve
+the app in plain HTTP to anyone.
 
 **3. Start it:**
 
