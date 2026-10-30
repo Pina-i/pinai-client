@@ -32,6 +32,12 @@ function bridge() {
             clear: vi.fn(async () => {}),
         },
         signIn: vi.fn(async () => {}),
+        updates: {
+            status: vi.fn(async () => ({ kind: "none" as const })),
+            onChange: vi.fn(() => () => {}),
+            restart: vi.fn(async () => {}),
+            download: vi.fn(async () => {}),
+        },
     }
     return { bridge: value, handedOver }
 }

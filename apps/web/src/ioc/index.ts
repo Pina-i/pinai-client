@@ -1,3 +1,4 @@
+import { BrowserAppUpdatesAdapter } from "@/adapters/app-updates/app-updates-browser.adapter"
 import { BrowserAuthNavigationAdapter } from "@/adapters/auth/auth-navigation-browser.adapter"
 import { BrowserAuthSessionStore } from "@/adapters/auth/auth-session-browser.adapter"
 import { MemorySessionTokenStore } from "@/adapters/auth/session-token-memory.adapter"
@@ -5,6 +6,7 @@ import {
     DESKTOP_DOCUMENT_PATH,
     DesktopAuthNavigationAdapter,
 } from "@/adapters/desktop/auth-navigation-desktop.adapter"
+import { DesktopAppUpdatesAdapter } from "@/adapters/desktop/app-updates-desktop.adapter"
 import { desktopBridge } from "@/adapters/desktop/desktop-bridge"
 import { DesktopSessionTokenStore } from "@/adapters/desktop/session-token-desktop.adapter"
 import { type RenewAccessToken, retryUnauthorizedWith } from "@pinai/api/http"
@@ -41,6 +43,7 @@ import type { ArchiveEnvelope, AttachmentBlobKey, TextBody } from "@pinai/domain
 import type { Message } from "@/lib/types"
 import type { IAttachmentCryptoPort } from "@pinai/domain/ports/attachment-crypto.port"
 import type { IAccountStoragePort } from "@pinai/domain/ports/account-storage.port"
+import type { IAppUpdatesPort } from "@pinai/domain/ports/app-updates.port"
 import type { AuthPlatform, IAuthPort, IAuthSessionStore } from "@pinai/domain/ports/auth.port"
 import { type Renewal, renewSessionUseCase } from "@pinai/domain/usecases/auth/renew-session.usecase"
 import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
@@ -94,6 +97,7 @@ const authPlatform: AuthPlatform = {
         return appearanceHints(account, resolveMode(device.mode, systemPrefersDark))
     },
 }
+const appUpdatesPort: IAppUpdatesPort = desktop ? new DesktopAppUpdatesAdapter(desktop) : new BrowserAppUpdatesAdapter()
 const nodeInfoPort: INodeInfoPort = new NodeInfoApiAdapter()
 const recentInstancesPort: IRecentInstancesPort = new RecentInstancesLocalStorageAdapter()
 const lastInstancePort: ILastInstancePort = new LastInstanceLocalStorageAdapter()
@@ -199,6 +203,10 @@ export function getAuthPort(): IAuthPort {
 
 export function getAuthPlatform(): AuthPlatform {
     return authPlatform
+}
+
+export function getAppUpdatesPort(): IAppUpdatesPort {
+    return appUpdatesPort
 }
 
 export function getAuthSessionStore(): IAuthSessionStore {

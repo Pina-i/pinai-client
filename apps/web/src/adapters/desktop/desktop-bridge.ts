@@ -1,3 +1,4 @@
+import type { AppUpdate } from "@pinai/domain/ports/app-updates.port"
 import type { HeldRefreshToken } from "@pinai/domain/ports/auth.port"
 import type { Renewal } from "@pinai/domain/usecases/auth/renew-session.usecase"
 
@@ -20,6 +21,15 @@ export interface DesktopBridge {
      * answer comes back to `/callback`.
      */
     signIn(url: string): Promise<void>
+    /** The installed app's updates, run by the main process (`apps/desktop/src/main/updates.ts`). */
+    updates: {
+        status(): Promise<AppUpdate>
+        onChange(listener: (update: AppUpdate) => void): () => void
+        /** Installs the downloaded update, restarting the app. */
+        restart(): Promise<void>
+        /** Opens the new version's download, on a Mac that can't install it itself. */
+        download(): Promise<void>
+    }
 }
 
 export function desktopBridge(): DesktopBridge {

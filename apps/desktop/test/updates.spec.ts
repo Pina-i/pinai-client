@@ -4,10 +4,11 @@ import { EventEmitter } from "events"
 import { readFileSync } from "fs"
 import path from "path"
 
+import type { AppUpdate } from "@pinai/domain/ports/app-updates.port"
 import type { AppUpdater, UpdateCheckResult } from "electron-updater"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { AppUpdates, CHECK_EVERY_MS, MAC_DOWNLOAD_URL, type AppUpdate } from "../src/main/updates"
+import { AppUpdates, CHECK_EVERY_MS, MAC_DOWNLOAD_URL } from "../src/main/updates"
 
 class FakeUpdater extends EventEmitter {
     autoDownload = true

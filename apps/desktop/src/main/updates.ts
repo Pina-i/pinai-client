@@ -1,7 +1,5 @@
+import type { AppUpdate } from "@pinai/domain/ports/app-updates.port"
 import type { AppUpdater } from "electron-updater"
-
-/** Where the installed app stands with its next version; `@pinai/domain/ports/app-updates.port` has the page's copy. */
-export type AppUpdate = { kind: "none" } | { kind: "available"; version: string } | { kind: "ready"; version: string }
 
 export interface AppUpdatesOptions {
     /** False on an unsigned Mac: Squirrel.Mac refuses an update not signed like the app. */
