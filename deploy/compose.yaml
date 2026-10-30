@@ -17,7 +17,6 @@ services:
       - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8081}:8080"
     environment:
       PUBLIC_ORIGIN: https://${DOMAIN:?set it in .env}
-      DEFAULT_IDP_URL: ${DEFAULT_IDP_URL:-}
       KLIPY_API_KEY: ${KLIPY_API_KEY:-}
     # Docker keeps container logs forever by default.
     logging:

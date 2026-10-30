@@ -57,7 +57,6 @@ services:
       - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8081}:8080"
     environment:
       PUBLIC_ORIGIN: https://${DOMAIN:?set it in .env}
-      DEFAULT_IDP_URL: ${DEFAULT_IDP_URL:-}
       KLIPY_API_KEY: ${KLIPY_API_KEY:-}
     # Docker keeps container logs forever by default.
     logging:
@@ -67,17 +66,15 @@ services:
         max-file: "3"
 ```
 
-**2. `.env`**, beside it, names the app's domain and the instance its landing page
-offers:
+**2. `.env`**, beside it, names the app's domain:
 
 ```sh
 DOMAIN=app.example.org
-DEFAULT_IDP_URL=chat.example.org
 ```
 
-Without `DEFAULT_IDP_URL`, people type their instance's address; any instance can be
-reached either way. `KLIPY_API_KEY` enables the GIF picker. `deploy/.env.example`
-lists every setting.
+People type their instance's address, and the app remembers the last one; a link to
+`/?instance=chat.example.org` fills it in. `KLIPY_API_KEY` enables the GIF picker.
+`deploy/.env.example` lists every setting.
 
 The app listens on `127.0.0.1:8081`, for a proxy on the same machine; an instance's
 bundle takes 8080, so both fit on one server. `PORT` changes the port. For a proxy on
@@ -172,16 +169,11 @@ something else holds it, Vite fails rather than quietly moving.
 
 The client is multi-IdP by design — you type the identity provider's address on
 the landing page, it checks the instance (its NodeInfo), and Continue takes you
-to that instance's own sign-in page. The field is pre-filled with
-`localhost:8088`, which is where the backend's compose file puts the identity
-provider, so if you are running `Pina-i/pinai` locally there is nothing to
-configure.
+to that instance's own sign-in page.
 
-To pre-fill something else, copy the example env file and edit it:
-
-```bash
-cp apps/web/.env.example apps/web/.env
-```
+If you are running `Pina-i/pinai` locally, type `localhost:8088`, where the backend's
+compose file puts the identity provider; the landing remembers the last address you
+continued to.
 
 ## Commands
 
@@ -255,12 +247,11 @@ it can read, a user can read.
 
 | Variable | Effect |
 |---|---|
-| `VITE_DEFAULT_IDP_URL` | Pre-fills the identity provider field. Defaults to `http://localhost:8088`. |
 | `VITE_KLIPY_API_KEY` | Enables the GIF picker. Without it the picker renders a note saying so. |
 | `PUBLIC_ORIGIN` | Required by `pnpm build`: the origin the build is served from, written into its `/oauth-client.json`. The dev server answers for the host it is reached on instead. |
 
 The published image is built without them, so that one image serves every
-deployment: it reads `PUBLIC_ORIGIN`, `DEFAULT_IDP_URL` and `KLIPY_API_KEY` from
+deployment: it reads `PUBLIC_ORIGIN` and `KLIPY_API_KEY` from
 the container's environment and serves them, at each request, in
 `/oauth-client.json` and `/config.js` (`docker/Caddyfile`). What `/config.js` sets
 wins over the build's values; `apps/web/public/config.js`, the one a checkout
@@ -322,7 +313,7 @@ To try the image from a checkout:
 
 ```bash
 docker build -f docker/Dockerfile -t pinai-web .
-docker run --rm -p 8090:8080 -e PUBLIC_ORIGIN=http://localhost:8090 -e DEFAULT_IDP_URL=localhost:8088 pinai-web
+docker run --rm -p 8090:8080 -e PUBLIC_ORIGIN=http://localhost:8090 pinai-web
 ```
 
 ## Troubleshooting

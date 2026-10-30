@@ -361,9 +361,6 @@ for a known IdP.
 ## Environment Variables
 
 ```env
-VITE_DEFAULT_IDP_URL=https://idp.example.com   # optional; pre-fills the landing
-                                               #   page field, defaults to
-                                               #   http://localhost:8088
 VITE_KLIPY_API_KEY=                            # optional; enables the GIF picker (Klipy)
 PUBLIC_ORIGIN=https://app.example.com          # required by `vite build`: the origin the build
                                                #   is served from, written into
