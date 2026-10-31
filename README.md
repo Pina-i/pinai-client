@@ -1,6 +1,46 @@
-# Pīna'i — web client
+<div align="center">
 
-The browser client for [Pīna'i](https://github.com/Pina-i), a self-hostable,
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/logo-dark.svg">
+  <img src=".github/assets/logo-light.svg" alt="Pīna'i" width="120">
+</picture>
+
+# Pīna'i
+
+**Quiet rooms, loud voices.**
+
+Group chat that respects your privacy. Open source, federated,<br>
+and hosted on a server you choose.
+
+[![CI](https://github.com/Pina-i/pinai-client/actions/workflows/ci.yml/badge.svg)](https://github.com/Pina-i/pinai-client/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Pina-i/pinai-client?label=release)](https://github.com/Pina-i/pinai-client/releases/latest)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
+
+[**Install the desktop app**](#install-the-desktop-app) ·
+[**Host the web app**](#host-the-web-app) ·
+[**Development**](#what-you-need) ·
+[**Backend**](https://github.com/Pina-i/pinai)
+
+<br>
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href=".github/assets/screenshots/01-welcome.webp"><img src=".github/assets/screenshots/01-welcome.webp" alt="The welcome page: pick your instance"></a>
+      <br><sub><b>Pick your home</b> — sign in to any Pīna'i instance</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href=".github/assets/screenshots/06-conversation.webp"><img src=".github/assets/screenshots/06-conversation.webp" alt="A direct conversation in Pīna'i"></a>
+      <br><sub><b>Talk</b> — end-to-end encrypted with MLS</sub>
+    </td>
+  </tr>
+</table>
+
+</div>
+
+## About
+
+The browser and desktop client for [Pīna'i](https://github.com/Pina-i), a self-hostable,
 federated, open-source Discord alternative. It talks to an **identity
 provider** over HTTP and WebSocket, and messages are end-to-end encrypted with
 MLS (RFC 9420) — encryption and decryption happen here, in the client, and the
@@ -8,10 +48,6 @@ server never sees plaintext.
 
 This repository is a pnpm workspace. The backend lives separately, in
 [`Pina-i/pinai`](https://github.com/Pina-i/pinai).
-
-- [Install the desktop app](#install-the-desktop-app) — Windows, macOS and Linux
-- [Host the web app](#host-the-web-app) — serve it for your community, on its own server or beside your instance
-- [Development](#what-you-need) — run it from a checkout
 
 ---
 
