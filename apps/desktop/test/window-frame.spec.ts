@@ -1,6 +1,23 @@
+import { mkdtempSync, writeFileSync } from "fs"
+import os from "os"
+import path from "path"
+
 import { describe, expect, it } from "vitest"
 
-import { DEFAULT_TITLE_BAR, TITLE_BAR_HEIGHT, frameOptions, titleBarColors } from "../src/main/window-frame"
+import {
+    DEFAULT_TITLE_BAR,
+    TITLE_BAR_HEIGHT,
+    frameOptions,
+    readTitleBar,
+    saveTitleBar,
+    titleBarColors,
+} from "../src/main/window-frame"
+
+const LAGOON = { background: "#06122a", symbols: "#8c9bb5" }
+
+function file(): string {
+    return path.join(mkdtempSync(path.join(os.tmpdir(), "pinai-title-bar-")), "title-bar.json")
+}
 
 describe("titleBarColors", () => {
     it("takes the page's two hex colours", () => {
@@ -36,5 +53,26 @@ describe("frameOptions", () => {
             trafficLightPosition: { x: 14, y: 10 },
             backgroundColor: "#040c0c",
         })
+    })
+})
+
+describe("the colours kept across launches", () => {
+    it("opens in the colours last saved", async () => {
+        const kept = file()
+        await saveTitleBar(kept, LAGOON)
+        expect(readTitleBar(kept)).toEqual(LAGOON)
+    })
+
+    it("opens in Black Pearl without a file, or with one it can't trust", () => {
+        const kept = file()
+        expect(readTitleBar(kept)).toEqual(DEFAULT_TITLE_BAR)
+        writeFileSync(kept, "{not json")
+        expect(readTitleBar(kept)).toEqual(DEFAULT_TITLE_BAR)
+        writeFileSync(kept, JSON.stringify({ background: "red", symbols: "#869292" }))
+        expect(readTitleBar(kept)).toEqual(DEFAULT_TITLE_BAR)
+    })
+
+    it("swallows a failed write", async () => {
+        await expect(saveTitleBar(path.join(file(), "missing", "title-bar.json"), LAGOON)).resolves.toBeUndefined()
     })
 })

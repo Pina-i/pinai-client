@@ -36,7 +36,9 @@ window loads the web app's dev server, :5173 like the web app; built
   over it — the traffic lights on macOS, a window controls overlay on Windows and Linux, whose
   `titlebar-area-*` CSS variables size the page's bar. The page sends its `--background` and
   `--muted-foreground` as hex at each palette or mode change (`window:title-bar`, checked by
-  `titleBarColors`): they colour the overlay (not on macOS) and the window's background. The IdP's
+  `titleBarColors`): they colour the overlay (not on macOS) and the window's background, and are
+  kept in `userData/title-bar.json`, so a launch opens in the theme it closed in (Black Pearl dark
+  without one). The IdP's
   pages draw no bar: `dom-ready` inserts the same one into theirs (`IDP_TITLE_BAR`, pseudo-elements
   coloured by their tokens — the IdP's palettes are the app's — the mark as masks from
   `title-bar-mark.ts`) and steps their `body` down by its height. Keep it like `.pn-titlebar`.

@@ -13,7 +13,7 @@ import { APP_URL, appUrlFor, isApp, route } from "./navigation"
 import { KeychainSessionTokenStore, MainSession, keychain } from "./session"
 import { refusesToStart } from "./startup"
 import { AppUpdates } from "./updates"
-import { DEFAULT_TITLE_BAR, IDP_TITLE_BAR, type TitleBarColors, frameOptions, titleBarColors } from "./window-frame"
+import { IDP_TITLE_BAR, type TitleBarColors, frameOptions, readTitleBar, saveTitleBar, titleBarColors } from "./window-frame"
 
 if (refusesToStart(app.isPackaged, (name) => app.commandLine.hasSwitch(name))) app.exit(1)
 // One app at a time: a second launch focuses the first.
@@ -25,8 +25,8 @@ function start(): void {
     let window: BrowserWindow | null = null
     // The IdP whose pages the window shows, from the sign-in the app started until its answer.
     let signingInTo: string | null = null
-    // The page's last colours: a window the Dock reopens on macOS starts in them.
-    let titleBar: TitleBarColors = DEFAULT_TITLE_BAR
+    // The page's last colours, kept across launches: a window opens in them.
+    let titleBar: TitleBarColors
 
     app.on("second-instance", () => {
         if (window?.isMinimized()) window.restore()
@@ -48,6 +48,8 @@ function start(): void {
     }
 
     void app.whenReady().then(() => {
+        const titleBarFile = path.join(app.getPath("userData"), "title-bar.json")
+        titleBar = readTitleBar(titleBarFile)
         // Built: electron-vite's renderer output, beside out/main.
         if (appUrl() === APP_URL) serveApp(path.join(import.meta.dirname, "../renderer"))
         const session = new MainSession(
@@ -82,7 +84,9 @@ function start(): void {
         handle("window:title-bar", (colors: unknown) => {
             const painted = titleBarColors(colors)
             if (!painted) throw new Error("Not title bar colours")
+            if (painted.background === titleBar.background && painted.symbols === titleBar.symbols) return
             titleBar = painted
+            void saveTitleBar(titleBarFile, painted)
             window?.setBackgroundColor(painted.background)
             // macOS draws its traffic lights in its own colours.
             if (process.platform !== "darwin") {

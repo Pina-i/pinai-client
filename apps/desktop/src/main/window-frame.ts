@@ -1,3 +1,6 @@
+import { readFileSync } from "fs"
+import { writeFile } from "fs/promises"
+
 import type { BrowserWindowConstructorOptions } from "electron"
 
 import { MARK_LINES, MARK_RIPPLES, MARK_VIEW_BOX } from "./title-bar-mark"
@@ -100,3 +103,24 @@ body::before {
 body {
     padding-top: env(titlebar-area-height, 0px) !important;
 }`
+
+/**
+ * The colours last painted, from `file`: a launch opens in the theme it closed in, not Black Pearl
+ * until the page paints. The default when there are none, or none readable.
+ */
+export function readTitleBar(file: string): TitleBarColors {
+    try {
+        return titleBarColors(JSON.parse(readFileSync(file, "utf8"))) ?? DEFAULT_TITLE_BAR
+    } catch {
+        return DEFAULT_TITLE_BAR
+    }
+}
+
+/** Keeps the colours for the next launch. A failed write only costs that launch its first frame. */
+export async function saveTitleBar(file: string, colors: TitleBarColors): Promise<void> {
+    try {
+        await writeFile(file, JSON.stringify(colors))
+    } catch {
+        // Next launch opens in Black Pearl, then repaints.
+    }
+}
