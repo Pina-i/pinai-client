@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/Pina-i/pinai-client/compare/v0.2.1...v0.3.0) (2026-10-31)
+
+
+### Features
+
+* **desktop:** draw the window's title bar in the app's own colours ([5096dd7](https://github.com/Pina-i/pinai-client/commit/5096dd7f40dec3f992d7ff67881d501bb2d77cd9))
+* **desktop:** open the window in the theme it closed in ([d002362](https://github.com/Pina-i/pinai-client/commit/d0023627fb358758417e0e838167015d14ff5715))
+
 ## [0.2.1](https://github.com/Pina-i/pinai-client/compare/v0.2.0...v0.2.1) (2026-10-30)
 
 
