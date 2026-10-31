@@ -38,6 +38,9 @@ function bridge() {
             restart: vi.fn(async () => {}),
             download: vi.fn(async () => {}),
         },
+        window: {
+            paintTitleBar: vi.fn(async () => {}),
+        },
     }
     return { bridge: value, handedOver }
 }

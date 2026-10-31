@@ -4,6 +4,8 @@ import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import { Toaster } from "sonner"
 import { AppUpdateNotice } from "@/presentation/organisms/AppUpdateNotice/AppUpdateNotice"
+import { TitleBar } from "@/presentation/organisms/TitleBar/TitleBar"
+import { IN_DESKTOP_APP } from "@/presentation/_libs/client-download"
 import { holdSplashScreen } from "@/presentation/_libs/splash-screen"
 import { AppearanceProvider } from "@/presentation/providers/AppearanceProvider/AppearanceProvider"
 import { routeTree } from "./routeTree.gen"
@@ -28,6 +30,7 @@ createRoot(document.getElementById("root")!).render(
     <StrictMode>
         <QueryClientProvider client={queryClient}>
             <AppearanceProvider>
+                {IN_DESKTOP_APP && <TitleBar />}
                 <RouterProvider router={router} />
                 <Toaster richColors position="bottom-right" style={{ zIndex: "var(--z-above-grain)" }} />
                 <AppUpdateNotice />

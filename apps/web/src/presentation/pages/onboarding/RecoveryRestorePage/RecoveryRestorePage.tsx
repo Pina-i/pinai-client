@@ -16,7 +16,7 @@ export function RecoveryRestorePage() {
     const initials = (vm.welcomeName[0] ?? "?").toUpperCase()
 
     return (
-        <div className="relative flex min-h-screen items-center justify-center overflow-auto bg-background">
+        <div className="relative flex min-h-app items-center justify-center overflow-auto bg-background">
             <Backdrop />
             <PageTransition className="relative z-[2] grid w-full max-w-[1200px] grid-cols-[1.1fr_1fr] gap-9 px-14 py-10">
                 <div>

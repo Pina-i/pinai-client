@@ -40,7 +40,7 @@ export function Modal({
             onOpenChange={(open) => !open && onClose()}
             isDismissable={isDismissable}
             className={cn(
-                "fixed inset-0 z-(--z-overlay) flex",
+                "fixed inset-x-0 bottom-0 top-(--titlebar-height) z-(--z-overlay) flex",
                 isFullscreen
                     ? "bg-background"
                     : "items-center justify-center bg-[color-mix(in_oklab,var(--background)_55%,transparent)] backdrop-blur-[6px] entering:animate-in entering:fade-in-0 entering:duration-200",

@@ -14,7 +14,7 @@ interface HandoffScreenProps {
 /** Between Continue and the instance's own sign-in page: the browser is leaving this app. */
 export function HandoffScreen({ name, endpoint, onBarDone }: HandoffScreenProps) {
     return (
-        <div className="relative flex min-h-screen overflow-hidden bg-background">
+        <div className="relative flex min-h-app overflow-hidden bg-background">
             <Backdrop />
             <AuthTopRule />
             <div className="relative z-[2] flex flex-1 flex-col items-center justify-center gap-[26px] text-center">

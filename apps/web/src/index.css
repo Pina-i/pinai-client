@@ -579,12 +579,66 @@
    re-check it when upgrading react-aria. The splash covers the app and its
    overlays, still under the grain. 100011–100019 is reserved for the rare
    thing that must stay clean of the grain. Local stacking inside a panel
-   keeps small values (z-1…z-40). */
+   keeps small values (z-1…z-40). The desktop app's title bar stays over the
+   overlays, which start under it. */
 :root {
     --z-overlay:                  100000;
+    --z-titlebar:                 100001;
     --z-splash:                   100005;
     --z-grain:                    100010;
     --z-above-grain:              100011;
+}
+
+/* Window frame — the desktop app draws its own title bar (organisms/TitleBar),
+   with the system's buttons over its end: the window controls overlay, which
+   sets the titlebar-area-* variables. Nothing sets them in a browser tab, nor
+   in a macOS full screen, where the bar folds away. Every full-height page
+   and overlay starts under it: `h-app`, `min-h-app`, `top-(--titlebar-height)`. */
+:root {
+    --titlebar-height:            env(titlebar-area-height, 0px);
+}
+/* The pages start under the bar, which is fixed over the top of the window. */
+#root {
+    padding-top: var(--titlebar-height);
+}
+@utility h-app {
+    height: calc(100vh - var(--titlebar-height));
+}
+@utility min-h-app {
+    min-height: calc(100vh - var(--titlebar-height));
+}
+/* Static in index.html. apps/desktop's window-frame.ts draws the same bar over
+   the IdP's pages: keep the two alike. */
+.pn-titlebar {
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: var(--z-titlebar);
+    height: var(--titlebar-height);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* Past the traffic lights on macOS: the area starts after them. */
+    padding-left: calc(env(titlebar-area-x, 0px) + 14px);
+    background: var(--background);
+    color: var(--foreground);
+    -webkit-app-region: drag;
+    user-select: none;
+}
+.pn-titlebar-mark {
+    display: block;
+    width: 18px;
+    height: 13px;
+}
+.pn-titlebar-name {
+    font-family: var(--font-serif);
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1;
+}
+/* Anything pressable in the bar: a drag region swallows the clicks. */
+.pn-titlebar :is(a, button, input, [role="button"]) {
+    -webkit-app-region: no-drag;
 }
 
 /* Ambient wash — accent top-right, third colour bottom-left. */
@@ -701,7 +755,7 @@
 .pn-splash {
     --pn-rise-at: var(--pn-splash-at, 0ms);
     position: fixed;
-    inset: 0;
+    inset: var(--titlebar-height) 0 0;
     z-index: var(--z-splash);
     background: var(--background);
     transition: opacity 0.4s ease;

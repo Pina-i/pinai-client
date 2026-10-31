@@ -13,6 +13,7 @@ import { APP_URL, appUrlFor, isApp, route } from "./navigation"
 import { KeychainSessionTokenStore, MainSession, keychain } from "./session"
 import { refusesToStart } from "./startup"
 import { AppUpdates } from "./updates"
+import { DEFAULT_TITLE_BAR, IDP_TITLE_BAR, type TitleBarColors, frameOptions, titleBarColors } from "./window-frame"
 
 if (refusesToStart(app.isPackaged, (name) => app.commandLine.hasSwitch(name))) app.exit(1)
 // One app at a time: a second launch focuses the first.
@@ -24,6 +25,8 @@ function start(): void {
     let window: BrowserWindow | null = null
     // The IdP whose pages the window shows, from the sign-in the app started until its answer.
     let signingInTo: string | null = null
+    // The page's last colours: a window the Dock reopens on macOS starts in them.
+    let titleBar: TitleBarColors = DEFAULT_TITLE_BAR
 
     app.on("second-instance", () => {
         if (window?.isMinimized()) window.restore()
@@ -31,7 +34,7 @@ function start(): void {
     })
 
     function openWindow(): void {
-        window = createWindow((to) => {
+        window = createWindow(titleBar, (to) => {
             const next = route(to, appUrl(), signingInTo)
             if (next.kind === "callback") {
                 signingInTo = null
@@ -75,6 +78,17 @@ function start(): void {
         handle("updates:status", () => updates.current())
         handle("updates:restart", () => updates.restart())
         handle("updates:download", () => updates.download())
+        // The page's palette, for the system's buttons over its title bar.
+        handle("window:title-bar", (colors: unknown) => {
+            const painted = titleBarColors(colors)
+            if (!painted) throw new Error("Not title bar colours")
+            titleBar = painted
+            window?.setBackgroundColor(painted.background)
+            // macOS draws its traffic lights in its own colours.
+            if (process.platform !== "darwin") {
+                window?.setTitleBarOverlay({ color: painted.background, symbolColor: painted.symbols })
+            }
+        })
 
         const { APPIMAGE: appImage, APPDIR: appDir, XDG_DATA_HOME: xdg } = process.env
         if (process.platform === "linux" && app.isPackaged && appImage && appDir) {
@@ -103,10 +117,11 @@ function appUrl(): string {
 }
 
 /** The window, held to `navigable`: what it says no to doesn't load. */
-function createWindow(navigable: (url: string) => boolean): BrowserWindow {
+function createWindow(titleBar: TitleBarColors, navigable: (url: string) => boolean): BrowserWindow {
     const window = new BrowserWindow({
         width: 1280,
         height: 800,
+        ...frameOptions(process.platform, titleBar),
         // Windows and macOS show the app's own icon; on Linux the window carries it.
         icon: process.platform === "linux" ? icon : undefined,
         webPreferences: {
@@ -123,6 +138,10 @@ function createWindow(navigable: (url: string) => boolean): BrowserWindow {
     // A link, a form, a script — and the IdP's redirect to the desktop callback.
     window.webContents.on("will-navigate", guard)
     window.webContents.on("will-redirect", guard)
+    // The app's pages draw their own title bar; the IdP's draw none, so they get the same one.
+    window.webContents.on("dom-ready", () => {
+        if (!isApp(window.webContents.getURL(), appUrl())) void window.webContents.insertCSS(IDP_TITLE_BAR)
+    })
     window.webContents.setWindowOpenHandler(({ url }) => {
         if (/^https?:\/\//.test(url)) void shell.openExternal(url)
         return { action: "deny" }

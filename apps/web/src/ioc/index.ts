@@ -9,6 +9,8 @@ import {
 import { DesktopAppUpdatesAdapter } from "@/adapters/desktop/app-updates-desktop.adapter"
 import { desktopBridge } from "@/adapters/desktop/desktop-bridge"
 import { DesktopSessionTokenStore } from "@/adapters/desktop/session-token-desktop.adapter"
+import { DesktopWindowFrameAdapter } from "@/adapters/desktop/window-frame-desktop.adapter"
+import { BrowserWindowFrameAdapter } from "@/adapters/window-frame/window-frame-browser.adapter"
 import { type RenewAccessToken, retryUnauthorizedWith } from "@pinai/api/http"
 import { OidcAdapter } from "@pinai/api/auth/oidc.adapter"
 import { WebCryptoPkceAdapter } from "@/adapters/auth/pkce"
@@ -44,6 +46,7 @@ import type { Message } from "@/lib/types"
 import type { IAttachmentCryptoPort } from "@pinai/domain/ports/attachment-crypto.port"
 import type { IAccountStoragePort } from "@pinai/domain/ports/account-storage.port"
 import type { IAppUpdatesPort } from "@pinai/domain/ports/app-updates.port"
+import type { IWindowFramePort } from "@pinai/domain/ports/window-frame.port"
 import type { AuthPlatform, IAuthPort, IAuthSessionStore } from "@pinai/domain/ports/auth.port"
 import { type Renewal, renewSessionUseCase } from "@pinai/domain/usecases/auth/renew-session.usecase"
 import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
@@ -98,6 +101,7 @@ const authPlatform: AuthPlatform = {
     },
 }
 const appUpdatesPort: IAppUpdatesPort = desktop ? new DesktopAppUpdatesAdapter(desktop) : new BrowserAppUpdatesAdapter()
+const windowFramePort: IWindowFramePort = desktop ? new DesktopWindowFrameAdapter(desktop) : new BrowserWindowFrameAdapter()
 const nodeInfoPort: INodeInfoPort = new NodeInfoApiAdapter()
 const recentInstancesPort: IRecentInstancesPort = new RecentInstancesLocalStorageAdapter()
 const lastInstancePort: ILastInstancePort = new LastInstanceLocalStorageAdapter()
@@ -207,6 +211,10 @@ export function getAuthPlatform(): AuthPlatform {
 
 export function getAppUpdatesPort(): IAppUpdatesPort {
     return appUpdatesPort
+}
+
+export function getWindowFramePort(): IWindowFramePort {
+    return windowFramePort
 }
 
 export function getAuthSessionStore(): IAuthSessionStore {

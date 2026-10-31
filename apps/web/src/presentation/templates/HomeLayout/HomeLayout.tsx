@@ -43,7 +43,7 @@ export function HomeLayout({ children }: HomeLayoutProps) {
     if (!user) return null
 
     return (
-        <div className="relative flex h-screen w-full overflow-hidden bg-background">
+        <div className="relative flex h-app w-full overflow-hidden bg-background">
             <Backdrop />
             <ServerStrip />
             <ChannelSidebar />

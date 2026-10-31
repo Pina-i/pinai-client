@@ -185,7 +185,7 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} variant="fullscreen" isDismissable label="Settings">
-            <div className="flex h-screen w-full max-[700px]:flex-col max-[700px]:overflow-y-auto">
+            <div className="flex h-app w-full max-[700px]:flex-col max-[700px]:overflow-y-auto">
                 {/* LEFT — landing grid */}
                 <div className="relative flex min-w-0 flex-[1.05] flex-col border-r border-line max-[700px]:flex-none max-[700px]:border-b max-[700px]:border-r-0">
                     <ScrollArea className="min-h-0 flex-1 px-8 pb-7 pt-[30px] max-[1040px]:px-5 max-[1040px]:py-6 max-[700px]:overflow-visible">

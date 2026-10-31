@@ -31,14 +31,23 @@ window loads the web app's dev server, :5173 like the web app; built
   in memory only. Sync `safeStorage` behind a bounded wait for availability: the async API waits
   on the XDG portal, which may never answer. A token is forgotten only when the IdP refused it,
   never because the keychain wasn't ready.
+- **The window frame** (`window-frame.ts`): no system title bar (`titleBarStyle: "hidden"`); the
+  page draws its own (`apps/web/index.html`'s `.pn-titlebar`, 32px) and the system keeps its buttons
+  over it — the traffic lights on macOS, a window controls overlay on Windows and Linux, whose
+  `titlebar-area-*` CSS variables size the page's bar. The page sends its `--background` and
+  `--muted-foreground` as hex at each palette or mode change (`window:title-bar`, checked by
+  `titleBarColors`): they colour the overlay (not on macOS) and the window's background. The IdP's
+  pages draw no bar: `dom-ready` inserts the same one into theirs (`IDP_TITLE_BAR`, pseudo-elements
+  coloured by their tokens — the IdP's palettes are the app's — the mark as masks from
+  `title-bar-mark.ts`) and steps their `body` down by its height. Keep it like `.pn-titlebar`.
 - **IPC** answers the app's own pages only (`isApp`): `session:hold`, `session:renew`,
   `session:sign-out`, `sign-in` (`http(s)` only), `updates:status`, `updates:restart`,
-  `updates:download`.
+  `updates:download`, `window:title-bar`.
 
 ## Preload (`src/preload`)
 
 `window.pinaiDesktop` — `session.{store, renew, clear}`, `signIn`,
-`updates.{status, onChange, restart, download}` (`onChange` listens to `updates:changed`, which
+`window.paintTitleBar`, `updates.{status, onChange, restart, download}` (`onChange` listens to `updates:changed`, which
 the main process sends the window) — exposed to the app's own pages only (`--pinai-app`,
 `isApp`), never to the IdP's pages in the same window. CommonJS: sandboxed preloads can't be ES
 modules. Its shape is `apps/web/src/adapters/desktop/desktop-bridge.ts`, kept in step by hand.

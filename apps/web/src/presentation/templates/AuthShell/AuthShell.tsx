@@ -44,11 +44,11 @@ export function AuthShell({
     asideFooter,
 }: AuthShellProps) {
     return (
-        <div className="relative min-h-screen overflow-hidden bg-background">
+        <div className="relative min-h-app overflow-hidden bg-background">
             <Backdrop />
             <AuthTopRule />
 
-            <div className="relative z-[2] grid min-h-screen grid-cols-1 lg:grid-cols-[1.1fr_1fr]">
+            <div className="relative z-[2] grid min-h-app grid-cols-1 lg:grid-cols-[1.1fr_1fr]">
                 <aside className="flex flex-col justify-between gap-7 border-line px-14 pb-10 pt-[84px] lg:border-r">
                     <span className="inline-flex items-center gap-3 text-foreground">
                         <Logo className="h-[34px] w-[46px]" />

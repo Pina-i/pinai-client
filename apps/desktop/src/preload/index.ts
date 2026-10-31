@@ -28,5 +28,8 @@ if (app && isApp(window.location.href, app)) {
             restart: () => ipcRenderer.invoke("updates:restart"),
             download: () => ipcRenderer.invoke("updates:download"),
         },
+        window: {
+            paintTitleBar: (colors: unknown) => ipcRenderer.invoke("window:title-bar", colors),
+        },
     })
 }

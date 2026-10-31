@@ -42,6 +42,7 @@ The film grain covers everything, overlays and the splash included. It is one el
 | Token | Value | For |
 |---|---|---|
 | `--z-overlay` | 100000 | Popovers, menus, dropdowns, tooltips, modals |
+| `--z-titlebar` | 100001 | The desktop app's title bar (`organisms/TitleBar`) |
 | `--z-splash` | 100005 | The splash screen, over the app and its overlays |
 | `--z-grain` | 100010 | The grain |
 | `--z-above-grain` | 100011–100019 | The rare element that must stay clean of the grain (toasts) |
@@ -49,6 +50,15 @@ The film grain covers everything, overlays and the splash included. It is one el
 - `--z-overlay` is React Aria's own value: it stamps `zIndex: 100000` inline on every popover and tooltip. Don't give those a z-index class — it would lose to the inline style anyway. Only overlays React Aria doesn't position (`ModalOverlay`, a hand-rolled fixed layer) take `z-(--z-overlay)`.
 - Stacking inside a panel stays local and small (`z-[1]`…`z-40`).
 - When upgrading `react-aria`, check that `useOverlayPosition` still uses 100000.
+
+## Window frame (desktop)
+
+The desktop app has no system title bar: `.pn-titlebar`, static in `index.html` so it is there from the first paint, draws one, `--titlebar-height` tall, and the system's buttons sit over its end; `<TitleBar />` (rendered from `main.tsx` when `IN_DESKTOP_APP`) colours those buttons like it. The desktop's main process draws the same bar over the IdP's pages (`apps/desktop/src/main/window-frame.ts`): change both together. `--titlebar-height` is `env(titlebar-area-height, 0px)`, so it is 0 in a browser tab and in a macOS full screen.
+
+- `#root` is padded by the bar's height, so pages start under it.
+- A full-height page uses `h-app` / `min-h-app`, never `h-screen` / `min-h-screen`: they leave the bar's height out.
+- A fixed full-window layer starts at `top-(--titlebar-height)` (`Modal`'s overlay, the splash).
+- Anything pressable inside `.pn-titlebar` must stay a real `a` / `button` / `input`: the bar is a drag region, and only those opt out of it.
 
 ## Appearance
 

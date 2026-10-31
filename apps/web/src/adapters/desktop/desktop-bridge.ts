@@ -1,5 +1,6 @@
 import type { AppUpdate } from "@pinai/domain/ports/app-updates.port"
 import type { HeldRefreshToken } from "@pinai/domain/ports/auth.port"
+import type { TitleBarColors } from "@pinai/domain/ports/window-frame.port"
 import type { Renewal } from "@pinai/domain/usecases/auth/renew-session.usecase"
 
 /**
@@ -29,6 +30,11 @@ export interface DesktopBridge {
         restart(): Promise<void>
         /** Opens the new version's download, on a Mac that can't install it itself. */
         download(): Promise<void>
+    }
+    /** The window the app draws its own title bar in (`apps/desktop/src/main/window-frame.ts`). */
+    window: {
+        /** Colours the system's buttons over the page's title bar. */
+        paintTitleBar(colors: TitleBarColors): Promise<void>
     }
 }
 

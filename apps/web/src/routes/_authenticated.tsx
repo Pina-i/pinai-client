@@ -77,7 +77,7 @@ function AuthenticatedLayout() {
 
 function OnboardingGateError({ onRetry }: { onRetry: () => void }) {
     return (
-        <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4">
+        <div className="relative flex min-h-app items-center justify-center overflow-hidden bg-background px-4">
             <Backdrop />
             <div className="relative z-[2] flex max-w-sm flex-col items-center gap-3 rounded-[18px] border border-line bg-surf p-6 text-center backdrop-blur-[14px]">
                 <p className="fact text-dnd">Couldn't reach your IdP</p>
