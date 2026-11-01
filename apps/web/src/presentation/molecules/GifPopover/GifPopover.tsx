@@ -1,9 +1,7 @@
-import { useState } from "react"
 import { Search } from "lucide-react"
-import { toast } from "sonner"
 import { cn } from "@/presentation/_libs/utils"
 import { popoverSurface } from "@/presentation/molecules/Popover/popover-surface"
-import { KLIPY_ENABLED, useKlipySearch, type KlipyGif } from "./useKlipy"
+import { useGifPopoverViewModel } from "./GifPopover.viewmodel"
 
 interface GifPopoverProps {
     /**
@@ -27,29 +25,8 @@ const CATEGORIES: ReadonlyArray<{ key: string; label: string }> = [
  * composer's upload pipeline.
  */
 export function GifPopover({ onPickGif }: GifPopoverProps) {
-    const [search, setSearch] = useState("")
-    const [activeCategory, setActiveCategory] = useState<string>("")
-
-    const effectiveQuery = search.trim().length > 0 ? search : activeCategory
-    const { gifs, isLoading } = useKlipySearch(effectiveQuery)
-
-    async function handlePick(gif: KlipyGif) {
-        try {
-            const resp = await fetch(gif.gifUrl)
-            if (!resp.ok) throw new Error(`Failed to load GIF: ${resp.status}`)
-            const blob = await resp.blob()
-            // Force `image/gif` regardless of what Klipy's CDN reports.
-            // Some CDN edges return `application/octet-stream` (or
-            // `binary/octet-stream`) for larger frames; without this
-            // pin, the recipient's `isImageAttachment` check on the
-            // decrypted `AttachmentBlobKey.mime_type` would render the
-            // GIF as a generic file tile instead of an image tile.
-            const file = new File([blob], `${gif.id}.gif`, { type: "image/gif" })
-            onPickGif(file)
-        } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Could not load GIF.")
-        }
-    }
+    const { configured, search, setSearch, activeCategory, pickCategory, gifs, isLoading, pickGif } =
+        useGifPopoverViewModel(onPickGif)
 
     return (
         <div className={cn(popoverSurface, "w-[340px] overflow-hidden")}>
@@ -58,11 +35,11 @@ export function GifPopover({ onPickGif }: GifPopoverProps) {
                 <span className="fact">powered by klipy</span>
             </div>
 
-            {!KLIPY_ENABLED ? (
+            {!configured ? (
                 <div className="px-4 py-6 text-center font-mono text-[10.5px] leading-relaxed text-muted-foreground">
                     GIF integration not configured.
                     <br />
-                    Set <span className="text-foreground">KLIPY_API_KEY</span> where this app is hosted to enable.
+                    Your instance's admin enables it with <span className="text-foreground">KLIPY_API_KEY</span>.
                 </div>
             ) : (
                 <>
@@ -85,10 +62,7 @@ export function GifPopover({ onPickGif }: GifPopoverProps) {
                                 <button
                                     key={c.key || "trending"}
                                     type="button"
-                                    onClick={() => {
-                                        setActiveCategory(c.key)
-                                        setSearch("")
-                                    }}
+                                    onClick={() => pickCategory(c.key)}
                                     className={cn(
                                         "cursor-pointer rounded-full border px-3 py-[5px] text-[11.5px]",
                                         isActive
@@ -117,7 +91,7 @@ export function GifPopover({ onPickGif }: GifPopoverProps) {
                             <button
                                 key={g.id}
                                 type="button"
-                                onClick={() => handlePick(g)}
+                                onClick={() => pickGif(g)}
                                 aria-label={g.description || "GIF"}
                                 title={g.description}
                                 className="relative aspect-[4/3] cursor-pointer overflow-hidden rounded-[12px] border border-line bg-surf2 hover:border-acc-line"

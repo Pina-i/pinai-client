@@ -11,7 +11,7 @@ apps/*/src/routeTree.gen.ts
 tmp
 docs
 
-# A local env file can hold a key (VITE_KLIPY_API_KEY): never in an image.
+# A local env file is a checkout's own settings: never in an image.
 **/.env
 **/.env.*
 !**/.env.example

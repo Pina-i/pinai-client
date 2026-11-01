@@ -51,9 +51,6 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm --filter @pinai/desktop build
-        env:
-          # GIFs in the desktop app only with a key; the web image reads its own at run time.
-          VITE_KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
       # Built at base "/", not the "./" electron-vite's preset forces: a reload two levels deep
       # under app:// would get index.html for its assets. An upgrade could undo the override.
       - run: grep -q 'src="/assets/' apps/desktop/out/renderer/index.html
