@@ -42,8 +42,9 @@ function attestationNeedsRenewal(att: DeviceAttestation): boolean {
 
 /**
  * Default lifetime for a freshly-built KeyPackage, in milliseconds.
- * Mirrors the IdP's `E2EE_KEYPACKAGE_LIFETIME_DAYS = 30` default; the
- * server validates `expires_at - now()` against its own ceiling.
+ * Mirrors the IdP's `E2EE_KEYPACKAGE_LIFETIME_SECS` default (30 days). The
+ * IdP brings an expiry beyond its lifetime, or already past, back within
+ * it by its own clock, so this device's clock being off is harmless.
  */
 const DEFAULT_KEY_PACKAGE_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000
 
