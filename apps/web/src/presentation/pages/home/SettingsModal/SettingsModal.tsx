@@ -2,7 +2,6 @@ import type { ReactNode } from "react"
 import {
     Bell,
     Headphones,
-    KeyRound,
     Laptop,
     Lock,
     MessageSquare,
@@ -13,7 +12,7 @@ import {
 } from "lucide-react"
 import type { UserProfile } from "@pinai/domain/models/auth"
 import { addressParts } from "@pinai/domain/models/identity"
-import { peopleCount, type InstanceInfo } from "@pinai/domain/models/instance"
+import { peopleCount } from "@pinai/domain/models/instance"
 import { managesRoster } from "@pinai/domain/models/instance-admin"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
@@ -21,6 +20,7 @@ import { AppearanceEditor } from "./AppearanceEditor/AppearanceEditor"
 import { DevicesEditor } from "./DevicesEditor/DevicesEditor"
 import { editorFrame } from "./editor-styles"
 import { IdentityTile } from "./IdentityTile/IdentityTile"
+import { InstanceBand } from "./InstanceBand/InstanceBand"
 import { InstanceEditor } from "./InstanceEditor/InstanceEditor"
 import { PlaceholderEditor } from "./PlaceholderEditor/PlaceholderEditor"
 import { PrivacyEditor } from "./PrivacyEditor/PrivacyEditor"
@@ -144,33 +144,6 @@ const SECTIONS: SectionDescriptor[] = [
     },
 ]
 
-/** Shown to an admin only, after the others. */
-function instanceSection(host: string, info: InstanceInfo): SectionDescriptor {
-    const common = { id: "instance", label: "Instance", icon: <KeyRound className={ICON_PROPS} /> } as const
-    if (!managesRoster(info)) {
-        return {
-            ...common,
-            title: "How it describes itself.",
-            description: `How ${host} describes itself on the sign-in page. You see this because you administer it.`,
-            preview: (
-                <span className={`${FACT_PREVIEW} text-muted-foreground`}>
-                    <span className="text-on">●</span> public · open registration
-                </span>
-            ),
-        }
-    }
-    return {
-        ...common,
-        title: "Description, invitations and password resets.",
-        description: `Description, invitations and password resets for ${host}. You see this because you administer it.`,
-        preview: (
-            <span className={`${FACT_PREVIEW} text-muted-foreground`}>
-                <span className="text-idle">●</span> private{info.users ? ` · ${peopleCount(info.users)}` : ""}
-            </span>
-        ),
-    }
-}
-
 export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModalProps) {
     const { selectSection, instance, shownSection } = useSettingsModalViewModel()
 
@@ -178,8 +151,7 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
     const initials = displayName.slice(0, 2).toUpperCase()
     const handle = user.preferred_username
     const { host } = addressParts(user.address)
-    const sections = instance.kind === "shown" ? [...SECTIONS, instanceSection(host, instance.info)] : SECTIONS
-    const activeDescriptor = sections.find((s) => s.id === shownSection) ?? null
+    const activeDescriptor = SECTIONS.find((s) => s.id === shownSection) ?? null
     const contactPolicy = user.privacy?.contact_policy ?? DEFAULT_CONTACT_POLICY
     const contactPolicyLabel = CONTACT_POLICY_CHOICES.find((c) => c.value === contactPolicy)?.label
 
@@ -188,7 +160,8 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
             <div className="flex h-app w-full max-[700px]:flex-col max-[700px]:overflow-y-auto">
                 {/* LEFT — landing grid */}
                 <div className="relative flex min-w-0 flex-[1.05] flex-col border-r border-line max-[700px]:flex-none max-[700px]:border-b max-[700px]:border-r-0">
-                    <ScrollArea className="min-h-0 flex-1 px-8 pb-7 pt-[30px] max-[1040px]:px-5 max-[1040px]:py-6 max-[700px]:overflow-visible">
+                    {/* Only the tiles scroll: the header, the identity and the instance band stay put. */}
+                    <div className="flex min-h-0 flex-1 flex-col px-8 pb-7 pt-[30px] max-[1040px]:px-5 max-[1040px]:py-6">
                         <SettingsHeader onClose={onClose} />
 
                         <IdentityTile
@@ -200,39 +173,51 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
                             onManageAccount={() => selectSection("profile")}
                         />
 
-                        <div className="grid grid-cols-2 gap-3 max-[1040px]:grid-cols-1">
-                            {sections.map((s) => (
-                                <SettingTile
-                                    key={s.id}
-                                    icon={s.icon}
-                                    label={s.label}
-                                    description={s.description}
-                                    preview={s.id === "privacy" ? <span className={`${FACT_PREVIEW} text-on`}>● {contactPolicyLabel}</span> : s.preview}
-                                    state={s.id === shownSection ? "active" : "idle"}
-                                    onPress={() => selectSection(s.id)}
-                                />
-                            ))}
-                            <SettingTile
-                                icon={<Lock className={ICON_PROPS} />}
-                                label="Sign out"
-                                description="End this session on this device."
-                                state="danger"
-                                onPress={onLogout}
+                        {instance.kind === "shown" && (
+                            <InstanceBand
+                                host={host}
+                                isPrivate={managesRoster(instance.info)}
+                                people={instance.info.users ? peopleCount(instance.info.users) : undefined}
+                                isActive={shownSection === "instance"}
+                                onPress={() => selectSection("instance")}
                             />
-                        </div>
+                        )}
+
+                        <ScrollArea className="-mx-1.5 min-h-0 flex-auto px-1.5 pb-1.5 pt-0.5 max-[700px]:overflow-visible">
+                            <div className="grid grid-cols-2 gap-3 max-[1040px]:grid-cols-1">
+                                {SECTIONS.map((s) => (
+                                    <SettingTile
+                                        key={s.id}
+                                        icon={s.icon}
+                                        label={s.label}
+                                        description={s.description}
+                                        preview={s.id === "privacy" ? <span className={`${FACT_PREVIEW} text-on`}>● {contactPolicyLabel}</span> : s.preview}
+                                        state={s.id === shownSection ? "active" : "idle"}
+                                        onPress={() => selectSection(s.id)}
+                                    />
+                                ))}
+                                <SettingTile
+                                    icon={<Lock className={ICON_PROPS} />}
+                                    label="Sign out"
+                                    description="End this session on this device."
+                                    state="danger"
+                                    onPress={onLogout}
+                                />
+                            </div>
+                        </ScrollArea>
 
                         <p className="mt-[18px] text-right font-mono text-[10px] tracking-[0.06em] text-muted-foreground">
                             Pīna'i v0.9 · {host || "kauai.pinai"} · ESC to close
                         </p>
-                    </ScrollArea>
+                    </div>
                 </div>
 
                 {/* RIGHT — drill-in editor */}
                 <div className="relative flex min-w-0 flex-[0.95] flex-col bg-surf max-[700px]:min-h-[420px] max-[700px]:flex-none">
-                    {activeDescriptor === null ? (
-                        <div className={editorFrame} aria-busy="true" />
-                    ) : activeDescriptor.id === "instance" && instance.kind === "shown" ? (
+                    {shownSection === "instance" && instance.kind === "shown" ? (
                         <InstanceEditor host={host} info={instance.info} />
+                    ) : activeDescriptor === null ? (
+                        <div className={editorFrame} aria-busy="true" />
                     ) : activeDescriptor.id === "profile" ? (
                         <ProfileEditor user={user} />
                     ) : activeDescriptor.id === "security" ? (

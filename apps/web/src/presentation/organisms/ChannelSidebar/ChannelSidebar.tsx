@@ -1,9 +1,8 @@
-import { ChevronDown, Hash, Plus, Users, Volume2 } from "lucide-react"
+import { ChevronDown, Hash, Users, Volume2 } from "lucide-react"
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { Button } from "react-aria-components"
 import { useAppStore } from "@/store/store"
-import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { Motif } from "@/presentation/atoms/motif/motif"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { SearchField } from "@/presentation/atoms/SearchField/SearchField"
@@ -11,6 +10,7 @@ import { Menu, type MenuItemDescriptor } from "@/presentation/molecules/Menu/Men
 import { cn } from "@/presentation/_libs/utils"
 import { UserPanel } from "./UserPanel"
 import { DmListItem } from "./DmListItem/DmListItem"
+import { NewGroupButton } from "./NewGroupButton/NewGroupButton"
 import { UnreadPill } from "./UnreadPill/UnreadPill"
 import { sidebarRowClass, sidebarRowOnClass } from "./sidebar-row.styles"
 
@@ -24,6 +24,7 @@ export function ChannelSidebar() {
     const localDmConvos = useAppStore((s) => s.localDmConvos)
     const activeDm = useAppStore((s) => s.activeDm)
     const openGroupComposer = useAppStore((s) => s.openGroupComposer)
+    const groupComposerOpen = useAppStore((s) => s.groupComposer !== null)
     const switchToDms = useAppStore((s) => s.switchToDms)
     const navigate = useNavigate()
 
@@ -143,17 +144,7 @@ export function ChannelSidebar() {
 
                         <div className="mb-[7px] mt-4 flex items-center justify-between pl-2">
                             <p className="eye">Direct Messages</p>
-                            <IconButton
-                                variant="ghost"
-                                aria-label="New group"
-                                onPress={() => openGroupComposer()}
-                                className="relative h-[26px] w-[26px]"
-                            >
-                                <Users className="h-4 w-4" />
-                                <span className="absolute bottom-px right-px flex h-3 w-3 items-center justify-center rounded-full bg-acc text-acc-ink shadow-[0_0_0_2px_var(--background)]">
-                                    <Plus className="h-2 w-2" strokeWidth={3} />
-                                </span>
-                            </IconButton>
+                            <NewGroupButton isOpen={groupComposerOpen} onPress={() => openGroupComposer()} />
                         </div>
 
                         {localDmConvos.map((dm) => (

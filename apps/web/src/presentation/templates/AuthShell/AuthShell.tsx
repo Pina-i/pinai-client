@@ -32,8 +32,28 @@ const DEFAULT_HEADLINE = (
     </>
 )
 
-const DEFAULT_DESCRIPTION =
-    "A community space you host yourself. Federated by design, owned by the people who gather in it."
+/** A phrase of the description, underlined in one of the palette's colours. */
+function Stress({ children, className }: { children: ReactNode; className: string }) {
+    return (
+        <span
+            className={cn(
+                "font-medium text-foreground underline decoration-[1.5px] underline-offset-4",
+                className,
+            )}
+        >
+            {children}
+        </span>
+    )
+}
+
+const DEFAULT_DESCRIPTION = (
+    <>
+        <Stress className="decoration-foreground">Group chat</Stress> that{" "}
+        <Stress className="decoration-sec">respects your privacy</Stress>.{" "}
+        <Stress className="decoration-acc">Open source</Stress>, and hosted on a{" "}
+        <Stress className="decoration-acc">server you choose</Stress>.
+    </>
+)
 
 export function AuthShell({
     children,
