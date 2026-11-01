@@ -50,7 +50,6 @@ export const UserPanel = memo(function UserPanel() {
                                 initials={initials}
                                 imageUrl={user.avatar_url}
                                 size="sm"
-                                status={myStatus}
                             />
                             {notifications.muteAll && (
                                 <span

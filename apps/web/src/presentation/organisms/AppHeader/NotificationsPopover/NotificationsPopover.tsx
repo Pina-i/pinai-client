@@ -256,11 +256,15 @@ export function NotificationsPopover() {
                     variant="ghost"
                     isActive={isOpen}
                     aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
-                    className={cn("relative h-[34px] w-[34px]", isOpen && "bg-surf3")}
+                    className={cn(
+                        "h-[34px] w-auto gap-[5px]",
+                        unreadCount > 0 ? "pl-2 pr-2.5 text-foreground" : "px-2",
+                        isOpen && "bg-surf3",
+                    )}
                 >
                     <Bell className="h-[18px] w-[18px]" />
                     {unreadCount > 0 && (
-                        <span className="absolute right-1 top-1 h-2 w-2 rounded-full border-2 border-background bg-sec" />
+                        <span className="font-mono text-[11px] font-medium text-acc">{unreadCount}</span>
                     )}
                 </IconButton>
             }
