@@ -219,9 +219,11 @@ via a release PR — the root `README.md` § Releasing.
   renders `/oauth-client.json` (built with a stand-in origin, replaced by
   `{{env "PUBLIC_ORIGIN"}}`) and `/config.js` (`docker/config.js`) from the container's
   environment at each request. `docker/entrypoint.sh` refuses an origin that isn't one, as
-  browsers write it. `/config.js` sets `window.PINAI_CONFIG`, which
-  `presentation/_libs/deployment-config.ts` prefers over the build's `VITE_*` values;
-  `apps/web/public/config.js`, the one a checkout serves, sets nothing.
+  browsers write it. `/config.js` sets `window.PINAI_CONFIG`
+  (`presentation/_libs/deployment-config.ts`), empty for now: where a deployment's own setting
+  would go. `apps/web/public/config.js`, the one a checkout serves, sets nothing either. What an
+  instance decides — the GIF picker's Klipy key — comes from the instance's NodeInfo
+  (`metadata.gifs`), never from a deployment or a build.
 - **The web build's CSP is in the document**: the build puts a `<meta>` Content-Security-Policy
   right after `<meta charset>` (`apps/web/vite-plugins/content-security-policy.ts`), the desktop
   app's included. Scripts are the app's own only, its inline ones allowed by their sha256,
@@ -235,8 +237,7 @@ via a release PR — the root `README.md` § Releasing.
 - **The build context is the repo root**: the build needs `packages/*`, the workspace files
   and `crypto/openmls-wasm`. The web stage gets `crypto/openmls-pkg` from the WASM stage and
   not the crate's sources, so `scripts/build-wasm.mjs` finds it current and never looks for
-  `wasm-pack`. `.dockerignore` keeps local `.env*` files, which can hold a Klipy key, out of
-  the image.
+  `wasm-pack`. `.dockerignore` keeps local `.env*` files out of the image.
 - **SPA routing**: every path that isn't a file falls back to `index.html`. `/assets/*` is
   cached for good (Vite names it by content), everything else revalidated.
 
@@ -365,7 +366,6 @@ for a known IdP.
 ## Environment Variables
 
 ```env
-VITE_KLIPY_API_KEY=                            # optional; enables the GIF picker (Klipy)
 PUBLIC_ORIGIN=https://app.example.com          # required by `vite build`: the origin the build
                                                #   is served from, written into
                                                #   /oauth-client.json. Not read in dev

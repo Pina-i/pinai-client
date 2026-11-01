@@ -1,18 +1,38 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
-import { KLIPY_API_KEY } from "@/presentation/_libs/deployment-config"
+import { gifSearchKeyUseCase } from "@pinai/domain/usecases/instance/gif-search-key.usecase"
+import { getNodeInfoPort } from "@/ioc"
+import { useAppStore } from "@/store/store"
 
 /**
  * Klipy v1 wrapper.
  *
- * Wired only when the deployment has a key (`KLIPY_API_KEY` in the published image,
- * `VITE_KLIPY_API_KEY` in a build). Without a key the popover renders a "not
- * configured" placeholder instead of calling the API.
+ * The key is the signed-in instance's, from its NodeInfo (`KLIPY_API_KEY` on the IdP). Without
+ * one the popover renders a "not configured" placeholder instead of calling the API.
  *
  * Endpoint reference: https://docs.klipy.com (auth via api key in URL path).
  */
 const KLIPY_BASE = "https://api.klipy.com/api/v1"
 
-export const KLIPY_ENABLED = KLIPY_API_KEY.length > 0
+/**
+ * The key the picker searches with: `undefined` while it is being read, `null` for none. Read once
+ * a page load: a key changes about never, and a reload picks up a new one. An instance that can't
+ * be read counts as none until the popover's next opening asks again.
+ */
+export function useGifSearchKey(): string | null | undefined {
+    const idpUrl = useAppStore((s) => s.idpUrl)
+    const { data, isError } = useQuery({
+        queryKey: ["gif-search-key", idpUrl],
+        queryFn: () => gifSearchKeyUseCase(idpUrl!, getNodeInfoPort()),
+        enabled: idpUrl !== null,
+        staleTime: Infinity,
+        // Kept while the popover is closed, or each opening would read NodeInfo again.
+        gcTime: Infinity,
+    })
+    if (idpUrl === null) return null
+    // A key read stays good even when a later read fails.
+    if (data !== undefined) return data
+    return isError ? null : undefined
+}
 
 /** Stable per-browser id Klipy uses for de-duplication / pagination affinity. */
 function customerId(): string {
@@ -92,10 +112,13 @@ function parseResults(raw: KlipyEnvelope | undefined): KlipyGif[] {
         .filter((g): g is KlipyGif => g != null && g.gifUrl.length > 0)
 }
 
-export function useKlipySearch(query: string): { gifs: KlipyGif[]; isLoading: boolean } {
+export function useKlipySearch(
+    query: string,
+    apiKey: string | null | undefined,
+): { gifs: KlipyGif[]; isLoading: boolean } {
     const trimmed = query.trim()
     const { data, isLoading } = useQuery({
-        queryKey: ["klipy", "search", trimmed],
+        queryKey: ["klipy", apiKey, "search", trimmed],
         queryFn: async () => {
             const params = new URLSearchParams({
                 page: "1",
@@ -104,12 +127,12 @@ export function useKlipySearch(query: string): { gifs: KlipyGif[]; isLoading: bo
             })
             const path = trimmed.length > 0 ? "search" : "trending"
             if (trimmed.length > 0) params.set("q", trimmed)
-            const endpoint = `${KLIPY_BASE}/${KLIPY_API_KEY}/gifs/${path}?${params.toString()}`
+            const endpoint = `${KLIPY_BASE}/${encodeURIComponent(apiKey!)}/gifs/${path}?${params.toString()}`
             const resp = await fetch(endpoint)
             if (!resp.ok) throw new Error(`Klipy request failed: ${resp.status}`)
             return resp.json() as Promise<KlipyEnvelope>
         },
-        enabled: KLIPY_ENABLED,
+        enabled: Boolean(apiKey),
         staleTime: 5 * 60 * 1000,
         // Keep the previous category's grid on screen while the next one fetches,
         // so the popover doesn't flash an empty/"Searching…" state on category swaps.

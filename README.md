@@ -128,7 +128,6 @@ services:
       - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8081}:8080"
     environment:
       PUBLIC_ORIGIN: https://${DOMAIN:?set it in .env}
-      KLIPY_API_KEY: ${KLIPY_API_KEY:-}
     # Docker keeps container logs forever by default.
     logging:
       driver: json-file
@@ -145,10 +144,10 @@ DOMAIN=app.example.org
 # Optional
 # The port the app is published on, on 127.0.0.1, for your proxy: 8081 unset.
 PORT=8091
-# Enables the GIF picker (https://docs.klipy.com): no GIFs unset. Every browser
-# that loads the app receives it, so it is no secret.
-KLIPY_API_KEY=your-klipy-key
 ```
+
+GIFs are the instance's business, not the web app's: each identity provider hands its own Klipy
+key to its members' clients, web and desktop (`KLIPY_API_KEY` in its `.env`).
 
 People type their instance's address, and the app remembers the last one; a link to
 `/?instance=chat.example.org` fills it in. `deploy/.env.example` lists every setting.
@@ -325,15 +324,17 @@ it can read, a user can read.
 
 | Variable | Effect |
 |---|---|
-| `VITE_KLIPY_API_KEY` | Enables the GIF picker. Without it the picker renders a note saying so. |
 | `PUBLIC_ORIGIN` | Required by `pnpm build`: the origin the build is served from, written into its `/oauth-client.json`. The dev server answers for the host it is reached on instead. |
 
-The published image is built without them, so that one image serves every
-deployment: it reads `PUBLIC_ORIGIN` and `KLIPY_API_KEY` from
-the container's environment and serves them, at each request, in
-`/oauth-client.json` and `/config.js` (`docker/Caddyfile`). What `/config.js` sets
-wins over the build's values; `apps/web/public/config.js`, the one a checkout
-serves, sets none.
+The published image is built without it, so that one image serves every
+deployment: it reads `PUBLIC_ORIGIN` from the container's environment and serves
+it, at each request, in `/oauth-client.json` (`docker/Caddyfile`). `/config.js`,
+rendered the same way, is where a deployment's own settings would go; it sets none
+yet, nor does `apps/web/public/config.js`, the one a checkout serves.
+
+The GIF picker's Klipy key is no build or deployment setting: the instance someone
+signs in to hands it out in its NodeInfo (`metadata.gifs`, from `KLIPY_API_KEY` on
+the identity provider), to the web and desktop apps alike.
 
 Sensitive configuration is supplied by the user at runtime, never baked into
 the build.
@@ -366,7 +367,6 @@ sets that version and makes the tags, from commit messages written as
 `main` it opens or refreshes a release PR, which sets the next version and adds
 its section to `CHANGELOG.md`. Merging that PR tags `vX.Y.Z` with a draft
 release, which `ci.yml` publishes once the image and the installers exist.
-The optional `KLIPY_API_KEY` repository secret turns on GIFs in the desktop app.
 
 - **The version.** In 0.x, a breaking change (`feat!:`, a `BREAKING CHANGE:`
   footer) opens a new minor, anything else a patch. `deploy/compose.yaml` follows

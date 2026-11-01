@@ -211,6 +211,12 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   platform's token store and an injected `dropSession`, and is ignored where
   `browserSession` is false: no link opens the desktop app.
 
+### models/gif-search.ts + usecases/instance/gif-search-key.usecase.ts
+- The GIF picker's Klipy key is the signed-in instance's, handed out in its NodeInfo
+  (`metadata.gifs`, `nodeInfoKlipyKey`), and no one else's: the desktop app has no deployment of
+  its own, and the web app's host is not the instance's admin. No key, no picker. `klipyKey`
+  admits what the IdP does: the key goes into a URL path.
+
 ### models/instance-admin.ts + ports/instance-admin.port.ts
 - Settings → Instance, an admin's panel on open and invite-only instances
   alike (`managesInstance(admin, info)`). `managesRoster(info)` — the members,
