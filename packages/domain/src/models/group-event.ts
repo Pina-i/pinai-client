@@ -1,5 +1,5 @@
 import type { GroupRole } from "./group"
-import { actorUriToAddress, addressParts } from "./identity"
+import { personName } from "./identity"
 
 export type GroupEventKind = "created" | "added" | "removed" | "left" | "renamed" | "role_changed"
 
@@ -27,9 +27,9 @@ export interface GroupEvent {
 /** The line a group's conversation shows for one of its changes, to the reader `me`. */
 export function describeGroupEvent(event: GroupEvent, me: string): string {
     const byMe = event.actorUri === me
-    const by = byMe ? "You" : nameOf(event.actorUri, event.actorDisplayName)
+    const by = byMe ? "You" : personName(event.actorUri, event.actorDisplayName)
     const subject = event.subjectUri ?? event.actorUri
-    const whom = subject === me ? "you" : nameOf(subject, event.subjectDisplayName ?? null)
+    const whom = subject === me ? "you" : personName(subject, event.subjectDisplayName ?? null)
     switch (event.event) {
         case "created":
             return `${by} created the group`
@@ -45,9 +45,4 @@ export function describeGroupEvent(event: GroupEvent, me: string): string {
             if (event.role === "admin") return `${by} made ${whom} an admin`
             return subject === event.actorUri ? `${by} stepped down as admin` : `${by} removed ${whom} as admin`
     }
-}
-
-// The handle stands in only when the instance has no name for them.
-function nameOf(actorUri: string, displayName: string | null): string {
-    return displayName ?? addressParts(actorUriToAddress(actorUri)).handle
 }
