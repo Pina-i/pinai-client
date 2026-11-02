@@ -37,7 +37,7 @@ domain as `IKeyDirectoryPort`, which is what keeps the two independent.
 - Errors are unwrapped from `HTTPError` into plain `Error` with the server's
   message where there is one, so use cases do not import `ky` to read a
   failure. The DM, group, social, privacy, key-directory, session, admin, TOTP
-  and device-directory adapters and the history wipe, whose refusals the UI tells
-  apart, raise the domain's `IdpError` instead
+  and device-directory adapters and the history upload and wipe, whose refusals the
+  client tells apart, raise the domain's `IdpError` instead
   (`idp-error.ts`): status, `error` code and `actor_uri`, with the
   `error_description` as the message. Match on the code, never the words.

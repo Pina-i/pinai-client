@@ -23,9 +23,11 @@ import type {
     ActorUri,
     ApplicationMessage,
     AttachmentBlobKey,
+    EditBody,
     ReactionBody,
     TextBody,
 } from "@pinai/domain/models/e2ee"
+import { archivedEdit, archivedReaction, archivedText } from "@pinai/domain/models/history-archive"
 import type { UserProfile } from "@pinai/domain/models/auth"
 import type { MessageListHandle } from "@/presentation/organisms/MessageList/MessageList"
 
@@ -135,6 +137,22 @@ async function mapApiMessage(
     // genuinely-transient decrypt failures stay visible.
     if (!app) return { kind: "skip" }
 
+    const sender = { address: senderAddress, displayName }
+    if (app.kind === "text") {
+        getE2eePort().bufferForArchive(
+            msg.conversation_id,
+            msg.id,
+            archivedText(sender, msg.created_at, app.body as TextBody, msg.attachments),
+        )
+    } else if (app.kind === "edit") {
+        // An edited message's ciphertext is the edit's; the archive may hold its first text.
+        getE2eePort().bufferForArchive(
+            msg.conversation_id,
+            crypto.randomUUID(),
+            archivedEdit(sender, msg.edited_at ?? msg.created_at, app.body as EditBody),
+        )
+    }
+
     if (app.kind === "reaction") {
         const body = app.body as ReactionBody
         if (
@@ -143,6 +161,7 @@ async function mapApiMessage(
             typeof body.emoji === "string" &&
             (body.op === "add" || body.op === "remove")
         ) {
+            getE2eePort().bufferForArchive(msg.conversation_id, msg.id, archivedReaction(sender, msg.created_at, body))
             return {
                 kind: "reaction",
                 reaction_message_id: msg.id,
@@ -501,6 +520,17 @@ export function useConversationPageViewModel(name: string) {
         async (optimisticId: string, intent: SendIntent) => {
             if (!accessToken || !idpUrl || !user) return
             const optimisticKey = intent.conversationId
+            const textBody: TextBody = { text: intent.content }
+            if (intent.replyTo) {
+                textBody.reply_meta = {
+                    target_message_id: intent.replyTo.id,
+                    preview_text: intent.replyTo.content,
+                    preview_sender: intent.replyTo.author,
+                }
+            }
+            if (intent.attachmentKeys.length > 0) {
+                textBody.attachments = intent.attachmentKeys
+            }
 
             const reconcileToServer = (dm: DirectMessage) => {
                 const mapped: Message = {
@@ -529,6 +559,17 @@ export function useConversationPageViewModel(name: string) {
                 }
                 reconcileDmMessage(optimisticKey, optimisticId, mapped)
                 pendingIntentsRef.current.delete(optimisticId)
+                // Not left to the echo: the answer may beat it, and a group's echo carries no client id.
+                getE2eePort().bufferForArchive(
+                    intent.conversationId,
+                    dm.id,
+                    archivedText(
+                        { address: user.address, displayName: mapped.author },
+                        dm.created_at,
+                        textBody,
+                        dm.attachments,
+                    ),
+                )
             }
 
             const markFailed = (e: unknown, stage: string) => {
@@ -561,17 +602,6 @@ export function useConversationPageViewModel(name: string) {
                 }
             }
 
-            const textBody: TextBody = { text: intent.content }
-            if (intent.replyTo) {
-                textBody.reply_meta = {
-                    target_message_id: intent.replyTo.id,
-                    preview_text: intent.replyTo.content,
-                    preview_sender: intent.replyTo.author,
-                }
-            }
-            if (intent.attachmentKeys.length > 0) {
-                textBody.attachments = intent.attachmentKeys
-            }
             const appMessage: ApplicationMessage<TextBody> = {
                 version: 1,
                 kind: "text",

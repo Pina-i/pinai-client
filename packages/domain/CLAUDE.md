@@ -365,6 +365,31 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   show nothing for one that doesn't decrypt (MLS never decrypts a
   device's own).
 
+### models/history-archive.ts + usecases/e2ee/restore-history-from-passphrase.usecase.ts
+- `ArchiveEnvelope` — an archive entry before it is sealed: a message or an
+  edit, its sender, its instant, and a message's attachments as the IdP
+  lists them (`MessageItem` renders from that list; the keys alone show
+  nothing). `archivedText` / `archivedEdit` build it; nothing else should.
+- A message is archived wherever this device first holds its text: the
+  send's answer (and its echo, for an answer that never came), a live
+  decrypt, a decrypt on opening the conversation. An edit is its own entry
+  under a fresh id, the edited message's sender as its sender. A reaction is
+  its own entry under its message id (`sendReactionUseCase` answers the row),
+  removals included, or a removed reaction would come back.
+- `encodeArchiveEnvelope` / `decodeArchiveEnvelope` — JSON, with byte
+  fields (attachment keys) written `{ $bytes: [...] }`: plain JSON turns a
+  `Uint8Array` into an object no cipher takes back.
+- `restoredMessages(entries)` — the archive as messages, oldest first: each
+  text once, the latest of its sender's edits applied, in its conversation,
+  with the reactions still on it — each reactor's last add or remove per
+  emoji, so one archived twice counts once.
+- `reactionsToReplay(cached, restored)` — the restore applies reactions
+  through the store's `applyReaction`, which records each id: the history
+  load may decrypt one again (sent after the device joined). Only for the
+  messages the cache doesn't hold decrypted — a held copy wins, reactions
+  included.
+- `ARCHIVE_UPLOAD_LIMIT` — the IdP takes 50 entries per upload.
+
 ### models/idp-error.ts
 - `IdpError` — a refusal as the IdP sent it: status, `error` code, the
   `error_description` as the message, and the `actor_uri` it names (the

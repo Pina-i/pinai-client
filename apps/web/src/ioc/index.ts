@@ -40,9 +40,7 @@ import { PresenceApiAdapter } from "@pinai/api/presence/presence-api.adapter"
 import { TotpApiAdapter } from "@pinai/api/totp/totp-api.adapter"
 import { UserApiAdapter } from "@pinai/api/user/user-api.adapter"
 import { UserSettingsApiAdapter } from "@pinai/api/user-settings/user-settings-api.adapter"
-import { getAccountStorage, getSharedE2eeStorage, useAppStore } from "@/store/store"
-import type { ArchiveEnvelope, AttachmentBlobKey, TextBody } from "@pinai/domain/models/e2ee"
-import type { Message } from "@/lib/types"
+import { getAccountStorage, getSharedE2eeStorage } from "@/store/store"
 import type { IAttachmentCryptoPort } from "@pinai/domain/ports/attachment-crypto.port"
 import type { IAccountStoragePort } from "@pinai/domain/ports/account-storage.port"
 import type { IAppUpdatesPort } from "@pinai/domain/ports/app-updates.port"
@@ -145,60 +143,6 @@ const e2eePort: IE2eePort = new E2eeAdapter(
     new NobleRecoveryAdapter(),
     historyArchivePort,
     historyArchiveCrypto,
-    (conversationId, messageId, plaintext) => {
-        // Push restored archive entries into the dm slice as if MLS just
-        // decrypted them. `plaintext` is the buffered ArchiveEnvelope JSON
-        // (sender + created_at + ApplicationMessage).
-        try {
-            const json = new TextDecoder().decode(plaintext)
-            const envelope = JSON.parse(json) as ArchiveEnvelope
-            if (envelope.v !== 1) return
-            const app = envelope.app
-            // Reactions/edits depend on the target row existing; skip
-            // here and let the conversation viewmodel reapply them
-            // from REST history on next mount.
-            if (app.kind !== "text") return
-            const body = app.body as TextBody
-            const displayName =
-                envelope.sender_display_name?.trim() ||
-                envelope.sender_address.split("@")[0] ||
-                "Restored"
-            const attachmentKeys: Record<string, AttachmentBlobKey> | undefined = body.attachments
-                ?.length
-                ? Object.fromEntries(body.attachments.map((k) => [k.id, k]))
-                : undefined
-            const createdAt = envelope.created_at
-            const createdDate = new Date(createdAt)
-            const message: Message = {
-                id: messageId,
-                author: displayName,
-                authorAddress: envelope.sender_address,
-                avatar: displayName.slice(0, 2).toUpperCase(),
-                content: body.text ?? "",
-                timestamp: createdDate.toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                }),
-                createdAt,
-                color: "#a78bfa",
-                attachments: [],
-                ...(attachmentKeys ? { attachmentKeys } : {}),
-                ...(body.reply_meta
-                    ? {
-                          replyTo: {
-                              id: body.reply_meta.target_message_id,
-                              content: body.reply_meta.preview_text,
-                              author: body.reply_meta.preview_sender,
-                          },
-                      }
-                    : {}),
-            }
-            useAppStore.getState().pushDmMessage(conversationId, message)
-        } catch (err) {
-            // eslint-disable-next-line no-console
-            console.warn("[history-restore] failed to parse archived envelope", err)
-        }
-    },
 )
 
 export function getAuthPort(): IAuthPort {

@@ -6,6 +6,7 @@ import type {
     Fingerprint,
     KeyPackageStatusResponse,
 } from "../models/e2ee"
+import type { ArchiveEnvelope, ArchivedEntry } from "../models/history-archive"
 
 /**
  * High-level, transport-agnostic E2EE operations the rest of the app
@@ -286,15 +287,10 @@ export interface IE2eePort {
     getCachedPassphrase(): Promise<string[] | null>
 
     /**
-     * Buffer a freshly decrypted plaintext for the history archive. No-op when
-     * the archive is unwired. Called by the WS hook on every inbound decrypt,
-     * so it is part of the port, not an adapter detail.
+     * Queue an entry for the history archive: a message this device sent or read, or an edit.
+     * An id is queued once per page load; a no-op when the archive is unwired.
      */
-    bufferDecryptedForArchive(
-        conversationId: ConversationId,
-        messageId: string,
-        plaintext: Uint8Array,
-    ): void
+    bufferForArchive(conversationId: ConversationId, entryId: string, entry: ArchiveEnvelope): void
 
     /**
      * History-archive upload lifecycle — the auth layout starts/stops these. The access token is
@@ -304,15 +300,14 @@ export interface IE2eePort {
     stopFlushing(): void
 
     /**
-     * Decrypt the server-side archive under the passphrase, push restored
-     * entries via the `onPlaintextRestored` callback. `skipped` counts
+     * Decrypt the server-side archive under the passphrase. `skipped` counts
      * AES-GCM auth-tag failures (wrong passphrase, unrelated archive).
      */
     restoreHistoryFromPassphrase(
         idpUrl: string,
         accessToken: string,
         passphrase: string[],
-    ): Promise<{ restored: number; skipped: number }>
+    ): Promise<{ entries: ArchivedEntry[]; skipped: number }>
 
     /** Wipe server archive + drop local passphrase + purge cached History Archive Key. */
     clearHistoryBackup(idpUrl: string, accessToken: string): Promise<void>

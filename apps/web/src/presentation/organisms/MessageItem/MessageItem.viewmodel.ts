@@ -9,6 +9,7 @@ import { sendReactionUseCase, type ConversationRoute } from "@pinai/domain/useca
 import { getDmPort, getE2eePort, getGroupPort } from "@/ioc"
 import type { Message } from "@/lib/types"
 import { awaitsResend } from "@pinai/domain/models/dm"
+import { archivedEdit, archivedReaction } from "@pinai/domain/models/history-archive"
 
 /**
  * Decode a base64 string to bytes / encode bytes to base64. Same
@@ -90,6 +91,17 @@ export function useMessageItemViewModel(
         try {
             const ciphertext = await getE2eePort().encryptOutbound(conversationKey, editMessage)
             await getDmPort().editMessage(idpUrl, accessToken, message.id, bytesToB64(ciphertext))
+            if (message.authorAddress) {
+                getE2eePort().bufferForArchive(
+                    conversationKey,
+                    crypto.randomUUID(),
+                    archivedEdit(
+                        { address: message.authorAddress, displayName: message.author },
+                        new Date().toISOString(),
+                        editMessage.body,
+                    ),
+                )
+            }
         } catch (e) {
             // Rollback on failure.
             // eslint-disable-next-line no-console
@@ -189,13 +201,22 @@ export function useMessageItemViewModel(
                     conversationKey,
                     reactionMessage,
                 )
-                await sendReactionUseCase(
+                const stored = await sendReactionUseCase(
                     idpUrl,
                     accessToken,
                     route,
                     bytesToB64(ciphertext),
                     getDmPort(),
                     getGroupPort(),
+                )
+                getE2eePort().bufferForArchive(
+                    conversationKey,
+                    stored.id,
+                    archivedReaction(
+                        { address: reactorAddress, displayName: user.display_name },
+                        stored.created_at,
+                        reactionMessage.body,
+                    ),
                 )
             } catch (e) {
                 // eslint-disable-next-line no-console
