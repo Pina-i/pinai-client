@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.1](https://github.com/Pina-i/pinai-client/compare/v0.4.0...v0.4.1) (2026-11-02)
+
+
+### Features
+
+* **domain:** the rule behind the DM sidebar's search ([93f658f](https://github.com/Pina-i/pinai-client/commit/93f658ff3ec721eb344e104a9eb7fef7de161336))
+* **web:** find friends and conversations from the DM sidebar's search ([a2bca09](https://github.com/Pina-i/pinai-client/commit/a2bca095cc6d3aa422a5553ad669382b3a7b45fa))
+* **web:** find friends and conversations from the DM sidebar's search ([e491398](https://github.com/Pina-i/pinai-client/commit/e491398f8781c64064587c940c51a74a25c49845))
+
 ## [0.4.0](https://github.com/Pina-i/pinai-client/compare/v0.3.0...v0.4.0) (2026-11-01)
 
 
