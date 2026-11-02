@@ -42,6 +42,11 @@ export function addressParts(address: string): { handle: string; host: string } 
     return at < 0 ? { handle: address, host: "" } : { handle: address.slice(0, at), host: address.slice(at + 1) }
 }
 
+/** What to call someone: their display name, the handle only when their instance has none. */
+export function personName(actorUri: string, displayName: string | null): string {
+    return displayName ?? addressParts(actorUriToAddress(actorUri)).handle
+}
+
 /**
  * Inverse of {@link actorUriToAddress}: `username@host` → canonical
  * `<scheme>://<host>/users/<username>`. Used when we hold an address

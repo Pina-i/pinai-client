@@ -415,6 +415,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   or `URL` elsewhere.
 - `addressParts(address)` — `{ handle, host }`, split at the last `@`; the
   host tells a local person from a federated one.
+- `personName(actorUri, displayName)` — the display name, the handle only
+  when the person's instance has none.
 
 ### models/presence.ts
 - `UserStatus` — presence as the UI models it (`online | idle | dnd |
