@@ -4,8 +4,9 @@ import {
     type SearchFieldProps as AriaSearchFieldProps,
 } from "react-aria-components"
 import { Search } from "lucide-react"
-import type { ReactNode } from "react"
+import type { ReactNode, Ref } from "react"
 import { cn } from "@/presentation/_libs/utils"
+import { Kbd } from "@/presentation/atoms/Kbd/Kbd"
 
 export interface SearchFieldProps
     extends Omit<AriaSearchFieldProps, "children" | "className" | "onChange"> {
@@ -16,6 +17,7 @@ export interface SearchFieldProps
     className?: string
     onChange?: (value: string) => void
     "aria-label"?: string
+    inputRef?: Ref<HTMLInputElement>
 }
 
 export function SearchField({
@@ -24,6 +26,7 @@ export function SearchField({
     shortcutHint,
     className,
     onChange,
+    inputRef,
     ...props
 }: SearchFieldProps) {
     const iconNode = icon ?? <Search className="h-[15px] w-[15px] shrink-0" />
@@ -40,14 +43,11 @@ export function SearchField({
         >
             {iconNode}
             <Input
+                ref={inputRef}
                 placeholder={placeholder}
                 className="min-w-0 flex-1 bg-transparent text-foreground placeholder:text-muted-foreground outline-none [&::-webkit-search-cancel-button]:hidden"
             />
-            {shortcutHint && (
-                <span className="ml-auto shrink-0 rounded-full bg-surf3 px-[7px] py-0.5 font-mono text-[9px]">
-                    {shortcutHint}
-                </span>
-            )}
+            {shortcutHint && <Kbd className="ml-auto">{shortcutHint}</Kbd>}
         </AriaSearchField>
     )
 }

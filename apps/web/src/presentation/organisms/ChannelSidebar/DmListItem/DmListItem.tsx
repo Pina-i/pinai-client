@@ -20,6 +20,7 @@ import { useAppStore } from "@/store/store"
 import { useConversationMute } from "@/presentation/hooks/useConversationMute"
 import type { DmConversation } from "@/lib/types"
 import { lastMessagePreview } from "../_helpers/last-message-preview.helper"
+import { groupFact } from "../_helpers/group-fact.helper"
 import { UnreadPill } from "../UnreadPill/UnreadPill"
 import { sidebarRowClass, sidebarRowHotClass, sidebarRowOnClass } from "../sidebar-row.styles"
 
@@ -38,9 +39,7 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
     const preview = dm.kind === "dm" ? lastMessagePreview(messages, myAddress) : null
     // A message preview is prose; a member count or presence label is a machine fact.
     const subline =
-        dm.kind === "group"
-            ? (isRemoved ? "no longer a member" : `${dm.memberCount} ${dm.memberCount === 1 ? "member" : "members"}`)
-            : (preview ?? userStatusLabel(presenceToUserStatus(presence)).toLowerCase())
+        dm.kind === "group" ? groupFact(dm) : (preview ?? userStatusLabel(presenceToUserStatus(presence)).toLowerCase())
     const sublineIsFact = preview == null
 
     const peerActorUri = dm.kind === "dm" ? dm.actorUri : null

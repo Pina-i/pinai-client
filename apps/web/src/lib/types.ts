@@ -84,6 +84,8 @@ export interface DmConversation {
     unread: number
     /** Total participants (the caller + every other active member). */
     memberCount: number
+    /** The other members' display names, the handle only when the IdP has none. */
+    memberNames: string[]
     /** When the user was removed from this group; `null` while they are in it. */
     removedAt: string | null
 }

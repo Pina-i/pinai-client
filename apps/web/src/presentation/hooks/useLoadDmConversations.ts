@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
 import { getDmConversationsUseCase } from "@pinai/domain/usecases/dm/get-dm-conversations.usecase"
 import { getDmPort } from "@/ioc"
-import { actorUriToAddress } from "@pinai/domain/models/identity"
+import { actorUriToAddress, personName } from "@pinai/domain/models/identity"
 import type { DmConversation } from "@/lib/types"
 import { useEffect } from "react"
 
@@ -59,6 +59,7 @@ export function useLoadDmConversations(): void {
                 unread: 0,
                 // `members` excludes the caller, so add 1 for the local user.
                 memberCount: summary.members.length + 1,
+                memberNames: summary.members.map((m) => personName(m.actorUri, m.displayName)),
                 removedAt: summary.removed_at ?? null,
             }
         })

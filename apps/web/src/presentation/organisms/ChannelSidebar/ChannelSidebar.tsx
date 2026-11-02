@@ -5,13 +5,14 @@ import { Button } from "react-aria-components"
 import { useAppStore } from "@/store/store"
 import { Motif } from "@/presentation/atoms/motif/motif"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
-import { SearchField } from "@/presentation/atoms/SearchField/SearchField"
 import { Menu, type MenuItemDescriptor } from "@/presentation/molecules/Menu/Menu"
 import { cn } from "@/presentation/_libs/utils"
 import { UserPanel } from "./UserPanel"
 import { DmListItem } from "./DmListItem/DmListItem"
 import { NewGroupButton } from "./NewGroupButton/NewGroupButton"
 import { UnreadPill } from "./UnreadPill/UnreadPill"
+import { ConversationSearch } from "./ConversationSearch/ConversationSearch"
+import { useConversationSearchShortcut } from "@/presentation/hooks/useConversationSearchShortcut"
 import { sidebarRowClass, sidebarRowOnClass } from "./sidebar-row.styles"
 
 export function ChannelSidebar() {
@@ -27,6 +28,7 @@ export function ChannelSidebar() {
     const groupComposerOpen = useAppStore((s) => s.groupComposer !== null)
     const switchToDms = useAppStore((s) => s.switchToDms)
     const navigate = useNavigate()
+    const { focusPending, searchFocused } = useConversationSearchShortcut()
 
     const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
 
@@ -121,15 +123,7 @@ export function ChannelSidebar() {
                     </ScrollArea>
                 </>
             ) : (
-                <>
-                    <div className="relative p-3">
-                        <SearchField
-                            aria-label="Find or start a conversation"
-                            placeholder="Find or start a conversation"
-                            shortcutHint="⌘K"
-                        />
-                    </div>
-
+                <ConversationSearch focusPending={focusPending} onFocused={searchFocused}>
                     <ScrollArea className="relative flex-1 px-2.5 py-0.5">
                         <Button
                             onPress={() => {
@@ -151,7 +145,7 @@ export function ChannelSidebar() {
                             <DmListItem key={dm.id} dm={dm} />
                         ))}
                     </ScrollArea>
-                </>
+                </ConversationSearch>
             )}
 
             <UserPanel />
