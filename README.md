@@ -119,7 +119,7 @@ services:
   # writes from PUBLIC_ORIGIN; it refuses to start without one.
   # PINAI_WEB_VERSION in .env picks another version than this minor's latest.
   web:
-    image: ghcr.io/pina-i/pinai-web:${PINAI_WEB_VERSION:-0.3}
+    image: ghcr.io/pina-i/pinai-web:${PINAI_WEB_VERSION:-0.4}
     restart: unless-stopped
     read_only: true
     # On loopback unless BIND_ADDRESS says otherwise: ports Docker publishes skip

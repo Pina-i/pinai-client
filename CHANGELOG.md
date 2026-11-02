@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0](https://github.com/Pina-i/pinai-client/compare/v0.3.0...v0.4.0) (2026-11-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* **web:** VITE_KLIPY_API_KEY and the web image's KLIPY_API_KEY are gone, and /config.js sets nothing. Move the key to the identity provider's .env (KLIPY_API_KEY); an instance without one has no GIF picker.
+
+### Features
+
+* **web:** carry the prototype's polish over to the client ([21ee124](https://github.com/Pina-i/pinai-client/commit/21ee124586a6496c7798cb4e6ec97288f17da4a4))
+* **web:** carry the prototype's polish over to the client ([0a5405b](https://github.com/Pina-i/pinai-client/commit/0a5405b9542c21fcfdf2ed98b060826838a00aca))
+* **web:** take the GIF picker's Klipy key from the instance's NodeInfo ([b65867a](https://github.com/Pina-i/pinai-client/commit/b65867a3cdc6554954ccf7654c9a91baf11d9c8d))
+
 ## [0.3.0](https://github.com/Pina-i/pinai-client/compare/v0.2.1...v0.3.0) (2026-10-31)
 
 
