@@ -408,6 +408,20 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   the group opens. Other members leave it to admins, so fewer clients race
   for an epoch. See `identity-provider/specs/e2ee.md § 6.8`.
 
+### models/conversation-search.ts
+- `searchConversations(sources, query)` — the DM sidebar's "Find or start a
+  conversation": friends (`people`), conversations, servers and channels
+  (`places`), each row on its best text (one matching at a word's start before
+  one matching inside a word), rows matching at a word's start first. Only what
+  the sidebar shows is searched: never message text, the last-message preview
+  included.
+- A friend is one row: their 1:1 is left out of `conversations` (every friend
+  has one, minted when the request is accepted), so it only lists groups and
+  1:1s with people who aren't friends. A group is found by a member's name too.
+- `matchText` ignores case, diacritics and the ʻokina / apostrophes — names are
+  written with and without them — and answers a range of the original text, so
+  the mark falls on what is displayed.
+
 ### models/identity.ts
 - `actorUriToAddress(uri)` — only sanctioned converter between
   `http(s)://<host>/users/<handle>` (canonical AP/backend form) and
