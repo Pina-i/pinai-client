@@ -6,6 +6,7 @@ import { reactionsToReplay, type RestoredMessage } from "@pinai/domain/models/hi
 import { addressParts } from "@pinai/domain/models/identity"
 import { restoreHistoryFromPassphraseUseCase } from "@pinai/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
 import { getE2eePort } from "@/ioc"
+import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
 import type { Message } from "@/lib/types"
 import type { RecoveryPassphraseInputHandle } from "@/presentation/molecules/RecoveryPassphraseInput/RecoveryPassphraseInput"
 import {
@@ -82,15 +83,14 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
                 return
             }
             await port.register(idpUrl, accessToken, ownActorUri)
-            await port.registerDevice(idpUrl, accessToken, ownActorUri)
         })()
         let cancelled = false
         bootstrapRef.current
             .then(() => {
                 if (!cancelled) setStatus("ready")
             })
-            .catch((e) => {
-                if (cancelled) return
+            .catch(async (e: unknown) => {
+                if (cancelled || (await signInAgainOnDeviceMismatch(e))) return
                 setStatus("error")
                 setError(e instanceof Error ? e.message : "Could not set up this device.")
             })

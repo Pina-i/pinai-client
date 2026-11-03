@@ -8,9 +8,12 @@
 //!
 //! - [`Provider`] — wraps `OpenMlsRustCrypto` (in-memory keystore + RNG +
 //!   crypto primitives). Held by JS for the lifetime of a session.
-//! - [`Identity`] — Ed25519 signature keypair + `BasicCredential`. One per
-//!   *device*: the user's MSK is generated separately and signs the leaf.
-//! - [`KeyPackage`] — single-use bundle uploaded to the IdP key directory.
+//! - [`Identity`] — a leaf signature key bound to its `BasicCredential`. The key is made first
+//!   ([`Identity::generate_signature_key`]), so the device's root key can sign it into the
+//!   credential before [`Identity::bind`] puts the two together.
+//! - [`KeyPackage`] — single-use bundle uploaded to the IdP key directory; a claimed one shows
+//!   its leaf's credential and signature key, which the device checks before adding it.
+//! - [`hpke`] — HPKE in base mode, the suite key shares are sealed with.
 //! - [`Group`] — wraps `MlsGroup`. Owns commit / welcome / application
 //!   message production and consumption. Built around the strict-state
 //!   "merge_pending_commit after delivery" pattern from RFC 9420.
@@ -47,6 +50,8 @@ use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_traits::{types::Ciphersuite, OpenMlsProvider};
 use tls_codec::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
+
+pub mod hpke;
 
 fn welcome_in(welcome_bytes: &[u8]) -> Result<Welcome, JsError> {
     let mut s = welcome_bytes;
@@ -179,13 +184,12 @@ impl Provider {
 
 // ─── Identity ────────────────────────────────────────────────────────────────
 
-/// Per-device signature key + MLS credential. The credential carries the
-/// `actor_uri` so receivers can map a leaf back to its IdP user.
+/// A leaf signature key + the MLS credential bound to it.
 ///
 /// The actual `SignatureKeyPair` lives in the provider's storage —
 /// holding it directly on this struct exhibited a release-build /
 /// wasm-bindgen interaction where the keypair's `signature_scheme` and
-/// `public/private` byte buffers got zeroed between `Identity::new`
+/// `public/private` byte buffers got zeroed between its creation
 /// and a later `&self` call (`key_package`, `Group::add_member`, etc.).
 /// Keeping only the public-key bytes + scheme tag and re-reading the
 /// keypair from `provider.storage()` on demand sidesteps the issue
@@ -201,8 +205,8 @@ pub struct Identity {
 }
 
 impl Identity {
-    /// Look up the per-device signature keypair that
-    /// [`Identity::new`] stashed in the provider's storage. Returns
+    /// Look up the signature keypair that
+    /// [`Identity::generate_signature_key`] stashed in the provider's storage. Returns
     /// a fresh `SignatureKeyPair` value — short-lived, lives only
     /// for the duration of the caller, never crosses the
     /// wasm-bindgen boundary.
@@ -217,8 +221,7 @@ impl Identity {
             .ok_or_else(|| {
                 JsError::new(
                     "Identity signature keypair missing from provider storage; the provider \
-                     likely lost state across a snapshot round-trip without a matching \
-                     setIdentity call",
+                     likely lost state across a snapshot round-trip",
                 )
             })
     }
@@ -226,66 +229,32 @@ impl Identity {
 
 #[wasm_bindgen]
 impl Identity {
-    /// Generate a fresh leaf-signature keypair and bind it to the given
-    /// `identity` blob. The web client passes the user's `actor_uri` here
-    /// so cross-IdP recipients see a stable identifier in each leaf.
-    #[wasm_bindgen(constructor)]
-    pub fn new(provider: &Provider, identity: &[u8]) -> Result<Identity, JsError> {
-        let credential = BasicCredential::new(identity.to_vec());
+    /// A fresh leaf signature keypair, kept in the provider's storage: its public key, for the
+    /// credential to bind before [`Identity::bind`].
+    pub fn generate_signature_key(provider: &Provider) -> Result<Vec<u8>, JsError> {
         let keypair = SignatureKeyPair::new(SignatureScheme::ED25519)
             .map_err(|e| JsError::new(&format!("Identity keypair gen failed: {e}")))?;
         keypair
             .store(provider.0.storage())
             .map_err(|e| JsError::new(&format!("Identity keypair store failed: {e}")))?;
-        let signature_public_key = keypair.public().to_vec();
-        let credential_with_key = CredentialWithKey {
-            credential: credential.into(),
-            signature_key: signature_public_key.clone().into(),
-        };
-        // The keypair itself is intentionally dropped here — the
-        // canonical copy lives in `provider.storage()` from now on.
-        // See the `signer()` helper above.
-        drop(keypair);
-        Ok(Identity {
-            credential_with_key,
-            signature_public_key,
-            signature_scheme_repr: SignatureScheme::ED25519 as u16,
-        })
+        Ok(keypair.public().to_vec())
     }
 
-    /// Rebind an existing leaf-signature keypair that already lives in
-    /// `provider.storage()` — typically because a snapshot was just
-    /// restored. Unlike [`Identity::new`] this does **not** generate a
-    /// fresh keypair: it looks up the one indexed by the supplied
-    /// `signature_public_key` and wires it into a fresh `Identity`. The
-    /// caller is expected to recover the public key from a restored
-    /// `Group`'s leaf credential (matching the device's `actor_uri` +
-    /// `device_id`) so that subsequent encrypts continue to sign with
-    /// the same key the recipient already has in its tree.
+    /// Bind `credential` to a keypair already in `provider.storage()` — made by
+    /// [`Identity::generate_signature_key`], or restored with a snapshot.
     ///
-    /// Errors if no matching keypair is in provider storage — that
-    /// indicates the snapshot didn't include the keypair, so falling
-    /// back to [`Identity::new`] is the only safe move.
-    pub fn restore(
+    /// Errors if no matching keypair is in provider storage.
+    pub fn bind(
         provider: &Provider,
-        identity: &[u8],
+        credential: &[u8],
         signature_public_key: Vec<u8>,
     ) -> Result<Identity, JsError> {
         let scheme = SignatureScheme::ED25519;
-        // Verify the keypair is actually in storage before handing back
-        // an Identity — `signer()` would surface this later, but
-        // failing fast here gives the caller a clean signal to fall
-        // back to fresh-key generation.
-        let _exists = SignatureKeyPair::read(provider.0.storage(), &signature_public_key, scheme)
-            .ok_or_else(|| {
-                JsError::new(
-                    "Identity::restore: no keypair in provider storage for the supplied \
-                     signature_public_key — caller should fall back to Identity::new",
-                )
-            })?;
-        let credential = BasicCredential::new(identity.to_vec());
+        SignatureKeyPair::read(provider.0.storage(), &signature_public_key, scheme).ok_or_else(|| {
+            JsError::new("Identity::bind: no keypair in provider storage for this signature key")
+        })?;
         let credential_with_key = CredentialWithKey {
-            credential: credential.into(),
+            credential: BasicCredential::new(credential.to_vec()).into(),
             signature_key: signature_public_key.clone().into(),
         };
         Ok(Identity {
@@ -329,6 +298,16 @@ impl KeyPackage {
         self.0
             .tls_serialize_detached()
             .map_err(|e| JsError::new(&format!("KeyPackage serialize failed: {e}")))
+    }
+
+    /// The identity bytes of its leaf's `BasicCredential`.
+    pub fn credential_bytes(&self) -> Vec<u8> {
+        self.0.leaf_node().credential().serialized_content().to_vec()
+    }
+
+    /// Its leaf's raw Ed25519 signature key, which the credential's leaf binding must sign.
+    pub fn signature_public_key(&self) -> Vec<u8> {
+        self.0.leaf_node().signature_key().as_slice().to_vec()
     }
 
     /// Validate and parse a TLS-encoded KeyPackage fetched from the IdP.
@@ -385,11 +364,9 @@ impl CommitOutput {
     }
 }
 
-/// One leaf in the MLS tree. Returned by [`Group::list_members`] —
-/// the JS layer parses `credential_bytes` back into its
-/// `(actor_uri, device_id)` JSON shape to find the leaf for a
-/// specific device when revoking.
+/// One leaf in the MLS tree: its index, its credential's identity bytes, its signature key.
 #[wasm_bindgen]
+#[derive(Clone, PartialEq, Eq)]
 pub struct GroupMember {
     leaf_index: u32,
     credential_bytes: Vec<u8>,
@@ -432,6 +409,7 @@ pub enum ProcessedKind {
 pub struct ProcessedMessage {
     kind: ProcessedKind,
     application: Vec<u8>,
+    leaves_met: Vec<GroupMember>,
 }
 
 #[wasm_bindgen]
@@ -444,6 +422,12 @@ impl ProcessedMessage {
     #[wasm_bindgen(getter)]
     pub fn application(&self) -> Vec<u8> {
         self.application.clone()
+    }
+    /// For a commit: the leaves it brought in or replaced — added, or another member's updated by a
+    /// proposal or the commit's path —, this device's own left out. Empty otherwise.
+    #[wasm_bindgen(getter)]
+    pub fn leaves_met(&self) -> Vec<GroupMember> {
+        self.leaves_met.clone()
     }
 }
 
@@ -615,10 +599,7 @@ impl Group {
         Ok(out)
     }
 
-    /// Enumerate every active leaf in the group. Each entry carries
-    /// the leaf's index (used by [`Group::remove_member`]) and the
-    /// raw credential bytes (parsed by JS to recover its
-    /// `(actor_uri, device_id)` shape).
+    /// Every leaf of the group, its index the one [`Group::remove_member`] takes.
     pub fn list_members(&self) -> Vec<GroupMember> {
         self.mls_group
             .members()
@@ -628,6 +609,11 @@ impl Group {
                 signature_public_key: m.signature_key,
             })
             .collect()
+    }
+
+    /// This device's own leaf.
+    pub fn own_leaf_index(&self) -> u32 {
+        self.mls_group.own_leaf_index().u32()
     }
 
     /// The numeric group epoch — used by the IdP DS to enforce a strict
@@ -688,6 +674,30 @@ impl Group {
         let commit_bundle = self
             .mls_group
             .self_update(&provider.0, &signer, LeafNodeParameters::default())
+            .map_err(|e| JsError::new(&format!("self_update failed: {e}")))?;
+        Ok(CommitOutput {
+            commit: serialize_message(&commit_bundle.into_messages().0)?,
+        })
+    }
+
+    /// Commits this device's own leaf again with `credential`, over the signature key it carries:
+    /// a leaf credential made before its leaf binding, or before an attestation renewed. One
+    /// Commit, merged like the others once the DS took it.
+    pub fn update_credential(
+        &mut self,
+        provider: &Provider,
+        credential: &[u8],
+    ) -> Result<CommitOutput, JsError> {
+        let signer = self.signer(provider)?;
+        let parameters = LeafNodeParameters::builder()
+            .with_credential_with_key(CredentialWithKey {
+                credential: BasicCredential::new(credential.to_vec()).into(),
+                signature_key: signer.public().into(),
+            })
+            .build();
+        let commit_bundle = self
+            .mls_group
+            .self_update(&provider.0, &signer, parameters)
             .map_err(|e| JsError::new(&format!("self_update failed: {e}")))?;
         Ok(CommitOutput {
             commit: serialize_message(&commit_bundle.into_messages().0)?,
@@ -759,6 +769,7 @@ impl Group {
             ProcessedMessageContent::ApplicationMessage(app) => Ok(ProcessedMessage {
                 kind: ProcessedKind::Application,
                 application: app.into_bytes(),
+                leaves_met: vec![],
             }),
             ProcessedMessageContent::ProposalMessage(proposal)
             | ProcessedMessageContent::ExternalJoinProposalMessage(proposal) => {
@@ -770,15 +781,24 @@ impl Group {
                 Ok(ProcessedMessage {
                     kind: ProcessedKind::Proposal,
                     application: vec![],
+                    leaves_met: vec![],
                 })
             }
             ProcessedMessageContent::StagedCommitMessage(staged) => {
+                let before = self.list_members();
                 self.mls_group
                     .merge_staged_commit(&provider.0, *staged)
                     .map_err(|e| JsError::new(&format!("merge_staged_commit failed: {e}")))?;
+                let own = self.own_leaf_index();
+                let leaves_met = self
+                    .list_members()
+                    .into_iter()
+                    .filter(|leaf| leaf.leaf_index != own && !before.contains(leaf))
+                    .collect();
                 Ok(ProcessedMessage {
                     kind: ProcessedKind::Commit,
                     application: vec![],
+                    leaves_met,
                 })
             }
         }
@@ -820,12 +840,142 @@ fn serialize_message(msg: &MlsMessageOut) -> Result<Vec<u8>, JsError> {
 mod tests {
     use super::*;
 
+    /// A fresh signature key bound to `credential`, as a device binds its leaf credential.
+    fn identity(provider: &Provider, credential: &[u8]) -> Identity {
+        let key = Identity::generate_signature_key(provider).unwrap();
+        Identity::bind(provider, credential, key).unwrap()
+    }
+
     fn make_alice_and_bob() -> (Provider, Identity, Provider, Identity) {
         let alice_p = Provider::new();
-        let alice = Identity::new(&alice_p, b"alice@idp.alice.com").unwrap();
+        let alice = identity(&alice_p, b"alice@idp.alice.com");
         let bob_p = Provider::new();
-        let bob = Identity::new(&bob_p, b"bob@idp.bob.com").unwrap();
+        let bob = identity(&bob_p, b"bob@idp.bob.com");
         (alice_p, alice, bob_p, bob)
+    }
+
+    /// A claimed KeyPackage shows what the device checks before adding it.
+    #[test]
+    fn a_key_package_shows_its_leafs_credential_and_signature_key() {
+        let provider = Provider::new();
+        let key = Identity::generate_signature_key(&provider).unwrap();
+        let bound = Identity::bind(&provider, b"{\"v\":2}", key.clone()).unwrap();
+
+        let parsed = KeyPackage::from_bytes(&bound.key_package(&provider).unwrap().to_bytes().unwrap()).unwrap();
+
+        assert_eq!(parsed.credential_bytes(), b"{\"v\":2}");
+        assert_eq!(parsed.signature_public_key(), key);
+        assert_eq!(key.len(), 32);
+    }
+
+    /// Bob meets the leaf Alice's commit brings in; neither his own nor Alice's, unchanged, is news.
+    #[test]
+    fn a_commit_adding_a_leaf_reports_it_as_met() {
+        let (mut alice_p, mut alice_group, mut bob_p, mut bob_group) = alice_with_bob(b"conv-011");
+        let charles_p = Provider::new();
+        let charles = identity(&charles_p, b"charles@idp.bob.com");
+        let add = alice_group
+            .add_member(&alice_p, &charles.key_package(&charles_p).unwrap())
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+
+        let processed = bob_group.process_message(&mut bob_p, &add.commit).unwrap();
+
+        let met = processed.leaves_met();
+        assert_eq!(met.len(), 1);
+        assert_eq!(met[0].credential_bytes(), b"charles@idp.bob.com");
+        assert_eq!(met[0].signature_public_key(), charles.signature_public_key());
+        assert_eq!(bob_group.own_leaf_index(), 1);
+        assert_eq!(alice_group.own_leaf_index(), 0);
+    }
+
+    #[test]
+    fn a_commit_removing_a_leaf_meets_none() {
+        let (mut alice_p, mut alice_group, mut bob_p, mut bob_group) = alice_with_bob(b"conv-012");
+        let charles_p = Provider::new();
+        let charles = identity(&charles_p, b"charles@idp.bob.com");
+        let add = alice_group
+            .add_member(&alice_p, &charles.key_package(&charles_p).unwrap())
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        bob_group.process_message(&mut bob_p, &add.commit).unwrap();
+        let remove = alice_group.remove_member(&alice_p, 2).unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+
+        let processed = bob_group.process_message(&mut bob_p, &remove.commit).unwrap();
+
+        assert!(processed.leaves_met().is_empty());
+        assert_eq!(bob_group.list_members().len(), 2);
+    }
+
+    /// A device puts a new credential in its own leaf over the same key; its peers meet it and go
+    /// on reading what it signs with that key.
+    #[test]
+    fn a_leaf_takes_a_new_credential_over_its_signature_key() {
+        let (mut alice_p, mut alice_group, mut bob_p, mut bob_group) = alice_with_bob(b"conv-013");
+        let key = alice_group.list_members()[0].signature_public_key();
+
+        let update = alice_group.update_credential(&alice_p, b"alice, bound").unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        let processed = bob_group.process_message(&mut bob_p, &update.commit).unwrap();
+
+        let met = processed.leaves_met();
+        assert_eq!(met.len(), 1);
+        assert_eq!(met[0].leaf_index(), 0);
+        assert_eq!(met[0].credential_bytes(), b"alice, bound");
+        assert_eq!(met[0].signature_public_key(), key);
+        assert_eq!(alice_group.list_members()[0].credential_bytes(), b"alice, bound");
+        let ciphertext = alice_group.encrypt_application(&alice_p, b"still me").unwrap();
+        let read = bob_group.process_message(&mut bob_p, &ciphertext).unwrap();
+        assert_eq!(read.application(), b"still me");
+    }
+
+    /// Bob proposes an Update carrying a new credential, Alice commits it: Charles meets Bob's leaf
+    /// as the commit changed it; Bob, whose own leaf it is, meets nothing.
+    #[test]
+    fn a_leaf_changed_by_an_update_proposal_is_met_once_committed() {
+        let (mut alice_p, mut alice_group, mut bob_p, mut bob_group) = alice_with_bob(b"conv-014");
+        let mut charles_p = Provider::new();
+        let charles = identity(&charles_p, b"charles@idp.bob.com");
+        let add = alice_group
+            .add_member(&alice_p, &charles.key_package(&charles_p).unwrap())
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        bob_group.process_message(&mut bob_p, &add.commit).unwrap();
+        let mut charles_group = Group::join(&charles_p, &add.welcome, None).unwrap();
+        let bob_signer = bob_group.signer(&bob_p).unwrap();
+        let parameters = LeafNodeParameters::builder()
+            .with_credential_with_key(CredentialWithKey {
+                credential: BasicCredential::new(b"bob, bound".to_vec()).into(),
+                signature_key: bob_signer.public().into(),
+            })
+            .build();
+        let (proposal, _) = bob_group
+            .mls_group
+            .propose_self_update(&bob_p.0, &bob_signer, parameters)
+            .unwrap();
+        let proposal = serialize_message(&proposal).unwrap();
+        assert!(matches!(
+            alice_group.process_message(&mut alice_p, &proposal).unwrap().kind(),
+            ProcessedKind::Proposal
+        ));
+        charles_group.process_message(&mut charles_p, &proposal).unwrap();
+        let alice_signer = alice_group.signer(&alice_p).unwrap();
+        let (commit, _, _) = alice_group
+            .mls_group
+            .commit_to_pending_proposals(&alice_p.0, &alice_signer)
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        let commit = serialize_message(&commit).unwrap();
+
+        let met = charles_group.process_message(&mut charles_p, &commit).unwrap().leaves_met();
+        let own = bob_group.process_message(&mut bob_p, &commit).unwrap().leaves_met();
+
+        assert_eq!(met.len(), 1);
+        assert_eq!(met[0].leaf_index(), 1);
+        assert_eq!(met[0].credential_bytes(), b"bob, bound");
+        assert_eq!(met[0].signature_public_key(), bob_signer.public());
+        assert!(own.is_empty());
     }
 
     /// A commit the DS never acknowledged blocks the group's next commit; clearing it frees it.
@@ -863,7 +1013,7 @@ mod tests {
         let (alice_p, alice, bob_p, bob) = make_alice_and_bob();
         let (mut alice_p, mut bob_p) = (alice_p, bob_p);
         let mut charles_p = Provider::new();
-        let charles = Identity::new(&charles_p, b"charles@idp.bob.com").unwrap();
+        let charles = identity(&charles_p, b"charles@idp.bob.com");
         let mut alice_group = Group::create_new(&alice_p, &alice, b"conv-006").unwrap();
         let add_bob = alice_group
             .add_member(&alice_p, &bob.key_package(&bob_p).unwrap())
@@ -891,7 +1041,7 @@ mod tests {
         let (alice_p, alice, bob_p, bob) = make_alice_and_bob();
         let (mut alice_p, mut bob_p) = (alice_p, bob_p);
         let charles_p = Provider::new();
-        let charles = Identity::new(&charles_p, b"charles@idp.bob.com").unwrap();
+        let charles = identity(&charles_p, b"charles@idp.bob.com");
         let mut alice_group = Group::create_new(&alice_p, &alice, b"conv-007").unwrap();
         let add_bob = alice_group
             .add_member(&alice_p, &bob.key_package(&bob_p).unwrap())
@@ -1086,11 +1236,11 @@ mod tests {
     #[test]
     fn three_member_fanout() {
         let alice_p = Provider::new();
-        let alice = Identity::new(&alice_p, b"alice").unwrap();
+        let alice = identity(&alice_p, b"alice");
         let bob_p = Provider::new();
-        let bob = Identity::new(&bob_p, b"bob").unwrap();
+        let bob = identity(&bob_p, b"bob");
         let charles_p = Provider::new();
-        let charles = Identity::new(&charles_p, b"charles").unwrap();
+        let charles = identity(&charles_p, b"charles");
 
         let mut alice_p_mut = alice_p;
         let mut bob_p_mut = bob_p;

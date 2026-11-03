@@ -33,8 +33,12 @@ describe("devicesToAdd", () => {
 function e2ee(
     addOwnDevices = vi.fn().mockResolvedValue({ added: 1 }),
     catchUp = vi.fn().mockResolvedValue(undefined),
+    refreshOwnLeaf = vi.fn().mockResolvedValue({ refreshed: false }),
 ) {
-    return { addOwnDevices, catchUp } as unknown as Pick<IE2eePort, "addOwnDevices" | "catchUp">
+    return { addOwnDevices, catchUp, refreshOwnLeaf } as unknown as Pick<
+        IE2eePort,
+        "addOwnDevices" | "catchUp" | "refreshOwnLeaf"
+    >
 }
 
 describe("syncOwnGroupsUseCase", () => {
@@ -44,17 +48,18 @@ describe("syncOwnGroupsUseCase", () => {
         { device_id: "dan-old", revoked_at: "2026-09-01T00:00:00Z" },
     ]
 
-    it("catches each group up, then offers it the user's other active devices, one group at a time", async () => {
+    it("catches each group up, makes its own leaf current, then offers it the user's other active devices, one group at a time", async () => {
         const order: string[] = []
         const port = e2ee(
             vi.fn().mockImplementation(async (_i, _t, id) => (order.push(`add ${id}`), { added: 1 })),
             vi.fn().mockImplementation(async (_i, _t, id) => void order.push(`catch up ${id}`)),
+            vi.fn().mockImplementation(async (_i, _t, id) => (order.push(`refresh ${id}`), { refreshed: true })),
         )
 
         const outcome = await syncOwnGroupsUseCase(IDP, "tok", "dan-1", devices, ["g1", "g2"], port)
 
         expect(outcome).toEqual({ added: 2, failed: [] })
-        expect(order).toEqual(["catch up g1", "add g1", "catch up g2", "add g2"])
+        expect(order).toEqual(["catch up g1", "refresh g1", "add g1", "catch up g2", "refresh g2", "add g2"])
         expect(port.addOwnDevices).toHaveBeenCalledWith(IDP, "tok", "g1", ["dan-2"])
     })
 
@@ -65,6 +70,27 @@ describe("syncOwnGroupsUseCase", () => {
 
         expect(outcome).toEqual({ added: 0, failed: [] })
         expect(port.catchUp).toHaveBeenCalledWith(IDP, "tok", "g1")
+        expect(port.addOwnDevices).not.toHaveBeenCalled()
+    })
+
+    it("adds the siblings to a group whose own leaf it couldn't refresh, and says so", async () => {
+        const failure = new Error("connection reset")
+        const port = e2ee(undefined, undefined, vi.fn().mockRejectedValueOnce(failure))
+
+        const outcome = await syncOwnGroupsUseCase(IDP, "tok", "dan-1", devices, ["g1"], port)
+
+        expect(outcome).toEqual({ added: 1, failed: [{ conversationId: "g1", error: failure }] })
+        expect(port.addOwnDevices).toHaveBeenCalledWith(IDP, "tok", "g1", ["dan-2"])
+    })
+
+    it("goes no further in a group it couldn't catch up", async () => {
+        const failure = new Error("connection reset")
+        const port = e2ee(undefined, vi.fn().mockRejectedValueOnce(failure))
+
+        const outcome = await syncOwnGroupsUseCase(IDP, "tok", "dan-1", devices, ["g1"], port)
+
+        expect(outcome).toEqual({ added: 0, failed: [{ conversationId: "g1", error: failure }] })
+        expect(port.refreshOwnLeaf).not.toHaveBeenCalled()
         expect(port.addOwnDevices).not.toHaveBeenCalled()
     })
 

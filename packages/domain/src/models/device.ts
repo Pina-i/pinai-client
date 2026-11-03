@@ -1,9 +1,16 @@
 /**
- * Server-shape of `GET /api/keys/devices` rows. `is_current` is computed
- * client-side by comparing against the local device id.
+ * `GET /api/keys/devices` rows, base64 decoded to bytes. `is_current` is computed client-side by
+ * comparing against the local device id.
  */
 
+import type { DeviceId } from "./e2ee"
+
 export type DeviceKind = "laptop" | "phone" | "tablet" | "unknown"
+
+/** A signature binding the listed root key: by another device's root key, or by a generation's approval key. */
+export type DeviceApproval =
+    | { by: "device"; device_id: DeviceId; signature: Uint8Array; created_at: string }
+    | { by: "passphrase"; generation: number; signature: Uint8Array; created_at: string }
 
 export interface DeviceListEntry {
     device_id: string
@@ -19,6 +26,18 @@ export interface DeviceListEntry {
     signed_in: boolean
     /** ISO-8601 / RFC 3339: that session's last use (a sign-in or a renewal), null when signed out. */
     last_active_at: string | null
+    /** The device's root key and the IdP's attestation of it — the expiry the text it signed. Null without a root key. */
+    drk_public_key: Uint8Array | null
+    attestation_signature: Uint8Array | null
+    attestation_kid: string | null
+    attestation_expires_at: string | null
+    /** Its HPKE key and its root key's signature over it; null when it registered none. */
+    hpke_public_key: Uint8Array | null
+    hpke_key_signature: Uint8Array | null
+    /** The history key's generation the device says it holds. */
+    history_generation: number | null
+    /** Oldest first, each binding `drk_public_key`. The IdP lists them; each device verifies them itself. */
+    approvals: DeviceApproval[]
 }
 
 export interface DeviceListResponse {
@@ -40,3 +59,20 @@ export function deviceStatus(device: DeviceListEntry): DeviceStatus {
     if (device.signed_in) return { kind: "signed-in", lastActiveAt: device.last_active_at }
     return { kind: "signed-out" }
 }
+
+/**
+ * The link of the chain JWKS → attestation → root key → HPKE key a listed device fails
+ * (`identity-provider/specs/e2ee.md § 3.3`); `unreachable`, the issuer's keys couldn't be had.
+ */
+export type DeviceChainRefusal =
+    | "revoked"
+    | "no-root-key"
+    | "attestation"
+    | "expired"
+    | "unreachable"
+    | "no-hpke-key"
+    | "hpke-signature"
+
+export type DeviceChainVerdict =
+    | { ok: true; deviceId: DeviceId; rootKey: Uint8Array; hpkePublicKey: Uint8Array }
+    | { ok: false; reason: DeviceChainRefusal }

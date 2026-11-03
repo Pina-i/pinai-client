@@ -6,9 +6,11 @@
  */
 
 import { ed25519 } from "@noble/curves/ed25519.js"
+import { equalBytes } from "@noble/curves/utils.js"
 import { generateMnemonic } from "@scure/bip39"
 import { wordlist } from "@scure/bip39/wordlists/english.js"
 
+import { bytesToBase64 } from "@pinai/domain/lib/bytes"
 import type {
     ActorUri,
     ApplicationMessage,
@@ -19,6 +21,17 @@ import type {
     KeyPackageStatusResponse,
 } from "@pinai/domain/models/e2ee"
 import { KeyPackageUnavailable, devicesToAdd, leavesToRemove } from "@pinai/domain/models/group"
+import { instanceOrigin } from "@pinai/domain/models/identity"
+import {
+    admitsClaim,
+    sameCredential,
+    untrustedLeaf,
+    type LeafClaim,
+    type LeafCredential,
+    type LeafVerdict,
+    type MlsLeaf,
+    type UntrustedLeaf,
+} from "@pinai/domain/models/leaf-trust"
 import {
     ARCHIVE_UPLOAD_LIMIT,
     decodeArchiveEnvelope,
@@ -29,7 +42,11 @@ import {
 import { IdpError } from "@pinai/domain/models/idp-error"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
 import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
+import type { HpkeKeyPair, IHpkePort } from "@pinai/domain/ports/hpke.port"
+import type { IJwksCachePort } from "@pinai/domain/ports/jwks-cache.port"
 
+import { verifyLeafCredential } from "./attestation-chain.adapter"
+import { attestationBytes, deviceHpkeKeyBytes, leafBindingBytes } from "./canonical-bytes"
 import type { HistoryArchiveAdapter } from "./history-archive.adapter"
 import type { IdentityAdapter } from "./identity.adapter"
 import type { IKeyDirectoryPort } from "@pinai/domain/ports/key-directory.port"
@@ -45,6 +62,10 @@ function attestationNeedsRenewal(att: DeviceAttestation): boolean {
     const expires = Date.parse(att.expires_at)
     if (Number.isNaN(expires)) return true
     return expires - Date.now() < ATTESTATION_RENEWAL_WINDOW_MS
+}
+
+function storedHpkeKey(pair: HpkeKeyPair): NonNullable<DeviceAttestation["hpke"]> {
+    return { public_key: pair.publicKey, private_key: pair.privateKey }
 }
 
 /**
@@ -118,6 +139,8 @@ export class E2eeAdapter implements IE2eePort {
     private readonly storage: E2eeStorage
     private readonly directory: IKeyDirectoryPort
     private readonly recovery: RecoveryAdapter
+    private readonly hpke: IHpkePort
+    private readonly jwks: IJwksCachePort
     // Optional — when null, the per-decrypt archive buffer is a no-op.
     // IoC provides these in production; tests can omit.
     private readonly historyArchive: IHistoryArchivePort | null
@@ -129,6 +152,8 @@ export class E2eeAdapter implements IE2eePort {
         storage: E2eeStorage,
         directory: IKeyDirectoryPort,
         recovery: RecoveryAdapter,
+        hpke: IHpkePort,
+        jwks: IJwksCachePort,
         historyArchive: IHistoryArchivePort | null = null,
         historyCrypto: HistoryArchiveAdapter | null = null,
     ) {
@@ -137,6 +162,8 @@ export class E2eeAdapter implements IE2eePort {
         this.storage = storage
         this.directory = directory
         this.recovery = recovery
+        this.hpke = hpke
+        this.jwks = jwks
         this.historyArchive = historyArchive
         this.historyCrypto = historyCrypto
     }
@@ -165,40 +192,139 @@ export class E2eeAdapter implements IE2eePort {
         accessToken: string,
         actorUri: ActorUri,
     ): Promise<void> {
-        void actorUri // bound on the server via the bearer token
-
         const existing = await this.storage.loadDeviceAttestation()
-        let deviceRootPrivate: Uint8Array
-        let deviceRootPublic: Uint8Array
-
-        if (existing && !attestationNeedsRenewal(existing)) {
-            return
-        }
-        if (existing) {
-            deviceRootPrivate = existing.drk_private
-            deviceRootPublic = existing.drk_public
-        } else {
-            const kp = ed25519.keygen()
-            deviceRootPrivate = kp.secretKey
-            deviceRootPublic = kp.publicKey
-        }
+        // A device without its HPKE key registers again at once, whatever the renewal window says.
+        if (existing?.hpke && !attestationNeedsRenewal(existing)) return
+        const rootKey = existing
+            ? { secretKey: existing.drk_private, publicKey: existing.drk_public }
+            : ed25519.keygen()
+        const hpke = existing?.hpke ?? storedHpkeKey(await this.hpke.generateKeyPair())
 
         const deviceId = await this.storage.getOrCreateDeviceId()
-        const response = await this.directory.registerDevice(
-            idpUrl,
-            accessToken,
-            deviceId,
-            deviceRootPublic,
-        )
+        const hpkeSignature = ed25519.sign(deviceHpkeKeyBytes(actorUri, deviceId, hpke.public_key), rootKey.secretKey)
+        const response = await this.directory.registerDevice(idpUrl, accessToken, deviceId, rootKey.publicKey, {
+            publicKey: hpke.public_key,
+            signature: hpkeSignature,
+        })
+        // Leaf credentials carry the expiry as text, rebuilt by every peer: it must be what was signed.
+        const rebuilt = attestationBytes(actorUri, deviceId, rootKey.publicKey, response.expires_at, response.kid)
+        if (!equalBytes(rebuilt, response.signed_message)) {
+            throw new Error("The IdP's attestation isn't over this device's root key and expiry")
+        }
         await this.storage.saveDeviceAttestation({
-            drk_public: deviceRootPublic,
-            drk_private: deviceRootPrivate,
+            drk_public: rootKey.publicKey,
+            drk_private: rootKey.secretKey,
             signature: response.signature,
             kid: response.kid,
             issued_at: response.issued_at,
             expires_at: response.expires_at,
             signed_message: response.signed_message,
+            hpke,
         })
+        // The next KeyPackages carry the attestation just made, and the leaves take it.
+        this.attestationVersion++
+        this.identityBound = false
+        for (const listener of this.registeredListeners) {
+            try {
+                listener()
+            } catch (e) {
+                // eslint-disable-next-line no-console
+                console.warn("onDeviceRegistered listener failed:", e)
+            }
+        }
+    }
+
+    private readonly registeredListeners = new Set<() => void>()
+
+    onDeviceRegistered(listener: () => void): () => void {
+        this.registeredListeners.add(listener)
+        return () => this.registeredListeners.delete(listener)
+    }
+
+    /** The credential a leaf of this device carries over `signatureKey`: `identity-provider/specs/e2ee.md § 3.4`. */
+    private leafCredential(
+        actorUri: ActorUri,
+        deviceId: DeviceId,
+        attestation: DeviceAttestation,
+        signatureKey: Uint8Array,
+    ): LeafCredential {
+        const issuer = instanceOrigin(actorUri)
+        if (!issuer) throw new Error(`Not an actor URI: ${actorUri}`)
+        const binding = ed25519.sign(leafBindingBytes(actorUri, deviceId, signatureKey), attestation.drk_private)
+        return {
+            v: 2,
+            actor_uri: actorUri,
+            device_id: deviceId,
+            drk_pub: bytesToBase64(attestation.drk_public),
+            idp_att: {
+                issuer,
+                kid: attestation.kid,
+                expires_at: attestation.expires_at,
+                signature: bytesToBase64(attestation.signature),
+            },
+            leaf_binding: bytesToBase64(binding),
+        }
+    }
+
+    // ─── Leaf checks ──────────────────────────────────────────────────
+
+    /** A claimed KeyPackage's leaf: `identity-provider/specs/e2ee.md § 3.4`, and the device it was claimed for. */
+    private async checkClaim(actorUri: ActorUri, claim: ClaimedKeyPackage): Promise<LeafVerdict> {
+        let leaf: LeafClaim
+        try {
+            leaf = await this.mls.inspectKeyPackage(claim.key_package)
+        } catch {
+            return { ok: false, reason: "malformed" }
+        }
+        return admitsClaim(await verifyLeafCredential(leaf, this.jwks), actorUri, claim.device_id)
+    }
+
+    /** By conversation and leaf index; each holds while the group holds that leaf as recorded. */
+    private readonly untrustedLeaves = new Map<string, { leaf: UntrustedLeaf; fingerprint: string }>()
+    private readonly untrustedLeafListeners = new Set<(leaf: UntrustedLeaf) => void>()
+
+    onUntrustedLeaf(listener: (leaf: UntrustedLeaf) => void): () => void {
+        this.untrustedLeafListeners.add(listener)
+        for (const { leaf } of this.untrustedLeaves.values()) tell(listener, leaf)
+        return () => this.untrustedLeafListeners.delete(listener)
+    }
+
+    /**
+     * Every leaf met in a group — a Welcome's tree, a commit bringing one in or replacing one — is
+     * checked; one failing is recorded and announced, never thrown: the group is the members', and
+     * what to do about it is the listeners'.
+     */
+    private async checkLeavesMet(conversationId: ConversationId, met: readonly MlsLeaf[]): Promise<void> {
+        await this.forgetLeavesGone(conversationId)
+        for (const leaf of met) {
+            if (leaf.own) continue
+            const key = `${conversationId}:${leaf.leafIndex}`
+            const fingerprint = leafFingerprint(leaf)
+            if (this.untrustedLeaves.get(key)?.fingerprint === fingerprint) continue
+            const verdict = await verifyLeafCredential(leaf, this.jwks)
+            // An issuer out of reach says nothing of the leaf: it is checked again when next met.
+            if (verdict.ok || verdict.reason === "unreachable") {
+                this.untrustedLeaves.delete(key)
+                continue
+            }
+            const record = untrustedLeaf(conversationId, leaf, verdict.reason)
+            this.untrustedLeaves.set(key, { leaf: record, fingerprint })
+            // eslint-disable-next-line no-console
+            console.warn(`[e2ee] a leaf in ${conversationId} fails its checks (${verdict.reason})`, record)
+            for (const listener of this.untrustedLeafListeners) tell(listener, record)
+        }
+    }
+
+    /** Drops the records of a group's leaves that left it or changed. */
+    private async forgetLeavesGone(conversationId: ConversationId): Promise<void> {
+        const recorded = [...this.untrustedLeaves].filter(([, { leaf }]) => leaf.conversationId === conversationId)
+        if (recorded.length === 0) return
+        const held = (await this.mls.hasGroup(conversationId)) ? await this.mls.groupLeaves(conversationId) : []
+        for (const [key, { leaf, fingerprint }] of recorded) {
+            if (!held.some((h) => h.leafIndex === leaf.leafIndex && leafFingerprint(h) === fingerprint)) {
+                this.untrustedLeaves.delete(key)
+            }
+        }
     }
 
     // ─── History-backup engine ────────────────────────────────────────
@@ -357,13 +483,11 @@ export class E2eeAdapter implements IE2eePort {
      * online. Subsequent calls within the session skip the restore.
      *
      * `localActorUri` is **the local user's** actor URI — used to
-     * stamp this device's MLS leaf credential. Pass `null` for paths
-     * that legitimately don't have it (e.g. `addContactToGroup`'s
-     * cross-IdP `ensureGroupExists`); in that case identity binding
-     * is skipped, and the caller must have already invoked `register`
-     * / `consumePendingWelcomes` / similar so identity is bound. If
-     * not bound and `null` is passed, the next MLS op will throw a
-     * clear "no identity" error rather than silently mis-binding.
+     * stamp this device's MLS leaf credential; callers without one at
+     * hand pass the account the storage is bound to, never a peer's.
+     * `null` skips the binding: for paths that make no KeyPackage and
+     * found no group (catching up, pruning, refreshing a leaf). Nothing
+     * is bound until the device has an attestation.
      *
      * Concurrency: both the provider/snapshot bootstrap and the
      * identity bind are guarded by cached promises so two concurrent
@@ -381,7 +505,11 @@ export class E2eeAdapter implements IE2eePort {
 
         if (this.identityBound || !localActorUri) return
         if (!this.identityBindPromise) {
-            this.identityBindPromise = this.doBindIdentity(localActorUri)
+            const binding: Promise<void> = this.doBindIdentity(localActorUri).finally(() => {
+                // A wipe may have dropped this bind for another meanwhile.
+                if (this.identityBindPromise === binding) this.identityBindPromise = null
+            })
+            this.identityBindPromise = binding
         }
         await this.identityBindPromise
     }
@@ -403,23 +531,36 @@ export class E2eeAdapter implements IE2eePort {
         }
     }
 
+    /**
+     * Binds the credential this device's KeyPackages and founded groups carry, once it has an
+     * attestation to put in it; until then nothing is bound, and the next call tries again.
+     */
     private async doBindIdentity(localActorUri: ActorUri): Promise<void> {
-        const deviceId = await this.storage.getOrCreateDeviceId()
-        // Rebind a key one of the restored groups' leaves carries, so a
-        // reload doesn't mint one for the next KeyPackages. Groups sign
-        // with their own leaf's key either way.
-        const existingKey = await this.mls.findOwnLeafSigKey(localActorUri, deviceId)
-        await this.mls.setIdentity(localActorUri, deviceId, existingKey ?? undefined)
-        this.identityBound = true
-        // First-ever bind generates a fresh keypair into the provider
-        // storage; persist now so the next reload picks it up via the
-        // findOwnLeafSigKey path above. Subsequent binds (existingKey
-        // present) don't actually mutate state but the snapshot save
-        // is cheap and keeps the invariant simple.
-        await this.persistMlsState()
+        // A registration landing meanwhile brought another attestation: bound again with it.
+        for (;;) {
+            const version = this.attestationVersion
+            const attestation = await this.storage.loadDeviceAttestation()
+            if (!attestation) {
+                if (version === this.attestationVersion) return
+                continue
+            }
+            const deviceId = await this.storage.getOrCreateDeviceId()
+            // A key one of the restored groups' leaves carries, so a reload doesn't mint one for
+            // the next KeyPackages. Groups sign with their own leaf's key either way.
+            const signatureKey = (await this.mls.ownLeafSignatureKey()) ?? (await this.mls.generateSignatureKey())
+            await this.mls.setIdentity(this.leafCredential(localActorUri, deviceId, attestation, signatureKey), signatureKey)
+            // A fresh key lives in the provider's storage only: the next reload must find it.
+            await this.persistMlsState()
+            if (version === this.attestationVersion) {
+                this.identityBound = true
+                return
+            }
+        }
     }
 
     private identityBound = false
+    /** Moved by each registration: a bind that read the attestation before it is bound again. */
+    private attestationVersion = 0
     private snapshotRestored = false
     private providerInitPromise: Promise<void> | null = null
     private identityBindPromise: Promise<void> | null = null
@@ -476,6 +617,8 @@ export class E2eeAdapter implements IE2eePort {
         accessToken: string,
         actorUri: ActorUri,
     ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint }> {
+        // The root key and its attestation first: every KeyPackage's credential carries them.
+        await this.registerDevice(idpUrl, accessToken, actorUri)
         await this.ensureInitialized(actorUri)
 
         const deviceId = await this.storage.getOrCreateDeviceId()
@@ -540,14 +683,6 @@ export class E2eeAdapter implements IE2eePort {
     ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint; words: string[] }> {
         const { device_id, fingerprint } = await this.register(idpUrl, accessToken, actorUri)
 
-        // Device Root Key attestation. Non-fatal — retried on next sign-in.
-        try {
-            await this.registerDevice(idpUrl, accessToken, actorUri)
-        } catch (e) {
-            // eslint-disable-next-line no-console
-            console.warn("[bootstrap] registerDevice failed (non-fatal)", e)
-        }
-
         // Re-bootstrap idempotency: reusing the existing passphrase prevents
         // overwriting words the user already wrote down on paper.
         const existing = await this.storage.loadRecoveryPassphrase()
@@ -600,6 +735,7 @@ export class E2eeAdapter implements IE2eePort {
         // instance still holding the previous user's group state.
         this.snapshotRestored = false
         this.identityBound = false
+        this.attestationVersion++
         this.providerInitPromise = null
         this.identityBindPromise = null
         this.registerPromise = null
@@ -704,6 +840,9 @@ export class E2eeAdapter implements IE2eePort {
         count: number,
     ): Promise<void> {
         if (count <= 0) return
+        // A renewal since the caller bound leaves nothing bound: bound again, with the new attestation.
+        if (!this.identityBound) await this.ensureInitialized(await this.storage.getBoundActorUri())
+        if (!this.identityBound) throw new Error("This device isn't registered yet: its KeyPackages wait for its attestation")
         const expiresAtIso = new Date(Date.now() + DEFAULT_KEY_PACKAGE_LIFETIME_MS).toISOString()
         // Sequential on purpose: every createKeyPackage writes bundle key
         // material into the provider's storage, so they must not interleave.
@@ -777,6 +916,7 @@ export class E2eeAdapter implements IE2eePort {
         ciphertext: Uint8Array,
     ): Promise<ApplicationMessage | null> {
         const outcome = await this.mls.processMessage(conversationId, ciphertext)
+        if (outcome.kind === "commit") await this.checkLeavesMet(conversationId, outcome.leavesMet)
         if (outcome.kind !== "application") return null
         const text = new TextDecoder().decode(outcome.plaintext)
         return JSON.parse(text, applicationMessageReviver) as ApplicationMessage
@@ -808,7 +948,8 @@ export class E2eeAdapter implements IE2eePort {
         )
         for (const c of commits) {
             try {
-                await this.mls.processMessage(conversationId, c.commit_blob)
+                const outcome = await this.mls.processMessage(conversationId, c.commit_blob)
+                if (outcome.kind === "commit") await this.checkLeavesMet(conversationId, outcome.leavesMet)
             } catch (e) {
                 // eslint-disable-next-line no-console
                 console.warn(
@@ -825,6 +966,8 @@ export class E2eeAdapter implements IE2eePort {
         conversationId: ConversationId,
         actorUri: ActorUri,
     ): Promise<void> {
+        // A group founded here carries this device's credential: the one bound to its account.
+        await this.ensureInitialized(await this.storage.getBoundActorUri())
         await this.inGroup(conversationId, () =>
             this.doAddContactToGroup(idpUrl, accessToken, conversationId, actorUri),
         )
@@ -841,15 +984,24 @@ export class E2eeAdapter implements IE2eePort {
 
         // One KeyPackage of each of their devices: a group holding only the device a single
         // claim picks leaves their others reading nothing until a sibling of theirs adds them.
-        let claimed: ClaimedKeyPackage[]
+        let claims: ClaimedKeyPackage[]
         try {
-            claimed = await this.directory.claimEachDevice(idpUrl, accessToken, actorUri)
+            claims = await this.directory.claimEachDevice(idpUrl, accessToken, actorUri)
         } catch (e) {
             // Nothing committed yet: the caller may take the invitee off the group cleanly.
             throw new KeyPackageUnavailable(actorUri, e)
         }
+        // A leaf failing its checks is never added; a device of theirs left out waits for its siblings.
+        const claimed: ClaimedKeyPackage[] = []
+        for (const claim of claims) {
+            const verdict = await this.checkClaim(actorUri, claim)
+            if (verdict.ok) claimed.push(claim)
+            // eslint-disable-next-line no-console
+            else console.warn(`addContactToGroup: a KeyPackage of ${claim.device_id} refused (${verdict.reason})`)
+        }
         if (claimed.length === 0) {
-            throw new KeyPackageUnavailable(actorUri, new Error("no device with a KeyPackage"))
+            const why = claims.length === 0 ? "no device with a KeyPackage" : "no KeyPackage whose leaf verifies"
+            throw new KeyPackageUnavailable(actorUri, new Error(why))
         }
         if (isFirstMessage) await this.mls.createGroup(conversationId)
         let added = 0
@@ -877,6 +1029,7 @@ export class E2eeAdapter implements IE2eePort {
     private async forgetFoundedGroup(conversationId: ConversationId): Promise<void> {
         await this.mls.deleteGroup(conversationId)
         await this.persistMlsState()
+        await this.forgetLeavesGone(conversationId)
     }
 
     /** One device into the group: a commit of its own, then its Welcome. */
@@ -914,14 +1067,9 @@ export class E2eeAdapter implements IE2eePort {
         conversationId: ConversationId,
         recipientActorUri: ActorUri,
     ): Promise<void> {
-        // Provider/snapshot only — the local identity must already be
-        // bound via the onboarding bootstrap or `useConsumeMlsWelcomes`
-        // before this path runs. Don't pass `recipientActorUri`
-        // through ensureInitialized: that would stamp this device's
-        // MLS leaf credential with the **peer's** actor URI on a fresh
-        // device that somehow reached this path before login bootstrap
-        // landed.
-        await this.ensureInitialized(null)
+        // The account this device's storage is bound to, never `recipientActorUri`: that would
+        // stamp this device's leaf credential with the peer's actor URI.
+        await this.ensureInitialized(await this.storage.getBoundActorUri())
         // Checked in the same run as the founding, so two sends at once found it once.
         await this.inGroup(conversationId, async () => {
             if (await this.mls.hasGroup(conversationId)) return
@@ -941,13 +1089,16 @@ export class E2eeAdapter implements IE2eePort {
         for (const w of welcomes) {
             try {
                 const held = await this.inGroup(w.conversation_id, async () => {
+                    let joined = true
                     if (await this.mls.hasGroup(w.conversation_id)) {
-                        return this.mls.rejoinGroup(w.conversation_id, w.welcome_blob)
+                        joined = await this.mls.rejoinGroup(w.conversation_id, w.welcome_blob)
+                    } else {
+                        // Every member's Welcome carries the ratchet tree (the
+                        // extension, set on create and join), so `null` is correct.
+                        await this.mls.joinGroup(w.conversation_id, w.welcome_blob, null)
                     }
-                    // Every member's Welcome carries the ratchet tree (the
-                    // extension, set on create and join), so `null` is correct.
-                    await this.mls.joinGroup(w.conversation_id, w.welcome_blob, null)
-                    return true
+                    if (joined) await this.checkLeavesMet(w.conversation_id, await this.mls.groupLeaves(w.conversation_id))
+                    return joined
                 })
                 if (held) joined.push(w.conversation_id)
             } catch (e) {
@@ -1124,30 +1275,52 @@ export class E2eeAdapter implements IE2eePort {
         return this.inGroup(conversationId, async () => {
             const me = await this.storage.getBoundActorUri()
             if (!me || !(await this.mls.hasGroup(conversationId))) return { removed: 0 }
-            let removed = 0
-            let conflicts = 0
-            // One leaf a commit, and the leaves looked at again after each: a commit moves the
-            // epoch, and one lost to another member's may have removed what was left.
-            for (;;) {
-                const [leaf] = leavesToRemove(await this.mls.groupMembers(conversationId), roster, me)
-                if (leaf === undefined) return { removed }
-                const commit = await this.mls.removeMember(conversationId, leaf)
-                const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
-                try {
-                    await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, commit)
-                } catch (e) {
-                    await this.mls.clearPendingCommit(conversationId)
-                    if (!(e instanceof IdpError && e.status === 409) || ++conflicts > MAX_EPOCH_CONFLICTS) {
-                        throw e
-                    }
-                    await this.catchUpCommits(idpUrl, accessToken, conversationId)
-                    continue
-                }
-                await this.mls.mergePendingCommit(conversationId)
-                await this.persistMlsState()
-                removed++
-            }
+            const removed = await this.commitEach(idpUrl, accessToken, conversationId, async () => {
+                const leaves = (await this.mls.groupLeaves(conversationId))
+                    .filter((leaf) => !leaf.own)
+                    .map((leaf) => ({ leafIndex: leaf.leafIndex, actorUri: leaf.credential?.actor_uri ?? null }))
+                const [leaf] = leavesToRemove(leaves, roster, me)
+                return leaf === undefined ? null : { commit: await this.mls.removeMember(conversationId, leaf) }
+            })
+            return { removed }
         })
+    }
+
+    /**
+     * Commits to a group this device holds the changes `next` builds, one a commit, `next` asked
+     * again after each — it answers `null` when nothing is left: a commit moves the epoch, and one
+     * lost to another member's may have done what was left. A commit losing its epoch (`409`) is
+     * dropped and the group caught up, at most five times; any other failure drops it and throws.
+     * How many were merged.
+     */
+    private async commitEach(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        next: () => Promise<{ commit: Uint8Array; merged?: () => Promise<unknown> } | null>,
+    ): Promise<number> {
+        let merged = 0
+        let conflicts = 0
+        for (;;) {
+            const step = await next()
+            if (!step) return merged
+            const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
+            try {
+                await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, step.commit)
+            } catch (e) {
+                await this.mls.clearPendingCommit(conversationId)
+                if (!(e instanceof IdpError && e.status === 409) || ++conflicts > MAX_EPOCH_CONFLICTS) {
+                    throw e
+                }
+                await this.catchUpCommits(idpUrl, accessToken, conversationId)
+                continue
+            }
+            await this.mls.mergePendingCommit(conversationId)
+            await this.persistMlsState()
+            await this.forgetLeavesGone(conversationId)
+            await step.merged?.()
+            merged++
+        }
     }
 
     async catchUp(idpUrl: string, accessToken: string, conversationId: ConversationId): Promise<void> {
@@ -1203,48 +1376,68 @@ export class E2eeAdapter implements IE2eePort {
         const me = await this.storage.getBoundActorUri()
         if (!me || !(await this.mls.hasGroup(conversationId))) return { added: 0 }
         const unavailable = new Set<DeviceId>()
-        let added = 0
-        let conflicts = 0
-        // One device a commit, and the leaves looked at again after each: a commit lost to another
-        // device's may have added the one this was adding.
-        for (;;) {
-            const [device] = devicesToAdd(await this.mls.groupMembers(conversationId), me, devices).filter(
-                (d) => !unavailable.has(d),
-            )
-            if (device === undefined) return { added }
-            let claimed
-            try {
-                claimed = await this.directory.claimKeyPackage(idpUrl, accessToken, me, device)
-            } catch {
-                unavailable.add(device)
-                continue
-            }
-            if (claimed.device_id !== device) {
-                unavailable.add(device)
-                continue
-            }
-            const out = await this.mls.addMember(conversationId, claimed.key_package)
-            const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
-            try {
-                await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, out.commit)
-            } catch (e) {
-                await this.mls.clearPendingCommit(conversationId)
-                if (!(e instanceof IdpError && e.status === 409) || ++conflicts > MAX_EPOCH_CONFLICTS) {
-                    throw e
+        const added = await this.commitEach(idpUrl, accessToken, conversationId, async () => {
+            for (;;) {
+                const [device] = devicesToAdd(await this.mls.groupMembers(conversationId), me, devices).filter(
+                    (d) => !unavailable.has(d),
+                )
+                if (device === undefined) return null
+                let claimed
+                try {
+                    claimed = await this.directory.claimKeyPackage(idpUrl, accessToken, me, device)
+                } catch {
+                    unavailable.add(device)
+                    continue
                 }
-                await this.catchUpCommits(idpUrl, accessToken, conversationId)
-                continue
+                if (claimed.device_id !== device) {
+                    unavailable.add(device)
+                    continue
+                }
+                const verdict = await this.checkClaim(me, claimed)
+                if (!verdict.ok) {
+                    // eslint-disable-next-line no-console
+                    console.warn(`addOwnDevices: a KeyPackage of ${device} refused (${verdict.reason})`)
+                    unavailable.add(device)
+                    continue
+                }
+                const out = await this.mls.addMember(conversationId, claimed.key_package)
+                return {
+                    commit: out.commit,
+                    merged: () =>
+                        this.directory.postWelcome(idpUrl, accessToken, {
+                            recipient_actor_uri: me,
+                            recipient_device_id: device,
+                            conversation_id: conversationId,
+                            welcome_blob: out.welcome,
+                        }),
+                }
             }
-            await this.mls.mergePendingCommit(conversationId)
-            await this.persistMlsState()
-            await this.directory.postWelcome(idpUrl, accessToken, {
-                recipient_actor_uri: me,
-                recipient_device_id: device,
-                conversation_id: conversationId,
-                welcome_blob: out.welcome,
+        })
+        return { added }
+    }
+
+    async refreshOwnLeaf(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+    ): Promise<{ refreshed: boolean }> {
+        await this.ensureInitialized(null)
+        return this.inGroup(conversationId, async () => {
+            // A renewal under way brings the attestation the leaf must carry.
+            await this.registerDevicePromise?.catch(() => undefined)
+            const me = await this.storage.getBoundActorUri()
+            const attestation = await this.storage.loadDeviceAttestation()
+            if (!me || !attestation || !(await this.mls.hasGroup(conversationId))) return { refreshed: false }
+            const deviceId = await this.storage.getOrCreateDeviceId()
+            const commits = await this.commitEach(idpUrl, accessToken, conversationId, async () => {
+                const own = (await this.mls.groupLeaves(conversationId)).find((leaf) => leaf.own)
+                if (!own) return null
+                const wanted = this.leafCredential(me, deviceId, attestation, own.signatureKey)
+                if (sameCredential(own.credential, wanted)) return null
+                return { commit: await this.mls.updateOwnCredential(conversationId, wanted) }
             })
-            added++
-        }
+            return { refreshed: commits > 0 }
+        })
     }
 
     async forgetGroup(conversationId: ConversationId): Promise<void> {
@@ -1252,6 +1445,7 @@ export class E2eeAdapter implements IE2eePort {
         await this.inGroup(conversationId, async () => {
             await this.mls.deleteGroup(conversationId)
             await this.persistMlsState()
+            await this.forgetLeavesGone(conversationId)
         })
     }
 
@@ -1274,22 +1468,26 @@ export class E2eeAdapter implements IE2eePort {
                 // be conversations we joined under a different device.
                 if (!(await this.mls.hasGroup(conversationId))) return
 
-                const leafIndex = await this.mls.findLeafByDeviceId(conversationId, actorUri, deviceId)
-                if (leafIndex == null) return
-
-                try {
-                    const commit = await this.mls.removeMember(conversationId, leafIndex)
-                    const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
-                    await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, commit)
-                    await this.mls.mergePendingCommit(conversationId)
-                    removed.push(conversationId)
-                    await this.persistMlsState()
-                } catch (e) {
-                    // A commit left pending would block the group's next one.
-                    await this.mls.clearPendingCommit(conversationId).catch(() => {})
-                    // Per-group failure (often 409 epoch race) shouldn't block the rest.
-                    // eslint-disable-next-line no-console
-                    console.warn(`revokeDevice: per-group commit failed for ${conversationId}`, e)
+                // Every leaf naming the device, one a commit.
+                for (;;) {
+                    const leafIndex = await this.mls.findLeafByDeviceId(conversationId, actorUri, deviceId)
+                    if (leafIndex == null) return
+                    try {
+                        const commit = await this.mls.removeMember(conversationId, leafIndex)
+                        const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
+                        await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, commit)
+                        await this.mls.mergePendingCommit(conversationId)
+                        if (!removed.includes(conversationId)) removed.push(conversationId)
+                        await this.persistMlsState()
+                        await this.forgetLeavesGone(conversationId)
+                    } catch (e) {
+                        // A commit left pending would block the group's next one.
+                        await this.mls.clearPendingCommit(conversationId).catch(() => {})
+                        // Per-group failure (often 409 epoch race) shouldn't block the rest.
+                        // eslint-disable-next-line no-console
+                        console.warn(`revokeDevice: per-group commit failed for ${conversationId}`, e)
+                        return
+                    }
                 }
             })
         }
@@ -1305,4 +1503,18 @@ export class E2eeAdapter implements IE2eePort {
 
         return { removed_from: removed }
     }
+}
+
+function tell(listener: (leaf: UntrustedLeaf) => void, leaf: UntrustedLeaf): void {
+    try {
+        listener(leaf)
+    } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("onUntrustedLeaf listener failed:", e)
+    }
+}
+
+/** A record is about this very leaf: its signature key and its credential as decoded. */
+function leafFingerprint(leaf: MlsLeaf): string {
+    return `${bytesToBase64(leaf.signatureKey)}:${JSON.stringify(leaf.credential)}`
 }

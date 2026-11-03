@@ -84,7 +84,18 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   so revoking the device signs it out; `signOutOtherDevices` ends every other
   session of the account
 - `linkSessionDeviceUseCase` links only once the device exists: on a first
-  sign-in, the onboarding creates it after the route guard first runs
+  sign-in, the onboarding creates it after the route guard first runs. It
+  registers the device again first when it has to (`IE2eePort.registerDevice`:
+  near the attestation's end, or no HPKE key yet), then names it — a failed
+  registration all the same (answered as `registrationFailure`, tried again at
+  the next page load or tick), but for `device_mismatch`, thrown
+- `usecases/auth/sign-in-again.usecase.ts` — a refusal coded `device_mismatch`
+  (`isDeviceMismatch`, `models/idp-error.ts`): this device's storage was wiped
+  while its session lived, so the session names the device it was. The web app
+  marks `sign_in_again` (`AuthSessionKey`) and goes through the IdP's logout,
+  which ends the browser session — signing in while it lives would keep it;
+  `signInAgainUseCase`, run by the landing, signs in once it is back. The
+  desktop clears its app session and signs in at once, which opens a new one
 - `deviceStatus` (`models/device.ts`) — revoked, signed in (active when its
   session was last used), or signed out and free to sign in again
 
@@ -98,6 +109,35 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   `sync → async` later would rework the whole message path.
 - Bytes in, bytes out — every implementation must agree byte-for-byte;
   the specs in `test/` are the contract.
+- The leaf key before its credential (`generateSignatureKey`, then
+  `setIdentity(credential, key)`), so the device's root key signs it in. What
+  the leaf checks need: `inspectKeyPackage`, `groupLeaves` (`MlsLeaf`, `own`
+  marked), a commit's `leavesMet`; `updateOwnCredential` for the device's own
+  leaf.
+
+### ports/hpke.port.ts
+- `IHpkePort` — RFC 9180 base mode, one suite (DHKEM(X25519, HKDF-SHA256),
+  HKDF-SHA256, AES-128-GCM): `generateKeyPair`, `seal` (a low-order key
+  refused), `open`. Beside `IMlsEngine`, not on it: nothing of a group takes
+  part. The engine's implementations supply it, from the same crate.
+
+### models/leaf-trust.ts
+- `LeafCredential` — the v2 credential, decoded (the bytes are
+  `@pinai/mls/leaf-credential`'s); `LeafClaim` / `MlsLeaf` — a leaf's credential
+  (`null` when it is none) and signature key.
+- `LeafVerdict` / `LeafRefusal` — what `@pinai/crypto`'s checks found.
+  `admitsClaim` — a claimed KeyPackage is added only as the very device it was
+  claimed for. `UntrustedLeaf` — a leaf met in a group that failed, named by
+  its credential's unverified word (`IE2eePort.onUntrustedLeaf`).
+  `sameCredential` — whether a device's own leaf carries the credential it
+  would make now (`refreshOwnLeaf`).
+
+### models/device.ts
+- `DeviceListEntry` carries what another device needs to check the chain JWKS
+  → attestation → root key → HPKE key itself (bytes, `null` without), the
+  history generation it says it holds, and its approvals as listed — verified
+  by each device, never by the list. `DeviceChainVerdict` is
+  `verifyDeviceChain`'s answer (`@pinai/crypto`).
 
 ### lib/bytes.ts
 - Base64 ↔ bytes, `base64url` for JWS/JWK and padded `base64` elsewhere
@@ -105,6 +145,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   protocol carries, so decoding it is part of speaking the protocol rather
   than a detail of any one transport. Three packages need it.
 - `atob`/`btoa` are two of the four globals this package assumes
+- `decodeBase64(value, length?)` — the one safe decode for what the wire hands
+  over: `null` for what isn't base64, or isn't that long
 
 ### ports/key-directory.port.ts
 - `IKeyDirectoryPort` — the IdP key directory + MLS Delivery Service as the
@@ -351,7 +393,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `devicesToAdd(leaves, me, devices)` (`models/group.ts`) — the user's
   devices a group holds no leaf for.
 - `sync-own-groups.usecase.ts` — for each conversation, one at a time:
-  catch it up on the commits it missed (`IE2eePort.catchUp`), then offer
+  catch it up on the commits it missed (`IE2eePort.catchUp`), make its own
+  leaf's credential current (`refreshOwnLeaf`, whose failure still lets the
+  siblings be added), then offer
   it the user's other active devices (`addOwnDevices`, which adds them
   only to groups this device holds). Names the conversations that failed;
   the hook logs them, the domain doesn't. See
@@ -398,6 +442,15 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `needsRecentSignIn(error)` — the IdP asking the password again before a
   sensitive action (`RECENT_SIGN_IN_REQUIRED`, RFC 9470's
   `insufficient_user_authentication`): the user signs in again, then retries.
+- `isDeviceMismatch(error)` — the session names another device
+  (`DEVICE_MISMATCH`): `sign-in-again.usecase.ts`.
+
+### usecases/e2ee/replenish-keypackages.usecase.ts
+- The KeyPackage tick (entry, every 6 h, `key_packages_low`): the attestation
+  renewed when due (`identity-provider/specs/e2ee.md § 6.7`), then the stash
+  topped up. A failed renewal holds no refill up; it is answered as
+  `renewalFailure` and tried again at the next tick. A registration bringing a
+  new attestation is announced (`IE2eePort.onDeviceRegistered`).
 
 ### usecases/e2ee/distribute-group-keys.usecase.ts
 - Keys new group members one at a time: concurrent Add commits race the epoch.
@@ -423,8 +476,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 
 ### Leaving a group's MLS state with its roster
 - `leavesToRemove(leaves, roster, me)` (`models/group.ts`) — every device of
-  someone the roster no longer holds; nothing when the roster doesn't hold
-  `me`, a view of the group that isn't the user's.
+  someone the roster no longer holds, and every leaf whose credential names
+  nobody; nothing when the roster doesn't hold `me`, a view of the group that
+  isn't the user's.
 - `remove-group-member.usecase.ts` — the REST removal first (the IdP checks
   it), then `IE2eePort.pruneGroup` with the roster that remains. A prune that
   fails doesn't undo the removal (`cutOff: false`): the next look finishes it.
@@ -456,6 +510,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   host tells a local person from a federated one.
 - `personName(actorUri, displayName)` — the display name, the handle only
   when the person's instance has none.
+- `instanceOrigin(uri)` — the instance a URL belongs to, as an origin: an
+  actor's attests its devices, and names itself so in their credentials.
 
 ### models/presence.ts
 - `UserStatus` — presence as the UI models it (`online | idle | dnd |

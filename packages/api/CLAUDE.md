@@ -41,3 +41,7 @@ domain as `IKeyDirectoryPort`, which is what keeps the two independent.
   client tells apart, raise the domain's `IdpError` instead
   (`idp-error.ts`): status, `error` code and `actor_uri`, with the
   `error_description` as the message. Match on the code, never the words.
+- The device list (`parseDeviceList`, `device-directory-api.adapter.ts`) decodes what a device
+  needs to check another's chain itself — root key, attestation, HPKE key and its signature —
+  and the approvals as listed; a key that isn't base64 reads as none, an approval that isn't
+  one is left out. `registerDevice` sends the HPKE key and its signature with the root key.

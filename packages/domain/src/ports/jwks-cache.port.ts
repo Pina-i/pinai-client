@@ -11,6 +11,9 @@ export type Ed25519PublicKey = Uint8Array
  *
  * `invalidate` exists for key rotation: a signature that fails under the
  * cached key is retried once against a fresh fetch before being rejected.
+ * An implementation keeps keys fetched in the last minute — forged
+ * signatures must not make it hammer an issuer — and gives up on an issuer
+ * that doesn't answer, so a leaf's check can't stall a group's queue.
  */
 export interface IJwksCachePort {
     getKey(issuer: string, kid: string): Promise<Ed25519PublicKey | null>

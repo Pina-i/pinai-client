@@ -80,6 +80,11 @@ A full-page loading state doesn't draw a loader: it holds the splash. A loader i
 - Holds hand over within one commit, so going from one loading screen to the next never uncovers the page.
 - After boot, a hold longer than 150 ms brings the splash back, for at least 600 ms. `reshow: "never"` only extends a splash that is up, for work that also runs long after boot (the deferred message list).
 
+## This device and its session
+
+- `_libs/session-device.ts` — once per page load, from `requireSession`: the device registers again when it has to (near its attestation's end, or no HPKE key yet), then names itself on the session — after a failed registration too, which the KeyPackage tick tries again (`use-replenish-key-packages.ts`).
+- `_libs/device-mismatch.ts` — `signInAgainOnDeviceMismatch(error)` for a `catch` around a registration or the naming (`session-device.ts`, both onboarding pages); `signInAgainAfterLogout()` in the landing's `beforeLoad`. The tick's renewal goes through it too. The rule is the domain's (`sign-in-again.usecase.ts`).
+
 ## ViewModel pattern
 
 When a component has non-trivial logic (state management, data transformation, side effects, computed values), extract it into a dedicated `ComponentName.viewmodel.ts` file alongside the component.

@@ -56,6 +56,9 @@ function buildPort(
         addContactToGroup: async () => undefined,
         ensureGroupExists: async () => undefined,
         consumePendingWelcomes: async () => ({ joined: 0 }),
+        refreshOwnLeaf: async () => ({ refreshed: false }),
+        onUntrustedLeaf: () => () => undefined,
+        onDeviceRegistered: () => () => undefined,
         replenishKeyPackages: async () => EMPTY_KEY_PACKAGE_STATUS,
         recoverFromPassphrase: async () => {
             throw new Error("recoverFromPassphrase not stubbed")

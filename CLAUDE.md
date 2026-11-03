@@ -298,9 +298,15 @@ for a known IdP.
    `AuthPlatform.browserSession` is what tells the two apart
 11. Once the account's device storage is open and its E2EE device exists, `requireSession` names
    the device to the IdP (`PUT /api/sessions/current/device`, once per page load —
-   `presentation/_libs/session-device.ts`): revoking the device in Settings → Devices then signs
-   it out at once, and the screen tells each device's state — "Active 3 days ago", "Signed out",
-   revoked — with "Sign out other devices"
+   `presentation/_libs/session-device.ts`), registering it again first when it has to (near
+   its attestation's end, or no HPKE key yet — a registration failing otherwise still names it,
+   and the KeyPackage tick tries it again): revoking the device in Settings → Devices then
+   signs it out at once, and the screen tells each device's state — "Active 3 days ago", "Signed
+   out", revoked — with "Sign out other devices". A registration or a naming refused with `403
+   device_mismatch` — this device's storage was wiped while its session lived — signs out and
+   in again (`presentation/_libs/device-mismatch.ts`, `sign-in-again.usecase.ts`): on the web
+   through the IdP's logout, the landing then starting the sign-in; the desktop at once, with an
+   app session of its own
 12. **Sensitive actions** — revoking a device, signing out the others, turning TOTP on, clearing
    the history backup, making a member's password reset link — take a password typed in the last
    10 minutes. The IdP refuses an older
@@ -349,7 +355,7 @@ for a known IdP.
 - **Multi-IdP aware** — the client is not hardcoded to a single IdP; the user's configured IdP URL is stored in `localStorage` only (not the token)
 - **Two separate WebSocket connections**: one to the identity-provider (for DMs), one to the active chat-server (for channels)
 - **JWT never sent to wrong backend** — the chat-server JWT and IdP session are kept strictly separate in the store
-- **MLS E2EE is end-to-end client-driven**: encryption/decryption happens in `packages/crypto/`, server is opaque to message content. Per-device identity (Phase 7) — each device generates a Device Root Key (Ed25519) signed by the IdP into an attestation; peers verify via the issuer's JWKS. DRK + MLS provider state + per-device 24-word recovery passphrase all live in IndexedDB, encrypted at rest under a per-device non-extractable AES-256-GCM `CryptoKey`. The same device key encrypts the persisted message-plaintext cache (`pinai-zustand-store` IDB) so MLS forward secrecy doesn't blank conversation history on reload. Both databases are kept **per account** (`pinai-e2ee:<actor URI>`, `pinai-zustand-store:<actor URI>`), so several accounts can take turns on one browser without erasing each other's device; the route guard opens the signed-in account's before the app shell mounts (`apps/web/src/adapters/storage/CLAUDE.md`). The recovery passphrase derives a History Archive Key (Argon2id) used to encrypt every decrypted plaintext for opt-out server-side history backup. See `packages/crypto/CLAUDE.md` and `identity-provider/specs/e2ee.md` in the `pinai` monorepo.
+- **MLS E2EE is end-to-end client-driven**: encryption/decryption happens in `packages/crypto/`, server is opaque to message content. Per-device identity (Phase 7) — each device generates a Device Root Key (Ed25519) signed by the IdP into an attestation; peers verify via the issuer's JWKS. The DRK signs the device's HPKE key (X25519, for key shares) and every MLS leaf key it uses (`leaf_binding` in the v2 leaf credential), checked on every leaf added or met. DRK + MLS provider state + per-device 24-word recovery passphrase all live in IndexedDB, encrypted at rest under a per-device non-extractable AES-256-GCM `CryptoKey`. The same device key encrypts the persisted message-plaintext cache (`pinai-zustand-store` IDB) so MLS forward secrecy doesn't blank conversation history on reload. Both databases are kept **per account** (`pinai-e2ee:<actor URI>`, `pinai-zustand-store:<actor URI>`), so several accounts can take turns on one browser without erasing each other's device; the route guard opens the signed-in account's before the app shell mounts (`apps/web/src/adapters/storage/CLAUDE.md`). The recovery passphrase derives a History Archive Key (Argon2id) used to encrypt every decrypted plaintext for opt-out server-side history backup. See `packages/crypto/CLAUDE.md` and `identity-provider/specs/e2ee.md` in the `pinai` monorepo.
 - **The persisted cache is written only over what hydration applied** (`apps/web/src/store/persist-guard.ts`,
   wired in `store.ts` through `onRehydrateStorage`). zustand's `persist` saves on every `set`,
   hydrated or not, so a `set` before what was read is in the store — the callback's `setSession`,

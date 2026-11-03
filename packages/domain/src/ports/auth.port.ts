@@ -58,6 +58,8 @@ export type AuthSessionKey =
     | "revocation_endpoint"
     | "client_id"
     | "reauthenticating"
+    /** The IdP to sign in to once its logout comes back: this device registers from a new session. */
+    | "sign_in_again"
 
 export const AUTH_SESSION_KEYS: readonly AuthSessionKey[] = [
     "post_login_redirect",
@@ -70,6 +72,7 @@ export const AUTH_SESSION_KEYS: readonly AuthSessionKey[] = [
     "revocation_endpoint",
     "client_id",
     "reauthenticating",
+    "sign_in_again",
 ]
 
 /**

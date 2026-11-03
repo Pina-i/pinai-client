@@ -29,15 +29,18 @@ export interface GroupLeaf {
 
 /**
  * The leaves to commit out of a group's MLS state: every device of someone its roster no longer
- * holds. None when the roster doesn't hold `me`: that view of the group isn't the user's.
+ * holds, and every leaf whose credential names nobody (`actorUri` null) — no member's. None when
+ * the roster doesn't hold `me`: that view of the group isn't the user's.
  */
 export function leavesToRemove(
-    leaves: readonly GroupLeaf[],
+    leaves: readonly { leafIndex: number; actorUri: string | null }[],
     roster: readonly string[],
     me: string,
 ): number[] {
     if (!roster.includes(me)) return []
-    return leaves.filter((leaf) => !roster.includes(leaf.actorUri)).map((leaf) => leaf.leafIndex)
+    return leaves
+        .filter((leaf) => leaf.actorUri === null || !roster.includes(leaf.actorUri))
+        .map((leaf) => leaf.leafIndex)
 }
 
 /**

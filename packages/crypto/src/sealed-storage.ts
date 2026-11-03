@@ -81,9 +81,9 @@ export interface MlsSnapshot {
 }
 
 /**
- * Per-device Device Root Key + IdP attestation. `signed_message` is the
- * canonical bytes the IdP signed, kept so the client can locally re-verify
- * after restore.
+ * Per-device Device Root Key + IdP attestation, and the device's HPKE key registered with them.
+ * `signed_message` is the canonical bytes the IdP signed, kept so the client can locally
+ * re-verify after restore.
  */
 export interface DeviceAttestation {
     drk_public: Uint8Array
@@ -91,9 +91,11 @@ export interface DeviceAttestation {
     signature: Uint8Array
     kid: string
     issued_at: string  // RFC3339
-    expires_at: string // RFC3339
+    expires_at: string // RFC3339, whole seconds: the text the IdP signed
     /** Canonical bytes the IdP signed — kept for local re-verification. */
     signed_message: Uint8Array
+    /** Null in a row saved before the device had one: it makes one and registers again. */
+    hpke: { public_key: Uint8Array; private_key: Uint8Array } | null
 }
 
 export interface E2eeStorage {
@@ -265,6 +267,8 @@ interface DeviceAttestationJson {
     issued_at: string
     expires_at: string
     signed_message: number[]
+    hpke_public?: number[]
+    hpke_private?: number[]
 }
 
 function deviceAttestationToJson(att: DeviceAttestation): DeviceAttestationJson {
@@ -276,6 +280,9 @@ function deviceAttestationToJson(att: DeviceAttestation): DeviceAttestationJson 
         issued_at: att.issued_at,
         expires_at: att.expires_at,
         signed_message: Array.from(att.signed_message),
+        ...(att.hpke
+            ? { hpke_public: Array.from(att.hpke.public_key), hpke_private: Array.from(att.hpke.private_key) }
+            : {}),
     }
 }
 
@@ -288,6 +295,10 @@ function deviceAttestationFromJson(j: DeviceAttestationJson): DeviceAttestation 
         issued_at: j.issued_at,
         expires_at: j.expires_at,
         signed_message: new Uint8Array(j.signed_message),
+        hpke:
+            j.hpke_public && j.hpke_private
+                ? { public_key: new Uint8Array(j.hpke_public), private_key: new Uint8Array(j.hpke_private) }
+                : null,
     }
 }
 

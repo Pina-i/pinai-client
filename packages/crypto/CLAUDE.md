@@ -50,7 +50,9 @@ Three collaborators could not come, and the shape of each is the mobile work:
   `identity` (encrypted MSK/SSK/USK bundle), `mls_snapshot`
   (encrypted snapshot of the openmls provider state +
   `knownGroupIds[]`), `recovery_passphrase` (encrypted local copy
-  of the 24-word mnemonic, Phase 6a — DB v3). All at-rest blobs are
+  of the 24-word mnemonic, Phase 6a — DB v3), `device_attestation` (the root
+  key, its attestation and the device's HPKE key — `hpke` null in a row from
+  before it, which registers again). All at-rest blobs are
   encrypted under the same per-device key; the key is also re-used
   by the Zustand `persist` middleware so the message-plaintext cache
   lives behind the same key material.
@@ -70,6 +72,21 @@ Three collaborators could not come, and the shape of each is the mobile work:
   classes. Wraps SPAKE2 + AEAD-sealed `IdentityKeypair` bundle.
   Existing device emits a `QrPayload`; new device calls `fromQr` +
   ferries SPAKE2 messages through caller-provided transport.
+- **`canonical-bytes.ts`** — the bytes the protocol signs
+  (`identity-provider/specs/e2ee.md § 7.2`): `IDP-ATTEST-v1`,
+  `PINAI-DEVICE-HPKE-v1`, `PINAI-LEAF-BINDING-v1`, rebuilt from bytes;
+  `apps/web/test/canonical-bytes.spec.ts` holds the IdP's golden vectors.
+- **`attestation-chain.adapter.ts`** — what a device checks itself, Ed25519
+  strict (`verifyStrict`, a small-order key refused) as the IdP checks root keys.
+  `verifyLeafCredential(leaf, jwks)` — § 3.4's checks 1–5 on a leaf or a
+  claimed KeyPackage: v2, the issuer exactly the actor's origin (where its JWKS
+  is fetched), expiry (5 min skew, as for the device chain),
+  the attestation under the issuer's JWKS key (fetched again once on failure,
+  for rotation), the leaf binding under the attested root key over the
+  LeafNode's own signature key. `verifyDeviceChain(actorUri, device, jwks)` —
+  § 3.3 for one listed device: unrevoked, JWKS → attestation → root key → HPKE
+  key; approvals not looked at. An issuer out of reach is `unreachable`, never
+  a bad signature.
 - **`e2ee.adapter.ts`** — `E2eeAdapter`. The `IE2eePort` impl. Wires
   every sub-adapter into `register`, `replenishKeyPackages`,
   `encryptOutbound`, `decryptInbound`, `addContactToGroup`,
@@ -85,6 +102,36 @@ Three collaborators could not come, and the shape of each is the mobile work:
   instances; `replenishKeyPackages` likewise shares one run, so the
   entry check, the 6 h timer and a `key_packages_low` push never
   overshoot the stash cap. The whole port is intentionally idempotent.
+  - **Registration** (`registerDevice`): the root key and the HPKE key (from
+    `IHpkePort`, made once) together, the HPKE key signed by the root key; again
+    within 30 days of expiry, and at once for a device holding no HPKE key. The
+    answer's `signed_message` must be the `IDP-ATTEST-v1` bytes rebuilt from it,
+    since every peer rebuilds them from the credential's text. `register` runs
+    it first: every KeyPackage carries the attestation. A new attestation goes to
+    `onDeviceRegistered` listeners — the fanout refetches the device list, so the
+    leaves take it in the same page load.
+  - **The bound credential** (v2, `leafCredential`): the root key signs the leaf
+    key into `leaf_binding` before `setIdentity`. Nothing is bound without an
+    attestation, and a registration landing during a bind binds again; a refill
+    whose binding a renewal dropped binds again before it makes KeyPackages.
+  - **Leaves checked**: a claimed KeyPackage before it is added
+    (`addContactToGroup` — the contact's devices whose leaves verify, none
+    verifying is `KeyPackageUnavailable` —, `addOwnDevices`), each as the very
+    device it was claimed for (`admitsClaim`); every leaf met — a Welcome's tree
+    on a join or rejoin, a commit's `leavesMet` in `decryptInbound` and the
+    catch-up. One met that fails stays in the group, is logged, recorded by
+    conversation and leaf index — until that leaf verifies, changes or leaves —
+    and goes to `onUntrustedLeaf` listeners, late ones getting the records held.
+    An issuer out of reach records nothing: the leaf is checked when next met.
+  - **Removal**: `pruneGroup` also commits out leaves whose credential names
+    nobody; `revokeDevice` every leaf naming the device, one a commit.
+  - `commitEach` — the one loop for a run of commits (`pruneGroup`,
+    `addOwnDevices`, `refreshOwnLeaf`): one a commit, looked at again after each,
+    an epoch race caught up and tried again, five at most.
+  - **`refreshOwnLeaf`** — a commit putting the credential the device makes now
+    into its own leaf when the leaf carries another: one from before the leaf
+    binding, or before a renewal — a registration under way is waited for. Run by
+    `syncOwnGroupsUseCase` after the catch-up.
 
 ## Use cases
 
@@ -434,7 +481,12 @@ vitest setup, so a package's specs sit there until it needs its own.
 - `apps/web/test/e2ee-integration.spec.ts` — Alice+Bob full-loop register →
   add → text → reaction → edit → attachment, plus a same-IdP
   routing case.
-
+- `apps/web/test/canonical-bytes.spec.ts`, `hpke.spec.ts` (RFC 9180 A.1.1 through
+  the real bundle), `attestation-chain.spec.ts` (both chains), `register-device.spec.ts`
+  (the root key and HPKE key registration, the tick's renewal); the integration suite's
+  last block checks leaves end to end — forged KeyPackages refused, untrusted leaves
+  announced and forgotten, own leaves refreshed, a renewal racing a refresh or a refill.
+  Its directory attests as the IdP would (`test/setup/issuers.ts`).
 - `apps/web/test/message-status.spec.ts` — fade-window math behind the
   `MessageStatus` molecule.
 - `apps/web/test/bootstrap-first-device.spec.ts` — 6a use-case ordering +
@@ -646,3 +698,11 @@ account just registers its own MSK + Device Root Key in the setup flow.
   there
 - `e2ee-debug` DEV-only inspection page + route — gone
 - `useFingerprint` hook — gone (no callers remained)
+
+## Leaf binding and the device's HPKE key
+
+- The credential is v2 (`leaf_binding`), which undoes Phase 7's "wire-format
+  simplification" above: the wrapper now makes the leaf key before the
+  credential, so the root key signs it. v1 is read as no credential at all.
+- `IHpkePort` is the bundle's HPKE, beside `IMlsEngine` rather than on it; the
+  key shares that use it come later.

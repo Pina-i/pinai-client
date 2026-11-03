@@ -41,12 +41,18 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
         accessToken: string,
         deviceId: DeviceId,
         drkPublicKey: Uint8Array,
+        hpkeKey: { publicKey: Uint8Array; signature: Uint8Array },
     ): Promise<RegisterDeviceResponse> {
         const url = `${trimSlash(idpUrl)}/api/keys/devices`
         const body = await guarded(() =>
             idp.post(url, {
                 headers: authHeader(accessToken),
-                json: { device_id: deviceId, drk_public_key: b64(drkPublicKey) },
+                json: {
+                    device_id: deviceId,
+                    drk_public_key: b64(drkPublicKey),
+                    hpke_public_key: b64(hpkeKey.publicKey),
+                    hpke_key_signature: b64(hpkeKey.signature),
+                },
             }).json<{
                 signature: string
                 kid: string

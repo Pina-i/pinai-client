@@ -52,6 +52,7 @@ import type { ISessionPort } from "@pinai/domain/ports/session.port"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
 import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
 import type { IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
+import type { IHpkePort } from "@pinai/domain/ports/hpke.port"
 import type { ISocialPort } from "@pinai/domain/ports/social.port"
 import type { IPrivacyPort } from "@pinai/domain/ports/privacy.port"
 import type { IDmPort } from "@pinai/domain/ports/dm.port"
@@ -132,8 +133,10 @@ const historyArchiveCrypto = new HistoryArchiveAdapter()
 //
 // `mlsEngine` is the one line a React Native container replaces: same
 // `IMlsEngine`, backed by the openmls crate built natively instead of
-// as WASM.
-const mlsEngine: IMlsEngine = new MlsAdapter()
+// as WASM. The bundle's HPKE comes with it.
+const mlsAdapter = new MlsAdapter()
+const mlsEngine: IMlsEngine = mlsAdapter
+const hpke: IHpkePort = mlsAdapter
 
 const e2eePort: IE2eePort = new E2eeAdapter(
     new NobleIdentityAdapter(),
@@ -141,6 +144,8 @@ const e2eePort: IE2eePort = new E2eeAdapter(
     getSharedE2eeStorage(),
     new KeyDirectoryApiAdapter(),
     new NobleRecoveryAdapter(),
+    hpke,
+    jwksCache,
     historyArchivePort,
     historyArchiveCrypto,
 )

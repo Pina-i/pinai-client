@@ -39,6 +39,14 @@ export function useDeviceFanout(): {
     // A group this device founds or joins changes neither the device list nor, often, the ids.
     const [groupsHeld, setGroupsHeld] = useState(0)
     useEffect(() => getE2eePort().onGroupHeld(() => setGroupsHeld((n) => n + 1)), [])
+    // A registration changed this device's row, and its leaves have a new credential to take.
+    useEffect(
+        () =>
+            getE2eePort().onDeviceRegistered(() => {
+                if (idpUrl) void queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
+            }),
+        [idpUrl, queryClient],
+    )
 
     useEffect(() => {
         const accessToken = useAppStore.getState().accessToken

@@ -14,10 +14,16 @@ because Hermes has no WebAssembly.
   this is a package rather than a file in the web app. The credential bytes
   travel: they sit in the BasicCredential of our leaf in the ratchet tree, and
   peers decode them to learn which device owns which leaf — which is how
-  device revocation finds the leaf to remove. Two implementations that
+  device revocation finds the leaf to remove — and to check it
+  (`identity-provider/specs/e2ee.md § 3.4`). Two implementations that
   disagreed here would build groups whose members cannot identify each other.
   `apps/web/test/leaf-credential.spec.ts` pins the exact encoding.
-- **`wasm.adapter.ts`** — `MlsAdapter`, the WASM `IMlsEngine`. Owns one
+  - v2 only: `{ v: 2, actor_uri, device_id, drk_pub, idp_att: { issuer, kid,
+    expires_at, signature }, leaf_binding }`, written in that order whatever
+    order the object holds. Anything else decodes to `null` — a leaf without a
+    credential, never trusted. The type is the domain's (`models/leaf-trust.ts`).
+- **`wasm.adapter.ts`** — `MlsAdapter`, the WASM `IMlsEngine`, and the
+  bundle's HPKE (`IHpkePort`, one load for both). Owns one
   `Provider` + one `Identity` + a `Map<conversation_id, Group>`. The only
   place `openmls-wasm` is imported. Every method is `async` to satisfy the
   port even though the wasm calls underneath are synchronous — see the port
@@ -32,6 +38,13 @@ because Hermes has no WebAssembly.
   `rejoinGroup` takes a Welcome to a group already held only when it brings a
   later epoch, deleting the old state first so none of it lingers under the
   same group id; `deleteGroup` drops a group from the provider.
+  - The leaf key comes before its credential: `generateSignatureKey`, then
+    `setIdentity(credential, key)` once the root key signed the key into it;
+    `ownLeafSignatureKey` is a held group's own leaf key, reused across reloads.
+  - What the checks need: `inspectKeyPackage` (a claimed KeyPackage's
+    credential and signature key), `groupLeaves` (every leaf, `own` marked),
+    a commit's `leavesMet`; `updateOwnCredential` commits a new credential into
+    the device's own leaf over the key it carries.
 
 ## When to split this package
 
@@ -69,6 +82,6 @@ app, precisely so a second build target can consume it). It is one
 `#[wasm_bindgen]`-annotated `lib.rs`; nothing JS-specific crosses its
 boundary except `JsError` in the error position. Splitting it into a
 binding-agnostic core plus two thin binding layers is what the native build
-needs, and `apps/web/test/e2ee.spec.ts` plus
+needs, and `apps/web/test/e2ee.spec.ts`, `apps/web/test/hpke.spec.ts` plus
 `apps/web/test/leaf-credential.spec.ts` are the conformance suite the second
 implementation has to pass.

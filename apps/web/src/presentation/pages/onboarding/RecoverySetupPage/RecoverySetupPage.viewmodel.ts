@@ -4,6 +4,7 @@ import { toast } from "sonner"
 
 import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstrap-first-device.usecase"
 import { getE2eePort } from "@/ioc"
+import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
 import { useAppStore } from "@/store/store"
 
 export type SetupStatus = "checking" | "running" | "done" | "error"
@@ -69,7 +70,7 @@ export function useRecoverySetupPageViewModel(): RecoverySetupViewModel {
                 setWords(result.words)
                 setStatus("done")
             } catch (e) {
-                if (cancelled) return
+                if (cancelled || (await signInAgainOnDeviceMismatch(e))) return
                 setStatus("error")
                 setError(e instanceof Error ? e.message : "Setup failed.")
             }

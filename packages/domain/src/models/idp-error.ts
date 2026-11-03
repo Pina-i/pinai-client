@@ -24,3 +24,14 @@ export const RECENT_SIGN_IN_REQUIRED = "insufficient_user_authentication"
 export function needsRecentSignIn(error: unknown): boolean {
     return error instanceof IdpError && error.code === RECENT_SIGN_IN_REQUIRED
 }
+
+/** The session names another device than the one asking: `identity-provider/specs/auth.md § 1`, "Sessions and devices". */
+export const DEVICE_MISMATCH = "device_mismatch"
+
+/**
+ * This device's storage was wiped while its session lived, so the session still names the device
+ * it was: the device signs in afresh, and registers from a session of its own.
+ */
+export function isDeviceMismatch(error: unknown): boolean {
+    return error instanceof IdpError && error.code === DEVICE_MISMATCH
+}

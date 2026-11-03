@@ -6,8 +6,11 @@
  * mocking of the MLS layer: this is the same WASM bundle the browser
  * runs.
  *
+ * The directory attests root keys as the IdP would, under each instance's own key, and the
+ * devices check every leaf against those keys (`setup/issuers.ts`).
+ *
  * Flow under test:
- *   1. Alice + Bob register (identity publish + 50-KP stash each).
+ *   1. Alice + Bob register (root key attested, then a 50-KP stash each).
  *   2. Alice adds Bob to a fresh conversation (claim + commit + welcome).
  *   3. Bob consumes the pending welcome (joins the group).
  *   4. Alice sends a text → Bob decrypts.
@@ -20,6 +23,13 @@
 import { beforeAll, describe, expect, it, vi } from "vitest"
 
 import { loadWasmModule } from "./setup/wasm"
+import { FakeIssuers, wholeSeconds } from "./setup/issuers"
+
+import { verifyLeafCredential, verifyStrict } from "@pinai/crypto/attestation-chain.adapter"
+import { bytesToBase64 } from "@pinai/domain/lib/bytes"
+import { KeyPackageUnavailable } from "@pinai/domain/models/group"
+import { deviceHpkeKeyBytes } from "@pinai/crypto/canonical-bytes"
+import type { LeafCredential, UntrustedLeaf } from "@pinai/domain/models/leaf-trust"
 
 import { decryptDownloaded, encryptForUpload } from "@pinai/crypto/attachment-crypto"
 import { E2eeAdapter } from "@pinai/crypto/e2ee.adapter"
@@ -30,6 +40,7 @@ import type {
     IdentityKeysResponse,
     IKeyDirectoryPort,
     RecoveryBlobResponse,
+    RegisterDeviceResponse,
     WelcomeView,
 } from "@pinai/domain/ports/key-directory.port"
 import { MlsAdapter } from "@pinai/mls/wasm.adapter"
@@ -66,15 +77,37 @@ interface PackageEntry {
     expiresAt: string
 }
 
+/** Every instance's attestation key, which the directory signs with and the devices check against. */
+const issuers = new FakeIssuers()
+
 class InMemoryKeyDirectory implements IKeyDirectoryPort {
-    /**
-     * Device attestation is the IdP's signing job and this suite never
-     * exercises it. Throwing rather than returning a plausible-looking
-     * attestation: a fake signature here would let a future test pass
-     * while the verification path it is meant to cover is broken.
-     */
-    registerDevice(): Promise<never> {
-        throw new Error("InMemoryKeyDirectory.registerDevice is not exercised by this suite")
+    /** As the IdP does: the HPKE key's signature checked under the root key sent with it, then the root key attested. */
+    async registerDevice(
+        _idpUrl: string,
+        accessToken: string,
+        deviceId: DeviceId,
+        drkPublicKey: Uint8Array,
+        hpkeKey: { publicKey: Uint8Array; signature: Uint8Array },
+    ): Promise<RegisterDeviceResponse> {
+        const actorUri = this.resolveSender(accessToken)
+        if (!verifyStrict(hpkeKey.signature, deviceHpkeKeyBytes(actorUri, deviceId, hpkeKey.publicKey), drkPublicKey)) {
+            throw new IdpError(400, "invalid_request", "hpke_key_signature does not verify against drk_public_key")
+        }
+        const answer = issuers.attest(actorUri, deviceId, drkPublicKey, this.attestUntil ?? undefined)
+        await this.beforeRegistrationAnswers?.()
+        return answer
+    }
+
+    /** The expiry the next attestations carry; a year on when unset. */
+    attestUntil: string | null = null
+    /** Runs before a registration is answered: the window it is under way in. */
+    beforeRegistrationAnswers: (() => Promise<void>) | null = null
+
+    /** Puts `packages` in place of what `actorUri`'s device holds, as an instance serving its own would. */
+    stash(actorUri: ActorUri, deviceId: DeviceId, packages: Uint8Array[]): void {
+        const others = (this.packagesByActor.get(actorUri) ?? []).filter((p) => p.deviceId !== deviceId)
+        const expiresAt = new Date(Date.now() + 86_400_000).toISOString()
+        this.packagesByActor.set(actorUri, [...packages.map((bytes) => ({ deviceId, bytes, expiresAt })), ...others])
     }
 
     private readonly identityByActor = new Map<ActorUri, IdentityKeysResponse>()
@@ -383,7 +416,7 @@ async function buildAdapter(
     const storage = new InMemoryE2eeStorage()
     const identity = new NobleIdentityAdapter()
     const recovery = new NobleRecoveryAdapter()
-    const e2ee = new E2eeAdapter(identity, mls, storage, directory, recovery)
+    const e2ee = new E2eeAdapter(identity, mls, storage, directory, recovery, mls, issuers.jwks)
     directory.bindToken(accessToken, actorUri)
     return { e2ee, mls, storage }
 }
@@ -392,7 +425,15 @@ async function buildAdapter(
 async function reload(directory: InMemoryKeyDirectory, ctx: AdapterCtx): Promise<AdapterCtx> {
     const mls = new MlsAdapter()
     await mls.initialize({ module_or_path: wasmModule } as never)
-    const e2ee = new E2eeAdapter(new NobleIdentityAdapter(), mls, ctx.storage, directory, new NobleRecoveryAdapter())
+    const e2ee = new E2eeAdapter(
+        new NobleIdentityAdapter(),
+        mls,
+        ctx.storage,
+        directory,
+        new NobleRecoveryAdapter(),
+        mls,
+        issuers.jwks,
+    )
     return { e2ee, mls, storage: ctx.storage }
 }
 
@@ -1106,5 +1147,314 @@ describe("MLS E2EE — a message overtaken by a commit", () => {
         await dan.e2ee.catchUp(issuer, "dan-token", conversationId)
 
         await expect(read(dan, "dan-token", sixBehind)).rejects.toThrow()
+    })
+})
+
+describe("MLS E2EE — a leaf is trusted on its attestation and its leaf binding", () => {
+    const conversationId: ConversationId = "ffff1111-2222-3333-4444-555566667777"
+    const issuer = "https://idp.shared.example"
+    const [bobActor, danActor, eveActor, frankActor] = ["bob", "dan", "eve", "frank"].map((name) =>
+        asActorUri(`${issuer}/users/${name}_x1y2z`),
+    )
+    const text = (t: string): ApplicationMessage<TextBody> => ({ version: 1, kind: "text", body: { text: t } })
+    const read = async (ctx: AdapterCtx, token: string, ciphertext: Uint8Array) =>
+        ((await ctx.e2ee.decryptInbound(conversationId, ciphertext, { idpUrl: issuer, accessToken: token }))
+            ?.body as TextBody).text
+    const inAYearAndADay = () => wholeSeconds(new Date(Date.now() + 366 * 86_400_000))
+
+    /** A gate: `opened` resolves once `open` is called. */
+    function gate() {
+        let open!: () => void
+        const opened = new Promise<void>((resolve) => (open = resolve))
+        return { opened, open }
+    }
+
+    async function registered(directory: InMemoryKeyDirectory, token: string, actor: ActorUri) {
+        const ctx = await buildAdapter(directory, token, actor)
+        await ctx.e2ee.register(issuer, token, actor)
+        return ctx
+    }
+
+    /** What an instance could serve: the device's own credential, attested and all, over a leaf key of its making. */
+    async function forgedPackage(victim: AdapterCtx): Promise<Uint8Array> {
+        const { credential } = await victim.mls.inspectKeyPackage(await victim.mls.createKeyPackage())
+        const forger = new MlsAdapter()
+        await forger.initialize({ module_or_path: wasmModule } as never)
+        const key = await forger.generateSignatureKey()
+        await forger.setIdentity(credential!, key)
+        return forger.createKeyPackage()
+    }
+
+    /** A commit made with the engine alone, as a client that checks nothing would make it. */
+    async function commitUnchecked(directory: InMemoryKeyDirectory, by: AdapterCtx, token: string, commit: Uint8Array) {
+        const epoch = Number(await by.mls.getEpoch(conversationId)) + 1
+        await directory.postCommit(issuer, token, conversationId, epoch, commit)
+        await by.mls.mergePendingCommit(conversationId)
+    }
+
+    async function bobWithDan() {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const bob = await registered(directory, "bob-token", bobActor)
+        const dan = await registered(directory, "dan-token", danActor)
+        await bob.e2ee.addContactToGroup(issuer, "bob-token", conversationId, danActor)
+        await dan.e2ee.consumePendingWelcomes(issuer, "dan-token", danActor)
+        return { directory, bob, dan }
+    }
+
+    it("publishes KeyPackages whose leaves verify as the device's own", async () => {
+        const directory = new InMemoryKeyDirectory()
+        const dan = await registered(directory, "dan-token", danActor)
+        const danId = await dan.storage.getOrCreateDeviceId()
+
+        const claimed = await directory.claimKeyPackage(issuer, "bob-token", danActor, danId)
+        const verdict = await verifyLeafCredential(await dan.mls.inspectKeyPackage(claimed.key_package), issuers.jwks)
+
+        expect(verdict).toMatchObject({ ok: true, actorUri: danActor, deviceId: danId })
+        const attestation = (await dan.storage.loadDeviceAttestation())!
+        expect(attestation.hpke?.public_key).toHaveLength(32)
+        expect(attestation.expires_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
+    })
+
+    it("adds no KeyPackage pairing a device's credential with a leaf key of the instance's own", async () => {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const bob = await registered(directory, "bob-token", bobActor)
+        const dan = await registered(directory, "dan-token", danActor)
+        directory.stash(danActor, await dan.storage.getOrCreateDeviceId(), [await forgedPackage(dan)])
+
+        await expect(
+            bob.e2ee.addContactToGroup(issuer, "bob-token", conversationId, danActor),
+        ).rejects.toBeInstanceOf(KeyPackageUnavailable)
+
+        expect(await bob.mls.hasGroup(conversationId)).toBe(false)
+        expect(directory.welcomeRouting).toEqual([])
+    })
+
+    it("adds those of a contact's devices whose leaves verify, and none of the others", async () => {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const bob = await registered(directory, "bob-token", bobActor)
+        const dan1 = await registered(directory, "dan1-token", danActor)
+        const dan2 = await registered(directory, "dan2-token", danActor)
+        const [dan1Id, dan2Id] = [await dan1.storage.getOrCreateDeviceId(), await dan2.storage.getOrCreateDeviceId()]
+        directory.stash(danActor, dan2Id, [await forgedPackage(dan2)])
+
+        await bob.e2ee.addContactToGroup(issuer, "bob-token", conversationId, danActor)
+
+        expect(directory.welcomeRouting.map((w) => w.recipient_device_id)).toEqual([dan1Id])
+        await dan1.e2ee.consumePendingWelcomes(issuer, "dan1-token", danActor)
+        expect(await read(dan1, "dan1-token", await bob.e2ee.encryptOutbound(conversationId, text("hi")))).toBe("hi")
+    })
+
+    it("brings in none of the user's own devices whose KeyPackage doesn't verify", async () => {
+        const { directory, dan } = await bobWithDan()
+        const dan2 = await registered(directory, "dan2-token", danActor)
+        const dan2Id = await dan2.storage.getOrCreateDeviceId()
+        directory.stash(danActor, dan2Id, [await forgedPackage(dan2)])
+
+        expect(await dan.e2ee.addOwnDevices(issuer, "dan-token", conversationId, [dan2Id])).toEqual({ added: 0 })
+        expect(directory.welcomeRouting.filter((w) => w.recipient_device_id === dan2Id)).toEqual([])
+    })
+
+    it("announces a leaf a commit brings in that fails its checks, and the same leaf met in a Welcome's tree", async () => {
+        const { directory, bob, dan } = await bobWithDan()
+        const eve = await registered(directory, "eve-token", eveActor)
+        const eveId = await eve.storage.getOrCreateDeviceId()
+        const metByDan: UntrustedLeaf[] = []
+        dan.e2ee.onUntrustedLeaf((leaf) => metByDan.push(leaf))
+        const forged = await bob.mls.addMember(conversationId, await forgedPackage(eve))
+        await commitUnchecked(directory, bob, "bob-token", forged.commit)
+
+        await dan.e2ee.catchUp(issuer, "dan-token", conversationId)
+
+        expect(metByDan).toMatchObject([
+            { conversationId, leafIndex: 2, actorUri: eveActor, deviceId: eveId, reason: "binding" },
+        ])
+        const later: UntrustedLeaf[] = []
+        dan.e2ee.onUntrustedLeaf((leaf) => later.push(leaf))
+        expect(later).toEqual(metByDan)
+        // Still in the group: committing it out is left to whoever listens.
+        expect(await read(dan, "dan-token", await bob.e2ee.encryptOutbound(conversationId, text("on")))).toBe("on")
+
+        const frank = await registered(directory, "frank-token", frankActor)
+        const metByFrank: UntrustedLeaf[] = []
+        frank.e2ee.onUntrustedLeaf((leaf) => metByFrank.push(leaf))
+        await bob.e2ee.addContactToGroup(issuer, "bob-token", conversationId, frankActor)
+        await frank.e2ee.consumePendingWelcomes(issuer, "frank-token", frankActor)
+
+        expect(metByFrank.map((leaf) => [leaf.leafIndex, leaf.reason])).toEqual([[2, "binding"]])
+
+        // Committed out, the leaf is no longer held against the group.
+        await commitUnchecked(directory, bob, "bob-token", await bob.mls.removeMember(conversationId, 2))
+        await dan.e2ee.catchUp(issuer, "dan-token", conversationId)
+        const afterRemoval: UntrustedLeaf[] = []
+        dan.e2ee.onUntrustedLeaf((leaf) => afterRemoval.push(leaf))
+        expect(afterRemoval).toEqual([])
+    })
+
+    it("refreshes its own leaf once its attestation was renewed, and its peers trust the new one", async () => {
+        const { bob, dan } = await bobWithDan()
+        const danId = await dan.storage.getOrCreateDeviceId()
+        const held = (await dan.storage.loadDeviceAttestation())!
+        const renewed = issuers.attest(danActor, danId, held.drk_public, wholeSeconds(new Date(Date.now() + 200 * 86_400_000)))
+        await dan.storage.saveDeviceAttestation({ ...held, ...renewed })
+        const metByBob: UntrustedLeaf[] = []
+        bob.e2ee.onUntrustedLeaf((leaf) => metByBob.push(leaf))
+
+        expect(await dan.e2ee.refreshOwnLeaf(issuer, "dan-token", conversationId)).toEqual({ refreshed: true })
+        expect(await dan.e2ee.refreshOwnLeaf(issuer, "dan-token", conversationId)).toEqual({ refreshed: false })
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+
+        expect(metByBob).toEqual([])
+        const dansLeaf = (await bob.mls.groupLeaves(conversationId)).find((leaf) => leaf.credential?.device_id === danId)
+        expect(dansLeaf?.credential?.idp_att.expires_at).toBe(renewed.expires_at)
+        expect(await read(bob, "bob-token", await dan.e2ee.encryptOutbound(conversationId, text("renewed")))).toBe(
+            "renewed",
+        )
+    })
+
+    it("puts a credential its peers trust in place of one they don't", async () => {
+        const { directory, bob, dan } = await bobWithDan()
+        const own = (await dan.mls.groupLeaves(conversationId)).find((leaf) => leaf.own)!
+        const unbound = { ...own.credential!, leaf_binding: bytesToBase64(new Uint8Array(64)) }
+        await commitUnchecked(directory, dan, "dan-token", await dan.mls.updateOwnCredential(conversationId, unbound))
+        const metByBob: UntrustedLeaf[] = []
+        bob.e2ee.onUntrustedLeaf((leaf) => metByBob.push(leaf))
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+        expect(metByBob.map((leaf) => leaf.reason)).toEqual(["binding"])
+
+        expect(await dan.e2ee.refreshOwnLeaf(issuer, "dan-token", conversationId)).toEqual({ refreshed: true })
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+
+        expect(metByBob).toHaveLength(1)
+        const dansLeaf = (await bob.mls.groupLeaves(conversationId)).find((leaf) => leaf.leafIndex === own.leafIndex)!
+        expect((await verifyLeafCredential(dansLeaf, issuers.jwks)).ok).toBe(true)
+        const late: UntrustedLeaf[] = []
+        bob.e2ee.onUntrustedLeaf((leaf) => late.push(leaf))
+        expect(late).toEqual([])
+    })
+
+    it("refreshes its own leaf after losing an epoch race, once caught up", async () => {
+        const { directory, bob, dan } = await bobWithDan()
+        const own = (await dan.mls.groupLeaves(conversationId)).find((leaf) => leaf.own)!
+        const unbound = { ...own.credential!, leaf_binding: bytesToBase64(new Uint8Array(64)) }
+        await commitUnchecked(directory, dan, "dan-token", await dan.mls.updateOwnCredential(conversationId, unbound))
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+        // Bob takes the next epoch before Dan's refresh does.
+        await commitUnchecked(directory, bob, "bob-token", await bob.mls.update(conversationId))
+
+        expect(await dan.e2ee.refreshOwnLeaf(issuer, "dan-token", conversationId)).toEqual({ refreshed: true })
+
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+        expect(await bob.mls.getEpoch(conversationId)).toBe(await dan.mls.getEpoch(conversationId))
+        expect(await read(bob, "bob-token", await dan.e2ee.encryptOutbound(conversationId, text("caught up")))).toBe(
+            "caught up",
+        )
+    })
+
+    it("refreshes its own leaf with the attestation a registration under way brings", async () => {
+        const { directory, bob, dan } = await bobWithDan()
+        const held = (await dan.storage.loadDeviceAttestation())!
+        await dan.storage.saveDeviceAttestation({ ...held, hpke: null })
+        directory.attestUntil = inAYearAndADay()
+        const answer = gate()
+        const asked = gate()
+        directory.beforeRegistrationAnswers = async () => {
+            asked.open()
+            await answer.opened
+        }
+        let registrations = 0
+        dan.e2ee.onDeviceRegistered(() => registrations++)
+
+        const registering = dan.e2ee.registerDevice(issuer, "dan-token", danActor)
+        await asked.opened
+        const refreshing = dan.e2ee.refreshOwnLeaf(issuer, "dan-token", conversationId)
+        answer.open()
+
+        await registering
+        expect(await refreshing).toEqual({ refreshed: true })
+        expect(registrations).toBe(1)
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+        const dansLeaf = (await bob.mls.groupLeaves(conversationId)).find((leaf) => leaf.credential?.actor_uri === danActor)!
+        expect(dansLeaf.credential?.idp_att.expires_at).toBe(directory.attestUntil)
+        expect((await verifyLeafCredential(dansLeaf, issuers.jwks)).ok).toBe(true)
+    })
+
+    it("fills its stash through a renewal landing mid-refill, every KeyPackage carrying the new attestation", async () => {
+        const directory = new InMemoryKeyDirectory()
+        const dan = await registered(directory, "dan-token", danActor)
+        const danId = await dan.storage.getOrCreateDeviceId()
+        directory.forgetPackages(danActor)
+        const held = (await dan.storage.loadDeviceAttestation())!
+        await dan.storage.saveDeviceAttestation({ ...held, hpke: null })
+        directory.attestUntil = inAYearAndADay()
+        const statusAsked = gate()
+        const statusAnswer = gate()
+        const status = directory.getKeyPackageStatus.bind(directory)
+        directory.getKeyPackageStatus = async (...args) => {
+            statusAsked.open()
+            await statusAnswer.opened
+            return status(...args)
+        }
+
+        const refilling = dan.e2ee.replenishKeyPackages(issuer, "dan-token", danActor)
+        await statusAsked.opened
+        await dan.e2ee.registerDevice(issuer, "dan-token", danActor)
+        statusAnswer.open()
+        await refilling
+
+        expect(directory.packagesOf(danActor)).toBe(100)
+        const claimed = await directory.claimKeyPackage(issuer, "dan-token", danActor, danId)
+        const leaf = await dan.mls.inspectKeyPackage(claimed.key_package)
+        expect(leaf.credential?.idp_att.expires_at).toBe(directory.attestUntil)
+        expect((await verifyLeafCredential(leaf, issuers.jwks)).ok).toBe(true)
+    })
+
+    it("revokes every leaf that names the device", async () => {
+        const { directory, bob, dan } = await bobWithDan()
+        const dan2 = await registered(directory, "dan2-token", danActor)
+        const dan2Id = await dan2.storage.getOrCreateDeviceId()
+        // Its own, and one an instance put under its credential with a key of its own.
+        for (const keyPackage of [await dan2.mls.createKeyPackage(), await forgedPackage(dan2)]) {
+            const add = await bob.mls.addMember(conversationId, keyPackage)
+            await commitUnchecked(directory, bob, "bob-token", add.commit)
+        }
+        await dan.e2ee.catchUp(issuer, "dan-token", conversationId)
+
+        const revoked = await dan.e2ee.revokeDevice(issuer, "dan-token", danActor, dan2Id, [conversationId])
+
+        expect(revoked.removed_from).toEqual([conversationId])
+        expect((await dan.mls.groupMembers(conversationId)).filter((leaf) => leaf.deviceId === dan2Id)).toEqual([])
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+        expect(await read(bob, "bob-token", await dan.e2ee.encryptOutbound(conversationId, text("two out")))).toBe(
+            "two out",
+        )
+    })
+
+    it("prunes a leaf whose credential names nobody: it can be no member's", async () => {
+        const { directory, bob, dan } = await bobWithDan()
+        const forger = new MlsAdapter()
+        await forger.initialize({ module_or_path: wasmModule } as never)
+        const key = await forger.generateSignatureKey()
+        const { credential } = await dan.mls.inspectKeyPackage(await dan.mls.createKeyPackage())
+        const unreadable = { ...credential!, idp_att: { ...credential!.idp_att, kid: 7 } } as unknown as LeafCredential
+        await forger.setIdentity(unreadable, key)
+        const add = await bob.mls.addMember(conversationId, await forger.createKeyPackage())
+        await commitUnchecked(directory, bob, "bob-token", add.commit)
+        expect((await bob.mls.groupLeaves(conversationId)).map((leaf) => leaf.credential === null)).toEqual([
+            false,
+            false,
+            true,
+        ])
+
+        const pruned = await bob.e2ee.pruneGroup(issuer, "bob-token", conversationId, [bobActor, danActor])
+
+        expect(pruned).toEqual({ removed: 1 })
+        expect(await bob.mls.groupLeaves(conversationId)).toHaveLength(2)
+        await dan.e2ee.catchUp(issuer, "dan-token", conversationId)
+        expect(await read(dan, "dan-token", await bob.e2ee.encryptOutbound(conversationId, text("pruned")))).toBe(
+            "pruned",
+        )
     })
 })

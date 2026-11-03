@@ -45,12 +45,36 @@ describe("JwksCacheAdapter", () => {
         expect(fetchSpy).toHaveBeenCalledTimes(1)
     })
 
-    it("refetches after invalidate()", async () => {
+    it("refetches after invalidate(), keys over a minute old", async () => {
+        const now = vi.spyOn(Date, "now")
         const cache = new JwksCacheAdapter()
         await cache.getKey(ISSUER, "key-2026-01")
+        now.mockReturnValue(Date.now() + 61_000)
         cache.invalidate(ISSUER)
         await cache.getKey(ISSUER, "key-2026-01")
+        now.mockRestore()
         expect(fetchSpy).toHaveBeenCalledTimes(2)
+    })
+
+    it("keeps keys under a minute old: forged signatures can't make it hammer the issuer", async () => {
+        const cache = new JwksCacheAdapter()
+        await cache.getKey(ISSUER, "key-2026-01")
+        for (let i = 0; i < 5; i++) {
+            cache.invalidate(ISSUER)
+            await cache.getKey(ISSUER, "no-such-kid")
+        }
+        expect(fetchSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it("gives up on an issuer that doesn't answer, and fails at once for a minute after", async () => {
+        fetchSpy.mockImplementation(async () => new Response("", { status: 502 }))
+        const cache = new JwksCacheAdapter()
+
+        await expect(cache.getKey(ISSUER, "key-2026-01")).rejects.toThrow()
+        await expect(cache.getKey(ISSUER, "key-2026-01")).rejects.toThrow()
+
+        expect(fetchSpy).toHaveBeenCalledTimes(1)
+        expect((fetchSpy.mock.calls[0][1] as RequestInit).signal).toBeInstanceOf(AbortSignal)
     })
 
     it("returns null for unknown kid even after fresh fetch", async () => {

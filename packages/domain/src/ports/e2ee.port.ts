@@ -7,6 +7,7 @@ import type {
     KeyPackageStatusResponse,
 } from "../models/e2ee"
 import type { ArchiveEnvelope, ArchivedEntry } from "../models/history-archive"
+import type { UntrustedLeaf } from "../models/leaf-trust"
 
 /**
  * High-level, transport-agnostic E2EE operations the rest of the app
@@ -145,11 +146,11 @@ export interface IE2eePort {
     ): Promise<ApplicationMessage | null>
 
     /**
-     * Bring `actor_uri` into a conversation: claim a fresh KeyPackage
-     * via `POST /api/keys/packages/claim`, build an MLS Add commit +
-     * Welcome, deliver them through the IdP DS endpoints. If the
-     * conversation has no group yet (first message), the group is
-     * created here.
+     * Bring `actor_uri` into a conversation: claim a KeyPackage of each of their devices, build an
+     * MLS Add commit + Welcome for each whose leaf verifies as that device's
+     * (`identity-provider/specs/e2ee.md § 3.4`), deliver them through the IdP DS endpoints. If the
+     * conversation has no group yet (first message), the group is created here. None that
+     * verifies is `KeyPackageUnavailable`, nothing committed.
      */
     addContactToGroup(
         idpUrl: string,
@@ -240,6 +241,34 @@ export interface IE2eePort {
         devices: readonly DeviceId[],
     ): Promise<{ added: number }>
 
+    /**
+     * Puts in this device's own leaf the credential it would make now for the key the leaf
+     * carries — a leaf from before the leaf binding, or before the attestation was renewed —, one
+     * commit when it differs. An epoch race is handled as {@link IE2eePort.pruneGroup} does.
+     */
+    refreshOwnLeaf(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+    ): Promise<{ refreshed: boolean }>
+
+    /**
+     * Calls `listener` after each registration that brought a new attestation — a renewal, or a
+     * device's first HPKE key —: its leaves then take the new credential (`refreshOwnLeaf`).
+     * Answers the unsubscribe.
+     */
+    onDeviceRegistered(listener: () => void): () => void
+
+    /**
+     * Calls `listener` with each leaf met in a group — in a Welcome's tree, or brought in or
+     * replaced by a commit — that fails the checks of `identity-provider/specs/e2ee.md § 3.4`.
+     * Each is recorded until the leaf at its index verifies, changes or leaves; the records held
+     * are replayed to a listener subscribing late. A leaf whose issuer couldn't be reached is
+     * checked again when next met, never recorded. The leaf stays in the group. Answers the
+     * unsubscribe.
+     */
+    onUntrustedLeaf(listener: (leaf: UntrustedLeaf) => void): () => void
+
     /** Drop a group's MLS state from this device, as a group the user was removed from is cleared. */
     forgetGroup(conversationId: ConversationId): Promise<void>
 
@@ -273,9 +302,10 @@ export interface IE2eePort {
     // ─── Per-device IdP attestation + history backup ────────────────────
 
     /**
-     * Idempotent — generates the Device Root Key on first call, mints
-     * (or renews) the IdP attestation, persists locally. Silent renewal
-     * at 30 days from expiry.
+     * Idempotent — generates the Device Root Key and the device's HPKE key on first call, signs
+     * the HPKE key with the root key and registers both, persists locally. Registers again within
+     * 30 days of the attestation's expiry, and at once on a device holding no HPKE key yet. A
+     * session that named another device refuses it: `IdpError` 403 `device_mismatch`.
      */
     registerDevice(
         idpUrl: string,

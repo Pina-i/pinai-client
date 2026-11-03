@@ -8,6 +8,8 @@ import { type DeviceListEntry, deviceStatus } from "@pinai/domain/models/device"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
 import type { ISessionPort } from "@pinai/domain/ports/session.port"
 import { linkSessionDeviceUseCase } from "@pinai/domain/usecases/auth/link-session-device.usecase"
+import { asActorUri } from "@pinai/domain/models/identity"
+import { IdpError } from "@pinai/domain/models/idp-error"
 
 function entry(change: Partial<DeviceListEntry>): DeviceListEntry {
     return {
@@ -19,6 +21,14 @@ function entry(change: Partial<DeviceListEntry>): DeviceListEntry {
         revoked_at: null,
         signed_in: false,
         last_active_at: null,
+        drk_public_key: null,
+        attestation_signature: null,
+        attestation_kid: null,
+        attestation_expires_at: null,
+        hpke_public_key: null,
+        hpke_key_signature: null,
+        history_generation: null,
+        approvals: [],
         ...change,
     }
 }
@@ -44,27 +54,56 @@ describe("deviceStatus", () => {
 })
 
 describe("linkSessionDeviceUseCase", () => {
-    function ports(hasIdentity: boolean) {
-        const linkDevice = vi.fn<ISessionPort["linkDevice"]>(async () => {})
+    const ME = asActorUri("https://idp.example/users/alice")
+
+    function ports(hasIdentity: boolean, registerDevice = vi.fn<IE2eePort["registerDevice"]>(async () => {})) {
+        const order: string[] = []
+        const linkDevice = vi.fn<ISessionPort["linkDevice"]>(async () => void order.push("link"))
         const sessionPort: ISessionPort = { linkDevice, signOutOtherDevices: vi.fn() }
         const e2eePort = {
             hasLocalIdentity: async () => hasIdentity,
             getDeviceId: async () => "this-device",
+            registerDevice: vi.fn<IE2eePort["registerDevice"]>(async (...args) => {
+                order.push("register")
+                return registerDevice(...args)
+            }),
         } as unknown as IE2eePort
-        return { sessionPort, e2eePort, linkDevice }
+        return { sessionPort, e2eePort, linkDevice, order }
     }
 
-    it("names this device to the IdP once it exists", async () => {
-        const { linkDevice, ...deps } = ports(true)
+    it("registers the device again when it has to, then names it to the IdP", async () => {
+        const { linkDevice, order, ...deps } = ports(true)
 
-        expect(await linkSessionDeviceUseCase(deps)("https://idp.example", "access")).toBe(true)
+        expect(await linkSessionDeviceUseCase(deps)("https://idp.example", "access", ME)).toEqual({ linked: true })
+        expect(deps.e2eePort.registerDevice).toHaveBeenCalledWith("https://idp.example", "access", ME)
+        expect(linkDevice).toHaveBeenCalledWith("https://idp.example", "access", "this-device")
+        expect(order).toEqual(["register", "link"])
+    })
+
+    it("names the device all the same when the registration fails another way, and says why", async () => {
+        const unavailable = new IdpError(503, "", "Service unavailable")
+        const { linkDevice, order: _order, ...deps } = ports(true, vi.fn(async () => Promise.reject(unavailable)))
+
+        expect(await linkSessionDeviceUseCase(deps)("https://idp.example", "access", ME)).toEqual({
+            linked: true,
+            registrationFailure: unavailable,
+        })
         expect(linkDevice).toHaveBeenCalledWith("https://idp.example", "access", "this-device")
     })
 
-    it("waits for the device a first sign-in's onboarding creates", async () => {
-        const { linkDevice, ...deps } = ports(false)
+    it("names nothing when the session names another device", async () => {
+        const mismatch = new IdpError(403, "device_mismatch", "This session signed in another device")
+        const { linkDevice, order: _order, ...deps } = ports(true, vi.fn(async () => Promise.reject(mismatch)))
 
-        expect(await linkSessionDeviceUseCase(deps)("https://idp.example", "access")).toBe(false)
+        await expect(linkSessionDeviceUseCase(deps)("https://idp.example", "access", ME)).rejects.toBe(mismatch)
+        expect(linkDevice).not.toHaveBeenCalled()
+    })
+
+    it("waits for the device a first sign-in's onboarding creates", async () => {
+        const { linkDevice, order: _order, ...deps } = ports(false)
+
+        expect(await linkSessionDeviceUseCase(deps)("https://idp.example", "access", ME)).toEqual({ linked: false })
+        expect(deps.e2eePort.registerDevice).not.toHaveBeenCalled()
         expect(linkDevice).not.toHaveBeenCalled()
     })
 })

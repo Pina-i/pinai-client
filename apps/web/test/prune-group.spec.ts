@@ -26,6 +26,12 @@ describe("leavesToRemove", () => {
         expect(leavesToRemove(leaves, [ana, bo], ana)).toEqual([2, 3])
     })
 
+    it("names every leaf whose credential names nobody: it can be no member's", () => {
+        const leaves = [leaf(0, ana), { leafIndex: 1, actorUri: null }, leaf(2, bo)]
+
+        expect(leavesToRemove(leaves, [ana, bo], ana)).toEqual([1])
+    })
+
     it("names nothing from a roster that doesn't hold the user: it isn't this group's as they see it", () => {
         expect(leavesToRemove([leaf(0, ana), leaf(1, cy)], [bo], ana)).toEqual([])
     })

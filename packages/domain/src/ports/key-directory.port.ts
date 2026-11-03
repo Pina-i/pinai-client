@@ -84,12 +84,17 @@ export interface IKeyDirectoryPort {
         accessToken: string,
         actorUri: ActorUri,
     ): Promise<IdentityKeysResponse | null>
-    /** Register/renew/rotate the device's IdP-attested Device Root Key. Idempotent on `(device_id, drk_pub)`. */
+    /**
+     * Register/renew/rotate the device's IdP-attested Device Root Key, with its HPKE key and the
+     * root key's signature over it. Idempotent on `(device_id, drk_pub)`. A session that named
+     * another device refuses it: `IdpError` 403 `device_mismatch`.
+     */
     registerDevice(
         idpUrl: string,
         accessToken: string,
         deviceId: DeviceId,
         drkPublicKey: Uint8Array,
+        hpkeKey: { publicKey: Uint8Array; signature: Uint8Array },
     ): Promise<RegisterDeviceResponse>
 
     uploadKeyPackages(

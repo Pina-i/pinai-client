@@ -3,7 +3,7 @@
 Pina'i WASM bundle around [openmls](https://github.com/openmls/openmls).
 Wraps the minimum MLS surface the web client uses — `KeyPackage`,
 `MlsGroup` operations, `Welcome` handling, application encrypt/decrypt,
-secret export — behind a strict bytes-in / bytes-out boundary.
+secret export — and HPKE, behind a strict bytes-in / bytes-out boundary.
 
 This crate is **not** part of the `pinai` Cargo workspace. It's a
 standalone Cargo project whose build artefact is a generated npm package,
@@ -14,6 +14,27 @@ consumed by `@pinai/mls` and the web app.
 `MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519` — the RFC 9420
 mandatory-to-implement suite. Single-suite to keep the WASM bundle
 small and to avoid a runtime negotiation step.
+
+## The leaf's key before its credential
+
+`Identity::generate_signature_key` makes a leaf signature keypair (kept in the
+provider's storage) and answers its public key; `Identity::bind` then binds a
+credential to it. The split is what lets the device's root key sign the leaf key
+into the credential first (`leaf_binding`, `identity-provider/specs/e2ee.md § 3.4`).
+A claimed `KeyPackage` shows `credential_bytes` and `signature_public_key`, which the
+client checks before adding it; a commit's `ProcessedMessage::leaves_met` lists the
+leaves it brought in or replaced (this device's own left out), checked as they are
+met. `Group::update_credential` commits a new credential into the device's own leaf
+over the key it carries.
+
+## HPKE (`src/hpke.rs`)
+
+RFC 9180 base mode with the suite key shares use — DHKEM(X25519, HKDF-SHA256),
+HKDF-SHA256, AES-128-GCM (`identity-provider/specs/e2ee.md § 3.11`) —, from
+`openmls_rust_crypto`'s own implementation: `hpke_generate_key_pair`,
+`hpke_derive_key_pair`, `hpke_seal` (a low-order key refused), `hpke_open`. Its
+`cargo test` checks RFC 9180 A.1.1's vectors; the inner functions return
+`CryptoError`, so failures are testable natively, where a `JsError` panics.
 
 ## Building
 

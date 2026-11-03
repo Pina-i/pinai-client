@@ -30,7 +30,17 @@ function engine(uploadBatch: IHistoryArchivePort["uploadBatch"], downloaded: Arc
         loadRecoveryPassphrase: async () => ["word"],
         clearRecoveryPassphrase: async () => undefined,
     } as unknown as E2eeStorage
-    const e2ee = new E2eeAdapter({} as never, {} as never, storage, {} as never, {} as never, archive, sealer)
+    const e2ee = new E2eeAdapter(
+        {} as never,
+        {} as never,
+        storage,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        archive,
+        sealer,
+    )
     e2ee.startFlushing("https://idp.test", () => "token")
     return { e2ee, archive }
 }

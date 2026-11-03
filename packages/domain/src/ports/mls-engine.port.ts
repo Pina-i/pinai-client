@@ -1,5 +1,6 @@
 import type { ActorUri, ConversationId, DeviceId } from "../models/e2ee"
 import type { GroupLeaf } from "../models/group"
+import type { LeafClaim, LeafCredential, MlsLeaf } from "../models/leaf-trust"
 
 export type MlsCiphertext = Uint8Array
 
@@ -22,7 +23,8 @@ export interface AddMemberOutput {
  */
 export type ProcessOutcome =
     | { kind: "application"; plaintext: Uint8Array }
-    | { kind: "commit" }
+    /** `leavesMet`: the leaves it brought in or replaced, this device's own left out. */
+    | { kind: "commit"; leavesMet: MlsLeaf[] }
     | { kind: "proposal" }
 
 /**
@@ -55,17 +57,27 @@ export interface IMlsEngine {
      */
     resetProvider(): Promise<void>
 
-    setIdentity(
-        actorUri: ActorUri,
-        deviceId: DeviceId,
-        existingSignaturePublicKey?: Uint8Array,
-    ): Promise<void>
+    /**
+     * A fresh leaf signature key, kept in the engine's storage: its public key, for the device's
+     * root key to bind before {@link IMlsEngine.setIdentity}.
+     */
+    generateSignatureKey(): Promise<Uint8Array>
 
-    findOwnLeafSigKey(actorUri: ActorUri, deviceId: DeviceId): Promise<Uint8Array | null>
+    /**
+     * What this device's KeyPackages and the groups it founds carry: `credential` over
+     * `signatureKey`, a key in the engine's storage already.
+     */
+    setIdentity(credential: LeafCredential, signatureKey: Uint8Array): Promise<void>
+
+    /** The signature key of this device's own leaf in a group it holds, or null when it holds none. */
+    ownLeafSignatureKey(): Promise<Uint8Array | null>
 
     getDeviceSignaturePublicKey(): Promise<Uint8Array>
 
     createKeyPackage(): Promise<Uint8Array>
+
+    /** A claimed KeyPackage's leaf, to check before adding it. Rejects one that doesn't validate. */
+    inspectKeyPackage(keyPackageBytes: Uint8Array): Promise<LeafClaim>
 
     createGroup(conversationId: ConversationId): Promise<void>
 
@@ -109,8 +121,11 @@ export interface IMlsEngine {
         deviceId: DeviceId,
     ): Promise<number | null>
 
-    /** Every leaf of the group whose credential names an actor and a device. */
+    /** Every leaf of the group whose credential is one, by the actor and device it names. */
     groupMembers(conversationId: ConversationId): Promise<GroupLeaf[]>
+
+    /** Every leaf of the group, credential or not. */
+    groupLeaves(conversationId: ConversationId): Promise<MlsLeaf[]>
 
     /**
      * Drop the commit built and not merged — one the DS refused or never acknowledged: the group
@@ -119,6 +134,9 @@ export interface IMlsEngine {
     clearPendingCommit(conversationId: ConversationId): Promise<void>
 
     update(conversationId: ConversationId): Promise<Uint8Array>
+
+    /** A commit putting `credential` in this device's own leaf, over the signature key it carries. */
+    updateOwnCredential(conversationId: ConversationId, credential: LeafCredential): Promise<Uint8Array>
 
     mergePendingCommit(conversationId: ConversationId): Promise<void>
 

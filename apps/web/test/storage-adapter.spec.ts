@@ -49,6 +49,7 @@ const ATTESTATION: DeviceAttestation = {
     issued_at: "2026-01-01T00:00:00Z",
     expires_at: "2027-01-01T00:00:00Z",
     signed_message: bytes(13, 96),
+    hpke: { public_key: bytes(14), private_key: bytes(15) },
 }
 
 const WORDS = Array.from({ length: 24 }, (_, i) => `word${i + 1}`)
