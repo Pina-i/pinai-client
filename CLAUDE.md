@@ -285,10 +285,15 @@ for a known IdP.
    refresh token (`invalid_grant`) means the session is over: the store is cleared and the
    browser goes through `/authorize` once, which shows the login page. A reload loses the
    refresh token: `/authorize` signs in again, silent while the IdP's browser session lives (90
-   days, sliding) — the IdP signs in silently only to an app its account signed in to with the
-   password, so a new client's first sign-in always asks it
+   days, sliding; the web app's use keeps it alive) — the IdP signs in silently only to an app
+   its account signed in to with the password, so a new client's first sign-in always asks it.
+   The web app's tokens belong to a session of its own under that browser session, which each of
+   its exchanges there reuses, so the device it names stays named; another web app in the same
+   browser (another origin: an instance's, the dev server, the Docker image) has its own, and
+   its own device (`identity-provider/specs/auth.md § 1` "Sessions")
 9. Logout drops the refresh token, then sends `client_id` with `post_logout_redirect_uri`, which
-   the document lists; the IdP ends the session, its refresh tokens with it
+   the document lists; the IdP ends the browser session and every web app's session under it,
+   their refresh tokens with them — the desktop app's own stays
 10. **The desktop app** shows the IdP's pages in its own window, as the web app does in its tab:
    its client is the IdP's own `/clients/desktop.json`, it asks `offline_access` (an app session
    of its own) and `prompt=login` (the window keeps the IdP's cookie), and the main process turns
@@ -303,10 +308,16 @@ for a known IdP.
    and the KeyPackage tick tries it again): revoking the device in Settings → Devices then
    signs it out at once, and the screen tells each device's state — "Active 3 days ago", "Signed
    out", revoked — with "Sign out other devices". A registration or a naming refused with `403
-   device_mismatch` — this device's storage was wiped while its session lived — signs out and
-   in again (`presentation/_libs/device-mismatch.ts`, `sign-in-again.usecase.ts`): on the web
-   through the IdP's logout, the landing then starting the sign-in; the desktop at once, with an
-   app session of its own
+   device_mismatch` — this device's storage was wiped while its session lived — ends the app's
+   own session and signs in again at once (`presentation/_libs/device-mismatch.ts`,
+   `sign-in-again.usecase.ts`): the web app revokes its refresh token (`/revoke`), and its
+   sign-in, silent while the browser session lives, opens a new session under it — no password,
+   no other web app of the browser signed out. It never goes through the IdP's logout: a renewal
+   holding the token is waited for, and without a token at all it signs in anyway, the next page
+   then meeting the mismatch with the callback's token, which it revokes. The desktop clears its
+   token, which revokes it, and its sign-in opens an app session of its own. Revoking a web app's
+   device from another device signs its whole browser out, so coming back there takes the
+   password
 12. **Sensitive actions** — revoking a device, signing out the others, turning TOTP on, clearing
    the history backup, making a member's password reset link — take a password typed in the last
    10 minutes. The IdP refuses an older

@@ -50,9 +50,10 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `AuthPlatform` — the platform half of the flow, injected as one argument:
   - `clientId(issuer)` — this build's client at that IdP: the web deployment's
     own document, or the desktop's, which every IdP serves itself
-  - `browserSession` — the session is the browser's (the IdP's cookie signs in
-    again silently, `/logout` ends it); false on the desktop, whose session is
-    its own: `offline_access` and `prompt=login` at sign-in, no silent sign-in,
+  - `browserSession` — the app's session hangs under the browser's (the IdP's
+    cookie signs it in again silently on that session, `/logout` ends it with
+    the browser's, `/revoke` alone); false on the desktop, whose session is its
+    own: `offline_access` and `prompt=login` at sign-in, no silent sign-in,
     sign-out by revoking its refresh token
   - `IPkcePort` — randomness + SHA-256
   - `IAuthSessionStore` — sync scratch space keyed by `AuthSessionKey`,
@@ -92,10 +93,17 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `usecases/auth/sign-in-again.usecase.ts` — a refusal coded `device_mismatch`
   (`isDeviceMismatch`, `models/idp-error.ts`): this device's storage was wiped
   while its session lived, so the session names the device it was. The web app
-  marks `sign_in_again` (`AuthSessionKey`) and goes through the IdP's logout,
-  which ends the browser session — signing in while it lives would keep it;
-  `signInAgainUseCase`, run by the landing, signs in once it is back. The
-  desktop clears its app session and signs in at once, which opens a new one
+  revokes its refresh token (`IAuthPort.revoke`, the token taken from
+  `AuthPlatform.tokens`) and signs in at once: silent while the IdP's browser
+  session lives, its next exchange opens a new session under it, and the
+  browser's other web apps stay signed in. Never the IdP's logout: a renewal
+  holding the token is awaited (the injected renewer joins it) and the token
+  taken again; with none still, it signs in all the same, and the next page,
+  holding the callback's token, revokes it. A token is revoked only at the
+  endpoint discovery named, which every Pīna'i IdP does. The
+  desktop clears its token, which revokes it, and signs in at once, which
+  opens a new app session. Once a page: a second refusal meanwhile joins the
+  first
 - `deviceStatus` (`models/device.ts`) — revoked, signed in (active when its
   session was last used), or signed out and free to sign in again
 

@@ -1,34 +1,44 @@
 import { isDeviceMismatch } from "../../models/idp-error"
-import type { AuthPlatform, IAuthPort } from "../../ports/auth.port"
-import { logoutUseCase } from "./logout.usecase"
+import type { AuthPlatform, IAuthPort, ISessionTokenStore } from "../../ports/auth.port"
+import type { Renewal } from "./renew-session.usecase"
 import { startLoginUseCase } from "./startLogin.usecase"
 
-/**
- * A refusal naming another device than this one (`device_mismatch`): this device's storage was
- * wiped while its session lived, so the session still names the device it was. It signs out and in
- * again, and the new device registers from a session of its own (`identity-provider/specs/auth.md
- * § 1`, "Sessions and devices"). Whether it did.
- *
- * The web app's sign-in waits for the IdP's logout to come back ({@link signInAgainUseCase}):
- * signing in while the browser session lives would keep that very session. The desktop's opens an
- * app session of its own at once.
- */
-export async function signInAgainOnDeviceMismatchUseCase(
-    error: unknown,
-    idpUrl: string | null,
+export type SignInAgain = (error: unknown, idpUrl: string | null, clearSession: () => void) => Promise<boolean>
+
+/** `device_mismatch`: the app ends its own session and signs in again, once a page. Whether it did. */
+export function signInAgainOnDeviceMismatchUseCase(
+    authPort: IAuthPort,
+    platform: AuthPlatform,
+    renew: () => Promise<Renewal>,
+): SignInAgain {
+    let running: Promise<boolean> | null = null
+    return (error, idpUrl, clearSession) => {
+        if (!isDeviceMismatch(error) || !idpUrl) return Promise.resolve(false)
+        // The page is leaving: a second refusal meanwhile joins the first, which took the token.
+        running ??= signInAgain(idpUrl, clearSession, authPort, platform, renew)
+        return running
+    }
+}
+
+async function signInAgain(
+    idpUrl: string,
     clearSession: () => void,
     authPort: IAuthPort,
     platform: AuthPlatform,
+    renew: () => Promise<Renewal>,
 ): Promise<boolean> {
-    if (!isDeviceMismatch(error) || !idpUrl) return false
-    if (platform.browserSession) {
-        platform.session.set("sign_in_again", idpUrl)
-        logoutUseCase(idpUrl, clearSession, platform)
-        return true
-    }
+    const held = platform.browserSession ? await heldToken(platform.tokens, renew) : null
     clearSession()
+    // The desktop's token is revoked as it is cleared.
     platform.tokens.clear()
     try {
+        if (held?.revocationEndpoint) {
+            await authPort.revoke({
+                revocationEndpoint: held.revocationEndpoint,
+                clientId: held.clientId,
+                refreshToken: held.refreshToken,
+            })
+        }
         await startLoginUseCase(idpUrl, authPort, platform)
     } catch {
         // Out of reach: the landing signs in again by hand.
@@ -37,11 +47,10 @@ export async function signInAgainOnDeviceMismatchUseCase(
     return true
 }
 
-/** Where the IdP's logout comes back: the sign-in a device mismatch asked for. Whether one started. */
-export async function signInAgainUseCase(authPort: IAuthPort, platform: AuthPlatform): Promise<boolean> {
-    const idpUrl = platform.session.get("sign_in_again")
-    if (!idpUrl) return false
-    platform.session.remove("sign_in_again")
-    await startLoginUseCase(idpUrl, authPort, platform)
-    return true
+/** The refresh token, once a renewal holding it has put back its successor. */
+async function heldToken(tokens: ISessionTokenStore, renew: () => Promise<Renewal>) {
+    const held = tokens.take()
+    if (held) return held
+    await renew()
+    return tokens.take()
 }

@@ -83,7 +83,7 @@ A full-page loading state doesn't draw a loader: it holds the splash. A loader i
 ## This device and its session
 
 - `_libs/session-device.ts` — once per page load, from `requireSession`: the device registers again when it has to (near its attestation's end, or no HPKE key yet), then names itself on the session — after a failed registration too, which the KeyPackage tick tries again (`use-replenish-key-packages.ts`).
-- `_libs/device-mismatch.ts` — `signInAgainOnDeviceMismatch(error)` for a `catch` around a registration or the naming (`session-device.ts`, both onboarding pages); `signInAgainAfterLogout()` in the landing's `beforeLoad`. The tick's renewal goes through it too. The rule is the domain's (`sign-in-again.usecase.ts`).
+- `_libs/device-mismatch.ts` — `signInAgainOnDeviceMismatch(error)` for a `catch` around a registration or the naming (`session-device.ts`, both onboarding pages): the app revokes its own session and signs in again, once a page. The tick's renewal goes through it too. The flow is the domain's (`sign-in-again.usecase.ts`).
 
 ## ViewModel pattern
 

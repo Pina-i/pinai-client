@@ -1,23 +1,28 @@
 /**
  * A device whose storage was wiped while its session lived finds the session naming the device it
- * was (`device_mismatch`): it signs out and in again, so the new device registers from a session
- * of its own — `identity-provider/specs/auth.md § 1`, "Sessions and devices".
+ * was (`device_mismatch`): the app ends its own session and signs in again, so the new device
+ * registers from a session of its own — `identity-provider/specs/auth.md § 1`, "Sessions and
+ * devices".
  */
 import { describe, expect, it, vi } from "vitest"
 
 import { IdpError, isDeviceMismatch } from "@pinai/domain/models/idp-error"
-import type { AuthPlatform, AuthSessionKey, IAuthPort } from "@pinai/domain/ports/auth.port"
-import {
-    signInAgainOnDeviceMismatchUseCase,
-    signInAgainUseCase,
-} from "@pinai/domain/usecases/auth/sign-in-again.usecase"
+import type { AuthPlatform, HeldRefreshToken, IAuthPort } from "@pinai/domain/ports/auth.port"
+import type { Renewal } from "@pinai/domain/usecases/auth/renew-session.usecase"
+import { signInAgainOnDeviceMismatchUseCase } from "@pinai/domain/usecases/auth/sign-in-again.usecase"
 
 const IDP = "https://idp.example"
 const MISMATCH = new IdpError(403, "device_mismatch", "This session signed in another device")
+const HELD: HeldRefreshToken = {
+    refreshToken: "refresh-1",
+    tokenEndpoint: `${IDP}/token`,
+    clientId: "https://app.example/oauth-client.json",
+    revocationEndpoint: `${IDP}/revoke`,
+}
 
-function platform(browserSession: boolean) {
+function platform(browserSession: boolean, held: HeldRefreshToken | null) {
     const calls: string[] = []
-    const scratch = new Map<AuthSessionKey, string>()
+    let token = held
     const platform: AuthPlatform = {
         clientId: () => "https://app.example/oauth-client.json",
         browserSession,
@@ -26,13 +31,18 @@ function platform(browserSession: boolean) {
             computeCodeChallenge: async () => "challenge",
             generateRandomString: () => "random",
         },
-        session: {
-            get: (key) => scratch.get(key) ?? null,
-            set: (key, value) => void scratch.set(key, value),
-            remove: (key) => void scratch.delete(key),
-            clear: () => scratch.clear(),
+        session: { get: () => null, set: () => {}, remove: () => {}, clear: () => {} },
+        tokens: {
+            set: (next) => {
+                token = next
+            },
+            take: () => {
+                const taken = token
+                token = null
+                return taken
+            },
+            clear: () => void calls.push("clear tokens"),
         },
-        tokens: { set: () => {}, take: () => null, clear: () => void calls.push("clear tokens") },
         navigation: {
             callbackUrl: () => "https://app.example/callback",
             postLogoutUrl: () => "https://app.example/",
@@ -41,17 +51,24 @@ function platform(browserSession: boolean) {
         },
         appearance: () => null,
     }
-    return { platform, calls, scratch }
+    return { platform, calls }
 }
 
-const authPort = {
-    discoverConfig: vi.fn(async () => ({
-        issuer: IDP,
-        authorization_endpoint: `${IDP}/authorize`,
-        token_endpoint: `${IDP}/token`,
-        userinfo_endpoint: `${IDP}/userinfo`,
-    })),
-} as unknown as IAuthPort
+function authPort(calls: string[], revoke: () => Promise<void> = async () => {}) {
+    return {
+        discoverConfig: vi.fn(async () => ({
+            issuer: IDP,
+            authorization_endpoint: `${IDP}/authorize`,
+            token_endpoint: `${IDP}/token`,
+            userinfo_endpoint: `${IDP}/userinfo`,
+            revocation_endpoint: `${IDP}/revoke`,
+        })),
+        revoke: vi.fn(async (_params: unknown) => {
+            calls.push("revoke")
+            await revoke()
+        }),
+    } as unknown as IAuthPort & { revoke: ReturnType<typeof vi.fn> }
+}
 
 describe("isDeviceMismatch", () => {
     it("is the IdP's code, not its words", () => {
@@ -61,51 +78,119 @@ describe("isDeviceMismatch", () => {
     })
 })
 
+/** A renewal that puts `next` back once it answers, as one under way does. */
+function renewal(web: AuthPlatform, next: HeldRefreshToken | null) {
+    return vi.fn(async (): Promise<Renewal> => {
+        if (!next) return { kind: "ended" }
+        web.tokens.set(next)
+        return { kind: "renewed", accessToken: "access-2" }
+    })
+}
+
+const noRenewal = () => vi.fn(async (): Promise<Renewal> => ({ kind: "ended" }))
+
 describe("signInAgainOnDeviceMismatchUseCase", () => {
-    it("on the web, ends the browser session at the IdP and asks for a sign-in once it is back", async () => {
-        const { platform: web, calls, scratch } = platform(true)
+    it("on the web, revokes the app's own session and signs in again at once", async () => {
+        const { platform: web, calls } = platform(true, HELD)
+        const port = authPort(calls)
+        const renew = noRenewal()
 
-        const signedOut = await signInAgainOnDeviceMismatchUseCase(MISMATCH, IDP, () => calls.push("clear session"), authPort, web)
+        const signedIn = await signInAgainOnDeviceMismatchUseCase(port, web, renew)(MISMATCH, IDP, () =>
+            calls.push("clear session"),
+        )
 
-        expect(signedOut).toBe(true)
-        expect(calls).toEqual(["clear session", "clear tokens", "go /logout"])
-        expect(scratch.get("sign_in_again")).toBe(IDP)
+        expect(signedIn).toBe(true)
+        expect(renew).not.toHaveBeenCalled()
+        expect(port.revoke).toHaveBeenCalledWith({
+            revocationEndpoint: `${IDP}/revoke`,
+            clientId: HELD.clientId,
+            refreshToken: "refresh-1",
+        })
+        expect(calls).toEqual(["clear session", "clear tokens", "revoke", "go /authorize"])
     })
 
-    it("on the desktop, ends the app session and opens a sign-in at once", async () => {
-        const { platform: desktop, calls, scratch } = platform(false)
+    it("on the web, waits for the renewal holding the token and revokes its successor", async () => {
+        const { platform: web, calls } = platform(true, null)
+        const port = authPort(calls)
+        const renew = renewal(web, { ...HELD, refreshToken: "refresh-2" })
 
-        await signInAgainOnDeviceMismatchUseCase(MISMATCH, IDP, () => calls.push("clear session"), authPort, desktop)
+        await signInAgainOnDeviceMismatchUseCase(port, web, renew)(MISMATCH, IDP, () => calls.push("clear session"))
 
+        expect(renew).toHaveBeenCalledOnce()
+        expect(port.revoke).toHaveBeenCalledWith(expect.objectContaining({ refreshToken: "refresh-2" }))
+        expect(calls).toEqual(["clear session", "clear tokens", "revoke", "go /authorize"])
+    })
+
+    it("on the web, holding no token even then, signs in all the same, never through the IdP's logout", async () => {
+        const { platform: web, calls } = platform(true, null)
+        const port = authPort(calls)
+
+        await signInAgainOnDeviceMismatchUseCase(port, web, renewal(web, null))(MISMATCH, IDP, () =>
+            calls.push("clear session"),
+        )
+
+        expect(port.revoke).not.toHaveBeenCalled()
         expect(calls).toEqual(["clear session", "clear tokens", "go /authorize"])
-        expect(scratch.has("sign_in_again")).toBe(false)
+    })
+
+    it("on the web, a token the IdP names no revocation endpoint for is not revoked, and it signs in", async () => {
+        const { platform: web, calls } = platform(true, { ...HELD, revocationEndpoint: null })
+        const port = authPort(calls)
+
+        await signInAgainOnDeviceMismatchUseCase(port, web, noRenewal())(MISMATCH, IDP, () =>
+            calls.push("clear session"),
+        )
+
+        expect(port.revoke).not.toHaveBeenCalled()
+        expect(calls).toEqual(["clear session", "clear tokens", "go /authorize"])
+    })
+
+    it("on the web, an IdP that fails the revocation leaves the landing to sign in again by hand", async () => {
+        const { platform: web, calls } = platform(true, HELD)
+        const port = authPort(calls, async () => Promise.reject(new Error("Token revocation failed: 502")))
+
+        expect(
+            await signInAgainOnDeviceMismatchUseCase(port, web, noRenewal())(MISMATCH, IDP, () =>
+                calls.push("clear session"),
+            ),
+        ).toBe(true)
+
+        expect(calls).toEqual(["clear session", "clear tokens", "revoke", "go /"])
+    })
+
+    it("on the desktop, clears the token, which revokes it, and opens a sign-in at once", async () => {
+        const { platform: desktop, calls } = platform(false, null)
+        const port = authPort(calls)
+        const renew = noRenewal()
+
+        await signInAgainOnDeviceMismatchUseCase(port, desktop, renew)(MISMATCH, IDP, () => calls.push("clear session"))
+
+        expect(renew).not.toHaveBeenCalled()
+        expect(port.revoke).not.toHaveBeenCalled()
+        expect(calls).toEqual(["clear session", "clear tokens", "go /authorize"])
+    })
+
+    it("signs in again once a page: a second refusal meanwhile joins the first", async () => {
+        const { platform: web, calls } = platform(true, HELD)
+        const port = authPort(calls)
+        const signInAgain = signInAgainOnDeviceMismatchUseCase(port, web, noRenewal())
+
+        const [first, second] = await Promise.all([
+            signInAgain(MISMATCH, IDP, () => calls.push("clear session")),
+            signInAgain(MISMATCH, IDP, () => calls.push("clear session")),
+        ])
+
+        expect([first, second]).toEqual([true, true])
+        expect(calls).toEqual(["clear session", "clear tokens", "revoke", "go /authorize"])
     })
 
     it("leaves any other refusal to its caller", async () => {
-        const { platform: web, calls } = platform(true)
+        const { platform: web, calls } = platform(true, HELD)
+        const signInAgain = signInAgainOnDeviceMismatchUseCase(authPort(calls), web, noRenewal())
 
         const revoked = new IdpError(403, "access_denied", "Device is revoked")
-        expect(await signInAgainOnDeviceMismatchUseCase(revoked, IDP, () => calls.push("clear"), authPort, web)).toBe(false)
-        expect(await signInAgainOnDeviceMismatchUseCase(MISMATCH, null, () => calls.push("clear"), authPort, web)).toBe(false)
-        expect(calls).toEqual([])
-    })
-})
-
-describe("signInAgainUseCase", () => {
-    it("signs in once the logout a device mismatch asked for is back, and only once", async () => {
-        const { platform: web, calls, scratch } = platform(true)
-        scratch.set("sign_in_again", IDP)
-
-        expect(await signInAgainUseCase(authPort, web)).toBe(true)
-        expect(await signInAgainUseCase(authPort, web)).toBe(false)
-
-        expect(calls).toEqual(["go /authorize"])
-    })
-
-    it("does nothing on an ordinary visit to the landing", async () => {
-        const { platform: web, calls } = platform(true)
-
-        expect(await signInAgainUseCase(authPort, web)).toBe(false)
+        expect(await signInAgain(revoked, IDP, () => calls.push("clear"))).toBe(false)
+        expect(await signInAgain(MISMATCH, null, () => calls.push("clear"))).toBe(false)
         expect(calls).toEqual([])
     })
 })

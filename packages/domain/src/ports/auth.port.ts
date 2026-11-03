@@ -58,8 +58,6 @@ export type AuthSessionKey =
     | "revocation_endpoint"
     | "client_id"
     | "reauthenticating"
-    /** The IdP to sign in to once its logout comes back: this device registers from a new session. */
-    | "sign_in_again"
 
 export const AUTH_SESSION_KEYS: readonly AuthSessionKey[] = [
     "post_login_redirect",
@@ -72,7 +70,6 @@ export const AUTH_SESSION_KEYS: readonly AuthSessionKey[] = [
     "revocation_endpoint",
     "client_id",
     "reauthenticating",
-    "sign_in_again",
 ]
 
 /**
@@ -144,11 +141,12 @@ export interface AuthPlatform {
      */
     clientId(issuer: string): string
     /**
-     * The session lives in this browser, behind the IdP's cookie: `/authorize` signs in again
-     * silently, and the IdP's `/logout` ends it. False for an app that holds a session of its own
-     * through its refresh token — the desktop: it asks to stay signed in (`offline_access`, an
-     * app session of its own), asks the password each time (`prompt=login`) so the user can pick
-     * another account, and signs out by revoking its token.
+     * The app's session hangs under the IdP's browser session, behind its cookie: `/authorize`
+     * signs in again silently on it, the IdP's `/logout` ends it with the browser's, and revoking
+     * its refresh token ends it alone. False for an app that holds a session of its own through
+     * its refresh token — the desktop: it asks to stay signed in (`offline_access`, an app session
+     * of its own), asks the password each time (`prompt=login`) so the user can pick another
+     * account, and signs out by revoking its token.
      */
     browserSession: boolean
     pkce: IPkcePort
