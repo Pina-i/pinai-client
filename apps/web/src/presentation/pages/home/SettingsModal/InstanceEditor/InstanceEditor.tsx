@@ -54,7 +54,7 @@ export function InstanceEditor({ host, info }: InstanceEditorProps) {
 
     return (
         <div className={cn(editorFrame, "@container")}>
-            <p className="mono-eyebrow mb-[5px]">— Instance · {host}</p>
+            <p className="mono-eyebrow mb-[5px] pr-11">— Instance · {host}</p>
             <h2 className={editorTitle}>{vm.noLongerAdmin ? "Not yours to run any more." : vm.title}</h2>
 
             {vm.noLongerAdmin ? (

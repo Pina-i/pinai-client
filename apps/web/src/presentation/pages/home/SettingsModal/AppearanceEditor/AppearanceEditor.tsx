@@ -30,7 +30,7 @@ export function AppearanceEditor() {
     return (
         <div className={cn(editorFrame, "gap-[26px] pb-10 [&>*]:shrink-0")}>
             <div>
-                <p className="mono-eyebrow mb-[5px]">— Appearance</p>
+                <p className="mono-eyebrow mb-[5px] pr-11">— Appearance</p>
                 <h2 className={editorTitle}>How the room looks.</h2>
             </div>
 

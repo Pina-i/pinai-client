@@ -18,7 +18,7 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
 
     return (
         <div className={editorFrame}>
-            <p className="mono-eyebrow mb-[5px]">Editing · Profile</p>
+            <p className="mono-eyebrow mb-[5px] pr-11">Editing · Profile</p>
             <h2 className={editorTitle}>The face you put forward.</h2>
 
             <div className="mt-[22px] flex flex-wrap items-center gap-3.5">

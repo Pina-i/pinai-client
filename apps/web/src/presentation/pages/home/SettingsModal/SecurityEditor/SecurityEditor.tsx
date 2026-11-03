@@ -65,7 +65,7 @@ export function SecurityEditor() {
 
     return (
         <div className={editorFrame}>
-            <p className="mono-eyebrow mb-[5px]">Editing · Security</p>
+            <p className="mono-eyebrow mb-[5px] pr-11">Editing · Security</p>
             <h2 className={editorTitle}>Two-factor authentication.</h2>
 
             {!vm.totpEnabled && vm.pane === "idle" && (

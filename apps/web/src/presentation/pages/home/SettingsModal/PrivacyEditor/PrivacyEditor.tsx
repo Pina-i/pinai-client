@@ -8,7 +8,7 @@ export function PrivacyEditor() {
 
     return (
         <div className={editorFrame}>
-            <p className="mono-eyebrow mb-[5px]">Editing · Privacy &amp; safety</p>
+            <p className="mono-eyebrow mb-[5px] pr-11">Editing · Privacy &amp; safety</p>
             <h2 className={editorTitle}>Who can reach you, and how.</h2>
 
             <section className="mt-7">
