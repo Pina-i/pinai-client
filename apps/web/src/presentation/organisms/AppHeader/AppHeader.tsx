@@ -7,13 +7,11 @@ import { findConversation } from "@pinai/domain/models/dm"
 import { presenceToUserStatus } from "@pinai/domain/models/presence"
 import { useOpenConversationRef } from "@/presentation/hooks/useOpenConversationRef"
 import { useAppStore } from "@/store/store"
-import { Hash, MessageSquare, Pin, UserPlus, Users, Volume2 } from "lucide-react"
+import { Hash, MessageSquare, UserPlus, Users, Volume2 } from "lucide-react"
 
 export function AppHeader() {
     const view = useAppStore((s) => s.view)
     const dmRef = useOpenConversationRef()
-    const showPinned = useAppStore((s) => s.showPinned)
-    const setShowPinned = useAppStore((s) => s.setShowPinned)
     const showMembers = useAppStore((s) => s.showMembers)
     const setShowMembers = useAppStore((s) => s.setShowMembers)
     const openGroupComposer = useAppStore((s) => s.openGroupComposer)
@@ -83,16 +81,6 @@ export function AppHeader() {
                     </IconButton>
                 </Tooltip>
             )}
-            <Tooltip content="Pinned Messages" placement="bottom" delay={300}>
-                <IconButton
-                    variant="ghost"
-                    isActive={showPinned}
-                    onPress={() => setShowPinned((p) => !p)}
-                    aria-label="Toggle pinned messages"
-                >
-                    <Pin className="h-[18px] w-[18px]" />
-                </IconButton>
-            </Tooltip>
         </>
     )
 
