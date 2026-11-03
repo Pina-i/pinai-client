@@ -9,12 +9,14 @@ import {
     ShieldCheck,
     Sparkles,
     Sun,
+    X,
 } from "lucide-react"
 import type { UserProfile } from "@pinai/domain/models/auth"
 import { addressParts } from "@pinai/domain/models/identity"
 import { peopleCount } from "@pinai/domain/models/instance"
 import { managesRoster } from "@pinai/domain/models/instance-admin"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
+import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { AppearanceEditor } from "./AppearanceEditor/AppearanceEditor"
 import { DevicesEditor } from "./DevicesEditor/DevicesEditor"
@@ -157,12 +159,20 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} variant="fullscreen" isDismissable label="Settings">
-            <div className="flex h-app w-full max-[700px]:flex-col max-[700px]:overflow-y-auto">
+            <div className="relative flex h-app w-full max-[700px]:flex-col max-[700px]:overflow-y-auto">
+                <IconButton
+                    onPress={onClose}
+                    aria-label="Close settings"
+                    className="absolute right-5 top-[18px] z-[3] h-8 w-8 shrink-0 rounded-full border border-line2 text-muted-foreground hover:bg-surf2 hover:text-foreground"
+                >
+                    <X className="h-4 w-4" />
+                </IconButton>
+
                 {/* LEFT — landing grid */}
                 <div className="relative flex min-w-0 flex-[1.05] flex-col border-r border-line max-[700px]:flex-none max-[700px]:border-b max-[700px]:border-r-0">
                     {/* Only the tiles scroll: the header, the identity and the instance band stay put. */}
                     <div className="flex min-h-0 flex-1 flex-col px-8 pb-7 pt-[30px] max-[1040px]:px-5 max-[1040px]:py-6">
-                        <SettingsHeader onClose={onClose} />
+                        <SettingsHeader />
 
                         <IdentityTile
                             displayName={displayName}
