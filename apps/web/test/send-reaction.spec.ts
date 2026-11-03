@@ -44,6 +44,16 @@ describe("sendReactionUseCase", () => {
         expect(groupPort.sendGroupMessage).not.toHaveBeenCalled()
     })
 
+    it("answers the row the IdP stored", async () => {
+        const { dmPort, groupPort } = ports()
+        const stored = { id: "r1", created_at: "2026-11-01T10:00:00Z" }
+        vi.mocked(groupPort.sendGroupMessage).mockResolvedValue(stored as never)
+
+        await expect(
+            sendReactionUseCase(IDP, "tok", { kind: "group", conversationId: GROUP_ID }, "cipher", dmPort, groupPort),
+        ).resolves.toBe(stored)
+    })
+
     it("propagates a failed send so the optimistic toggle can roll back", async () => {
         const { dmPort, groupPort } = ports()
         vi.mocked(groupPort.sendGroupMessage).mockRejectedValue(new Error("403"))

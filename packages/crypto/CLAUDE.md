@@ -585,18 +585,23 @@ publishes) holds against the documented threat model.
   - `registerDevice` — idempotent device-attestation flow.
     Dedupes concurrent callers via in-flight promise; renews
     silently when within 30 days of expiry.
-  - `bufferDecryptedForArchive` / `startFlushing` /
-    `stopFlushing` / `clearHistoryBackup` — Layer B engine.
-  - `restoreHistoryFromPassphrase` — pull-and-decrypt loop.
+  - `bufferForArchive` / `startFlushing` /
+    `stopFlushing` / `clearHistoryBackup` — Layer B engine. Takes an
+    `ArchiveEnvelope` (`@pinai/domain/models/history-archive`), once per
+    id per page load: a sent message is queued by the send's answer and by
+    its echo. One drain at a time, `ARCHIVE_UPLOAD_LIMIT` (50) entries per
+    upload; a batch the IdP refuses (a `4xx` other than `401`/`408`/`429`)
+    is dropped, any other failure re-queued for the next tick.
+  - `restoreHistoryFromPassphrase` — pull-and-decrypt loop; answers the
+    decoded entries, which the domain turns into messages.
   - `bootstrapFirstDevice` now also calls `registerDevice` after
     the legacy MSK register completes.
 
 ### Use cases (`@pinai/domain/usecases/e2ee/`)
 
 - `register-device.usecase.ts` — port delegate.
-- `restore-history-from-passphrase.usecase.ts` — port delegate
- . UI trigger deferred — the use case is exercised by
-  Settings → Restore in a follow-up.
+- `restore-history-from-passphrase.usecase.ts` — the archive's entries as
+  messages (`restoredMessages`), for `RecoveryRestorePage`.
 
 ### Hooks (`presentation/hooks/`)
 

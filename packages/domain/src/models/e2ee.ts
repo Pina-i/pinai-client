@@ -74,24 +74,6 @@ export interface ApplicationMessage<TBody = unknown> {
     body: TBody
 }
 
-/**
- * Local archive envelope. Wraps an `ApplicationMessage` with the
- * metadata the restore path needs to reconstruct a UI `Message`:
- * sender, original timestamp, optional display name. Encrypted under
- * the History Archive Key before upload to `/api/history/messages`.
- *
- * Versioned so a future schema bump can be detected on restore — `v` is the
- * envelope version, independent of the inner `app.version`.
- */
-export interface ArchiveEnvelope {
-    v: 1
-    sender_address: string
-    sender_display_name?: string
-    /** ISO-8601 — the server's persisted `created_at` for the original row. */
-    created_at: string
-    app: ApplicationMessage
-}
-
 export interface TextBody {
     text: string
     /** Decryption material for any encrypted attachments referenced by id. */

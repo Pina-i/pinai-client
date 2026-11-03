@@ -9,8 +9,7 @@ import type {
     IHistoryArchivePort,
 } from "@pinai/domain/ports/history-archive.port"
 import { base64ToBytes, bytesToBase64 } from "@pinai/domain/lib/bytes"
-
-const BATCH_MAX = 50
+import { ARCHIVE_UPLOAD_LIMIT } from "@pinai/domain/models/history-archive"
 
 /** REST client for `/api/history/*`. Base64 in/out; no crypto here. */
 export class HistoryArchiveApiAdapter implements IHistoryArchivePort {
@@ -20,8 +19,8 @@ export class HistoryArchiveApiAdapter implements IHistoryArchivePort {
         entries: ArchiveEntry[],
     ): Promise<number> {
         if (entries.length === 0) return 0
-        if (entries.length > BATCH_MAX) {
-            throw new Error(`uploadBatch: batch size ${entries.length} exceeds cap ${BATCH_MAX}`)
+        if (entries.length > ARCHIVE_UPLOAD_LIMIT) {
+            throw new Error(`uploadBatch: batch size ${entries.length} exceeds cap ${ARCHIVE_UPLOAD_LIMIT}`)
         }
         const body = {
             entries: entries.map((e) => ({
@@ -32,13 +31,17 @@ export class HistoryArchiveApiAdapter implements IHistoryArchivePort {
                 client_message_id: e.client_message_id,
             })),
         }
-        const res = await idp
-            .post(`${idpUrl.replace(/\/$/, "")}/api/history/messages`, {
-                headers: { Authorization: `Bearer ${accessToken}` },
-                json: body,
-            })
-            .json<{ inserted: number }>()
-        return res.inserted
+        try {
+            const res = await idp
+                .post(`${idpUrl.replace(/\/$/, "")}/api/history/messages`, {
+                    headers: { Authorization: `Bearer ${accessToken}` },
+                    json: body,
+                })
+                .json<{ inserted: number }>()
+            return res.inserted
+        } catch (error) {
+            throw await idpErrorFrom(error, "Backing up messages failed")
+        }
     }
 
     async downloadPage(

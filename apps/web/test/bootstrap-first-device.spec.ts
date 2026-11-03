@@ -75,10 +75,10 @@ function buildPort(
         registerDevice: async () => undefined,
         getDeviceId: async () => "device-0000-0000-0000-000000000000",
         getCachedPassphrase: async () => null,
-        bufferDecryptedForArchive: () => undefined,
+        bufferForArchive: () => undefined,
         startFlushing: () => undefined,
         stopFlushing: () => undefined,
-        restoreHistoryFromPassphrase: async () => ({ restored: 0, skipped: 0 }),
+        restoreHistoryFromPassphrase: async () => ({ entries: [], skipped: 0 }),
         clearHistoryBackup: async () => undefined,
     }
 }

@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
 
+import { reactionsToReplay, type RestoredMessage } from "@pinai/domain/models/history-archive"
+import { addressParts } from "@pinai/domain/models/identity"
 import { restoreHistoryFromPassphraseUseCase } from "@pinai/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
 import { getE2eePort } from "@/ioc"
+import type { Message } from "@/lib/types"
 import type { RecoveryPassphraseInputHandle } from "@/presentation/molecules/RecoveryPassphraseInput/RecoveryPassphraseInput"
 import {
     RECOVERY_WORD_COUNT,
@@ -131,13 +134,40 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
                 e2eePort: getE2eePort(),
             })({ idpUrl, accessToken, passphrase: words })
 
-            setRestored(result.restored)
+            setRestored(result.messages.length)
             setSkipped(result.skipped)
 
-            if (result.restored === 0 && result.skipped > 0) {
+            if (result.decrypted === 0 && result.skipped > 0) {
                 setStatus("ready")
                 toast.error("Wrong passphrase — no entries decrypted")
                 return
+            }
+
+            const byConversation = new Map<string, RestoredMessage[]>()
+            for (const m of result.messages) {
+                const list = byConversation.get(m.conversationId) ?? []
+                list.push(m)
+                byConversation.set(m.conversationId, list)
+            }
+            const store = useAppStore.getState()
+            const me = store.user?.address
+            for (const [conversationId, restored] of byConversation) {
+                const replay = reactionsToReplay(store.dmMessages[conversationId] ?? [], restored)
+                store.seedDmMessages(conversationId, restored.map(restoredToMessage))
+                // Through the live path, which records each id: history may decrypt one of them again.
+                for (const { messageId, reaction } of replay) {
+                    store.applyReaction(
+                        conversationId,
+                        {
+                            reaction_message_id: reaction.id,
+                            target_message_id: messageId,
+                            reactor_address: reaction.reactorAddress,
+                            emoji: reaction.emoji,
+                            op: "add",
+                        },
+                        reaction.reactorAddress === me,
+                    )
+                }
             }
 
             // Persist the verified passphrase locally so Settings → Devices
@@ -145,9 +175,9 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
             await getE2eePort().saveStoredPassphrase(words)
             setStatus("done")
             toast.success(
-                result.restored === 0
+                result.messages.length === 0
                     ? "Device set up"
-                    : `Restored ${result.restored} message${result.restored === 1 ? "" : "s"}`,
+                    : `Restored ${result.messages.length} message${result.messages.length === 1 ? "" : "s"}`,
             )
             void navigate({ to: "/home" })
         } catch (e) {
@@ -191,6 +221,26 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
         onClear,
         onRestore: onRestore as () => Promise<void>,
         onStartFresh,
+    }
+}
+
+function restoredToMessage(m: RestoredMessage): Message {
+    const author = m.senderDisplayName?.trim() || addressParts(m.senderAddress).handle || "Restored"
+    return {
+        id: m.id,
+        author,
+        authorAddress: m.senderAddress,
+        avatar: author.slice(0, 2).toUpperCase(),
+        content: m.text,
+        timestamp: new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        createdAt: m.createdAt,
+        color: "#a78bfa",
+        ...(m.edited ? { edited: true } : {}),
+        attachments: m.attachments,
+        ...(m.attachmentKeys.length > 0
+            ? { attachmentKeys: Object.fromEntries(m.attachmentKeys.map((k) => [k.id, k])) }
+            : {}),
+        ...(m.replyTo ? { replyTo: m.replyTo } : {}),
     }
 }
 

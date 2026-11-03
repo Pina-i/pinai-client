@@ -19,6 +19,13 @@ import type {
     KeyPackageStatusResponse,
 } from "@pinai/domain/models/e2ee"
 import { KeyPackageUnavailable, devicesToAdd, leavesToRemove } from "@pinai/domain/models/group"
+import {
+    ARCHIVE_UPLOAD_LIMIT,
+    decodeArchiveEnvelope,
+    encodeArchiveEnvelope,
+    type ArchiveEnvelope,
+    type ArchivedEntry,
+} from "@pinai/domain/models/history-archive"
 import { IdpError } from "@pinai/domain/models/idp-error"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
 import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
@@ -95,6 +102,16 @@ const INITIAL_KEY_PACKAGE_BATCH = 50
 /** How many epoch races a prune loses before it gives up for now. */
 const MAX_EPOCH_CONFLICTS = 5
 
+// A batch the IdP refuses would be refused again, and hold up every entry queued behind it.
+function refusedForGood(error: unknown): boolean {
+    return (
+        error instanceof IdpError &&
+        error.status >= 400 &&
+        error.status < 500 &&
+        ![401, 408, 429].includes(error.status)
+    )
+}
+
 export class E2eeAdapter implements IE2eePort {
     private readonly identity: IdentityAdapter
     private readonly mls: IMlsEngine
@@ -105,9 +122,6 @@ export class E2eeAdapter implements IE2eePort {
     // IoC provides these in production; tests can omit.
     private readonly historyArchive: IHistoryArchivePort | null
     private readonly historyCrypto: HistoryArchiveAdapter | null
-    private readonly onPlaintextRestored:
-        | ((conversationId: ConversationId, messageId: string, plaintext: Uint8Array) => void)
-        | null
 
     constructor(
         identity: IdentityAdapter,
@@ -117,9 +131,6 @@ export class E2eeAdapter implements IE2eePort {
         recovery: RecoveryAdapter,
         historyArchive: IHistoryArchivePort | null = null,
         historyCrypto: HistoryArchiveAdapter | null = null,
-        onPlaintextRestored:
-            | ((conversationId: ConversationId, messageId: string, plaintext: Uint8Array) => void)
-            | null = null,
     ) {
         this.identity = identity
         this.mls = mls
@@ -128,7 +139,6 @@ export class E2eeAdapter implements IE2eePort {
         this.recovery = recovery
         this.historyArchive = historyArchive
         this.historyCrypto = historyCrypto
-        this.onPlaintextRestored = onPlaintextRestored
     }
 
     // ─── Device Root Key attestation ─────────────────────────────────
@@ -195,22 +205,23 @@ export class E2eeAdapter implements IE2eePort {
 
     private archiveBuffer: Array<{
         conversationId: ConversationId
-        messageId: string
+        entryId: string
         plaintext: Uint8Array
     }> = []
+    // A sent message is queued by the send's answer and by its echo, whichever comes first.
+    private archivedIds = new Set<string>()
+    private flushing: Promise<void> | null = null
     private flushTimer: ReturnType<typeof setInterval> | null = null
     private cachedHistoryArchiveKey: Uint8Array | null = null
     private flushIdpUrl: string | null = null
     private flushAccessToken: (() => string | null) | null = null
 
-    /** Buffer a freshly decrypted plaintext for the archive. No-op when unwired. */
-    bufferDecryptedForArchive(
-        conversationId: ConversationId,
-        messageId: string,
-        plaintext: Uint8Array,
-    ): void {
+    bufferForArchive(conversationId: ConversationId, entryId: string, entry: ArchiveEnvelope): void {
         if (!this.historyArchive || !this.historyCrypto) return
-        this.archiveBuffer.push({ conversationId, messageId, plaintext })
+        if (this.archivedIds.has(entryId)) return
+        this.archivedIds.add(entryId)
+        const plaintext = new TextEncoder().encode(encodeArchiveEnvelope(entry))
+        this.archiveBuffer.push({ conversationId, entryId, plaintext })
         if (this.archiveBuffer.length >= 10) void this.flushArchiveNow()
     }
 
@@ -241,15 +252,15 @@ export class E2eeAdapter implements IE2eePort {
         idpUrl: string,
         accessToken: string,
         passphrase: string[],
-    ): Promise<{ restored: number; skipped: number }> {
+    ): Promise<{ entries: ArchivedEntry[]; skipped: number }> {
         if (!this.historyArchive || !this.historyCrypto) {
-            return { restored: 0, skipped: 0 }
+            return { entries: [], skipped: 0 }
         }
         const salt = await this.historyArchive.getSalt(idpUrl, accessToken)
-        if (!salt) return { restored: 0, skipped: 0 }
+        if (!salt) return { entries: [], skipped: 0 }
         const historyArchiveKey = await this.historyCrypto.deriveKey(passphrase, salt)
 
-        let restored = 0
+        const entries: ArchivedEntry[] = []
         let skipped = 0
         let cursor: { after_id: string; after_created_at: string } | null = null
         do {
@@ -260,27 +271,25 @@ export class E2eeAdapter implements IE2eePort {
                 100,
             )
             for (const entry of page.entries) {
+                let plain: Uint8Array
                 try {
-                    const plain = await this.historyCrypto.decrypt(
+                    plain = await this.historyCrypto.decrypt(
                         historyArchiveKey,
                         entry.ciphertext,
                         entry.nonce,
                     )
-                    if (this.onPlaintextRestored) {
-                        this.onPlaintextRestored(
-                            entry.conversation_id as ConversationId,
-                            entry.id,
-                            plain,
-                        )
-                    }
-                    restored += 1
                 } catch {
                     skipped += 1
+                    continue
+                }
+                const envelope = decodeArchiveEnvelope(new TextDecoder().decode(plain))
+                if (envelope) {
+                    entries.push({ conversationId: entry.conversation_id, id: entry.id, envelope })
                 }
             }
             cursor = page.next_cursor
         } while (cursor)
-        return { restored, skipped }
+        return { entries, skipped }
     }
 
     async clearHistoryBackup(idpUrl: string, accessToken: string): Promise<void> {
@@ -290,50 +299,52 @@ export class E2eeAdapter implements IE2eePort {
         await this.storage.clearRecoveryPassphrase()
         this.cachedHistoryArchiveKey = null
         this.archiveBuffer = []
+        this.archivedIds.clear()
     }
 
-    /** Drain the buffer. Derives the History Archive Key lazily; idle when no passphrase exists. */
-    private async flushArchiveNow(): Promise<void> {
-        if (
-            !this.historyArchive ||
-            !this.historyCrypto ||
-            this.archiveBuffer.length === 0 ||
-            !this.flushIdpUrl ||
-            !this.flushAccessToken
-        ) {
-            return
-        }
-        const accessToken = this.flushAccessToken()
-        if (!accessToken) return
-        if (!this.cachedHistoryArchiveKey) {
-            const phrase = await this.storage.loadRecoveryPassphrase()
-            if (!phrase) return
-            const salt = await this.historyArchive.getSalt(this.flushIdpUrl, accessToken)
-            if (!salt) return
-            this.cachedHistoryArchiveKey = await this.historyCrypto.deriveKey(phrase, salt)
-        }
-        const toFlush = this.archiveBuffer.splice(0, this.archiveBuffer.length)
-        try {
-            const entries = await Promise.all(
-                toFlush.map(async (e) => {
-                    const { ciphertext, nonce } = await this.historyCrypto!.encrypt(
-                        this.cachedHistoryArchiveKey!,
-                        e.plaintext,
-                    )
-                    return {
-                        id: e.messageId,
-                        conversation_id: e.conversationId,
-                        ciphertext,
-                        nonce,
-                    }
-                }),
-            )
-            await this.historyArchive.uploadBatch(this.flushIdpUrl, accessToken, entries)
-        } catch (err) {
-            // Re-queue so the next tick retries.
-            // eslint-disable-next-line no-console
-            console.warn("[history-archive] flush failed; re-buffering", err)
-            this.archiveBuffer.unshift(...toFlush)
+    /** One drain at a time: the timer and a full buffer both ask for one. */
+    private flushArchiveNow(): Promise<void> {
+        this.flushing ??= this.drainArchive().finally(() => {
+            this.flushing = null
+        })
+        return this.flushing
+    }
+
+    /** Derives the History Archive Key lazily; idle when no passphrase exists. */
+    private async drainArchive(): Promise<void> {
+        while (this.archiveBuffer.length > 0) {
+            const idpUrl = this.flushIdpUrl
+            const accessToken = this.flushAccessToken?.()
+            if (!this.historyArchive || !this.historyCrypto || !idpUrl || !accessToken) return
+            if (!this.cachedHistoryArchiveKey) {
+                const phrase = await this.storage.loadRecoveryPassphrase()
+                if (!phrase) return
+                const salt = await this.historyArchive.getSalt(idpUrl, accessToken)
+                if (!salt) return
+                this.cachedHistoryArchiveKey = await this.historyCrypto.deriveKey(phrase, salt)
+            }
+            const key = this.cachedHistoryArchiveKey
+            const sealer = this.historyCrypto
+            const batch = this.archiveBuffer.splice(0, ARCHIVE_UPLOAD_LIMIT)
+            try {
+                const entries = await Promise.all(
+                    batch.map(async (e) => {
+                        const { ciphertext, nonce } = await sealer.encrypt(key, e.plaintext)
+                        return { id: e.entryId, conversation_id: e.conversationId, ciphertext, nonce }
+                    }),
+                )
+                await this.historyArchive.uploadBatch(idpUrl, accessToken, entries)
+            } catch (err) {
+                if (refusedForGood(err)) {
+                    // eslint-disable-next-line no-console
+                    console.warn("[history-archive] the IdP refused a batch; dropping it", err)
+                    continue
+                }
+                // eslint-disable-next-line no-console
+                console.warn("[history-archive] flush failed; re-buffering", err)
+                this.archiveBuffer.unshift(...batch)
+                return
+            }
         }
     }
 

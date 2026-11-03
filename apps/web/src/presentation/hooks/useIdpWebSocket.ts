@@ -4,13 +4,13 @@ import { useAppStore } from "@/store/store"
 import { getDmPort, getE2eePort, getGroupPort, getNotificationSoundPort, getWsPort } from "@/ioc"
 import type {
     ApplicationMessage,
-    ArchiveEnvelope,
     AttachmentBlobKey,
     ConversationId,
     EditBody,
     ReactionBody,
     TextBody,
 } from "@pinai/domain/models/e2ee"
+import { archivedEdit, archivedReaction, archivedText } from "@pinai/domain/models/history-archive"
 import type { WsConnectionStatus, WsServerEvent } from "@pinai/domain/models/ws"
 import type { Message } from "@/lib/types"
 import { actorUriToAddress } from "@pinai/domain/models/identity"
@@ -250,6 +250,15 @@ export function useIdpWebSocket(): void {
                                 },
                                 senderAddress === actionsRef.current.user?.address,
                             )
+                            getE2eePort().bufferForArchive(
+                                conversationId,
+                                event.data.message_id,
+                                archivedReaction(
+                                    { address: senderAddress, displayName: event.data.sender_display_name },
+                                    event.data.created_at,
+                                    body,
+                                ),
+                            )
                         }
                         break
                     }
@@ -322,49 +331,29 @@ export function useIdpWebSocket(): void {
                             },
                         )
 
-                        // Buffer the outbound message for the history
-                        // archive. Forward secrecy wipes the
-                        // send-side ratchet, so we can't re-decrypt
-                        // our own ciphertext later — this is the only
-                        // moment we have both the server's message_id
-                        // and the plaintext together. Without this,
-                        // restore-from-passphrase on a new device only
-                        // surfaces peer messages.
+                        // The send's answer archives it too; this covers an answer that never came.
                         if (optimistic) {
-                            try {
-                                const body: TextBody = { text: optimistic.content }
-                                if (optimistic.replyTo) {
-                                    body.reply_meta = {
-                                        target_message_id: optimistic.replyTo.id,
-                                        preview_text: optimistic.replyTo.content,
-                                        preview_sender: optimistic.replyTo.author,
-                                    }
+                            const body: TextBody = { text: optimistic.content }
+                            if (optimistic.replyTo) {
+                                body.reply_meta = {
+                                    target_message_id: optimistic.replyTo.id,
+                                    preview_text: optimistic.replyTo.content,
+                                    preview_sender: optimistic.replyTo.author,
                                 }
-                                if (optimistic.attachmentKeys) {
-                                    body.attachments = Object.values(optimistic.attachmentKeys)
-                                }
-                                const app: ApplicationMessage<TextBody> = {
-                                    version: 1,
-                                    kind: "text",
-                                    body,
-                                }
-                                const envelope: ArchiveEnvelope = {
-                                    v: 1,
-                                    sender_address: senderAddress,
-                                    sender_display_name: senderDisplayName,
-                                    created_at: event.data.created_at,
-                                    app,
-                                }
-                                const serialized = new TextEncoder().encode(JSON.stringify(envelope))
-                                getE2eePort().bufferDecryptedForArchive(
-                                    conversationId,
-                                    event.data.message_id,
-                                    serialized,
-                                )
-                            } catch (err) {
-                                // eslint-disable-next-line no-console
-                                console.warn("[history-archive] own-echo buffer failed", err)
                             }
+                            if (optimistic.attachmentKeys) {
+                                body.attachments = Object.values(optimistic.attachmentKeys)
+                            }
+                            getE2eePort().bufferForArchive(
+                                conversationId,
+                                event.data.message_id,
+                                archivedText(
+                                    { address: senderAddress, displayName: senderDisplayName },
+                                    event.data.created_at,
+                                    body,
+                                    event.data.attachments,
+                                ),
+                            )
                         }
                         break
                     }
@@ -430,27 +419,17 @@ export function useIdpWebSocket(): void {
 
                     actionsRef.current.pushDmMessage(conversationId, msg)
 
-                    // Buffer the full envelope so restore can rehydrate
-                    // it with proper author/timestamp metadata.
-                    if (app) {
-                        try {
-                            const envelope: ArchiveEnvelope = {
-                                v: 1,
-                                sender_address: senderAddress,
-                                sender_display_name: senderDisplayName,
-                                created_at: event.data.created_at,
-                                app,
-                            }
-                            const serialized = new TextEncoder().encode(JSON.stringify(envelope))
-                            getE2eePort().bufferDecryptedForArchive(
-                                conversationId,
-                                event.data.message_id,
-                                serialized,
-                            )
-                        } catch (err) {
-                            // eslint-disable-next-line no-console
-                            console.warn("[history-archive] buffer push failed", err)
-                        }
+                    if (app && app.kind === "text") {
+                        getE2eePort().bufferForArchive(
+                            conversationId,
+                            event.data.message_id,
+                            archivedText(
+                                { address: senderAddress, displayName: senderDisplayName },
+                                event.data.created_at,
+                                app.body as TextBody,
+                                event.data.attachments,
+                            ),
+                        )
                     }
 
                     if (isOwn) {
@@ -536,6 +515,20 @@ export function useIdpWebSocket(): void {
                             const body = app.body as EditBody
                             if (body?.target_message_id === message_id && typeof body.new_text === "string") {
                                 newText = body.new_text
+                                const target = useAppStore
+                                    .getState()
+                                    .dmMessages[convKey]?.find((m) => m.id === message_id)
+                                if (target?.authorAddress) {
+                                    getE2eePort().bufferForArchive(
+                                        convKey,
+                                        crypto.randomUUID(),
+                                        archivedEdit(
+                                            { address: target.authorAddress, displayName: target.author },
+                                            event.data.edited_at,
+                                            { target_message_id: message_id, new_text: newText },
+                                        ),
+                                    )
+                                }
                                 break
                             }
                         }
