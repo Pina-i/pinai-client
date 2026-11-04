@@ -8,6 +8,7 @@ import {
     HandshakeRefused,
     answerableRequests,
     closedMeans,
+    endsTheWait,
     enterDelay,
     failureShown,
     isRefusedForGood,
@@ -36,6 +37,7 @@ import type { ApprovalHandshakeSession, IE2eePort } from "../../ports/e2ee.port"
 
 import type { CheckAdmissionDeps } from "./check-admission.usecase"
 import { registerIdentityUseCase } from "./register-identity.usecase"
+import { shareHistoryKeyUseCase, type ShareHistoryKeyDeps } from "./share-history-key.usecase"
 
 export interface HandshakeDeps {
     e2ee: Pick<
@@ -51,6 +53,8 @@ export interface HandshakeDeps {
     >
     relay: IApprovalRelayPort
     directory: Pick<IDeviceDirectoryPort, "listDevices" | "approveByDevice">
+    /** Wired, the answerer shares the passphrase with the device it just approved (§ 3.11). */
+    sharing?: ShareHistoryKeyDeps
 }
 
 export interface HandshakeContext {
@@ -251,12 +255,26 @@ export class HandshakeRun {
         return false
     }
 
-    /** The answerer approves the asker over the root key the exchange gave, then ends the request. */
+    /** The answerer approves the asker over the root key the exchange gave, ends the request, then shares the passphrase. */
     private async finishAnswer(): Promise<void> {
         const partner = this.partner as HandshakePartner
         if (!(await this.approveBack(partner))) return
         await this.closeRequest()
         this.settle({ kind: "approved", partner })
+        await this.share()
+    }
+
+    // The approval stands whatever happens here: each refresh of the device list shares again.
+    private async share(): Promise<void> {
+        const sharing = this.deps.sharing
+        if (!sharing) return
+        try {
+            const { idpUrl, actorUri } = this.context
+            const { failed } = await shareHistoryKeyUseCase(sharing)(idpUrl, this.token(), actorUri)
+            for (const { error } of failed) this.context.report?.("sharing the history passphrase", error)
+        } catch (error) {
+            this.context.report?.("sharing the history passphrase", error)
+        }
     }
 
     /** The asker: approved once the list shows the answerer's approval of it, under the answerer's key from the exchange. */
@@ -617,7 +635,7 @@ export class ApprovalAsking {
     }
 }
 
-/** Approved, then: `waiting` once the approving device is slow to show at the current generation; `refused` for good. */
+/** Approved, then: `waiting` once the approving device is slow to show at the current generation; `refused` by `endsTheWait`. */
 export type EnteringState =
     | { kind: "entering"; waiting: boolean }
     | { kind: "in" }
@@ -625,9 +643,8 @@ export type EnteringState =
 
 /**
  * The asking device once approved: its KeyPackages go out as soon as it is in
- * (`registerIdentityUseCase`), asked again with a backoff (`nextDelay`) until then. A refusal the
- * same request would meet again — a revoked device, `device_mismatch` — ends it. Ticks never
- * overlap.
+ * (`registerIdentityUseCase`), asked again with a backoff (`nextDelay`) until then. Only
+ * `endsTheWait` ends it. Ticks never overlap.
  */
 export class ApprovedEntry {
     state: EnteringState = { kind: "entering", waiting: false }
@@ -670,7 +687,7 @@ export class ApprovedEntry {
             const admission = await registerIdentityUseCase(this.deps)({ idpUrl, accessToken, actorUri })
             if (admission.kind === "in") return this.set({ kind: "in" })
         } catch (error) {
-            if (isRefusedForGood(error)) return this.set({ kind: "refused", error })
+            if (endsTheWait(error)) return this.set({ kind: "refused", error })
             this.context.report?.("letting this device in", error)
         }
         this.attempts += 1

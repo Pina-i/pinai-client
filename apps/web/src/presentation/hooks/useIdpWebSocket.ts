@@ -59,6 +59,18 @@ export function registerApprovalHandler(handler: (event: ApprovalEvent) => void)
     }
 }
 
+/** Module-level slot — `useHistoryShare` registers here: a key share waits for this device. */
+const historyKeyReadyHandlerRef: { current: (() => void) | null } = { current: null }
+
+export function registerHistoryKeyReadyHandler(handler: () => void): () => void {
+    historyKeyReadyHandlerRef.current = handler
+    return () => {
+        if (historyKeyReadyHandlerRef.current === handler) {
+            historyKeyReadyHandlerRef.current = null
+        }
+    }
+}
+
 /** Module-level slot — `useReplenishKeyPackages` registers its refill here once the device is onboarded. */
 const keyPackagesLowHandlerRef: { current: (() => void) | null } = { current: null }
 
@@ -664,6 +676,10 @@ export function useIdpWebSocket(): void {
                 case "device_approved": {
                     // useDeviceFanout owns the actual fanout via its registered ref.
                     deviceFanoutHandlerRef.current?.()
+                    break
+                }
+                case "history_key_ready": {
+                    historyKeyReadyHandlerRef.current?.()
                     break
                 }
                 case "key_packages_low": {

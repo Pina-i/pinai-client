@@ -10,7 +10,7 @@ import type { DeviceListEntry } from "./device"
 import { actsOnApproval, duplicateDeviceIds, type HandshakeKeysRefusal, type HandshakePartner } from "./device-trust"
 import type { DeviceId } from "./e2ee"
 import type { HistoryKeyStanding } from "./history-key"
-import { IdpError } from "./idp-error"
+import { IdpError, isDeviceMismatch } from "./idp-error"
 
 export const APPROVAL_CODE_LENGTH = 6
 /** A request lives 10 minutes on the relay; the asking device counts them on its own clock. */
@@ -222,6 +222,19 @@ export function renewsByItself(input: { reason: HandshakeFailure; answered: bool
 export const ENTER_BACKOFF_MS = [2_000, 4_000, 8_000, 15_000, 30_000] as const
 /** Approved and still not in after this: the page says the approving device hasn't finished. */
 export const STILL_WAITING_AFTER_MS = 20_000
+/** In by its partner and still no key share after this: the asking page goes on, the app takes the share when it comes. */
+export const SHARE_WAIT_AFTER_IN_MS = 60_000
+/** The words kept, the asking page waits this long at most for the restore; it carries on behind the app. */
+export const RESTORE_WAIT_MS = 15_000
+
+/**
+ * What ends an approved device's wait to be let in or for its share: its session names another
+ * device, or the device is revoked. Anything else is waited out on the backoff.
+ */
+export function endsTheWait(error: unknown): boolean {
+    if (isDeviceMismatch(error)) return true
+    return error instanceof IdpError && error.status === 403 && error.code === "access_denied"
+}
 
 export function enterDelay(attemptsInARow: number): number {
     return ENTER_BACKOFF_MS[Math.min(attemptsInARow, ENTER_BACKOFF_MS.length - 1)]

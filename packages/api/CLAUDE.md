@@ -2,13 +2,13 @@
 
 The IdP's HTTP and WebSocket surface, as adapters implementing domain ports.
 
-Seventeen files, one per resource: OIDC, NodeInfo (what an instance says
+Eighteen files, one per resource: OIDC, NodeInfo (what an instance says
 about itself before any sign-in), the instance's administration (its name and
 description, members, invitations, reset links — `/api/admin/*`, an admin's
 token only), the caller's sessions (which device each signed in, signing out
 the others), DMs, groups, social, privacy (blocks and the contact setting),
 presence, TOTP, user, user settings, device directory, the approval relay, the
-E2EE key directory, the history archive, and the WebSocket connection.
+E2EE key directory, the history archive, key shares, and the WebSocket connection.
 `ky` for REST, `XMLHttpRequest` in `dm-api` where upload progress is needed,
 the platform `WebSocket` for the live connection.
 
@@ -56,3 +56,7 @@ domain as `IKeyDirectoryPort`, which is what keeps the two independent.
   `approval_request_ended`, `approval_request_full`, `too_many_requests`). A device approves
   another by its root key through the device directory (`approveByDevice`,
   `{ by: "device", signature }`), whose list's device ids are lowercased too.
+- Key shares (`key-share-api.adapter.ts`, `/api/history/key-shares`): the seal's bytes as standard
+  base64 both ways; `GET` reads a `404` as no share and refuses an answer whose bytes aren't their
+  size or whose sender is no UUID (`parseKeyShare`, ids lowercased); every refusal an `IdpError`,
+  matched by its code in the domain (`shareRefusal`).

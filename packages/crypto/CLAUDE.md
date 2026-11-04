@@ -53,7 +53,9 @@ Three collaborators could not come, and the shape of each is the mobile work:
   `pending`: words minted whose `PUT` is unanswered, with their key and HAK;
   `standing`: where the words stood when last checked; `admission`: whether the
   device was in at its last check, read when the IdP can't be reached;
-  `newest_generation`: the newest generation seen. Read strictly — 24 words, a 16-byte salt, a
+  `newest_generation`: the newest generation seen; `restore_due`: the generation an archive
+  restore is due under and when it was last applied (`applied_at`), kept until a later page load
+  confirms it. Read strictly — 24 words, a 16-byte salt, a
   32-byte HAK; a row that won't open or parse is moved to
   `<key>:unreadable:<ISO time>:<random>`, never deleted; a device key that can't be
   loaded throws),
@@ -98,9 +100,16 @@ Three collaborators could not come, and the shape of each is the mobile work:
 - **`canonical-bytes.ts`** — the bytes the protocol signs
   (`identity-provider/specs/e2ee.md § 7.2`): `IDP-ATTEST-v1`,
   `PINAI-DEVICE-HPKE-v1`, `PINAI-LEAF-BINDING-v1`, `PINAI-DEVICE-APPROVAL-v1`,
-  rebuilt from bytes, and an archive entry's `PINAI-ARCHIVE-v1` associated
+  rebuilt from bytes, a key share's `PINAI-HISTORY-SHARE-v1` `aad` and the bytes its
+  sender signs (`shareAad`, `shareSignedBytes`: `enc` and the ciphertext appended in
+  base64), and an archive entry's `PINAI-ARCHIVE-v1` associated
   data (its ids lowercased, as the IdP writes UUIDs);
-  `apps/web/test/canonical-bytes.spec.ts` holds the IdP's golden vectors.
+  `apps/web/test/canonical-bytes.spec.ts` and `key-share.spec.ts` hold the IdP's golden vectors.
+- **`key-share.ts`** — a key share's seal (§ 3.11): `sealKeyShare` — the words as `shareText`
+  writes them, HPKE base mode for the recipient's key, `info` `pinai/history-key-share/v1`, the
+  `aad` above, the sender's root key signing; `openKeyShare` — checks 2 and 3: the signature under
+  one of the root keys the exchanges gave, then the seal opening to 24 words. The plaintext bytes
+  are zeroed once sealed or read.
 - **`attestation-chain.adapter.ts`** — what a device checks itself, Ed25519
   strict (`verifyStrict`, a small-order key refused) as the IdP checks root keys.
   `verifyLeafCredential(leaf, jwks)` — § 3.4's checks 1–5 on a leaf or a
@@ -215,6 +224,21 @@ Three collaborators could not come, and the shape of each is the mobile work:
     listed for this device, verified over its current root key under the
     partner's root key from the exchange. `recordAdmission` / `recordedAdmission`
     — the admission row.
+  - **Key shares** (§ 3.11; the flows are the domain's): `sealHistoryShares` — nothing unless
+    holding the current generation, settled; a list naming an id twice refused; the revocations
+    kept read, never written (the review keeps the list's); `shareCandidates` picks the partners;
+    this device's listed approval of each verified under its own root key and the partner's of
+    it under the root key the exchange gave — one that doesn't verify is an `[e2ee]` warning, and
+    nothing is sealed —, its chain `verifyDeviceChain` from the row whose root key is the
+    exchange's, sealed for the listed HPKE key; the words loaded only once a partner passes. A root key, HPKE key or
+    attestation that fails stands as `share-recipient-refused`, withdrawn once it passes; an
+    issuer out of reach or an expiry waits for the next refresh. `forgoHistoryShare` — refused for
+    good, by device and generation, for the page load. `openHistoryShare` — checks 1–4 in order
+    (a partner by device id, never one seen revoked; `openKeyShare`; the words' check value and
+    approval key under the key in force, one Argon2id through `hakFor`, whose derivation is
+    dropped and zeroed when check 4 fails); a failure stands as `share-refused`, withdrawn once
+    the device holds. `markHistoryRestoreDue` / `historyRestoreDue` / `historyRestoreApplied` /
+    `historyRestored` — the `restore_due` row.
   - **The history key** (`identity-provider/specs/e2ee.md § 3.6–3.9`): the flows
     are the domain's; here the crypto and the standing (`standingAgainst`).
     `mintHistoryKey` seals the words as pending before answering them, the same
@@ -578,6 +602,15 @@ vitest setup, so a package's specs sit there until it needs its own.
 - `apps/web/test/e2ee-integration.spec.ts` — Alice+Bob full-loop register →
   add → text → reaction → edit → attachment, plus a same-IdP
   routing case.
+- `apps/web/test/key-share.spec.ts` — the share's bytes against the IdP's vectors, its rules, and
+  real engines with the bundle's HPKE over fakes keeping the IdP's rules (`test/setup/key-shares.ts`):
+  § 6.10 end to end, each of the four checks failing, the sender's refusals, the instance's
+  refusals by code, a new generation, a start over, the background restore;
+  `history-share-screens.spec.ts` — the real restore page and the app's hook on fake timers: the
+  share read from mount, the asking section's copy (bringing, back, failed, a share it couldn't
+  use), going on after the restore or `RESTORE_WAIT_MS` / `SHARE_WAIT_AFTER_IN_MS` (each to ±50 ms),
+  the app's triggers (startup, `history_key_ready`, a reconnect), its toast (outliving no restore),
+  and one accept when the asking page and the app take the share at once.
 - `apps/web/test/canonical-bytes.spec.ts`, `hpke.spec.ts` (RFC 9180 A.1.1 through
   the real bundle), `attestation-chain.spec.ts` (both chains), `register-device.spec.ts`
   (the root key and HPKE key registration, the tick's renewal); the integration suite's
@@ -813,4 +846,4 @@ account just registers its own MSK + Device Root Key in the setup flow.
   simplification" above: the wrapper now makes the leaf key before the
   credential, so the root key signs it. v1 is read as no credential at all.
 - `IHpkePort` is the bundle's HPKE, beside `IMlsEngine` rather than on it; the
-  key shares that use it come later.
+  key shares (`key-share.ts`) use it.

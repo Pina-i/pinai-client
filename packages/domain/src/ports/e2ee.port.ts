@@ -12,6 +12,7 @@ import type { DeviceListEntry } from "../models/device"
 import type { DeviceTrustVerdict, HandshakeKeysRefusal, HandshakePartner, TrustEvent } from "../models/device-trust"
 import type { ArchiveEnvelope, ArchivedEntry } from "../models/history-archive"
 import type { DerivedHistoryKey, HistoryKey, HistoryKeyStanding } from "../models/history-key"
+import type { KeyShare, KeyShareRefusal, OutgoingKeyShare } from "../models/key-share"
 
 /**
  * High-level, transport-agnostic E2EE operations the rest of the app
@@ -455,6 +456,45 @@ export interface IE2eePort {
         actorUri: ActorUri,
         devices: readonly DeviceListEntry[],
     ): Promise<{ partners: CheckedPartner[]; revokedSeen: DeviceId[] } | null>
+
+    // ─── Key shares (`identity-provider/specs/e2ee.md § 3.11`) ─────
+
+    /**
+     * The words this device holds, sealed for each partner `shareCandidates` picks from `devices`
+     * — `GET /api/keys/devices` read just before —, its approval by this device verifying, its chain
+     * verifying from the root key the exchange gave, sealed for the HPKE key the list shows. None
+     * unless the device holds the current generation, settled. A partner the list shows other keys
+     * for stands as `share-recipient-refused`; one whose chain can't be settled is left for the next
+     * refresh.
+     */
+    sealHistoryShares(actorUri: ActorUri, devices: readonly DeviceListEntry[]): Promise<OutgoingKeyShare[]>
+
+    /** The instance refused a share for good: `recipient` isn't sealed for under `generation` again this page load. */
+    forgoHistoryShare(recipient: DeviceId, generation: number): void
+
+    /**
+     * The four checks of § 3.11 on the share waiting for this device, in order, `key` the one in
+     * force: from a handshake partner (never one seen revoked), signed by the root key the exchange
+     * gave, opening under this device's HPKE key, its words giving `key`. A failure stands as
+     * `share-refused`; `unsettled` — the revocations kept can't be read — decides nothing.
+     */
+    openHistoryShare(
+        actorUri: ActorUri,
+        share: KeyShare,
+        key: HistoryKey,
+    ): Promise<{ ok: true; words: string[] } | { ok: false; reason: KeyShareRefusal | "unsettled" }>
+
+    /** The archive is to be restored under `generation`: kept through reloads until a restore is confirmed. */
+    markHistoryRestoreDue(generation: number): Promise<void>
+
+    /** The restore due, and when it was last applied (`null` before); `null` when none is. */
+    historyRestoreDue(): Promise<{ generation: number; appliedAt: string | null } | null>
+
+    /** Applied under `generation`: the next page load whose cache was read back confirms it. A no-op when another is due. */
+    historyRestoreApplied(generation: number): Promise<void>
+
+    /** The restore due under `generation` is confirmed, or moot. A no-op when another is due. */
+    historyRestored(generation: number): Promise<void>
 }
 
 /**

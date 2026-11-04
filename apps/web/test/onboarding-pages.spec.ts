@@ -46,6 +46,7 @@ const wired = vi.hoisted(() => ({
     directory: null as unknown,
     relay: null as unknown,
     platform: null as unknown,
+    keyShares: { share: async () => undefined, waiting: async () => null } as unknown,
     lowHandler: null as (() => void) | null,
 }))
 vi.mock("@/ioc", () => ({
@@ -54,6 +55,7 @@ vi.mock("@/ioc", () => ({
     getHistoryArchivePort: () => wired.history,
     getDeviceDirectoryPort: () => wired.directory,
     getApprovalRelayPort: () => wired.relay,
+    getKeySharePort: () => wired.keyShares,
     getAuthPlatform: () => wired.platform,
     getAuthPort: vi.fn(),
     getSessionRenewal: vi.fn(),

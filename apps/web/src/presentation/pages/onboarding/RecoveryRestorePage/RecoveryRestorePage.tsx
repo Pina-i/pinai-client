@@ -43,8 +43,16 @@ export function RecoveryRestorePage({ variant = "new-device" }: { variant?: Rest
                             wordsStarted={isMidEntry}
                             fallbackLabel={vm.deviceLabel}
                             instruction={reset ? "Open Pīna'i on the device that reset your history and type it when it asks." : undefined}
+                            share={vm.share}
+                            onApproved={vm.onApproved}
                             onIn={vm.onIn}
                         />
+                    )}
+
+                    {vm.offersWayIn && vm.shareRefused && (
+                        <p role="status" className="mt-4 max-w-[540px] text-[13px] leading-[1.55] text-idle">
+                            Your history couldn't be received from your other device. Type your 24 words to bring it back.
+                        </p>
                     )}
 
                     {vm.offersWayIn && <WordsIntro reset={reset} filledCount={vm.filledCount} />}

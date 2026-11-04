@@ -16,7 +16,7 @@ import { StrictMode, act, createElement, type FunctionComponent, type ReactNode,
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { ANSWER_TIMEOUT_MS } from "@pinai/domain/models/approval-handshake"
+import { ANSWER_TIMEOUT_MS, SHARE_WAIT_AFTER_IN_MS } from "@pinai/domain/models/approval-handshake"
 import type { UserProfile } from "@pinai/domain/models/auth"
 import type { DeviceListEntry } from "@pinai/domain/models/device"
 import { IdpError } from "@pinai/domain/models/idp-error"
@@ -48,6 +48,7 @@ import { FakeIssuers } from "./setup/issuers"
 const wired = vi.hoisted(() => ({
     deps: null as unknown as { e2ee: unknown; relay: unknown; directory: unknown },
     history: null as unknown,
+    keyShares: { share: async () => undefined, waiting: async () => null } as unknown,
     handler: null as ((event: unknown) => void) | null,
 }))
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), message: vi.fn() }))
@@ -56,6 +57,7 @@ vi.mock("@/ioc", () => ({
     getApprovalRelayPort: () => wired.deps.relay,
     getDeviceDirectoryPort: () => wired.deps.directory,
     getHistoryArchivePort: () => wired.history,
+    getKeySharePort: () => wired.keyShares,
     getAuthPort: vi.fn(),
     getAuthPlatform: vi.fn(),
 }))
@@ -670,18 +672,21 @@ describe("the asking section's view model", () => {
         return { ...accounts, entered, reads, reported }
     }
 
-    it("once approved, publishes its KeyPackages and goes on — only once the list shows it in — then reads nothing more", async () => {
+    it("once approved, publishes its KeyPackages once the list shows it in, and with no key share goes on after a minute — then reads the list no more", async () => {
         const { idp, entered, reads, reported } = await approvedPhone()
 
         await advance(100)
         expect(entered).not.toHaveBeenCalled()
         expect(idp.log).not.toContain("key packages")
+        expect(vm.status).toBe("Approved — bringing your history…")
 
         await advance(35_000)
         expect(vm.status).toBe("Approved. Waiting for your other device to finish: it hasn't yet said it holds your history passphrase.")
-        expect(vm.statusShown).toBe(true)
 
         reported()
+        await until(() => idp.log.includes("key packages"), 500)
+        await advance(SHARE_WAIT_AFTER_IN_MS - 31_000)
+        expect(entered).not.toHaveBeenCalled()
         await until(() => entered.mock.calls.length === 1, 500)
         expect(idp.log.filter((line) => line === "key packages")).toHaveLength(1)
 

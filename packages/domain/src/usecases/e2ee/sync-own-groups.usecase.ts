@@ -1,16 +1,31 @@
+import type { DeviceListEntry } from "../../models/device"
 import type { DeviceTrustVerdict } from "../../models/device-trust"
 import type { ActorUri, ConversationId, DeviceId } from "../../models/e2ee"
 import type { IDeviceDirectoryPort } from "../../ports/device-directory.port"
 import type { IE2eePort } from "../../ports/e2ee.port"
 
+import { shareHistoryKeyUseCase, type ShareHistoryKeyDeps } from "./share-history-key.usecase"
+
 type Failure = { conversationId: ConversationId; error: unknown }
 
-/** `unclaimed`: the approved siblings still missing from a group for want of a KeyPackage — to try again. */
-export type OwnGroupsSync = { added: number; removed: number; unclaimed: DeviceId[]; failed: Failure[]; reviewFailure?: unknown }
+/**
+ * `unclaimed`: the approved siblings still missing from a group for want of a KeyPackage — to try
+ * again. `shareFailure`: the shares that didn't go out (`HistoryKeySharing["failed"]`), or why none did.
+ */
+export type OwnGroupsSync = {
+    added: number
+    removed: number
+    unclaimed: DeviceId[]
+    failed: Failure[]
+    reviewFailure?: unknown
+    shareFailure?: unknown
+}
 
 export type OwnGroupsSyncDeps = {
     e2ee: Pick<IE2eePort, "catchUp" | "refreshOwnLeaf" | "reviewDevices" | "removeUntrustedLeaves" | "addOwnDevices">
     deviceDirectory: Pick<IDeviceDirectoryPort, "listDevices">
+    /** Wired, an acting review shares the passphrase over the list it read (§ 3.11). */
+    sharing?: ShareHistoryKeyDeps
 }
 
 /**
@@ -18,8 +33,9 @@ export type OwnGroupsSyncDeps = {
  * § 6.2`, § 3.9): every group caught up and its own leaf made current; then the device list read
  * again and reviewed, after the catch-ups, so a sibling's add they brought in is judged on a list
  * as new as it; then in each group the untrusted leaves committed out and the approved devices it
- * lacks added. Each step that fails is named with its conversation and left for the next run; a
- * group that failed to catch up goes no further.
+ * lacks added; then, acting, the passphrase shared with the partners that list shows waiting for
+ * it. Each step that fails is named with its conversation and left for the next run; a group that
+ * failed to catch up goes no further.
  */
 export async function syncOwnGroupsUseCase(
     idpUrl: string,
@@ -47,14 +63,15 @@ export async function syncOwnGroupsUseCase(
         }
     }
 
-    const review = async () => {
+    const review = async (): Promise<{ devices: readonly DeviceListEntry[]; verdict: DeviceTrustVerdict }> => {
         const { devices } = await deps.deviceDirectory.listDevices(idpUrl, accessToken)
-        return e2ee.reviewDevices(idpUrl, accessToken, actorUri, devices)
+        return { devices, verdict: await e2ee.reviewDevices(idpUrl, accessToken, actorUri, devices) }
     }
     let trust: DeviceTrustVerdict | null = null
+    let reviewed: readonly DeviceListEntry[] | null = null
     let reviewFailure: unknown = undefined
     try {
-        trust = await review()
+        ;({ verdict: trust, devices: reviewed } = await review())
     } catch (error) {
         reviewFailure = error
     }
@@ -62,7 +79,7 @@ export async function syncOwnGroupsUseCase(
     let again: Promise<DeviceTrustVerdict | null> | null = null
     const reviewAgain = () =>
         (again ??= review().then(
-            (fresh) => (trust = fresh),
+            ({ verdict }) => (trust = verdict),
             (error: unknown) => {
                 reviewFailure ??= error
                 return (trust = null)
@@ -88,40 +105,18 @@ export async function syncOwnGroupsUseCase(
             failed.push({ conversationId, error })
         }
     }
-    const outcome = { added, removed, unclaimed: [...unclaimed], failed }
-    return reviewFailure === undefined ? outcome : { ...outcome, reviewFailure }
-}
-
-/**
- * One run at a time: a call made during one waits for it, then the calls made meanwhile are one run,
- * with the latest arguments, which answers them all.
- */
-export function oneAtATime<A extends unknown[], R>(run: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
-    let running: Promise<R> | null = null
-    let next: { args: A; settle: Promise<R>; resolve: (r: R) => void; reject: (e: unknown) => void } | null = null
-    const start = (args: A): Promise<R> => {
-        const current = run(...args)
-        running = current
-        void current
-            .catch(() => undefined)
-            .then(() => {
-                running = null
-                const queued = next
-                next = null
-                if (queued) start(queued.args).then(queued.resolve, queued.reject)
-            })
-        return current
-    }
-    return (...args: A) => {
-        if (!running) return start(args)
-        if (next) {
-            next.args = args
-            return next.settle
+    let shareFailure: unknown = undefined
+    const acted: DeviceTrustVerdict | null = trust
+    if (deps.sharing && reviewed && acted?.acting) {
+        try {
+            const { failed: unsent } = await shareHistoryKeyUseCase(deps.sharing)(idpUrl, accessToken, actorUri, reviewed)
+            if (unsent.length > 0) shareFailure = unsent
+        } catch (error) {
+            shareFailure = error
         }
-        let resolve!: (r: R) => void
-        let reject!: (e: unknown) => void
-        const settle = new Promise<R>((res, rej) => ((resolve = res), (reject = rej)))
-        next = { args, settle, resolve, reject }
-        return settle
     }
+    const outcome: OwnGroupsSync = { added, removed, unclaimed: [...unclaimed], failed }
+    if (reviewFailure !== undefined) outcome.reviewFailure = reviewFailure
+    if (shareFailure !== undefined) outcome.shareFailure = shareFailure
+    return outcome
 }

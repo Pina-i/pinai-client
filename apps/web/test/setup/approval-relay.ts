@@ -102,6 +102,11 @@ export class FakeAccount {
         this.rows.set(row.device_id, row)
     }
 
+    /** The device a session's token named. */
+    deviceOf(token: string): string | null {
+        return this.tokens.get(token) ?? null
+    }
+
     /** The next calls of `route` fail so, as an instance out of reach or a `5xx` would. */
     failNext(route: Route, error: Error, times = 1): void {
         for (let i = 0; i < times; i++) this.failures.push({ route, error })

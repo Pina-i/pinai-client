@@ -8,6 +8,7 @@ import { hexOf, sameBytes } from "./bytes"
 import type { DeviceListEntry } from "./device"
 import type { DeviceId } from "./e2ee"
 import type { CurrentHistoryKey, HistoryKeyStanding } from "./history-key"
+import type { KeyShareRefusal, ShareRecipientRefusal } from "./key-share"
 import { leafOrigin, type LeafVerdict, type OwnLeafRefusal, type UntrustedLeaf } from "./leaf-trust"
 
 /** A device as its root key makes it: the same id under another root key is another device. */
@@ -307,6 +308,10 @@ export type TrustEvent =
     | { kind: "untrusted-leaf"; leaf: UntrustedLeaf }
     /** A code handshake's peer whose keys the list doesn't show for it, or whose chain doesn't verify. */
     | { kind: "handshake-keys-refused"; deviceId: DeviceId; reason: HandshakeKeysRefusal }
+    /** A partner the passphrase isn't shared with: the list's keys for it aren't the exchange's. */
+    | { kind: "share-recipient-refused"; deviceId: DeviceId; reason: ShareRecipientRefusal }
+    /** A share left unused: from `deviceId`, under `generation`, failing a check of § 3.11. */
+    | { kind: "share-refused"; deviceId: DeviceId; generation: number; reason: KeyShareRefusal }
 
 /**
  * The listed devices an unapproved-device event stands for, by id and the root key listed now: one
@@ -337,5 +342,9 @@ export function trustEventKey(event: TrustEvent): string {
             return `leaf:${event.leaf.conversationId}:${event.leaf.leafIndex}`
         case "handshake-keys-refused":
             return `handshake:${event.deviceId}`
+        case "share-recipient-refused":
+            return `share-to:${event.deviceId}`
+        case "share-refused":
+            return `share-from:${event.deviceId}:${event.generation}`
     }
 }

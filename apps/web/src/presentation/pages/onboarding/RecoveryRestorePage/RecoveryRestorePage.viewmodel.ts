@@ -3,16 +3,17 @@ import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
 
 import { resetCause, type ResetCause } from "@pinai/domain/models/admission"
-import { reactionsToReplay, type RestoredMessage } from "@pinai/domain/models/history-archive"
-import { addressParts } from "@pinai/domain/models/identity"
 import { logoutUseCase } from "@pinai/domain/usecases/auth/logout.usecase"
+import { AwaitedShare, type AwaitedShareState } from "@pinai/domain/usecases/e2ee/accept-history-share.usecase"
 import { checkAdmissionUseCase } from "@pinai/domain/usecases/e2ee/check-admission.usecase"
 import { restoreHistoryFromPassphraseUseCase } from "@pinai/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
 import { setUpThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/set-up-this-device.usecase"
-import { getAuthPlatform, getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getSessionPort } from "@/ioc"
+import { getAuthPlatform, getE2eePort, getHistoryArchivePort, getKeySharePort, getSessionPort } from "@/ioc"
+import { acceptWaitingShare } from "@/presentation/_libs/accept-share"
 import { admissionDeps } from "@/presentation/_libs/admission-deps"
 import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
-import type { Message } from "@/lib/types"
+import { restoreDueHistory } from "@/presentation/_libs/history-restore"
+import { warnE2ee } from "@/presentation/_libs/key-share-deps"
 import type { RecoveryPassphraseInputHandle } from "@/presentation/molecules/RecoveryPassphraseInput/RecoveryPassphraseInput"
 import {
     RECOVERY_WORD_COUNT,
@@ -59,14 +60,21 @@ export interface RecoveryRestoreViewModel {
     /** On to the app — approved from another device, or already in —, or to whichever page the gate says. */
     onIn: () => void
     onSignOut: () => void
+    /** The wait for this device's key share, from the page set up on; `null` while it holds the words or before. */
+    share: AwaitedShareState | null
+    /** The code section approved this device: it takes the way on from there. */
+    onApproved: () => void
+    /** A share failed its checks and no approval here explains it: the page says so and points to the words. */
+    shareRefused: boolean
 }
 
 /**
  * The pages a device that isn't in stays on: no way in but another device's approval or the 24
  * words — or signing out. The device is set up on mount — registered and named on its session, no
- * KeyPackage published —, then whether it is in read. The words are checked against the account's
- * history key before anything is kept; right, the device approves itself with them, reports its
- * generation and publishes its KeyPackages, then the archive is restored.
+ * KeyPackage published —, then whether it is in read; lacking the words, it reads its key share on
+ * the entry's backoff, and kept goes on to the app, the archive coming back behind it. Typed words
+ * are checked against the account's history key before anything is kept; right, the device approves
+ * itself with them, reports its generation and publishes its KeyPackages, then the archive is restored.
  */
 export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-device"): RecoveryRestoreViewModel {
     const idpUrl = useAppStore((s) => s.idpUrl)
@@ -86,6 +94,12 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
     const [restored, setRestored] = useState(0)
     const [skipped, setSkipped] = useState(0)
     const [error, setError] = useState<string | null>(null)
+    const [lacksWords, setLacksWords] = useState(false)
+    const [share, setShare] = useState<AwaitedShareState | null>(null)
+    const [approvedHere, setApprovedHere] = useState(false)
+    const approvedRef = useRef(false)
+    const typing = useRef(false)
+    const awaitedRef = useRef<AwaitedShare | null>(null)
 
     // Bootstrap promise — both action handlers await it before running their
     // own work so an impatient user clicking Restore mid-bootstrap doesn't
@@ -114,6 +128,7 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
                 if (cancelled) return
                 setIsIn(admission.kind === "in")
                 setCause(resetCause(standing))
+                setLacksWords(standing.kind !== "holds")
             } catch (e) {
                 // eslint-disable-next-line no-console
                 console.warn("Reading whether this device is in failed:", e)
@@ -132,6 +147,51 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
             cancelled = true
         }
     }, [idpUrl, signedIn, ownActorUri])
+
+    const listening = lacksWords && status !== "initializing" && status !== "error"
+    useEffect(() => {
+        if (!listening) return
+        const awaited = new AwaitedShare(acceptWaitingShare, warnE2ee)
+        awaitedRef.current = awaited
+        let live = true
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const unsubscribe = awaited.onChange(() => {
+            const settled = awaited.state
+            setShare(settled)
+            // Approved here, the section goes on itself once the restore settles; typed words go on their own way.
+            if (settled.kind === "kept" && !approvedRef.current && !typing.current) void navigate({ to: "/home" })
+            if (settled.kind === "ended") {
+                void signInAgainOnDeviceMismatch(settled.error).then((signingIn) => {
+                    if (!signingIn) warnE2ee("reading the history key share", settled.error)
+                })
+            }
+        })
+        const tick = () => {
+            clearTimeout(timer)
+            if (!live || document.hidden) return
+            void awaited.tick().then(() => {
+                if (live && awaited.state.kind === "waiting") timer = setTimeout(tick, awaited.nextDelay())
+            })
+        }
+        const onVisible = () => {
+            if (!document.hidden) tick()
+        }
+        document.addEventListener("visibilitychange", onVisible)
+        tick()
+        return () => {
+            live = false
+            clearTimeout(timer)
+            unsubscribe()
+            document.removeEventListener("visibilitychange", onVisible)
+            if (awaitedRef.current === awaited) awaitedRef.current = null
+        }
+    }, [listening, navigate])
+
+    const onApproved = useCallback(() => {
+        approvedRef.current = true
+        setApprovedHere(true)
+        void awaitedRef.current?.again()
+    }, [])
 
     const canRestore = useMemo(() => isPassphraseComplete(words), [words])
     const filledCount = useMemo(
@@ -157,62 +217,40 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
         if (!idpUrl || !accessToken || !ownActorUri || !canRestore) return
         setStatus("restoring")
         setError(null)
+        typing.current = true
         try {
             if (bootstrapRef.current) await bootstrapRef.current
 
             const result = await restoreHistoryFromPassphraseUseCase({
-                e2eePort: getE2eePort(),
+                ...admissionDeps(),
                 sessionPort: getSessionPort(),
                 historyArchivePort: getHistoryArchivePort(),
-                deviceDirectoryPort: getDeviceDirectoryPort(),
+                keySharePort: getKeySharePort(),
+                report: warnE2ee,
             })({ idpUrl, accessToken, actorUri: ownActorUri, passphrase: words })
 
-            if (result.kind !== "restored") {
+            if (result.kind !== "kept") {
                 setStatus("ready")
                 toast.error(REFUSALS[result.kind])
                 return
             }
-            setRestored(result.messages.length)
-            setSkipped(result.skipped)
-
-            const byConversation = new Map<string, RestoredMessage[]>()
-            for (const m of result.messages) {
-                const list = byConversation.get(m.conversationId) ?? []
-                list.push(m)
-                byConversation.set(m.conversationId, list)
-            }
-            const store = useAppStore.getState()
-            const me = store.user?.address
-            for (const [conversationId, restored] of byConversation) {
-                const replay = reactionsToReplay(store.dmMessages[conversationId] ?? [], restored)
-                store.seedDmMessages(conversationId, restored.map(restoredToMessage))
-                // Through the live path, which records each id: history may decrypt one of them again.
-                for (const { messageId, reaction } of replay) {
-                    store.applyReaction(
-                        conversationId,
-                        {
-                            reaction_message_id: reaction.id,
-                            target_message_id: messageId,
-                            reactor_address: reaction.reactorAddress,
-                            emoji: reaction.emoji,
-                            op: "add",
-                        },
-                        reaction.reactorAddress === me,
-                    )
-                }
-            }
-
+            const restore = await restoreDueHistory()
             setStatus("done")
-            toast.success(
-                result.messages.length === 0
-                    ? "Device set up"
-                    : `Restored ${result.messages.length} message${result.messages.length === 1 ? "" : "s"}`,
-            )
+            if (restore.kind === "failed") {
+                toast.error("Your history couldn't be brought back", { description: "It's tried again the next time Pīna'i starts." })
+            } else {
+                const count = restore.kind === "restored" ? restore.messages : 0
+                setRestored(count)
+                setSkipped(restore.kind === "restored" ? restore.skipped : 0)
+                toast.success(count === 0 ? "Device set up" : `Restored ${count} message${count === 1 ? "" : "s"}`)
+            }
             void navigate({ to: "/home" })
         } catch (e) {
             if (await signInAgainOnDeviceMismatch(e)) return
             setStatus("error")
             setError(e instanceof Error ? e.message : "Restore failed")
+        } finally {
+            typing.current = false
         }
     }, [idpUrl, accessToken, ownActorUri, canRestore, words, navigate])
 
@@ -252,6 +290,9 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
         onRestore: onRestore as () => Promise<void>,
         onIn,
         onSignOut,
+        share,
+        onApproved,
+        shareRefused: share?.kind === "unusable" && !approvedHere,
     }
 }
 
@@ -262,26 +303,6 @@ const REFUSALS = {
     "rolled-back": "Your instance went back to an older history key — nothing was restored",
     "key-changed": "Your history key changed meanwhile — nothing was restored",
 } as const
-
-function restoredToMessage(m: RestoredMessage): Message {
-    const author = m.senderDisplayName?.trim() || addressParts(m.senderAddress).handle || "Restored"
-    return {
-        id: m.id,
-        author,
-        authorAddress: m.senderAddress,
-        avatar: author.slice(0, 2).toUpperCase(),
-        content: m.text,
-        timestamp: new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        createdAt: m.createdAt,
-        color: "#a78bfa",
-        ...(m.edited ? { edited: true } : {}),
-        attachments: m.attachments,
-        ...(m.attachmentKeys.length > 0
-            ? { attachmentKeys: Object.fromEntries(m.attachmentKeys.map((k) => [k.id, k])) }
-            : {}),
-        ...(m.replyTo ? { replyTo: m.replyTo } : {}),
-    }
-}
 
 /**
  * Coarse browser+OS label mirroring the IdP's server-side UA parser.

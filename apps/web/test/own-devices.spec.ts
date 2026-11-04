@@ -11,7 +11,8 @@ import { devicesToAdd } from "@pinai/domain/models/group"
 import type { DeviceListEntry } from "@pinai/domain/models/device"
 import type { LeafVerdict } from "@pinai/domain/models/leaf-trust"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
-import { oneAtATime, syncOwnGroupsUseCase } from "@pinai/domain/usecases/e2ee/sync-own-groups.usecase"
+import { oneAtATime } from "@pinai/domain/lib/one-at-a-time"
+import { syncOwnGroupsUseCase } from "@pinai/domain/usecases/e2ee/sync-own-groups.usecase"
 
 const IDP = "http://localhost:8080"
 const DAN = asActorUri("https://idp.dan.test/users/dan_k2m9x")

@@ -30,6 +30,7 @@ import {
 import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstrap-first-device.usecase"
 import { checkHistoryKeyUseCase } from "@pinai/domain/usecases/e2ee/check-history-key.usecase"
 import { clearHistoryBackupUseCase } from "@pinai/domain/usecases/e2ee/clear-history-backup.usecase"
+import { HistoryRestore } from "@pinai/domain/usecases/e2ee/restore-due-history.usecase"
 import { restoreHistoryFromPassphraseUseCase } from "@pinai/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
 import { startThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/start-this-device.usecase"
 
@@ -308,7 +309,7 @@ describe("the 24 words typed on a device", () => {
         expect(idp.log).toEqual(["register device", "name session", "read key"])
     })
 
-    it("keeps the right words, approves the device with them and reports, then restores", async () => {
+    it("keeps the right words, the restore marked due first, approves the device with them and reports; the restore then opens the archive", async () => {
         const { idp, laptop, words } = await account()
         await archive(laptop, [1, 2])
         laptop.e2ee.bufferEditForArchive(
@@ -320,7 +321,10 @@ describe("the 24 words typed on a device", () => {
         const phone = historyDevice(idp, "phone")
         idp.log.length = 0
 
-        const restored = await typeWords(phone, words)
+        expect(await typeWords(phone, words)).toEqual({ kind: "kept", generation: 1 })
+        expect(phone.storage.restoreDue).toEqual({ generation: 1, appliedAt: null })
+        const applied = vi.fn()
+        const restored = await new HistoryRestore({ e2ee: phone.e2ee }).run({ idpUrl: IDP, accessToken: () => phone.token }, applied)
 
         expect(idp.log).toEqual([
             "register device",
@@ -333,8 +337,8 @@ describe("the 24 words typed on a device", () => {
             "key packages",
             "read archive",
         ])
-        expect(restored).toMatchObject({ kind: "restored", decrypted: 3, skipped: 0 })
-        expect(restored.kind === "restored" && restored.messages.map((m) => m.text)).toEqual(["m1, edited", "m2"])
+        expect(restored).toMatchObject({ kind: "restored", messages: 2, skipped: 0 })
+        expect(applied.mock.calls[0][0].map((m: { text: string }) => m.text)).toEqual(["m1, edited", "m2"])
         expect(idp.reports.get(phone.storage.deviceId)).toBe(1)
     })
 
@@ -344,7 +348,7 @@ describe("the 24 words typed on a device", () => {
 
         const outcomes = await Promise.all([typeWords(phone, words), typeWords(phone, words)])
 
-        expect(outcomes.map((o) => o.kind)).toEqual(["restored", "restored"])
+        expect(outcomes.map((o) => o.kind)).toEqual(["kept", "kept"])
         expect(phone.sealer.derivations).toBe(1)
     })
 
@@ -378,7 +382,9 @@ describe("the 24 words typed on a device", () => {
         expect(await typeWords(phone, words)).toEqual({ kind: "key-changed" })
         expect(await phone.e2ee.historyKeyStanding()).toMatchObject({ kind: "mismatch", generation: 2, held: 1 })
         expect(phone.storage.kept?.words).toEqual(words)
+        await new HistoryRestore({ e2ee: phone.e2ee }).run({ idpUrl: IDP, accessToken: () => phone.token }, vi.fn())
         expect(idp.log).not.toContain("read archive")
+        expect(phone.storage.restoreDue).toBeNull()
     })
 })
 
@@ -529,7 +535,7 @@ describe("uploads under a generation", () => {
         // Another tab of this device takes the next generation's words; this one still holds the first.
         const { words: next } = await startOverElsewhere(idp)
         const otherTab = historyDevice(idp, "laptop", laptop.storage)
-        expect((await typeWords(otherTab, next)).kind).toBe("restored")
+        expect((await typeWords(otherTab, next)).kind).toBe("kept")
 
         await archive(laptop, [1, 2])
 
@@ -553,7 +559,7 @@ describe("uploads under a generation", () => {
         expect(buffered(laptop)).toEqual([])
         expect(laptop.storage.kept?.generation).toBe(1)
 
-        expect((await typeWords(laptop, next)).kind).toBe("restored")
+        expect((await typeWords(laptop, next)).kind).toBe("kept")
         await archive(laptop, [3])
         expect(idp.uploads.at(-1)).toEqual({ generation: 2, ids: [id(3)] })
     })

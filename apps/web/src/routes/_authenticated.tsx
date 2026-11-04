@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { useConsumeMlsWelcomes } from "@/presentation/hooks/useConsumeMlsWelcomes"
 import { useDeviceFanout } from "@/presentation/hooks/useDeviceFanout"
 import { useHistoryArchiveFlusher } from "@/presentation/hooks/useHistoryArchiveFlusher"
+import { useHistoryShare } from "@/presentation/hooks/use-history-share"
 import { useIdentityOnboardingGate } from "@/presentation/hooks/useIdentityOnboardingGate"
 import {
     registerDeviceFanoutHandler,
@@ -32,6 +33,7 @@ function AppRuntime() {
     useLoadPresence()
     useConsumeMlsWelcomes()
     useHistoryArchiveFlusher()
+    useHistoryShare()
     const { onDeviceListChanged } = useDeviceFanout()
     useEffect(() => registerDeviceFanoutHandler(onDeviceListChanged), [onDeviceListChanged])
     return null

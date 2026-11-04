@@ -21,6 +21,7 @@ import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstr
 import { checkAdmissionUseCase } from "@pinai/domain/usecases/e2ee/check-admission.usecase"
 import { registerIdentityUseCase } from "@pinai/domain/usecases/e2ee/register-identity.usecase"
 import { replenishKeyPackagesUseCase } from "@pinai/domain/usecases/e2ee/replenish-keypackages.usecase"
+import { HistoryRestore } from "@pinai/domain/usecases/e2ee/restore-due-history.usecase"
 import { restoreHistoryFromPassphraseUseCase } from "@pinai/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
 
 import { ACTOR, FakeHistoryIdp, IDP, MemoryHistoryStorage, historyDevice, publishingDevice } from "./setup/history-idp"
@@ -294,6 +295,7 @@ describe("KeyPackages, only once in", () => {
         idp.log.length = 0
 
         await restoreHistoryFromPassphraseUseCase(phone.deps)({ ...input(phone), passphrase: words })
+        await new HistoryRestore({ e2ee: phone.e2ee }).run({ idpUrl: IDP, accessToken: () => phone.token }, vi.fn())
 
         expect(idp.log.slice(idp.log.indexOf("approve by passphrase 1"))).toEqual([
             "approve by passphrase 1",

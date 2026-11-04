@@ -159,6 +159,8 @@ export type WsServerEvent =
     | { type: "approval_message"; data: { request_id: string; seq: number } }
     /** A request this device takes part in ended, or another device answered it. */
     | { type: "approval_closed"; data: { request_id: string } }
+    /** A key share waits for this device: it reads `GET /api/history/key-shares`. */
+    | { type: "history_key_ready"; data: { device_id: string } }
     | { type: "group_created"; data: GroupCreatedPayload }
     | { type: "member_added"; data: MemberAddedPayload }
     | { type: "member_removed"; data: MemberRemovedPayload }

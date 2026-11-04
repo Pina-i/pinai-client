@@ -3,20 +3,25 @@ import { useEffect, useRef, useState } from "react"
 
 import type { DeviceKind } from "@pinai/domain/models/device"
 import {
+    RESTORE_WAIT_MS,
+    SHARE_WAIT_AFTER_IN_MS,
     codeHalves,
     nextCodeWording,
     requestLifeLeft,
     type HandshakeFailure,
 } from "@pinai/domain/models/approval-handshake"
+import type { AwaitedShareState } from "@pinai/domain/usecases/e2ee/accept-history-share.usecase"
 import {
     ApprovalAsking,
     ApprovedEntry,
     type AskingState,
     type EnteringState,
 } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
+import type { HistoryRestoreState } from "@pinai/domain/usecases/e2ee/restore-due-history.usecase"
 import { getApprovalRelayPort, getDeviceDirectoryPort, getE2eePort } from "@/ioc"
 import { admissionDeps } from "@/presentation/_libs/admission-deps"
 import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
+import { historyRestore, restoreDueHistory } from "@/presentation/_libs/history-restore"
 import { devicesQueryKey } from "@/presentation/hooks/useDevices"
 import { useAppStore } from "@/store/store"
 
@@ -32,12 +37,10 @@ export interface ApproveFromAnotherDeviceViewModel {
     thisDevice: string
     /** The account's other unrevoked devices, by name. */
     approvers: Array<{ deviceId: string; label: string; kind: DeviceKind }>
-    /** One line on what is happening, or what happened to the last code. */
+    /** One line on what is happening, what happened to the last code, or how the history is coming back. */
     status: string | null
-    /** Approved, the headline says it: the line is shown only when it says more. */
-    statusShown: boolean
-    /** "New code" after one went, "Show a code" once set aside; `null` when the page asks by itself. */
-    action: "new-code" | "show-code" | null
+    /** "New code" after one went, "Show a code" once set aside, "Go on without it" past a share it couldn't use; `null` when the page asks by itself. */
+    action: "new-code" | "show-code" | "go-on" | null
     onAction: () => void
 }
 
@@ -94,31 +97,43 @@ export function askingStatus(state: AskingState): string | null {
     }
 }
 
-/** What the line under the code says once the device is approved, on its way in. */
-export function enteringStatus(entering: EnteringState): string {
-    switch (entering.kind) {
-        case "entering":
-            return entering.waiting
-                ? "Approved. Waiting for your other device to finish: it hasn't yet said it holds your history passphrase."
-                : "This device is approved. Letting it in…"
-        case "in":
-            return "This device is approved."
-        case "refused":
-            return "Your instance refused to let this device in."
+const RESTORED_SHOWN_MS = 1_500
+
+export interface Arrival {
+    entering: EnteringState | null
+    share: AwaitedShareState | null
+    restore: HistoryRestoreState | null
+}
+
+/** What the line under the code says once the device is approved. */
+export function arrivalStatus({ entering, share, restore }: Arrival): string {
+    const isIn = entering?.kind === "in"
+    if (share?.kind === "unusable") return "Approved, but your history couldn't be received from that device. Type your 24 words to bring it back."
+    if (restore?.kind === "restored") return "Your history is back"
+    if (restore?.kind === "failed") return "Approved. Your history comes back the next time Pīna'i starts."
+    if (!isIn && (entering?.kind === "refused" || share?.kind === "ended")) return "Your instance refused to let this device in."
+    if (!isIn && share?.kind !== "kept" && entering?.kind === "entering" && entering.waiting) {
+        return "Approved. Waiting for your other device to finish: it hasn't yet said it holds your history passphrase."
     }
+    return "Approved — bringing your history…"
 }
 
 /**
  * The "Another device" section of the restore page: being on screen is the user asking. A request
  * opens once the device is set up (`ready`); it ends when the section goes or the 24 words are
  * being typed (`wordsStarted`), and a code that went any way but unanswered waits for "New code".
- * Approved, the device publishes its KeyPackages once it is in (`registerIdentityUseCase`), then
- * goes on (`onIn`).
+ * Approved, the device publishes its KeyPackages once it is in (`registerIdentityUseCase`) while
+ * the page reads its key share (`share`); the words kept, the restore runs and the page goes on
+ * (`onIn`) once it settles, `RESTORE_WAIT_MS` at most. Let in with no share after
+ * `SHARE_WAIT_AFTER_IN_MS`, it goes on without; a share it couldn't use stops it there.
  */
 export function useApproveFromAnotherDeviceViewModel(input: {
     ready: boolean
     wordsStarted: boolean
     fallbackLabel: string
+    /** The page's wait for this device's key share. */
+    share?: AwaitedShareState | null
+    onApproved?: () => void
     onIn?: () => void
 }): ApproveFromAnotherDeviceViewModel {
     const idpUrl = useAppStore((s) => s.idpUrl)
@@ -170,10 +185,16 @@ export function useApproveFromAnotherDeviceViewModel(input: {
     }, [ready, signedIn, idpUrl, actorUri])
 
     const onIn = useRef(input.onIn)
+    const onApproved = useRef(input.onApproved)
     useEffect(() => {
         onIn.current = input.onIn
+        onApproved.current = input.onApproved
     })
     const approved = state.kind === "approved"
+    useEffect(() => {
+        if (approved) onApproved.current?.()
+    }, [approved])
+
     const [entering, setEntering] = useState<EnteringState | null>(null)
     useEffect(() => {
         if (!approved || !idpUrl || !actorUri) return
@@ -183,37 +204,54 @@ export function useApproveFromAnotherDeviceViewModel(input: {
             accessToken: () => useAppStore.getState().accessToken,
             report: (what, e) => warn(what)(e),
         })
-        const unsubscribe = entry.onChange(() => setEntering(entry.state))
+        return ticking(entry, () => setEntering(entry.state), async () => {
+            const settled = entry.state
+            if (settled.kind === "in") return true
+            if (settled.kind === "refused") {
+                if (!(await signInAgainOnDeviceMismatch(settled.error))) warn("letting this device in")(settled.error)
+                return true
+            }
+            return false
+        })
+    }, [approved, idpUrl, actorUri])
+
+    const share = input.share ?? null
+    const arriving = approved && share?.kind === "kept"
+    const [restore, setRestore] = useState<HistoryRestoreState | null>(null)
+    useEffect(() => {
+        if (!arriving) return
         let live = true
-        let timer: ReturnType<typeof setTimeout> | undefined
-        // One tick at a time, the next after its backoff; none while the page is hidden.
-        const tick = () => {
-            clearTimeout(timer)
-            if (!live || document.hidden) return
-            void entry.tick().then(async () => {
-                if (!live) return
-                const settled = entry.state
-                if (settled.kind === "in") return onIn.current?.()
-                if (settled.kind === "refused") {
-                    if (!(await signInAgainOnDeviceMismatch(settled.error))) warn("letting this device in")(settled.error)
-                    return
-                }
-                clearTimeout(timer)
-                timer = setTimeout(tick, entry.nextDelay())
-            })
+        let shown: ReturnType<typeof setTimeout> | undefined
+        const goOn = () => {
+            if (!live) return
+            live = false
+            onIn.current?.()
         }
-        const onVisible = () => {
-            if (!document.hidden) tick()
-        }
-        document.addEventListener("visibilitychange", onVisible)
-        tick()
+        const running = historyRestore()
+        const unsubscribe = running.onChange(() => setRestore(running.state))
+        // Not awaited past the limit: the restore is the page load's, and carries on in the app.
+        const limit = setTimeout(goOn, RESTORE_WAIT_MS)
+        void restoreDueHistory().then((settled) => {
+            if (!live) return
+            setRestore(settled)
+            if (settled.kind === "restored" || settled.kind === "failed") shown = setTimeout(goOn, RESTORED_SHOWN_MS)
+            else if (settled.kind === "idle") goOn()
+        })
         return () => {
             live = false
-            clearTimeout(timer)
+            clearTimeout(limit)
+            clearTimeout(shown)
             unsubscribe()
-            document.removeEventListener("visibilitychange", onVisible)
         }
-    }, [approved, idpUrl, actorUri])
+    }, [arriving])
+
+    const isIn = entering?.kind === "in"
+    const inWithoutWords = isIn && (share === null || share.kind === "waiting")
+    useEffect(() => {
+        if (!inWithoutWords) return
+        const timer = setTimeout(() => onIn.current?.(), SHARE_WAIT_AFTER_IN_MS)
+        return () => clearTimeout(timer)
+    }, [inWithoutWords])
 
     // Typing the words is the user taking the other way: the request ends, "Show a code" brings one back.
     const wasStarted = useRef(wordsStarted)
@@ -261,9 +299,44 @@ export function useApproveFromAnotherDeviceViewModel(input: {
         nextCode: shown && !shown.answered ? nextCodeWording(shown.deadline, now) : null,
         thisDevice: own?.display_name || input.fallbackLabel,
         approvers,
-        status: approved && entering ? enteringStatus(entering) : askingStatus(state),
-        statusShown: !approved || entering?.kind === "refused" || (entering?.kind === "entering" && entering.waiting),
-        action: state.kind === "stopped" ? "new-code" : state.kind === "paused" ? "show-code" : null,
-        onAction: () => void asking.current?.again().catch(warn("asking for a new code")),
+        status: approved ? arrivalStatus({ entering, share, restore }) : askingStatus(state),
+        action:
+            state.kind === "stopped"
+                ? "new-code"
+                : state.kind === "paused"
+                  ? "show-code"
+                  : approved && isIn && share?.kind === "unusable"
+                    ? "go-on"
+                    : null,
+        onAction: () => {
+            if (approved) onIn.current?.()
+            else void asking.current?.again().catch(warn("asking for a new code"))
+        },
+    }
+}
+
+function ticking(work: { tick(): Promise<void>; nextDelay(): number; onChange(listener: () => void): () => void }, changed: () => void, done: () => Promise<boolean>) {
+    const unsubscribe = work.onChange(changed)
+    let live = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const tick = () => {
+        clearTimeout(timer)
+        if (!live || document.hidden) return
+        void work.tick().then(async () => {
+            if (!live || (await done())) return
+            clearTimeout(timer)
+            timer = setTimeout(tick, work.nextDelay())
+        })
+    }
+    const onVisible = () => {
+        if (!document.hidden) tick()
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    tick()
+    return () => {
+        live = false
+        clearTimeout(timer)
+        unsubscribe()
+        document.removeEventListener("visibilitychange", onVisible)
     }
 }

@@ -131,6 +131,16 @@ export function approvalCarriedOver(
     return same ? previous.approvedRootKey : null
 }
 
+/**
+ * A restore due under `due`: run while the device holds that generation; moot once the key in force
+ * is a later one, whose generation erased the archive; else it waits.
+ */
+export function dueRestore(due: number, standing: HistoryKeyStanding): "restore" | "moot" | "wait" {
+    if (standing.kind === "holds" && standing.generation === due) return "restore"
+    const inForce = standing.kind === "unchecked" || standing.kind === "no-key" ? null : standing.generation
+    return inForce !== null && inForce > due ? "moot" : "wait"
+}
+
 /** Entries wait for the archive only while the device may yet hold the key in force. */
 export function buffersForArchive(standing: HistoryKeyStanding): boolean {
     return standing.kind === "unchecked" || standing.kind === "holds"

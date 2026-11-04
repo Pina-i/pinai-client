@@ -3,6 +3,7 @@ import { isDeviceMismatch } from "../../models/idp-error"
 import type { IDeviceDirectoryPort } from "../../ports/device-directory.port"
 import type { IE2eePort } from "../../ports/e2ee.port"
 import type { IHistoryArchivePort } from "../../ports/history-archive.port"
+import type { IKeySharePort } from "../../ports/key-share.port"
 import type { ISessionPort } from "../../ports/session.port"
 
 import { linkSessionDeviceUseCase } from "../auth/link-session-device.usecase"
@@ -18,6 +19,8 @@ export function startThisDeviceUseCase(deps: {
     e2eePort: IE2eePort
     historyArchivePort: IHistoryArchivePort
     deviceDirectoryPort: IDeviceDirectoryPort
+    keySharePort?: IKeySharePort
+    report?: (what: string, error: unknown) => void
 }) {
     return async (
         idpUrl: string,

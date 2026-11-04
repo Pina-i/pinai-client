@@ -80,7 +80,7 @@ If possible, keep them concise, bullet points, not essays. Aim for under ~50 lin
 ## Dependency Injection (IoC)
 
 There is no container. `ioc/index.ts` constructs the adapters as module-scope
-singletons and exposes one accessor per port — twenty-five of them, nearly all
+singletons and exposes one accessor per port — thirty of them, nearly all
 shaped `getXxxPort()`. Presentation calls those; it never constructs an adapter.
 
 ```typescript

@@ -1,21 +1,17 @@
 import { deviceAdmission } from "../../models/admission"
 import type { ActorUri } from "../../models/e2ee"
-import { restoredMessages, type RestoredMessage } from "../../models/history-archive"
 import { passphraseVerdict } from "../../models/history-key"
-import type { IDeviceDirectoryPort } from "../../ports/device-directory.port"
-import type { IE2eePort } from "../../ports/e2ee.port"
 import type { IHistoryArchivePort } from "../../ports/history-archive.port"
 import type { ISessionPort } from "../../ports/session.port"
 
 import { approveByPassphraseUseCase } from "./approve-by-passphrase.usecase"
 import { registerIdentityUseCase } from "./register-identity.usecase"
 import { setUpThisDeviceUseCase } from "./set-up-this-device.usecase"
+import { shareOnceHeld, type ShareOnceHeldDeps } from "./share-history-key.usecase"
 
-export interface RestoreHistoryDeps {
-    e2eePort: IE2eePort
+export interface RestoreHistoryDeps extends ShareOnceHeldDeps {
     sessionPort: ISessionPort
     historyArchivePort: IHistoryArchivePort
-    deviceDirectoryPort: IDeviceDirectoryPort
 }
 
 export interface RestoreHistoryInput {
@@ -26,14 +22,8 @@ export interface RestoreHistoryInput {
 }
 
 export type PassphraseRestore =
-    | {
-          kind: "restored"
-          messages: RestoredMessage[]
-          /** Entries the key opened. */
-          decrypted: number
-          /** Entries that didn't open: damaged, or moved to other ids. */
-          skipped: number
-      }
+    /** Kept, approved and reported, its KeyPackages out: the archive's restore is due (`HistoryRestore`). */
+    | { kind: "kept"; generation: number }
     /** The words don't give the key's check value. Nothing kept. */
     | { kind: "wrong-passphrase" }
     /** The right check value under another approval key: the instance changed it. Nothing kept. */
@@ -47,9 +37,10 @@ export type PassphraseRestore =
 
 /**
  * The 24 words typed on this device (`identity-provider/specs/e2ee.md § 6.4`): checked against
- * the key in force before anything is read, an empty archive or not. Right, they are kept, the
- * device approves itself with them and reports the generation — it is in: its KeyPackages go out
- * —, then the archive is restored.
+ * the key in force before anything is read, an empty archive or not. Right, the restore is marked
+ * due, the words are kept, the device approves itself with them and reports the generation — it is
+ * in: its KeyPackages go out —, then shares them with its partners waiting for them. The restore
+ * itself is `HistoryRestore`'s, so one cut short runs again.
  */
 export const restoreHistoryFromPassphraseUseCase =
     (deps: RestoreHistoryDeps) =>
@@ -63,10 +54,11 @@ export const restoreHistoryFromPassphraseUseCase =
         if (verdict === "wrong") return { kind: "wrong-passphrase" }
         if (verdict === "key-swapped") return { kind: "key-swapped" }
 
+        await deps.e2eePort.markHistoryRestoreDue(key.generation)
         await deps.e2eePort.keepPassphrase(passphrase, key)
         const standing = await approveByPassphraseUseCase(deps)(idpUrl, accessToken, actorUri)
         if (standing.kind !== "holds") return { kind: "key-changed" }
         await registerIdentityUseCase(deps)({ idpUrl, accessToken, actorUri, admission: deviceAdmission(standing, null) })
-        const { entries, skipped } = await deps.e2eePort.restoreHistory(idpUrl, accessToken)
-        return { kind: "restored", messages: restoredMessages(entries), decrypted: entries.length, skipped }
+        await shareOnceHeld(deps, idpUrl, accessToken, actorUri)
+        return { kind: "kept", generation: key.generation }
     }

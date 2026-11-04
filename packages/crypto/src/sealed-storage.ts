@@ -45,12 +45,13 @@ const DEVICE_ATTESTATION = "device_attestation"
 const CURRENT = "current"
 /**
  * Beside the kept words: the words minted but not yet taken by the IdP, the last standing and
- * admission, the newest generation seen.
+ * admission, the newest generation seen, the generation an archive restore is due under.
  */
 const PENDING = "pending"
 const STANDING = "standing"
 const ADMISSION = "admission"
 const NEWEST_GENERATION = "newest_generation"
+const RESTORE_DUE = "restore_due"
 /**
  * `device_trust`, beside the attestation: a store of its own would take an IndexedDB upgrade. One
  * row a part, so an unreadable one loses no other, and a new part is a new row.
@@ -151,6 +152,12 @@ export interface PendingPassphrase {
     hak: Uint8Array
 }
 
+/** The archive's restore due under `generation`, and when it was last applied (`null` before). */
+export interface RestoreDue {
+    generation: number
+    appliedAt: string | null
+}
+
 export interface E2eeStorage {
     /** Returns the device's UUID, generating + persisting on first call. */
     getOrCreateDeviceId(): Promise<DeviceId>
@@ -184,6 +191,9 @@ export interface E2eeStorage {
     loadAdmission(): Promise<Admission | null>
     saveNewestHistoryGeneration(generation: number): Promise<void>
     loadNewestHistoryGeneration(): Promise<number | null>
+    saveRestoreDue(due: RestoreDue): Promise<void>
+    loadRestoreDue(): Promise<RestoreDue | null>
+    clearRestoreDue(): Promise<void>
     /**
      * What the device keeps of the account's devices (`identity-provider/specs/e2ee.md § 3.9`). Read
      * as the history key's rows are: a row that won't open or parse is set aside, reads as empty,
@@ -317,10 +327,24 @@ export class SealedStorage implements E2eeStorage {
     }
 
     async loadNewestHistoryGeneration(): Promise<number | null> {
-        return this.openOrSetAside(RECOVERY_PASSPHRASE, NEWEST_GENERATION, (value) => {
-            const generation = isRow(value) ? value.generation : undefined
-            return isGeneration(generation) ? generation : null
+        return this.openOrSetAside(RECOVERY_PASSPHRASE, NEWEST_GENERATION, generationFromJson)
+    }
+
+    async saveRestoreDue(due: RestoreDue): Promise<void> {
+        await this.seal(RECOVERY_PASSPHRASE, { generation: due.generation, applied_at: due.appliedAt }, RESTORE_DUE)
+    }
+
+    async loadRestoreDue(): Promise<RestoreDue | null> {
+        return this.openOrSetAside(RECOVERY_PASSPHRASE, RESTORE_DUE, (value) => {
+            const generation = generationFromJson(value)
+            const appliedAt = isRow(value) ? value.applied_at : undefined
+            if (generation === null || (appliedAt !== null && typeof appliedAt !== "string")) return null
+            return { generation, appliedAt }
         })
+    }
+
+    async clearRestoreDue(): Promise<void> {
+        await this.kv.delete(RECOVERY_PASSPHRASE, RESTORE_DUE)
     }
 
     async loadDeviceTrust(): Promise<{ trust: DeviceTrust; unreadable: DeviceTrustRow[] }> {
@@ -414,6 +438,11 @@ export class SealedStorage implements E2eeStorage {
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
+
+function generationFromJson(value: unknown): number | null {
+    const generation = isRow(value) ? value.generation : undefined
+    return isGeneration(generation) ? generation : null
+}
 
 function keptToJson(kept: KeptPassphrase): object {
     return {

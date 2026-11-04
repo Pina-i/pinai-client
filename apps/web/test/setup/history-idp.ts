@@ -7,7 +7,7 @@ import { approvalBytes } from "@pinai/crypto/canonical-bytes"
 import { E2eeAdapter } from "@pinai/crypto/e2ee.adapter"
 import { HistoryArchiveAdapter } from "@pinai/crypto/history-archive.adapter"
 import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
-import type { DeviceAttestation, E2eeStorage, KeptPassphrase, MlsSnapshot, PendingPassphrase } from "@pinai/crypto/sealed-storage"
+import type { DeviceAttestation, E2eeStorage, KeptPassphrase, MlsSnapshot, PendingPassphrase, RestoreDue } from "@pinai/crypto/sealed-storage"
 import { MlsAdapter } from "@pinai/mls/wasm.adapter"
 import type { Admission } from "@pinai/domain/models/admission"
 import { emptyDeviceTrust, withTrust, type DeviceTrust, type DeviceTrustRow } from "@pinai/domain/models/device-trust"
@@ -22,6 +22,7 @@ import { asActorUri } from "@pinai/domain/models/identity"
 import { IdpError } from "@pinai/domain/models/idp-error"
 import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
 import type { ArchiveEntry, ArchivePage, IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
+import type { IHpkePort } from "@pinai/domain/ports/hpke.port"
 import type { IJwksCachePort } from "@pinai/domain/ports/jwks-cache.port"
 import type { IKeyDirectoryPort, RegisterDeviceResponse } from "@pinai/domain/ports/key-directory.port"
 import type { IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
@@ -172,6 +173,7 @@ export class MemoryHistoryStorage {
     standing: HistoryKeyStanding | null = null
     admission: Admission | null = null
     newest: number | null = null
+    restoreDue: RestoreDue | null = null
     trust: DeviceTrust = emptyDeviceTrust()
     /** Trust rows the next read finds unreadable, as a sealed row that won't open. */
     unreadable: DeviceTrustRow[] = []
@@ -232,6 +234,13 @@ export class MemoryHistoryStorage {
                 this.newest = generation
             },
             loadNewestHistoryGeneration: async () => this.newest,
+            saveRestoreDue: async (due: RestoreDue) => {
+                this.restoreDue = { ...due }
+            },
+            loadRestoreDue: async () => this.restoreDue && { ...this.restoreDue },
+            clearRestoreDue: async () => {
+                this.restoreDue = null
+            },
             loadDeviceTrust: async () => {
                 const unreadable = this.unreadable
                 this.unreadable = []
@@ -266,6 +275,7 @@ export function historyDevice(
     storage = new MemoryHistoryStorage(),
     jwks = NO_JWKS,
     engine: { mls: IMlsEngine } | null = null,
+    hpke: IHpkePort = {} as never,
 ) {
     const sealer = new FastSealer()
     const e2ee = new E2eeAdapter(
@@ -273,7 +283,7 @@ export function historyDevice(
         engine ? engine.mls : ({} as never),
         storage.asStorage(),
         engine ? (idp.keyPackages as unknown as IKeyDirectoryPort) : ({} as never),
-        {} as never,
+        hpke,
         jwks,
         idp,
         sealer,

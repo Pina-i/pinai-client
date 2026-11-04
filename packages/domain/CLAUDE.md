@@ -179,7 +179,10 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   `keyChangedUnder` — the key under the generation held changed:
   `approval-key-differs`, or `key-replaced` (salt, check value).
 - `TrustEvent` / `trustEventKey` — what stands, keyed by what it is about;
-  `handshake-keys-refused`, a handshake peer whose keys the list doesn't show.
+  `handshake-keys-refused`, a handshake peer whose keys the list doesn't show;
+  `share-recipient-refused` (a partner the passphrase isn't sealed for: `root-key`,
+  `hpke-key`, `attestation`) and `share-refused` (a received share left unused, by the
+  check it failed; withdrawn once the device holds the words).
 - `HandshakePartner` — a device approved both ways in a code handshake, with the
   root key and HPKE key the exchange gave, never the list's: the `partners` row
   (`DEVICE_TRUST_ROWS`), which 18h shares by.
@@ -239,15 +242,18 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   once the list shows that approval verified under the key the exchange gave.
   The answerer times out (`ANSWER_TIMEOUT_MS`); `cancel` and an answerer's
   `abandon` after it took part end the request. The session's secrets go when it
-  settles; the last token held still closes after a sign-out.
+  settles; the last token held still closes after a sign-out. Approved, the answerer
+  tries sharing at once when `HandshakeDeps.sharing` is wired (§ 3.11) — nothing goes
+  until the asker approved it back; the `device_approved` refetch and the sync share then.
 - `ApprovalAsking` — the asking page: `tick` one at a time, `nextDelay` for the
   next, `mayAsk` checked before each open, the hourly budget passed in so it
   outlives a remount; `stopped` (a code that went otherwise) and `paused` (the
   page set it aside) wait for `again`; `stop({ keepalive })` ends the request.
 - `ApprovedEntry` — the asking device once approved: `registerIdentityUseCase` until it
   is in, `nextDelay` 2 → 4 → 8 → 15 → 30 s (`enterDelay`), `waiting` past
-  `STILL_WAITING_AFTER_MS` (20 s: the approving device hasn't finished), `refused` on a
-  refusal for good (`isRefusedForGood`; `device_mismatch` is the page's to sign in again).
+  `STILL_WAITING_AFTER_MS` (20 s: the approving device hasn't finished), `refused` only on
+  `endsTheWait` — `device_mismatch` (the page's to sign in again) or a revoked device; any
+  other refusal is waited out.
 - `ApprovalAnswering` — the Door's: unanswered requests, its own run kept
   whatever the list says, an older read dropped, a code tried once never tried
   again (`usedCodes`), one tab per request (`AnswerLock`), `not-acting` and
@@ -256,6 +262,11 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 ### models/bytes.ts
 - `sameBytes`, `hexOf` — the models' byte helpers: the lint boundary keeps models
   off `lib/`.
+
+### lib/one-at-a-time.ts
+- `oneAtATime` — one run at a time; the calls made meanwhile are one run after it, with
+  the latest arguments, answering them all. The fanout's sync and the page's one accept of
+  a key share (`apps/web/src/presentation/_libs/accept-share.ts`) go through it.
 
 ### lib/bytes.ts
 - Base64 ↔ bytes, `base64url` for JWS/JWK and padded `base64` elsewhere
@@ -523,9 +534,10 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   could be claimed for (a device approved with the code publishes only once in, after
   the approvals that start the sync, and its upload starts none): the hook runs again
   after `unclaimedRetryDelay` (5 s → 15 s → 60 s → 5 min, then every 15 min) while any
-  is left. `oneAtATime` — one run at a time, the
-  calls made meanwhile one run after it, with the latest arguments. See
-  `identity-provider/specs/e2ee.md § 6.2`, § 3.9.
+  is left (`lib/one-at-a-time.ts` keeps runs one at a time). With `sharing` wired, an
+  acting review shares the passphrase over the list it read, after the adds
+  (`shareFailure`).
+  See `identity-provider/specs/e2ee.md § 6.2`, § 3.9.
 
 ### models/own-messages.ts
 - `isHeldHere` — a message from the user's own account is this device's
@@ -559,15 +571,52 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   another device's key erases it (`has-key`, nothing published). A device without words on an
   account with a key mints nothing.
 - `restore-history-from-passphrase.usecase.ts` — typed words checked against the key in force, an
-  empty archive or not, a key below the newest seen refused (`rolled-back`); right, kept, approved
-  and reported, its KeyPackages published, then the archive restored — `key-changed` when a
-  generation lands meanwhile.
+  empty archive or not, a key below the newest seen refused (`rolled-back`); right, the restore
+  marked due, the words kept, approved and reported, its KeyPackages published, then shared
+  (`shareOnceHeld`) — `kept`; `key-changed` when a generation lands meanwhile. The restore is
+  `HistoryRestore`'s, so one cut short runs again.
 - `approve-by-passphrase.usecase.ts` — a device that comes to hold the current passphrase
   approves itself and reports; `stale_history_key` reads the key again and answers the standing.
+  `shareOnceHeld` (`share-history-key.usecase.ts`) — what a flow runs once the device holds a
+  generation, after its KeyPackages: typed words, an accepted share, the startup check settling
+  (`check-history-key`); failures to an injected `report`. `dueRestore` (`models/history-key.ts`)
+  — a restore due under a generation runs while it is held, is moot once a later one is in force.
 - `check-history-key.usecase.ts` — the pending key settled, then the standing; holding the key
   unsettled, the approval made. `start-this-device.usecase.ts` — what a page load runs: the naming,
   then that check.
 - `clear-history-backup.usecase.ts` — the entries erased; the words and generation stay.
+
+### models/key-share.ts + ports/key-share.port.ts + the key shares' use cases
+- The passphrase from a holder to a handshake partner (`identity-provider/specs/e2ee.md § 3.11`);
+  the bytes, seal and signatures are `@pinai/crypto`'s (`IE2eePort.sealHistoryShares`,
+  `openHistoryShare`). `IKeySharePort` — `POST` / `GET /api/history/key-shares`, `null` on `404`.
+- `shareCandidates` — partners listed once, unrevoked (nor seen revoked), not holding the
+  generation, not forgone, carrying a `by: device` approval by this device **and** listing one by
+  it on this device's row: a partner whose handshake ended before it approved back gets nothing.
+  One listed under another root key than the exchange gave is refused (`root-key`) before its
+  approvals are read: the list only shows approvals binding the root key it lists. `@pinai/crypto`
+  verifies both approvals. `shareText` / `shareWords` — 24 lowercase words, single spaces.
+- `shareRefusal` — by code: `final` (`history_key_held`, `not_the_approver`, `access_denied`,
+  `not_found`, `invalid_request`), `stale` (`stale_history_key`), `later` (the rest, no answer
+  included).
+- `share-history-key.usecase.ts` — each share posted once a call: `final` → `forgoHistoryShare`
+  (never sealed again that page load), `stale` → the key read again and nothing more sent, `later`
+  → the next refresh. Called by the answerer, the sync's review and `shareOnceHeld`.
+- `accept-history-share.usecase.ts` — a device not holding: its share, then the key in force (a
+  share of another generation, or a key below the newest seen, is `stale`), the four checks, the
+  restore marked due, the words kept (18f's `keepPassphrase`), approved, reported (the share
+  deleted), KeyPackages published, then shared on. `AwaitedShare` — the restore page's wait, over
+  an injected `accept` (the page's one guarded call), on `enterDelay`, `again` starting the backoff
+  over; ends `kept`, `unusable` (a share failing a check: the same one would again) or `ended`
+  (`endsTheWait`).
+- `restore-due-history.usecase.ts` — `HistoryRestore`: one run at a time, only over a cache read
+  back (`cacheReady`), the messages to an injected `apply`. Applied, the mark stays, stamped: the
+  cache's write may not have landed. A later page load runs it again — idempotent, silent — and
+  only then clears it. A failure stays due for the next start; a later generation makes it moot.
+- `SHARE_WAIT_AFTER_IN_MS` / `RESTORE_WAIT_MS` (`models/approval-handshake.ts`) — let in by its
+  partner with no share after a minute, the asking page goes on; the words kept, it waits 15 s at
+  most for the restore, which carries on behind the app. `endsTheWait` — what ends an approved
+  device's waits: `device_mismatch`, or a revoked device (`403 access_denied`).
 
 ### models/history-archive.ts
 - `ArchiveEnvelope` — an archive entry before it is sealed: a message or an

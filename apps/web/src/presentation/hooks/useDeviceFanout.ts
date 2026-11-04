@@ -4,8 +4,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { deviceListKey } from "@pinai/domain/models/device"
 import type { ConversationId } from "@pinai/domain/models/e2ee"
 import { unclaimedRetryDelay } from "@pinai/domain/models/group"
-import { oneAtATime, syncOwnGroupsUseCase } from "@pinai/domain/usecases/e2ee/sync-own-groups.usecase"
+import { oneAtATime } from "@pinai/domain/lib/one-at-a-time"
+import { syncOwnGroupsUseCase } from "@pinai/domain/usecases/e2ee/sync-own-groups.usecase"
 import { getDeviceDirectoryPort, getE2eePort } from "@/ioc"
+import { shareDeps } from "@/presentation/_libs/key-share-deps"
 import { devicesQueryKey } from "@/presentation/hooks/useDevices"
 import { useAppStore } from "@/store/store"
 
@@ -75,12 +77,12 @@ export function useDeviceFanout(): {
         if (listKey === null || !idpUrl || !accessToken || !actorUri) return
         void (async () => {
             // With no conversation, the device list is still reviewed: revocations kept, devices announced.
-            const { failed, reviewFailure, unclaimed } = await sync(
+            const { failed, reviewFailure, shareFailure, unclaimed } = await sync(
                 idpUrl,
                 accessToken,
                 actorUri,
                 conversationIds ? (conversationIds.split(",") as ConversationId[]) : [],
-                { e2ee: getE2eePort(), deviceDirectory: getDeviceDirectoryPort() },
+                { e2ee: getE2eePort(), deviceDirectory: getDeviceDirectoryPort(), sharing: shareDeps() },
             )
             const held = retry.current
             clearTimeout(held.timer)
@@ -89,6 +91,10 @@ export function useDeviceFanout(): {
             if (reviewFailure !== undefined) {
                 // eslint-disable-next-line no-console
                 console.warn("[fanout] reviewing the device list failed", reviewFailure)
+            }
+            if (shareFailure !== undefined) {
+                // eslint-disable-next-line no-console
+                console.warn("[fanout] sharing the history passphrase failed; tried again at the next refresh", shareFailure)
             }
             for (const { conversationId, error } of failed) {
                 // eslint-disable-next-line no-console

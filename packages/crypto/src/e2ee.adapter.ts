@@ -79,6 +79,13 @@ import {
     type HistoryKeyStanding,
 } from "@pinai/domain/models/history-key"
 import { IdpError, isStaleHistoryKey } from "@pinai/domain/models/idp-error"
+import {
+    shareCandidates,
+    type KeyShare,
+    type KeyShareRefusal,
+    type OutgoingKeyShare,
+    type ShareRecipientRefusal,
+} from "@pinai/domain/models/key-share"
 import type { ApprovalHandshakeSession, IE2eePort } from "@pinai/domain/ports/e2ee.port"
 import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
 import type { HpkeKeyPair, IHpkePort } from "@pinai/domain/ports/hpke.port"
@@ -88,6 +95,8 @@ import { ApprovalHandshake, newApprovalCode } from "./approval-handshake"
 import {
     attestedUntil,
     checkListedDevices,
+    verifyApproval,
+    verifyDeviceChain,
     verifyDeviceRoot,
     verifyLeafCredential,
     verifyStrict,
@@ -102,9 +111,10 @@ import {
 } from "./canonical-bytes"
 import { HISTORY_SALT_BYTES, type HistoryArchiveAdapter } from "./history-archive.adapter"
 import type { IdentityAdapter } from "./identity.adapter"
+import { openKeyShare, sealKeyShare } from "./key-share"
 import type { IKeyDirectoryPort } from "@pinai/domain/ports/key-directory.port"
 import type { IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
-import type { DeviceAttestation, E2eeStorage, KeptPassphrase } from "./sealed-storage"
+import type { DeviceAttestation, E2eeStorage, KeptPassphrase, RestoreDue } from "./sealed-storage"
 
 /** Renew the Device Root Key attestation silently when within this window of expiry. */
 const ATTESTATION_RENEWAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
@@ -871,7 +881,10 @@ export class E2eeAdapter implements IE2eePort {
         this.checkedOnce = true
         if (!actsOnApproval(standing)) this.withdrawUnapproved()
         if (!buffersForArchive(standing)) this.archiveBuffer = []
-        if (standing.kind === "holds") this.reset = null
+        if (standing.kind === "holds") {
+            this.reset = null
+            this.withdraw((event) => event.kind === "share-refused")
+        }
         this.withdraw((event) => event.kind === "reset-by-unapproved" && event.generation !== this.reset?.generation)
         const changed = keyChangedUnder(standing)
         const changedKey = changed && trustEventKey(changed)
@@ -1670,6 +1683,144 @@ export class E2eeAdapter implements IE2eePort {
         })
         this.trustTurn = run.catch(() => undefined)
         return run
+    }
+
+    // ─── Key shares (`identity-provider/specs/e2ee.md § 3.11`) ─────
+
+    /** Recipients the instance refused for good, by device and generation: not sealed for again this page load. */
+    private readonly forgoneShares = new Set<string>()
+
+    async sealHistoryShares(actorUri: ActorUri, devices: readonly DeviceListEntry[]): Promise<OutgoingKeyShare[]> {
+        const { standing, key } = this.holding
+        if (standing.kind !== "holds" || !standing.settled || !key) return []
+        const attestation = await this.storage.loadDeviceAttestation()
+        if (!attestation) return []
+        const duplicates = duplicateDeviceIds(devices.map((d) => d.device_id))
+        if (duplicates.length > 0) {
+            this.stand({ kind: "device-list-refused", duplicates })
+            return []
+        }
+        // The list's revocations are the review's to keep: read here, never written.
+        const trust = await this.readTrust()
+        if (!trust) return []
+        const thisDevice = await this.storage.getOrCreateDeviceId()
+        const { candidates, refused } = shareCandidates({
+            partners: trust.partners,
+            devices,
+            thisDevice,
+            generation: key.generation,
+            revokedSeen: trust.revoked,
+            forgone: (deviceId, generation) => this.forgoneShares.has(`${deviceId}:${generation}`),
+        })
+        for (const { deviceId, reason } of refused) this.refuseRecipient(deviceId, reason)
+
+        let words: string[] | null | undefined
+        const shares: OutgoingKeyShare[] = []
+        for (const { partner, row, byThisDevice, byPartner } of candidates) {
+            const own = attestation.drk_public
+            const ours = byThisDevice.some((a) => verifyApproval(a.signature, actorUri, partner.deviceId, partner.rootKey, own))
+            const theirs = byPartner.some((a) => verifyApproval(a.signature, actorUri, thisDevice, own, partner.rootKey))
+            if (!ours || !theirs) {
+                const which = ours ? "by it of this device" : "by this device of it"
+                // eslint-disable-next-line no-console
+                console.warn(`[e2ee] the list shows an approval ${which} that doesn't verify: nothing shared with ${partner.deviceId}`)
+                continue
+            }
+            // The row's root key is the exchange's (`shareCandidates`): its HPKE key is checked under that one.
+            const chain = await verifyDeviceChain(actorUri, row, this.jwks)
+            if (!chain.ok) {
+                if (chain.reason === "unreachable" || chain.reason === "expired") continue
+                const hpke = chain.reason === "no-hpke-key" || chain.reason === "hpke-signature"
+                this.refuseRecipient(partner.deviceId, hpke ? "hpke-key" : "attestation")
+                continue
+            }
+            this.withdraw((e) => e.kind === "share-recipient-refused" && e.deviceId === partner.deviceId)
+            words ??= await this.heldWords(key)
+            if (!words) return shares
+            try {
+                shares.push(
+                    await sealKeyShare({
+                        hpke: this.hpke,
+                        actorUri,
+                        sender: thisDevice,
+                        recipient: partner.deviceId,
+                        generation: key.generation,
+                        words,
+                        recipientHpkeKey: chain.hpkePublicKey,
+                        senderRootSecret: attestation.drk_private,
+                    }),
+                )
+            } catch (e) {
+                // eslint-disable-next-line no-console
+                console.warn(`[e2ee] sealing the passphrase for ${partner.deviceId} failed`, e)
+            }
+        }
+        return shares
+    }
+
+    /** The words kept, when they are still the ones the held key came from. */
+    private async heldWords(key: HeldKey): Promise<string[] | null> {
+        const kept = await this.storage.loadKeptPassphrase()
+        return kept && kept.generation === key.generation && equalBytes(kept.derived.hak, key.hak) ? kept.words : null
+    }
+
+    private refuseRecipient(deviceId: DeviceId, reason: ShareRecipientRefusal): void {
+        this.withdraw((e) => e.kind === "share-recipient-refused" && e.deviceId === deviceId && e.reason !== reason)
+        this.stand({ kind: "share-recipient-refused", deviceId, reason })
+    }
+
+    forgoHistoryShare(recipient: DeviceId, generation: number): void {
+        this.forgoneShares.add(`${recipient}:${generation}`)
+    }
+
+    async openHistoryShare(
+        actorUri: ActorUri,
+        share: KeyShare,
+        key: HistoryKey,
+    ): Promise<{ ok: true; words: string[] } | { ok: false; reason: KeyShareRefusal | "unsettled" }> {
+        const trust = await this.readTrust()
+        const attestation = await this.storage.loadDeviceAttestation()
+        if (!trust || !attestation?.hpke) return { ok: false, reason: "unsettled" }
+        const refuse = (reason: KeyShareRefusal) => {
+            this.stand({ kind: "share-refused", deviceId: share.senderDeviceId, generation: share.generation, reason })
+            return { ok: false as const, reason }
+        }
+        const partners = trust.revoked.includes(share.senderDeviceId) ? [] : trust.partners.filter((p) => p.deviceId === share.senderDeviceId)
+        if (partners.length === 0) return refuse("not-a-partner")
+        const opened = await openKeyShare({
+            hpke: this.hpke,
+            actorUri,
+            recipient: await this.storage.getOrCreateDeviceId(),
+            share,
+            senderRootKeys: partners.map((p) => p.rootKey),
+            hpkePrivateKey: attestation.hpke.private_key,
+        })
+        if (!opened.ok) return refuse(opened.reason)
+        const hak = await this.hakFor(opened.words, key.salt)
+        const verdict = passphraseVerdict(this.sealer().derive(hak), key)
+        if (verdict !== "holds") {
+            this.derivations.delete(derivationId(opened.words, key.salt))
+            hak.fill(0)
+            return refuse(verdict === "wrong" ? "check-value" : "approval-key")
+        }
+        return opened
+    }
+
+    async markHistoryRestoreDue(generation: number): Promise<void> {
+        await this.storage.saveRestoreDue({ generation, appliedAt: null })
+    }
+
+    historyRestoreDue(): Promise<RestoreDue | null> {
+        return this.storage.loadRestoreDue()
+    }
+
+    async historyRestoreApplied(generation: number): Promise<void> {
+        if ((await this.storage.loadRestoreDue())?.generation !== generation) return
+        await this.storage.saveRestoreDue({ generation, appliedAt: new Date().toISOString() })
+    }
+
+    async historyRestored(generation: number): Promise<void> {
+        if ((await this.storage.loadRestoreDue())?.generation === generation) await this.storage.clearRestoreDue()
     }
 
     async pruneGroup(

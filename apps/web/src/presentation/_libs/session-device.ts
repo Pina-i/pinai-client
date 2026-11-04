@@ -1,7 +1,8 @@
 import { IdpError } from "@pinai/domain/models/idp-error"
 import { startThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/start-this-device.usecase"
-import { getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getSessionPort } from "@/ioc/index"
+import { getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getKeySharePort, getSessionPort } from "@/ioc/index"
 import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
+import { warnE2ee } from "@/presentation/_libs/key-share-deps"
 import { useAppStore } from "@/store/store"
 
 let settled = false
@@ -22,6 +23,8 @@ export function linkThisDevice(): void {
         e2eePort: getE2eePort(),
         historyArchivePort: getHistoryArchivePort(),
         deviceDirectoryPort: getDeviceDirectoryPort(),
+        keySharePort: getKeySharePort(),
+        report: warnE2ee,
     })(idpUrl, accessToken, user.actor_uri)
         .then(({ linked, registrationFailure, historyKeyFailure }) => {
             settled = linked && historyKeyFailure === undefined

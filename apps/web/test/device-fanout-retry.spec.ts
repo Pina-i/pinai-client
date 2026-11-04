@@ -25,10 +25,14 @@ const port = vi.hoisted(() => ({
     addOwnDevices: null as unknown as (...args: unknown[]) => Promise<{ added: number; unclaimed: string[] }>,
     onGroupHeld: () => () => undefined,
     onDeviceRegistered: () => () => undefined,
+    sealHistoryShares: async () => [],
+    forgoHistoryShare: () => undefined,
+    checkHistoryKey: async () => ({ kind: "holds", generation: 1, settled: true }),
 }))
 vi.mock("@/ioc", () => ({
     getE2eePort: () => port,
     getDeviceDirectoryPort: () => ({ listDevices: async () => ({ devices: [{ device_id: "laptop" }] as DeviceListEntry[] }) }),
+    getKeySharePort: () => ({ share: async () => undefined, waiting: async () => null }),
 }))
 
 let root: Root | null = null

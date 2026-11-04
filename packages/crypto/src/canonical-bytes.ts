@@ -39,6 +39,20 @@ export function approvalBytes(actorUri: string, deviceId: string, rootKey: Uint8
     return lines("PINAI-DEVICE-APPROVAL-v1", actorUri, deviceId, bytesToBase64(rootKey))
 }
 
+/** A key share's HPKE `aad`: whose passphrase, from which device, to which, under which generation. */
+export function shareAad(actorUri: string, senderDeviceId: string, recipientDeviceId: string, generation: number): Uint8Array {
+    return lines("PINAI-HISTORY-SHARE-v1", actorUri, senderDeviceId, recipientDeviceId, String(generation))
+}
+
+/** What the sender's root key signs: the `aad`'s lines, then the seal's two halves, as `POST /api/history/key-shares` sends them. */
+export function shareSignedBytes(aad: Uint8Array, enc: Uint8Array, ciphertext: Uint8Array): Uint8Array {
+    const tail = encoder.encode(`\n${bytesToBase64(enc)}\n${bytesToBase64(ciphertext)}`)
+    const out = new Uint8Array(aad.length + tail.length)
+    out.set(aad)
+    out.set(tail, aad.length)
+    return out
+}
+
 /** An archive entry's associated data: the ids it is filed under, written as the IdP writes UUIDs. */
 export function archiveEntryAad(conversationId: string, id: string): Uint8Array {
     return lines("PINAI-ARCHIVE-v1", conversationId.toLowerCase(), id.toLowerCase())

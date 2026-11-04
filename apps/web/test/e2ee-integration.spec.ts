@@ -61,11 +61,13 @@ import type {
     KeptPassphrase,
     MlsSnapshot,
     PendingPassphrase,
+    RestoreDue,
 } from "@pinai/crypto/sealed-storage"
 import type { HistoryKeyStanding } from "@pinai/domain/models/history-key"
 import type { DeviceListEntry } from "@pinai/domain/models/device"
 import type { Admission } from "@pinai/domain/models/admission"
-import { oneAtATime, syncOwnGroupsUseCase } from "@pinai/domain/usecases/e2ee/sync-own-groups.usecase"
+import { oneAtATime } from "@pinai/domain/lib/one-at-a-time"
+import { syncOwnGroupsUseCase } from "@pinai/domain/usecases/e2ee/sync-own-groups.usecase"
 import {
     emptyDeviceTrust,
     withTrust,
@@ -409,6 +411,16 @@ class InMemoryE2eeStorage implements E2eeStorage {
     async loadNewestHistoryGeneration(): Promise<number | null> {
         return this.newest
     }
+    private restoreDue: RestoreDue | null = null
+    async saveRestoreDue(due: RestoreDue): Promise<void> {
+        this.restoreDue = { ...due }
+    }
+    async loadRestoreDue(): Promise<RestoreDue | null> {
+        return this.restoreDue && { ...this.restoreDue }
+    }
+    async clearRestoreDue(): Promise<void> {
+        this.restoreDue = null
+    }
     async saveHistoryKeyStanding(standing: HistoryKeyStanding): Promise<void> {
         this.standing = standing
     }
@@ -448,6 +460,7 @@ class InMemoryE2eeStorage implements E2eeStorage {
         this.pending = null
         this.standing = null
         this.newest = null
+        this.restoreDue = null
         this.boundActorUri = null
         this.trust = emptyDeviceTrust()
     }

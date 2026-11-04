@@ -1,6 +1,7 @@
 import { Check, ChevronsRight, History, Laptop, Monitor, Smartphone, Tablet } from "lucide-react"
 
 import type { DeviceKind } from "@pinai/domain/models/device"
+import type { AwaitedShareState } from "@pinai/domain/usecases/e2ee/accept-history-share.usecase"
 import { Button } from "@/presentation/atoms/Button/Button"
 import { cn } from "@/presentation/_libs/utils"
 
@@ -17,7 +18,11 @@ interface ApproveFromAnotherDeviceProps {
     fallbackLabel: string
     /** Where to type the code. */
     instruction?: string
-    /** Approved and in: its KeyPackages are out. */
+    /** The page's wait for this device's key share. */
+    share?: AwaitedShareState | null
+    /** Approved here: the page leaves the way on to this section. */
+    onApproved?: () => void
+    /** Approved, its words kept and its history restored — or let in with no share yet: on to the app. */
     onIn?: () => void
 }
 
@@ -30,9 +35,11 @@ export function ApproveFromAnotherDevice({
     wordsStarted,
     fallbackLabel,
     instruction = "Open Pīna'i on one of your devices and type it when it asks.",
+    share,
+    onApproved,
     onIn,
 }: ApproveFromAnotherDeviceProps) {
-    const vm = useApproveFromAnotherDeviceViewModel({ ready, wordsStarted, fallbackLabel, onIn })
+    const vm = useApproveFromAnotherDeviceViewModel({ ready, wordsStarted, fallbackLabel, share, onApproved, onIn })
     const approved = vm.state.kind === "approved"
 
     return (
@@ -78,17 +85,14 @@ export function ApproveFromAnotherDevice({
                         {instruction}
                     </p>
                 )}
-                {/* Mounted throughout, so each change is announced; the approval's own headline shows it. */}
-                <p
-                    role="status"
-                    className={cn("m-0 mt-2 min-h-[1lh] text-center text-[12.5px] text-muted-foreground", !vm.statusShown && "sr-only")}
-                >
+                {/* Mounted throughout, so each change is announced. */}
+                <p role="status" className="m-0 mt-2 min-h-[1lh] text-center text-[12.5px] text-muted-foreground">
                     {vm.status}
                 </p>
                 {vm.action && (
                     <div className="mt-3 flex justify-center">
                         <Button size="inline" variant="secondary" onPress={vm.onAction}>
-                            {vm.action === "new-code" ? "New code" : "Show a code"}
+                            {vm.action === "new-code" ? "New code" : vm.action === "go-on" ? "Go on without it" : "Show a code"}
                         </Button>
                     </div>
                 )}

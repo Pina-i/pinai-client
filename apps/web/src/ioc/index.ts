@@ -21,6 +21,7 @@ import { WebCryptoAttachmentCryptoAdapter } from "@pinai/crypto/attachment-crypt
 import { E2eeAdapter } from "@pinai/crypto/e2ee.adapter"
 import { HistoryArchiveAdapter } from "@pinai/crypto/history-archive.adapter"
 import { HistoryArchiveApiAdapter } from "@pinai/api/e2ee/history-archive-api.adapter"
+import { KeyShareApiAdapter } from "@pinai/api/e2ee/key-share-api.adapter"
 import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
 import { KeyDirectoryApiAdapter } from "@pinai/api/e2ee/key-directory.adapter"
 import { MlsAdapter } from "@pinai/mls/wasm.adapter"
@@ -52,6 +53,7 @@ import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.
 import type { ISessionPort } from "@pinai/domain/ports/session.port"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
 import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
+import type { IKeySharePort } from "@pinai/domain/ports/key-share.port"
 import type { IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
 import type { IHpkePort } from "@pinai/domain/ports/hpke.port"
 import type { ISocialPort } from "@pinai/domain/ports/social.port"
@@ -126,6 +128,7 @@ const attachmentCryptoPort: IAttachmentCryptoPort = new WebCryptoAttachmentCrypt
 const jwksCache = new JwksCacheAdapter()
 const accountSettingsPort: IAccountSettingsPort = new UserSettingsApiAdapter()
 const historyArchivePort: IHistoryArchivePort = new HistoryArchiveApiAdapter()
+const keySharePort: IKeySharePort = new KeyShareApiAdapter()
 const historyArchiveCrypto = new HistoryArchiveAdapter()
 
 // E2EE crypto core. Singletons — the MLS engine owns session-scoped
@@ -276,4 +279,8 @@ export function getJwksCache(): JwksCacheAdapter {
 
 export function getHistoryArchivePort(): IHistoryArchivePort {
     return historyArchivePort
+}
+
+export function getKeySharePort(): IKeySharePort {
+    return keySharePort
 }

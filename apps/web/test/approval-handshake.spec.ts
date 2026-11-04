@@ -24,6 +24,7 @@ import {
     closedMeans,
     codeDigits,
     codeHalves,
+    endsTheWait,
     enterDelay,
     failureShown,
     isRefusedForGood,
@@ -995,14 +996,20 @@ describe("the approved device on its way in", () => {
         expect(check).toHaveBeenCalledOnce()
     })
 
-    it("stops on a refusal the same request would meet again, `device_mismatch` among them, and goes on past one that may pass", async () => {
+    it("stops only for `device_mismatch` or a revoked device, and waits out any other refusal", async () => {
         const mismatched = new IdpError(403, "device_mismatch", "This session signed in another device")
-        const refused = entry(async () => Promise.reject(mismatched))
-        await refused.tick()
-        expect(refused.state).toEqual({ kind: "refused", error: mismatched })
+        const revoked = new IdpError(403, "access_denied", "This device is revoked")
+        for (const ending of [mismatched, revoked]) {
+            const refused = entry(async () => Promise.reject(ending))
+            await refused.tick()
+            expect(refused.state).toEqual({ kind: "refused", error: ending })
+        }
 
-        const passing = entry(async () => Promise.reject(new TypeError("Failed to fetch")))
-        await passing.tick()
-        expect(passing.state).toEqual({ kind: "entering", waiting: false })
+        for (const passing of [new TypeError("Failed to fetch"), new IdpError(400, "invalid_request", "x"), new IdpError(409, "not_approved", "x")]) {
+            const waiting = entry(async () => Promise.reject(passing))
+            await waiting.tick()
+            expect(waiting.state).toEqual({ kind: "entering", waiting: false })
+        }
+        expect(endsTheWait(new IdpError(403, "device_required", "x"))).toBe(false)
     })
 })

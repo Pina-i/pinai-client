@@ -11,6 +11,7 @@ import {
 } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
 import { revokeDeviceUseCase } from "@pinai/domain/usecases/e2ee/revoke-device.usecase"
 import { getApprovalRelayPort, getDeviceDirectoryPort, getE2eePort } from "@/ioc"
+import { shareDeps } from "@/presentation/_libs/key-share-deps"
 import { devicesQueryKey } from "@/presentation/hooks/useDevices"
 import { registerApprovalHandler } from "@/presentation/hooks/useIdpWebSocket"
 import { type RecentSignIn, useRecentSignIn } from "@/presentation/hooks/use-recent-sign-in"
@@ -122,7 +123,7 @@ export function useApprovalDoorViewModel(): ApprovalDoorViewModel {
     useEffect(() => {
         if (!signedIn || !idpUrl || !actorUri) return
         const made = new ApprovalAnswering(
-            { e2ee: getE2eePort(), relay: getApprovalRelayPort(), directory: getDeviceDirectoryPort() },
+            { e2ee: getE2eePort(), relay: getApprovalRelayPort(), directory: getDeviceDirectoryPort(), sharing: shareDeps() },
             { idpUrl, actorUri, accessToken: () => useAppStore.getState().accessToken, report: (what, e) => warn(what)(e) },
             { usedCodes, lock: webLock },
         )
