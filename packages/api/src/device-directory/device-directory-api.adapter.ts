@@ -2,7 +2,7 @@ import { HTTPError } from "ky"
 import { idp } from "../http"
 import { idpErrorFrom } from "../idp-error"
 
-import { decodeBase64 } from "@pinai/domain/lib/bytes"
+import { bytesToBase64, decodeBase64 } from "@pinai/domain/lib/bytes"
 import type { DeviceApproval, DeviceKind, DeviceListEntry, DeviceListResponse } from "@pinai/domain/models/device"
 import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
 
@@ -33,17 +33,46 @@ export class DeviceDirectoryApiAdapter implements IDeviceDirectoryPort {
         accessToken: string,
         deviceId: string,
     ): Promise<void> {
-        const url = `${idpUrl.replace(/\/$/, "")}/api/keys/devices/${encodeURIComponent(
-            deviceId,
-        )}/revoke`
         try {
-            await idp.post(url, {
+            await idp.post(`${deviceUrl(idpUrl, deviceId)}/revoke`, {
                 headers: { Authorization: `Bearer ${accessToken}` },
             })
         } catch (error) {
             throw await idpErrorFrom(error, "Failed to revoke device")
         }
     }
+
+    async approveByPassphrase(
+        idpUrl: string,
+        accessToken: string,
+        deviceId: string,
+        generation: number,
+        signature: Uint8Array,
+    ): Promise<void> {
+        try {
+            await idp.post(`${deviceUrl(idpUrl, deviceId)}/approvals`, {
+                headers: { Authorization: `Bearer ${accessToken}` },
+                json: { by: "passphrase", generation, signature: bytesToBase64(signature) },
+            })
+        } catch (error) {
+            throw await idpErrorFrom(error, "Approving this device failed")
+        }
+    }
+
+    async reportHistoryKey(idpUrl: string, accessToken: string, deviceId: string, generation: number): Promise<void> {
+        try {
+            await idp.put(`${deviceUrl(idpUrl, deviceId)}/history-key`, {
+                headers: { Authorization: `Bearer ${accessToken}` },
+                json: { generation },
+            })
+        } catch (error) {
+            throw await idpErrorFrom(error, "Reporting the history key failed")
+        }
+    }
+}
+
+function deviceUrl(idpUrl: string, deviceId: string): string {
+    return `${idpUrl.replace(/\/$/, "")}/api/keys/devices/${encodeURIComponent(deviceId)}`
 }
 
 type Row = Record<string, unknown>

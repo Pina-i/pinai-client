@@ -23,7 +23,6 @@ import { HistoryArchiveApiAdapter } from "@pinai/api/e2ee/history-archive-api.ad
 import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
 import { KeyDirectoryApiAdapter } from "@pinai/api/e2ee/key-directory.adapter"
 import { MlsAdapter } from "@pinai/mls/wasm.adapter"
-import { NobleRecoveryAdapter } from "@pinai/crypto/recovery.adapter"
 import { JwksCacheAdapter } from "@/adapters/jwks/jwks-cache.adapter"
 import { UserSettingsLocalStorageAdapter } from "@/adapters/user-settings/user-settings-local-storage.adapter"
 import { RecentInstancesLocalStorageAdapter } from "@/adapters/instance/recent-instances-local-storage.adapter"
@@ -143,7 +142,6 @@ const e2eePort: IE2eePort = new E2eeAdapter(
     mlsEngine,
     getSharedE2eeStorage(),
     new KeyDirectoryApiAdapter(),
-    new NobleRecoveryAdapter(),
     hpke,
     jwksCache,
     historyArchivePort,

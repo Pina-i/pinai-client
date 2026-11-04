@@ -83,8 +83,8 @@ export function DevicesEditor() {
                     <div className="mb-3">
                         <RecoveryPassphraseCard
                             words={vm.passphraseWords}
-                            onClear={() => void vm.onClearRecovery()}
-                            isClearing={vm.isClearingRecovery}
+                            onClear={() => void vm.onClearHistoryBackup()}
+                            isClearing={vm.isClearingHistoryBackup}
                         />
                     </div>
                 )}

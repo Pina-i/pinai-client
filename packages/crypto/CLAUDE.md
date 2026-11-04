@@ -1,6 +1,6 @@
 # @pinai/crypto
 
-The E2EE core: MLS orchestration, identity, recovery, pairing, attestation
+The E2EE core: MLS orchestration, identity, the history key, pairing, attestation
 verification, attachment sealing, and the encrypted store's schema.
 
 Exactly one external entry point — `IE2eePort`, implemented by
@@ -34,9 +34,7 @@ Three collaborators could not come, and the shape of each is the mobile work:
 - **`identity.adapter.ts`** — `NobleIdentityAdapter`.
   MSK/SSK/USK Ed25519 generation via `@noble/curves`; SSK + USK signed
   by MSK with domain-separation tags. Computes the 60-char base32
-  fingerprint (SHA-512 of MSK public, sliced). `recoverFromMsk`
-  rebuilds an `IdentityKeypair` from a recovered MSK private (used by
-  the Recovery Key flow on a fresh device).
+  fingerprint (SHA-512 of MSK public, sliced).
 - **`sealed-storage.ts`** — `SealedStorage`. Schema + sealing only, with no
   idea where the bytes land: it takes an `IKeyValueStore` and an
   `IDeviceKeyPort`, so a React Native build reuses it whole over SQLite or
@@ -49,21 +47,30 @@ Three collaborators could not come, and the shape of each is the mobile work:
   `meta` (device UUID + non-extractable AES-GCM CryptoKey),
   `identity` (encrypted MSK/SSK/USK bundle), `mls_snapshot`
   (encrypted snapshot of the openmls provider state +
-  `knownGroupIds[]`), `recovery_passphrase` (encrypted local copy
-  of the 24-word mnemonic, Phase 6a — DB v3), `device_attestation` (the root
-  key, its attestation and the device's HPKE key — `hpke` null in a row from
-  before it, which registers again). All at-rest blobs are
+  `knownGroupIds[]`), `recovery_passphrase` (`current`: the account's 24
+  words, the one generation they give, the root key the device approved
+  itself over with them, and their salt and HAK, so a check runs no Argon2id;
+  `pending`: words minted whose `PUT` is unanswered, with their key and HAK;
+  `standing`: where the words stood when last checked; `newest_generation`:
+  the newest generation seen. Read strictly — 24 words, a 16-byte salt, a
+  32-byte HAK; a row that won't open or parse is moved to
+  `<key>:unreadable:<ISO time>`, never deleted; a device key that can't be
+  loaded throws),
+  `device_attestation` (the root key, its attestation and the device's HPKE
+  key — `hpke` null in a row from before it, which registers again). All at-rest blobs are
   encrypted under the same per-device key; the key is also re-used
   by the Zustand `persist` middleware so the message-plaintext cache
   lives behind the same key material.
 - **`@pinai/api/e2ee/key-directory.adapter`** — `KeyDirectoryApiAdapter`
   implementing `IKeyDirectoryPort`, outside this package. REST client for
-  the `/api/keys/*` and `/api/mls/*` endpoints; the identity and
-  recovery-blob methods are no-op stubs, since `/api/keys/recovery` is gone.
-- **`recovery.adapter.ts`** — `NobleRecoveryAdapter`. Argon2id
-  (`@noble/hashes/argon2.js`) + XChaCha20-Poly1305 (`@noble/ciphers`)
-  wrap/unwrap of the MSK private. Default params m=64 MiB, t=3, p=4
-  per `identity-provider/specs/e2ee.md § 9`. AAD-tagged, nonce-prepended.
+  the `/api/keys/*` and `/api/mls/*` endpoints; the identity methods are no-op
+  stubs, since `/api/keys/identity` is gone.
+- **`history-archive.adapter.ts`** — `HistoryArchiveAdapter`
+  (`identity-provider/specs/e2ee.md § 3.7`): the HAK, Argon2id over the words
+  trimmed, lowercased and joined by single spaces, as UTF-8, whoever calls it
+  (m=64 MiB, t=3, p=4); `derive(hak)` the check value
+  and approval public key; `signApproval`; AES-256-GCM entries with the
+  `PINAI-ARCHIVE-v1` ids as associated data.
 - **`spake2.ts`** — Hand-rolled SPAKE2 over Ristretto255 via
   `@noble/curves`. M and N derived once via `ristretto255_hasher.hashToCurve`
   from labels. Returns `{ ourMessage, derive(peerMessage) }` →
@@ -74,7 +81,9 @@ Three collaborators could not come, and the shape of each is the mobile work:
   ferries SPAKE2 messages through caller-provided transport.
 - **`canonical-bytes.ts`** — the bytes the protocol signs
   (`identity-provider/specs/e2ee.md § 7.2`): `IDP-ATTEST-v1`,
-  `PINAI-DEVICE-HPKE-v1`, `PINAI-LEAF-BINDING-v1`, rebuilt from bytes;
+  `PINAI-DEVICE-HPKE-v1`, `PINAI-LEAF-BINDING-v1`, `PINAI-DEVICE-APPROVAL-v1`,
+  rebuilt from bytes, and an archive entry's `PINAI-ARCHIVE-v1` associated
+  data (its ids lowercased, as the IdP writes UUIDs);
   `apps/web/test/canonical-bytes.spec.ts` holds the IdP's golden vectors.
 - **`attestation-chain.adapter.ts`** — what a device checks itself, Ed25519
   strict (`verifyStrict`, a small-order key refused) as the IdP checks root keys.
@@ -91,9 +100,7 @@ Three collaborators could not come, and the shape of each is the mobile work:
   every sub-adapter into `register`, `replenishKeyPackages`,
   `encryptOutbound`, `decryptInbound`, `addContactToGroup`,
   `ensureGroupExists`, `consumePendingWelcomes`, `revokeDevice`, `addOwnDevices`, `pruneGroup`,
-  `forgetGroup`,
-  `setupRecoveryKey`, `recoverFromPassphrase`, `hasRecoveryKey`,
-  `clearRecoveryKey`, `loadStoredPassphrase`, `saveStoredPassphrase`,
+  `forgetGroup`, the history key's, `loadStoredPassphrase`,
   `hasLocalIdentity`, `startPairingAsInitiator`, `pairAsResponder`,
   `getOwnFingerprint`, `getPeerFingerprint`. Bootstrap paths
   (`ensureInitialized`, `register`) are guarded by cached promises
@@ -132,18 +139,34 @@ Three collaborators could not come, and the shape of each is the mobile work:
     into its own leaf when the leaf carries another: one from before the leaf
     binding, or before a renewal — a registration under way is waited for. Run by
     `syncOwnGroupsUseCase` after the catch-up.
+  - **The history key** (`identity-provider/specs/e2ee.md § 3.6–3.9`): the flows
+    are the domain's; here the crypto and the standing (`standingAgainst`).
+    `mintHistoryKey` seals the words as pending before answering them, the same
+    words for the page load until dropped; `promotePendingHistoryKey` keeps
+    them once the IdP took their key. `keepPassphrase` refuses words that don't
+    give the key, a generation below the newest seen, and words another tab kept
+    meanwhile (the row is read again just before the write). `checkHistoryKey`
+    runs no Argon2id: it stands the kept HAK's values against the key in force;
+    the words stay, whatever it says. Argon2id runs once per words and salt, in
+    flight included, keyed by a digest. The standing and the key held change
+    together, and a flush clears them only when still the ones it used.
+  - **Uploads** — entries wait unsealed while the standing is unchecked or
+    holds (`ARCHIVE_BUFFER_LIMIT`, the oldest dropped), and are dropped out of
+    it; they go out under the generation held, each sealed with its ids as
+    associated data; an edit under the id its ciphertext gives. The first check
+    is a flow's, after the naming. `stale_history_key` reads the key again and
+    sends the batch again once; a second stale in one flush waits for the next.
+    `restoreHistory` opens each entry under the ids its row carries: one moved
+    is skipped.
 
 ## Use cases
 
 `@pinai/domain/usecases/e2ee/`:
 - `register-identity.usecase.ts`
 - `replenish-keypackages.usecase.ts`
-- `setup-recovery-key.usecase.ts`
-- `recover-from-passphrase.usecase.ts`
-- `bootstrap-first-device.usecase.ts` — Phase 6a. Orchestrates
-  `register` → BIP-39 mnemonic generation → `setupRecoveryKey` →
-  `saveStoredPassphrase` as one transactional unit (every step is
-  idempotent, so retry-on-failure is safe).
+- The history key's: `set-up-this-device`, `bootstrap-first-device`,
+  `restore-history-from-passphrase`, `approve-by-passphrase`,
+  `check-history-key` — see `packages/domain/CLAUDE.md`.
 - `pair-device.usecase.ts` — `startPairingAsInitiatorUseCase` and
   `pairAsResponderUseCase` plus a `PairDeviceTransport` interface
   for caller-supplied message ferrying.
@@ -293,9 +316,8 @@ above, the sections above win.
   walks the credentials and returns the matching leaf index (or
   null).
 - `e2ee.adapter.revokeDevice(idpUrl, token, actorUri, deviceId,
-  conversationIds, opts?)` iterates the caller-supplied conversation
-  list, builds + posts a Remove commit per group, optionally clears
-  the wrapped Recovery Key. Per-group failures are logged + swallowed
+  conversationIds)` iterates the caller-supplied conversation
+  list, builds + posts a Remove commit per group. Per-group failures are logged + swallowed
   so one bad group doesn't block the rest; the commit a failure leaves
   pending is cleared, or the group's next commit would be refused.
 
@@ -472,8 +494,7 @@ above, the sections above win.
 All specs live in `apps/web/test/` — the app is still the only place with a
 vitest setup, so a package's specs sit there until it needs its own.
 
-- `apps/web/test/e2ee.spec.ts` — identity adapter + MLS two-member round trip +
-  recovery wrap/unwrap.
+- `apps/web/test/e2ee.spec.ts` — identity adapter + MLS two-member round trip.
 - `apps/web/test/spake2.spec.ts` — SPAKE2 round trip + wrong-password
   detection + role-mismatch + tamper detection.
 - `apps/web/test/pairing.spec.ts` — full pairing dance round trip + tampered
@@ -489,8 +510,12 @@ vitest setup, so a package's specs sit there until it needs its own.
   Its directory attests as the IdP would (`test/setup/issuers.ts`).
 - `apps/web/test/message-status.spec.ts` — fade-window math behind the
   `MessageStatus` molecule.
-- `apps/web/test/bootstrap-first-device.spec.ts` — 6a use-case ordering +
-  idempotent retry.
+- `apps/web/test/history-key.spec.ts` — the history key's flows with the real
+  engine against an IdP answering as the spec says (`test/setup/history-idp.ts`):
+  the first device's order, racing founders, typed words, the startup check,
+  uploads on `stale_history_key`, the archive's associated data;
+  `history-key-api.spec.ts`, its routes; `history-key-vectors.spec.ts`,
+  known answers computed with OpenSSL and Python's `cryptography`.
 - `apps/web/test/gate-routing.spec.ts` — 6a gate's pure decision table.
 - `apps/web/test/recovery-passphrase-input.spec.ts` — 6a `isPassphraseComplete`
   predicate.
@@ -503,31 +528,22 @@ number written here is wrong by the next commit.
 - **`hasLocalIdentity()`** on `IE2eePort`. Cheap predicate the
   onboarding gate uses to short-circuit when an identity bundle is
   already in IDB.
-- **`hasRecoveryKey(idpUrl, token)`** on `IE2eePort`. Probes
-  `GET /api/keys/recovery` and surfaces a boolean — used by the gate
-  + the restore page to decide the full vs. degraded variant.
-- **`clearRecoveryKey(idpUrl, token)`** on `IE2eePort`. Pairs the
-  server-side `DELETE /api/keys/recovery` with a local wipe of the
-  passphrase IDB slot. Used by the eventual 6b "Clear recovery key"
-  action.
-- **`loadStoredPassphrase()`** / **`saveStoredPassphrase(words)`** on
-  `IE2eePort`. Reveal source for the 6b Settings UI + the persistence
-  side of the bootstrap use case.
+- **`loadStoredPassphrase()`** on `IE2eePort`. Reveal source for the
+  6b Settings UI.
 - **`recovery_passphrase` IDB store** (DB v3) in
   `IndexedDbStorageAdapter`. Encrypted under the device key — same
   pattern as `identity` and `mls_snapshot`. Migration is additive.
-- **`bootstrapFirstDeviceUseCase`** in `@pinai/domain/usecases/e2ee/`.
-  Four-step orchestration (register → mnemonic → setupRecoveryKey →
-  saveStoredPassphrase); idempotent under retry.
+- **`bootstrapFirstDeviceUseCase`** in `@pinai/domain/usecases/e2ee/`
+  — the first device's flow, since rebuilt around the history key's
+  generations (see "The history key" above).
 - **`@scure/bip39` dependency** (~10 KB gzipped). English 2048-word
   list + `generateMnemonic` / `validateMnemonic`. Same noble family
-  used by `identity.adapter.ts` and `recovery.adapter.ts`.
+  used by `identity.adapter.ts`.
 - **`useIdentityOnboardingGate`** in `presentation/hooks/`. Replaces
-  the old `useRegisterMlsIdentity` auto-register-on-mount. Probes
-  local identity + server identity + server recovery blob, then
-  routes to `/onboarding/recovery-setup` (first device),
-  `/onboarding/recovery-restore` (paired-elsewhere or recovery-key
-  case), or admits to the app shell. The pure `decideGateRoute`
+  the old `useRegisterMlsIdentity` auto-register-on-mount; routes to
+  `/onboarding/recovery-setup` (first device),
+  `/onboarding/recovery-restore` (a new device on an account with a
+  history key), or admits to the app shell. The pure `decideGateRoute`
   helper is unit-tested in `test/gate-routing.spec.ts`.
 - **`RecoveryPassphraseDisplay`** / **`RecoveryPassphraseInput`**
   molecules. Display variant is read-only; Input variant has
@@ -535,9 +551,9 @@ number written here is wrong by the next commit.
   be reused by the 6b reveal UI.
 - **`RecoverySetupPage`** / **`RecoveryRestorePage`** in
   `presentation/pages/onboarding/`. Setup runs the bootstrap use
-  case, shows the 24 generated words on success. Restore drives
-  `recoverFromPassphraseUseCase`; "Start fresh on this device" link
-  runs plain `register()`.
+  case, shows the 24 generated words on success. Restore drives the
+  typed words' flow (`restoreHistoryFromPassphraseUseCase`); "Start
+  fresh on this device" lets the device in without them.
 
 ## Phase 6b additions (Settings → Devices)
 
@@ -607,12 +623,12 @@ for the full design.
 - **`history-archive.adapter.ts`** —
   `HistoryArchiveAdapter`. `deriveKey(passphraseWords, salt)` via
   `argon2idAsync` (t=3, m=64 MiB, p=4, dkLen=32);
-  `encrypt(key, plaintext)` → AES-256-GCM with fresh 12-byte nonce;
-  `decrypt(key, ct, nonce)` throws on auth-tag mismatch.
+  `encrypt(key, plaintext, aad)` → AES-256-GCM with fresh 12-byte nonce;
+  `decrypt(key, ct, nonce, aad)` throws on auth-tag mismatch.
 - **`@pinai/api/e2ee/history-archive-api.adapter`** —
   `HistoryArchiveApiAdapter` implementing `IHistoryArchivePort`.
   Pure transport for `POST/GET/DELETE /api/history/messages` +
-  `GET/POST /api/history/salt`; base64 encode/decode of opaque
+  `GET/PUT /api/history/key`; base64 encode/decode of opaque
   ciphertexts.
 
 ### Wire-format simplification
@@ -638,16 +654,14 @@ publishes) holds against the documented threat model.
     Dedupes concurrent callers via in-flight promise; renews
     silently when within 30 days of expiry.
   - `bufferForArchive` / `startFlushing` /
-    `stopFlushing` / `clearHistoryBackup` — Layer B engine. Takes an
+    `stopFlushing` — Layer B engine. Takes an
     `ArchiveEnvelope` (`@pinai/domain/models/history-archive`), once per
     id per page load: a sent message is queued by the send's answer and by
     its echo. One drain at a time, `ARCHIVE_UPLOAD_LIMIT` (50) entries per
     upload; a batch the IdP refuses (a `4xx` other than `401`/`408`/`429`)
     is dropped, any other failure re-queued for the next tick.
-  - `restoreHistoryFromPassphrase` — pull-and-decrypt loop; answers the
-    decoded entries, which the domain turns into messages.
-  - `bootstrapFirstDevice` now also calls `registerDevice` after
-    the legacy MSK register completes.
+  - `restoreHistory` — pull-and-decrypt loop; answers the decoded
+    entries, which the domain turns into messages.
 
 ### Use cases (`@pinai/domain/usecases/e2ee/`)
 

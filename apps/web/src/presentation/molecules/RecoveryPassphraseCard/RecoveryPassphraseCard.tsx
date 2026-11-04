@@ -30,8 +30,8 @@ interface RecoveryPassphraseCardProps {
  * Settings → Devices passphrase card. Blurred by default. The Show /
  * Hide toggle lifts the blur in place — words stay in the DOM either
  * way (no remount on toggle, less flicker, easier to copy from inspect
- * tools if the user really wants to). "Clear recovery key" wipes the
- * server blob + the local stash.
+ * tools if the user really wants to). "Clear" erases the saved history
+ * entries only: the words stay, here and on the account.
  *
  * Renders a "no passphrase on this device" empty state when `words`
  * is null (a paired-via-QR device that joined without seeing the

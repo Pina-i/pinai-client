@@ -1,4 +1,10 @@
 import type { ActorUri, DeviceId, IdentityKeypair, ConversationId } from "@pinai/domain/models/e2ee"
+import {
+    isGeneration,
+    parseHistoryKeyStanding,
+    type HistoryKey,
+    type HistoryKeyStanding,
+} from "@pinai/domain/models/history-key"
 import type { IDeviceKeyPort, SealedBytes } from "@pinai/domain/ports/device-key.port"
 import type { IKeyValueStore } from "@pinai/domain/ports/key-value-store.port"
 
@@ -27,6 +33,11 @@ const DEVICE_ATTESTATION = "device_attestation"
 
 /** One row per collection — this store keeps a single current value each. */
 const CURRENT = "current"
+/** Beside the kept words: the words minted but not yet taken by the IdP, the last standing, the newest generation seen. */
+const PENDING = "pending"
+const STANDING = "standing"
+const NEWEST_GENERATION = "newest_generation"
+const WORD_COUNT = 24
 const DEVICE_ID_KEY = "device_id"
 const BOUND_ACTOR_URI_KEY = "bound_actor_uri"
 
@@ -98,6 +109,24 @@ export interface DeviceAttestation {
     hpke: { public_key: Uint8Array; private_key: Uint8Array } | null
 }
 
+/** The history passphrase this device keeps (`identity-provider/specs/e2ee.md § 3.6`). */
+export interface KeptPassphrase {
+    words: string[]
+    /** The generation they give — that one only. */
+    generation: number
+    /** The root key the device approved itself over with them, and reported; `null` before. */
+    approvedRootKey: Uint8Array | null
+    /** The HAK they give under the generation's salt. */
+    derived: { salt: Uint8Array; hak: Uint8Array }
+}
+
+/** Words minted for a generation whose `PUT` is unanswered: never shown, reported, or used to seal. */
+export interface PendingPassphrase {
+    words: string[]
+    key: HistoryKey
+    hak: Uint8Array
+}
+
 export interface E2eeStorage {
     /** Returns the device's UUID, generating + persisting on first call. */
     getOrCreateDeviceId(): Promise<DeviceId>
@@ -117,13 +146,18 @@ export interface E2eeStorage {
      */
     loadMlsSnapshot(): Promise<MlsSnapshot | null>
     /**
-     * Persist the recovery passphrase locally — encrypted under the
-     * device key, surfaced by Settings → Devices.
+     * The history key's rows. A read that can't load the device key throws; a row that won't open
+     * or parse is set aside, never deleted, and reads as none.
      */
-    saveRecoveryPassphrase(words: string[]): Promise<void>
-    /** Null when never stored or explicitly cleared. */
-    loadRecoveryPassphrase(): Promise<string[] | null>
-    clearRecoveryPassphrase(): Promise<void>
+    saveKeptPassphrase(kept: KeptPassphrase): Promise<void>
+    loadKeptPassphrase(): Promise<KeptPassphrase | null>
+    savePendingPassphrase(pending: PendingPassphrase): Promise<void>
+    loadPendingPassphrase(): Promise<PendingPassphrase | null>
+    clearPendingPassphrase(): Promise<void>
+    saveHistoryKeyStanding(standing: HistoryKeyStanding): Promise<void>
+    loadHistoryKeyStanding(): Promise<HistoryKeyStanding | null>
+    saveNewestHistoryGeneration(generation: number): Promise<void>
+    loadNewestHistoryGeneration(): Promise<number | null>
     /** Replaces any previous attestation — used for renewal and rotation. */
     saveDeviceAttestation(att: DeviceAttestation): Promise<void>
     loadDeviceAttestation(): Promise<DeviceAttestation | null>
@@ -143,9 +177,9 @@ export class SealedStorage implements E2eeStorage {
         this.deviceKey = deviceKey
     }
 
-    private async seal(collection: string, value: object): Promise<void> {
+    private async seal(collection: string, value: object, key = CURRENT): Promise<void> {
         const sealed = await this.deviceKey.seal(encoder.encode(JSON.stringify(value)))
-        await this.kv.put(collection, CURRENT, frame(sealed))
+        await this.kv.put(collection, key, frame(sealed))
     }
 
     /**
@@ -157,15 +191,15 @@ export class SealedStorage implements E2eeStorage {
      * save start clean — the identity re-registers, the MLS provider boots
      * fresh, the attestation is re-minted.
      */
-    private async openOrDrop<T>(collection: string, what: string): Promise<T | null> {
-        const bytes = await this.kv.get(collection, CURRENT)
+    private async openOrDrop<T>(collection: string, what: string, key = CURRENT): Promise<T | null> {
+        const bytes = await this.kv.get(collection, key)
         if (!bytes) return null
         try {
             return JSON.parse(decoder.decode(await this.deviceKey.open(unframe(bytes)))) as T
         } catch (e) {
             // eslint-disable-next-line no-console
             console.warn(`${what} decrypt failed; dropping`, e)
-            await this.kv.delete(collection, CURRENT).catch(() => undefined)
+            await this.kv.delete(collection, key).catch(() => undefined)
             return null
         }
     }
@@ -208,20 +242,63 @@ export class SealedStorage implements E2eeStorage {
         return json ? mlsSnapshotFromJson(json) : null
     }
 
-    async saveRecoveryPassphrase(words: string[]): Promise<void> {
-        await this.seal(RECOVERY_PASSPHRASE, { words })
+    async saveKeptPassphrase(kept: KeptPassphrase): Promise<void> {
+        await this.seal(RECOVERY_PASSPHRASE, keptToJson(kept))
     }
 
-    async loadRecoveryPassphrase(): Promise<string[] | null> {
-        const json = await this.openOrDrop<{ words: string[] }>(
-            RECOVERY_PASSPHRASE,
-            "Recovery passphrase",
-        )
-        return json && Array.isArray(json.words) ? json.words : null
+    async loadKeptPassphrase(): Promise<KeptPassphrase | null> {
+        return this.openOrSetAside(RECOVERY_PASSPHRASE, CURRENT, keptFromJson)
     }
 
-    async clearRecoveryPassphrase(): Promise<void> {
-        await this.kv.delete(RECOVERY_PASSPHRASE, CURRENT)
+    async savePendingPassphrase(pending: PendingPassphrase): Promise<void> {
+        await this.seal(RECOVERY_PASSPHRASE, pendingToJson(pending), PENDING)
+    }
+
+    async loadPendingPassphrase(): Promise<PendingPassphrase | null> {
+        return this.openOrSetAside(RECOVERY_PASSPHRASE, PENDING, pendingFromJson)
+    }
+
+    async clearPendingPassphrase(): Promise<void> {
+        await this.kv.delete(RECOVERY_PASSPHRASE, PENDING)
+    }
+
+    async saveHistoryKeyStanding(standing: HistoryKeyStanding): Promise<void> {
+        await this.seal(RECOVERY_PASSPHRASE, standing, STANDING)
+    }
+
+    async loadHistoryKeyStanding(): Promise<HistoryKeyStanding | null> {
+        return this.openOrSetAside(RECOVERY_PASSPHRASE, STANDING, parseHistoryKeyStanding)
+    }
+
+    async saveNewestHistoryGeneration(generation: number): Promise<void> {
+        await this.seal(RECOVERY_PASSPHRASE, { generation }, NEWEST_GENERATION)
+    }
+
+    async loadNewestHistoryGeneration(): Promise<number | null> {
+        return this.openOrSetAside(RECOVERY_PASSPHRASE, NEWEST_GENERATION, (value) => {
+            const generation = isRow(value) ? value.generation : undefined
+            return isGeneration(generation) ? generation : null
+        })
+    }
+
+    // The words can't be had again: a row that won't open or parse is moved aside, as the message cache does.
+    private async openOrSetAside<T>(collection: string, key: string, parse: (value: unknown) => T | null): Promise<T | null> {
+        await this.deviceKey.ready()
+        const bytes = await this.kv.get(collection, key)
+        if (!bytes) return null
+        let value: unknown = undefined
+        try {
+            value = JSON.parse(decoder.decode(await this.deviceKey.open(unframe(bytes))))
+        } catch {
+            // Unreadable: set aside below.
+        }
+        const parsed = value === undefined ? null : parse(value)
+        if (parsed !== null) return parsed
+        // eslint-disable-next-line no-console
+        console.warn(`${collection}/${key} can't be read; set aside`)
+        await this.kv.put(collection, `${key}:unreadable:${new Date().toISOString()}`, bytes)
+        await this.kv.delete(collection, key)
+        return null
     }
 
     async saveDeviceAttestation(att: DeviceAttestation): Promise<void> {
@@ -258,6 +335,66 @@ export class SealedStorage implements E2eeStorage {
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
+
+function keptToJson(kept: KeptPassphrase): object {
+    return {
+        words: [...kept.words],
+        generation: kept.generation,
+        approved_root_key: kept.approvedRootKey ? Array.from(kept.approvedRootKey) : null,
+        salt: Array.from(kept.derived.salt),
+        hak: Array.from(kept.derived.hak),
+    }
+}
+
+function keptFromJson(value: unknown): KeptPassphrase | null {
+    if (!isRow(value)) return null
+    const words = wordsOf(value.words)
+    const salt = bytesOf(value.salt, 16)
+    const hak = bytesOf(value.hak, 32)
+    const approvedRootKey = value.approved_root_key === null ? null : bytesOf(value.approved_root_key, 32)
+    if (!words || !isGeneration(value.generation) || !salt || !hak || approvedRootKey === undefined) return null
+    return { words, generation: value.generation, approvedRootKey, derived: { salt, hak } }
+}
+
+function pendingToJson(pending: PendingPassphrase): object {
+    return {
+        words: [...pending.words],
+        generation: pending.key.generation,
+        salt: Array.from(pending.key.salt),
+        check_value: Array.from(pending.key.checkValue),
+        approval_public_key: Array.from(pending.key.approvalPublicKey),
+        hak: Array.from(pending.hak),
+    }
+}
+
+function pendingFromJson(value: unknown): PendingPassphrase | null {
+    if (!isRow(value)) return null
+    const words = wordsOf(value.words)
+    const salt = bytesOf(value.salt, 16)
+    const checkValue = bytesOf(value.check_value, 32)
+    const approvalPublicKey = bytesOf(value.approval_public_key, 32)
+    const hak = bytesOf(value.hak, 32)
+    if (!words || !isGeneration(value.generation) || !salt || !checkValue || !approvalPublicKey || !hak) return null
+    return { words, key: { generation: value.generation, salt, checkValue, approvalPublicKey }, hak }
+}
+
+function isRow(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function wordsOf(value: unknown): string[] | undefined {
+    return Array.isArray(value) && value.length === WORD_COUNT && value.every((w) => typeof w === "string" && w !== "")
+        ? (value as string[])
+        : undefined
+}
+
+function bytesOf(value: unknown, length: number): Uint8Array | undefined {
+    return Array.isArray(value) &&
+        value.length === length &&
+        value.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)
+        ? Uint8Array.from(value as number[])
+        : undefined
+}
 
 interface DeviceAttestationJson {
     drk_public: number[]

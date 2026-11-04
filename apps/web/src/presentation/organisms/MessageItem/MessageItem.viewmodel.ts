@@ -92,9 +92,9 @@ export function useMessageItemViewModel(
             const ciphertext = await getE2eePort().encryptOutbound(conversationKey, editMessage)
             await getDmPort().editMessage(idpUrl, accessToken, message.id, bytesToB64(ciphertext))
             if (message.authorAddress) {
-                getE2eePort().bufferForArchive(
+                getE2eePort().bufferEditForArchive(
                     conversationKey,
-                    crypto.randomUUID(),
+                    ciphertext,
                     archivedEdit(
                         { address: message.authorAddress, displayName: message.author },
                         new Date().toISOString(),

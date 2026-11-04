@@ -20,12 +20,6 @@ export interface RevokeDeviceInput {
      * before invoking — the port stays free of state.
      */
     conversationIds: ConversationId[]
-    /**
-     * If `true`, also clear the wrapped MSK on the IdP. Use when the
-     * revoked device was the only one with the Recovery Key
-     * passphrase committed to memory (paranoid mode).
-     */
-    alsoClearRecovery?: boolean
 }
 
 /**
@@ -52,6 +46,5 @@ export const revokeDeviceUseCase =
             input.actorUri,
             input.deviceId,
             input.conversationIds,
-            { also_clear_recovery: input.alsoClearRecovery },
         )
     }

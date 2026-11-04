@@ -65,15 +65,7 @@ describe("E2eeAdapter.registerDevice", () => {
         } as unknown as IKeyDirectoryPort & { registerDevice: ReturnType<typeof vi.fn> }
         const hpkeKey = { publicKey: new Uint8Array(32).fill(5), privateKey: new Uint8Array(32).fill(6) }
         const hpke = { generateKeyPair: vi.fn(async () => hpkeKey) } as unknown as IHpkePort
-        const e2ee = new E2eeAdapter(
-            {} as never,
-            {} as never,
-            storage,
-            directory,
-            {} as never,
-            hpke,
-            issuers.jwks,
-        )
+        const e2ee = new E2eeAdapter({} as never, {} as never, storage, directory, hpke, issuers.jwks)
         return { e2ee, directory, hpke, hpkeKey, issuers, stored: () => attestation }
     }
 

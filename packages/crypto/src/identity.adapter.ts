@@ -45,13 +45,6 @@ const FINGERPRINT_CHARS = 60
 export interface IdentityAdapter {
     /** Generate a fresh MSK/SSK/USK triple — one-time per user. */
     generate(): IdentityKeypair
-    /**
-     * Reconstruct a full keypair from a recovered MSK private. The
-     * MSK public is derived; SSK and USK are freshly generated and
-     * signed by MSK so the chain stays valid. Used by the Recovery
-     * Key flow on a new device.
-     */
-    recoverFromMsk(mskPrivate: Uint8Array): IdentityKeypair
     /** Public-only projection for upload to `POST /api/keys/identity`. */
     publicKeys(keypair: IdentityKeypair): IdentityPublicKeys
     /**
@@ -70,14 +63,6 @@ export interface IdentityAdapter {
 export class NobleIdentityAdapter implements IdentityAdapter {
     generate(): IdentityKeypair {
         return this.assembleFrom(ed25519.keygen())
-    }
-
-    recoverFromMsk(mskPrivate: Uint8Array): IdentityKeypair {
-        // Ed25519 derives the public key deterministically from the
-        // 32-byte secret; same MSK private → same MSK public →
-        // same fingerprint. SSK + USK are fresh per recovery (spec § 9).
-        const mskPublic = ed25519.getPublicKey(mskPrivate)
-        return this.assembleFrom({ secretKey: mskPrivate, publicKey: mskPublic })
     }
 
     private assembleFrom(msk: { secretKey: Uint8Array; publicKey: Uint8Array }): IdentityKeypair {

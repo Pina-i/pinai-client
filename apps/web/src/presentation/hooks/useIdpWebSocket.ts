@@ -519,9 +519,9 @@ export function useIdpWebSocket(): void {
                                     .getState()
                                     .dmMessages[convKey]?.find((m) => m.id === message_id)
                                 if (target?.authorAddress) {
-                                    getE2eePort().bufferForArchive(
+                                    getE2eePort().bufferEditForArchive(
                                         convKey,
-                                        crypto.randomUUID(),
+                                        b64ToBytes(new_mls_ciphertext),
                                         archivedEdit(
                                             { address: target.authorAddress, displayName: target.author },
                                             event.data.edited_at,

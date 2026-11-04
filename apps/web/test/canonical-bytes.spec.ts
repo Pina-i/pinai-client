@@ -1,11 +1,17 @@
 /**
- * The canonical signed bytes of `identity-provider/specs/e2ee.md § 7.2`. The first two vectors
- * are the IdP's own (its domain and attestation tests): the bytes a device rebuilds must be the
- * very bytes the IdP signs and checks. A change here needs a new tag.
+ * The canonical signed bytes of `identity-provider/specs/e2ee.md § 7.2`. The attestation, HPKE
+ * and approval vectors are the IdP's own (its domain and attestation tests): the bytes a device
+ * rebuilds must be the very bytes the IdP signs and checks. A change here needs a new tag.
  */
 import { describe, expect, it } from "vitest"
 
-import { attestationBytes, deviceHpkeKeyBytes, leafBindingBytes } from "@pinai/crypto/canonical-bytes"
+import {
+    approvalBytes,
+    archiveEntryAad,
+    attestationBytes,
+    deviceHpkeKeyBytes,
+    leafBindingBytes,
+} from "@pinai/crypto/canonical-bytes"
 
 const ACTOR = "https://idp.alice.com/users/alice_xK9mP"
 const DEVICE = "550e8400-e29b-41d4-a716-446655440000"
@@ -39,6 +45,29 @@ describe("canonical signed bytes", () => {
                 "https://idp.alice.com/users/alice_xK9mP\n" +
                 "550e8400-e29b-41d4-a716-446655440000\n" +
                 "//////////////////////////////////////////8=",
+        )
+    })
+
+    it("writes an approval over the approved device's root key as the IdP checks it", () => {
+        expect(
+            text(
+                approvalBytes(
+                    "https://idp.alice.test/users/alice_xk9mp",
+                    DEVICE,
+                    new Uint8Array(32).fill(1),
+                ),
+            ),
+        ).toBe(
+            "PINAI-DEVICE-APPROVAL-v1\n" +
+                "https://idp.alice.test/users/alice_xk9mp\n" +
+                "550e8400-e29b-41d4-a716-446655440000\n" +
+                "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+        )
+    })
+
+    it("writes an archive entry's associated data from its ids, lowercase as the IdP writes UUIDs", () => {
+        expect(text(archiveEntryAad("11112222-3333-4444-5555-66667777AAAA", DEVICE))).toBe(
+            "PINAI-ARCHIVE-v1\n" + "11112222-3333-4444-5555-66667777aaaa\n" + "550e8400-e29b-41d4-a716-446655440000",
         )
     })
 })

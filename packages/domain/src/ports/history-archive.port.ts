@@ -1,4 +1,6 @@
-/** REST surface for the server-side history archive (opaque ciphertexts). */
+/** The account's history key and its archive of opaque entries (`identity-provider/specs/e2ee.md § 5`). */
+
+import type { CurrentHistoryKey, HistoryKey } from "../models/history-key"
 
 export interface ArchiveEntry {
     id: string
@@ -19,14 +21,22 @@ export interface ArchivePage {
 }
 
 export interface IHistoryArchivePort {
-    uploadBatch(idpUrl: string, accessToken: string, entries: ArchiveEntry[]): Promise<number>
+    /** `GET /api/history/key`: the key in force, `null` before the account's first device sets one. */
+    getKey(idpUrl: string, accessToken: string): Promise<CurrentHistoryKey | null>
+    /**
+     * `PUT /api/history/key`, from a session that named its device. Another device setting that
+     * generation first is `IdpError` 409 `history_key_conflict`; the very key set already is a
+     * retry, answered as a success.
+     */
+    setKey(idpUrl: string, accessToken: string, key: HistoryKey): Promise<void>
+    /** Entries sealed under `generation`: any other than the current one is `IdpError` 409 `stale_history_key`. */
+    uploadBatch(idpUrl: string, accessToken: string, generation: number, entries: ArchiveEntry[]): Promise<number>
     downloadPage(
         idpUrl: string,
         accessToken: string,
         cursor: ArchivePageCursor | null,
         limit?: number,
     ): Promise<ArchivePage>
+    /** Erases the entries only — the key and its generation stay. Takes a recent password. */
     wipeArchive(idpUrl: string, accessToken: string): Promise<number>
-    getSalt(idpUrl: string, accessToken: string): Promise<Uint8Array | null>
-    setSalt(idpUrl: string, accessToken: string, salt: Uint8Array): Promise<Uint8Array>
 }

@@ -26,6 +26,8 @@ function ports(markRevoked: IDeviceDirectoryPort["markRevoked"]) {
             await markRevoked(idpUrl, accessToken, deviceId)
             done.push("revoked at the IdP")
         }),
+        approveByPassphrase: vi.fn(),
+        reportHistoryKey: vi.fn(),
     }
     const e2eePort = {
         revokeDevice: vi.fn(async () => {

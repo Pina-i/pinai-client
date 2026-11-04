@@ -8,17 +8,18 @@ export type GateDecision = "app" | "setup" | "restore"
 export type GateStatus = "loading" | "ready" | "redirecting" | "error"
 
 /**
- * Three branches:
- *  - local identity present → admit to the app
- *  - no local identity, no server-side history salt → first device for the account → setup
- *  - no local identity, salt exists → another device has set up the passphrase already → restore
+ * `hasHistoryKey` is `null` when the probe failed. An account with no key goes to setup, a local
+ * identity or not — a first device cut short before its key was set resumes there — unless this
+ * device saw a key before: generations only move forward.
  */
 export function decideGateRoute(probe: {
     hasLocal: boolean
-    hasArchive: boolean
+    hasHistoryKey: boolean | null
+    sawHistoryKey: boolean
 }): GateDecision {
+    if (probe.hasHistoryKey === false && !probe.sawHistoryKey) return "setup"
     if (probe.hasLocal) return "app"
-    return probe.hasArchive ? "restore" : "setup"
+    return probe.hasHistoryKey ? "restore" : "setup"
 }
 
 export interface GateResult {
@@ -29,9 +30,9 @@ export interface GateResult {
 
 /**
  * Onboarding gate. Probes local identity; on a fresh device, also probes
- * the server for an existing history-archive salt so a returning user
- * (signed in on a new device) lands on the restore flow instead of
- * being asked to mint a new passphrase that would orphan their backup.
+ * the server for the account's history key so a returning user (signed
+ * in on a new device) lands on the restore flow instead of being asked
+ * to mint a new passphrase.
  */
 export function useIdentityOnboardingGate(): GateResult {
     const signedIn = useAppStore((s) => s.accessToken !== null)
@@ -58,52 +59,46 @@ export function useIdentityOnboardingGate(): GateResult {
         ;(async () => {
             try {
                 const port = getE2eePort()
-                if (await port.hasLocalIdentity()) {
+                const hasLocal = await port.hasLocalIdentity()
+                if (hasLocal) {
                     // Storage is opened per account by the route guard, so a
                     // different binding means this store was bound to the
                     // wrong account. Wipe it rather than serve someone
                     // else's keys.
                     const bound = await port.getBoundActorUri()
-                    if (bound === null || bound === ownActorUri) {
-                        if (!cancelled) setStatus("ready")
+                    if (bound !== null && bound !== ownActorUri) {
+                        // eslint-disable-next-line no-console
+                        console.warn(
+                            `Onboarding gate: wiping IDB — stored identity is bound to ${bound} but ${ownActorUri} is logged in`,
+                        )
+                        await port.wipeLocalDevice()
+                        if (cancelled) return
+                        // Wiping IDB clears Alice's at-rest state, but the
+                        // Zustand persist middleware already hydrated her
+                        // message cache into memory at app boot (the
+                        // device key was still hers at that point).
+                        // Forcing a full reload is the only way to drop
+                        // that in-memory state cleanly — falling through
+                        // to a soft navigate would leave Pierre's session
+                        // rendering Alice's last-seen DMs from memory.
+                        if (typeof window !== "undefined") {
+                            window.location.reload()
+                        }
                         return
                     }
-                    // eslint-disable-next-line no-console
-                    console.warn(
-                        `Onboarding gate: wiping IDB — stored identity is bound to ${bound} but ${ownActorUri} is logged in`,
-                    )
-                    await port.wipeLocalDevice()
-                    if (cancelled) return
-                    // Wiping IDB clears Alice's at-rest state, but the
-                    // Zustand persist middleware already hydrated her
-                    // message cache into memory at app boot (the
-                    // device key was still hers at that point).
-                    // Forcing a full reload is the only way to drop
-                    // that in-memory state cleanly — falling through
-                    // to a soft navigate would leave Pierre's session
-                    // rendering Alice's last-seen DMs from memory.
-                    if (typeof window !== "undefined") {
-                        window.location.reload()
-                    }
-                    return
                 }
 
-                // Fresh device: ask the server whether the account
-                // already has a history-archive salt. Treat any error
-                // as "no salt" so a transient failure doesn't trap the
-                // user on the gate — worst case they land on setup and
-                // can re-run restore manually from Settings.
-                let hasArchive = false
+                let hasHistoryKey: boolean | null = null
                 try {
-                    const salt = await getHistoryArchivePort().getSalt(idpUrl, accessToken)
-                    hasArchive = salt !== null
+                    hasHistoryKey = (await getHistoryArchivePort().getKey(idpUrl, accessToken)) !== null
                 } catch (e) {
                     // eslint-disable-next-line no-console
-                    console.warn("Gate: history-salt probe failed; falling through to setup", e)
+                    console.warn("Gate: history-key probe failed", e)
                 }
+                const sawHistoryKey = (await port.newestHistoryGeneration()) !== null
 
                 if (cancelled) return
-                const decision = decideGateRoute({ hasLocal: false, hasArchive })
+                const decision = decideGateRoute({ hasLocal, hasHistoryKey, sawHistoryKey })
                 if (decision === "app") {
                     setStatus("ready")
                     return

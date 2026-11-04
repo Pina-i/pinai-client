@@ -146,9 +146,9 @@ async function mapApiMessage(
         )
     } else if (app.kind === "edit") {
         // An edited message's ciphertext is the edit's; the archive may hold its first text.
-        getE2eePort().bufferForArchive(
+        getE2eePort().bufferEditForArchive(
             msg.conversation_id,
-            crypto.randomUUID(),
+            b64ToBytes(msg.mls_ciphertext),
             archivedEdit(sender, msg.edited_at ?? msg.created_at, app.body as EditBody),
         )
     }

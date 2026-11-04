@@ -3,8 +3,9 @@ import { useLocation } from "@tanstack/react-router"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 
+import { clearHistoryBackupUseCase } from "@pinai/domain/usecases/e2ee/clear-history-backup.usecase"
 import { revokeDeviceUseCase } from "@pinai/domain/usecases/e2ee/revoke-device.usecase"
-import { getDeviceDirectoryPort, getE2eePort, getSessionPort } from "@/ioc"
+import { getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getSessionPort } from "@/ioc"
 import { devicesQueryKey, useDevices, type DeviceRow } from "@/presentation/hooks/useDevices"
 import { type RecentSignIn, useRecentSignIn } from "@/presentation/hooks/use-recent-sign-in"
 import { useAppStore } from "@/store/store"
@@ -18,8 +19,8 @@ export interface DevicesEditorViewModel {
 
     passphraseWords: string[] | null
     isPassphraseLoading: boolean
-    isClearingRecovery: boolean
-    onClearRecovery: () => Promise<void>
+    isClearingHistoryBackup: boolean
+    onClearHistoryBackup: () => Promise<void>
 
     revokingDeviceId: string | null
     onRevokeDevice: (deviceId: string) => Promise<void>
@@ -39,8 +40,8 @@ export interface DevicesEditorViewModel {
  *  - per-device revoke = `revokeDeviceUseCase` (server flag, then MLS
  *    Remove commits), then invalidate the devices query so the list
  *    re-renders
- *  - "Clear recovery key" = `IE2eePort.clearRecoveryKey` (server blob
- *    DELETE + local wipe), then clears local passphrase state
+ *  - "Clear history backup" = `clearHistoryBackupUseCase`: the saved entries
+ *    only — the passphrase and its generation stay, saving goes on
  *  - a refusal for a password typed too long ago asks for it again, and
  *    comes back to this pane
  *
@@ -61,7 +62,7 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
 
     const [passphraseWords, setPassphraseWords] = useState<string[] | null>(null)
     const [isPassphraseLoading, setIsPassphraseLoading] = useState(true)
-    const [isClearingRecovery, setIsClearingRecovery] = useState(false)
+    const [isClearingHistoryBackup, setIsClearingHistoryBackup] = useState(false)
     const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null)
     const [isSigningOutOthers, setIsSigningOutOthers] = useState(false)
 
@@ -82,18 +83,17 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
         }
     }, [])
 
-    const onClearRecovery = useCallback(async () => {
+    const onClearHistoryBackup = useCallback(async () => {
         if (!idpUrl || !accessToken) return
-        setIsClearingRecovery(true)
+        setIsClearingHistoryBackup(true)
         try {
-            await getE2eePort().clearHistoryBackup(idpUrl, accessToken)
-            setPassphraseWords(null)
+            await clearHistoryBackupUseCase({ historyArchivePort: getHistoryArchivePort() })(idpUrl, accessToken)
             toast.success("History backup cleared")
         } catch (e) {
             if (refused(e, "clear the history backup")) return
             toast.error(e instanceof Error ? e.message : "Could not clear history backup")
         } finally {
-            setIsClearingRecovery(false)
+            setIsClearingHistoryBackup(false)
         }
     }, [idpUrl, accessToken, refused])
 
@@ -143,8 +143,8 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
         error,
         passphraseWords,
         isPassphraseLoading,
-        isClearingRecovery,
-        onClearRecovery,
+        isClearingHistoryBackup,
+        onClearHistoryBackup,
         revokingDeviceId,
         onRevokeDevice,
         isSigningOutOthers,

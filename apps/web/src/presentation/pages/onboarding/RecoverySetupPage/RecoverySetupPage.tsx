@@ -15,7 +15,7 @@ export function RecoverySetupPage() {
 
     // Same smoothing as the gate loader, so a fast bootstrap still reads as intentional.
     const showSetupLoader = useMinimumLoadingDuration(
-        vm.status === "running",
+        vm.status === "running" || vm.status === "checking",
         SETUP_LOADER_MIN_MS,
     )
 

@@ -158,11 +158,10 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 
 ### ports/key-directory.port.ts
 - `IKeyDirectoryPort` — the IdP key directory + MLS Delivery Service as the
-  E2EE core needs it: claim key packages, post commits and welcomes, store
-  the wrapped recovery blob
+  E2EE core needs it: register the device, claim key packages, post commits
+  and welcomes
 - Plus the wire DTOs (`CommitView`, `WelcomeView`, `IdentityKeysResponse`,
-  `Argon2Params`, `RecoveryBlobResponse`, `RegisterDeviceResponse`), base64
-  already decoded to bytes
+  `RegisterDeviceResponse`), base64 already decoded to bytes
 - Lives here, not beside its REST implementation, so the crypto core does not
   have to depend on the HTTP client that happens to implement it today
 
@@ -417,7 +416,39 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   show nothing for one that doesn't decrypt (MLS never decrypts a
   device's own).
 
-### models/history-archive.ts + usecases/e2ee/restore-history-from-passphrase.usecase.ts
+### models/history-key.ts + the history key's use cases
+- The account's passphrase in generations (`identity-provider/specs/e2ee.md § 3.6–3.9`).
+  `HistoryKey` — generation, salt, check value, approval public key; `CurrentHistoryKey` adds
+  `setByDevice`. `passphraseVerdict` — words hold a key only when both values are its own.
+- `standingAgainst(key, kept, newestSeen, rootKey)` — `holds` (`settled` when approved over the
+  device's root key as it is now, `isSettled`), `mismatch` (`check-value`, `approval-key`,
+  `rollback` — a generation below the newest seen, or none after one —, `relabelled` — the kept
+  generation's key under another number; the words are kept, nothing uploaded), `no-key`,
+  `no-passphrase`. Generations only move forward; words give the one generation they were kept
+  for. `newestGenerationSeen`, `approvalCarriedOver`, `buffersForArchive`.
+- `IHistoryArchivePort` — `getKey` (`null` before the first), `setKey` (compare-and-set:
+  `history_key_conflict` for another device's), uploads naming their generation
+  (`stale_history_key`), `wipeArchive` (entries only). `IDeviceDirectoryPort` —
+  `approveByPassphrase`, `reportHistoryKey`.
+- `set-up-this-device.usecase.ts` registers the device then names its session: setting a key,
+  approving and reporting take the naming. Publishing KeyPackages is its own step after it
+  (`registerIdentityUseCase`).
+- `settle-pending-history-key.usecase.ts` — a pending key (minted, sealed, its `PUT` unanswered)
+  settles before anything else: the key in force is it → kept; none → set again; another → erased.
+- `bootstrap-first-device.usecase.ts` — the first device: no key in force, generation 1 is minted
+  and sealed as pending, set, then kept, approved, reported and shown; another device's key erases
+  it (`has-key`). A device without words on an account with a key mints nothing.
+- `restore-history-from-passphrase.usecase.ts` — typed words checked against the key in force, an
+  empty archive or not, a key below the newest seen refused (`rolled-back`); right, kept, approved
+  and reported, then the archive restored — `key-changed` when a generation lands meanwhile.
+- `approve-by-passphrase.usecase.ts` — a device that comes to hold the current passphrase
+  approves itself and reports; `stale_history_key` reads the key again and answers the standing.
+- `check-history-key.usecase.ts` — the pending key settled, then the standing; holding the key
+  unsettled, the approval made. `start-this-device.usecase.ts` — what a page load runs: the naming,
+  then that check.
+- `clear-history-backup.usecase.ts` — the entries erased; the words and generation stay.
+
+### models/history-archive.ts
 - `ArchiveEnvelope` — an archive entry before it is sealed: a message or an
   edit, its sender, its instant, and a message's attachments as the IdP
   lists them (`MessageItem` renders from that list; the keys alone show
@@ -425,7 +456,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - A message is archived wherever this device first holds its text: the
   send's answer (and its echo, for an answer that never came), a live
   decrypt, a decrypt on opening the conversation. An edit is its own entry
-  under a fresh id, the edited message's sender as its sender. A reaction is
+  under the id its MLS ciphertext gives (`editEntryId`: the SHA-256 digest
+  as a version-8 UUID), the same wherever it is met, the edited message's
+  sender as its sender. A reaction is
   its own entry under its message id (`sendReactionUseCase` answers the row),
   removals included, or a removed reaction would come back.
 - `encodeArchiveEnvelope` / `decodeArchiveEnvelope` — JSON, with byte
@@ -440,7 +473,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   load may decrypt one again (sent after the device joined). Only for the
   messages the cache doesn't hold decrypted — a held copy wins, reactions
   included.
-- `ARCHIVE_UPLOAD_LIMIT` — the IdP takes 50 entries per upload.
+- `ARCHIVE_UPLOAD_LIMIT` — the IdP takes 50 entries per upload;
+  `ARCHIVE_BUFFER_LIMIT` — at most 1000 wait on a device, the oldest dropped.
 
 ### models/idp-error.ts
 - `IdpError` — a refusal as the IdP sent it: status, `error` code, the
@@ -452,6 +486,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   `insufficient_user_authentication`): the user signs in again, then retries.
 - `isDeviceMismatch(error)` — the session names another device
   (`DEVICE_MISMATCH`): `sign-in-again.usecase.ts`.
+- `isStaleHistoryKey` / `isHistoryKeyConflict` — a generation that isn't the current one; another
+  device's generation set first.
 
 ### usecases/e2ee/replenish-keypackages.usecase.ts
 - The KeyPackage tick (entry, every 6 h, `key_packages_low`): the attestation

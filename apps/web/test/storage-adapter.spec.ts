@@ -16,7 +16,9 @@ import "fake-indexeddb/auto"
 
 import { WebCryptoDeviceKeyAdapter } from "@/adapters/e2ee/device-key.adapter"
 import { SealedStorage } from "@pinai/crypto/sealed-storage"
-import type { DeviceAttestation, MlsSnapshot } from "@pinai/crypto/sealed-storage"
+import type { DeviceAttestation, KeptPassphrase, MlsSnapshot, PendingPassphrase } from "@pinai/crypto/sealed-storage"
+import type { IDeviceKeyPort } from "@pinai/domain/ports/device-key.port"
+import type { IKeyValueStore } from "@pinai/domain/ports/key-value-store.port"
 import { IdbKeyValueStore, e2eeDatabaseName } from "@/adapters/storage/idb-key-value-store.adapter"
 import type { ConversationId, IdentityKeypair } from "@pinai/domain/models/e2ee"
 import { asActorUri } from "@pinai/domain/models/identity"
@@ -53,6 +55,35 @@ const ATTESTATION: DeviceAttestation = {
 }
 
 const WORDS = Array.from({ length: 24 }, (_, i) => `word${i + 1}`)
+
+const KEPT: KeptPassphrase = {
+    words: WORDS,
+    generation: 2,
+    approvedRootKey: bytes(18),
+    derived: { salt: bytes(16, 16), hak: bytes(17) },
+}
+
+const PENDING: PendingPassphrase = {
+    words: WORDS,
+    key: { generation: 1, salt: bytes(19, 16), checkValue: bytes(20), approvalPublicKey: bytes(21) },
+    hak: bytes(22),
+}
+
+/** The history key's rows, raw: where an unreadable one is set aside. */
+async function passphraseRows(): Promise<string[]> {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open(e2eeDatabaseName(ALICE))
+        req.onerror = () => reject(req.error)
+        req.onsuccess = () => {
+            const keys = req.result.transaction("recovery_passphrase", "readonly").objectStore("recovery_passphrase").getAllKeys()
+            keys.onsuccess = () => {
+                req.result.close()
+                resolve((keys.result as string[]).sort())
+            }
+            keys.onerror = () => reject(keys.error)
+        }
+    })
+}
 
 const ALICE = asActorUri("https://idp.example/users/alice")
 const PIERRE = asActorUri("https://idp.example/users/pierre")
@@ -113,11 +144,64 @@ describe("sealed rows", () => {
         expect(await storage.loadDeviceAttestation()).toEqual(ATTESTATION)
     })
 
-    it("round-trips the recovery passphrase and clears it", async () => {
-        await storage.saveRecoveryPassphrase(WORDS)
-        expect(await storage.loadRecoveryPassphrase()).toEqual(WORDS)
-        await storage.clearRecoveryPassphrase()
-        expect(await storage.loadRecoveryPassphrase()).toBeNull()
+    it("round-trips the kept and pending words, the standing and the newest generation seen", async () => {
+        await storage.saveKeptPassphrase(KEPT)
+        await storage.savePendingPassphrase(PENDING)
+        await storage.saveHistoryKeyStanding({
+            kind: "mismatch",
+            generation: 3,
+            setByDevice: "d2",
+            reason: "rollback",
+            held: 2,
+        })
+        await storage.saveNewestHistoryGeneration(3)
+
+        const kept = await storage.loadKeptPassphrase()
+        expect(kept).toEqual(KEPT)
+        expect(kept!.derived.hak).toBeInstanceOf(Uint8Array)
+        expect(await storage.loadPendingPassphrase()).toEqual(PENDING)
+        expect(await storage.loadHistoryKeyStanding()).toMatchObject({ kind: "mismatch", reason: "rollback" })
+        expect(await storage.loadNewestHistoryGeneration()).toBe(3)
+        await storage.clearPendingPassphrase()
+        expect(await storage.loadPendingPassphrase()).toBeNull()
+    })
+
+    it("sets aside, never deletes, a row it can't read: words alone, a short salt, 23 words", async () => {
+        const seal = (value: object, key?: string) => storage["seal"]("recovery_passphrase", value, key)
+        const json = { ...KEPT, approved_root_key: null, salt: Array.from(KEPT.derived.salt), hak: Array.from(KEPT.derived.hak) }
+
+        for (const unreadable of [{ words: WORDS }, { ...json, salt: [1, 2] }, { ...json, words: WORDS.slice(1) }]) {
+            await seal(unreadable)
+            expect(await storage.loadKeptPassphrase()).toBeNull()
+        }
+
+        const rows = await passphraseRows()
+        expect(rows.filter((key) => key.startsWith("current:unreadable:"))).toHaveLength(3)
+        expect(rows).not.toContain("current")
+    })
+
+    it("sets aside a row that won't open under the device key", async () => {
+        const kv = new IdbKeyValueStore(e2eeDatabaseName(ALICE))
+        await kv.put("recovery_passphrase", "current", bytes(40, 64))
+
+        expect(await storage.loadKeptPassphrase()).toBeNull()
+        expect((await passphraseRows()).filter((key) => key.startsWith("current:unreadable:"))).toHaveLength(1)
+    })
+
+    it("throws, touching nothing, when the device key can't be loaded", async () => {
+        const kv: IKeyValueStore = {
+            get: async () => bytes(41, 64),
+            put: async () => {
+                throw new Error("nothing is written")
+            },
+            delete: async () => {
+                throw new Error("nothing is deleted")
+            },
+            clear: async () => undefined,
+        }
+        const deviceKey = { ready: async () => Promise.reject(new Error("key unreadable")) } as unknown as IDeviceKeyPort
+
+        await expect(new SealedStorage(kv, deviceKey).loadKeptPassphrase()).rejects.toThrow("key unreadable")
     })
 
     it("round-trips the bound actor uri", async () => {
@@ -138,11 +222,12 @@ describe("sealed rows", () => {
         expect(await storage.loadIdentityKeypair()).toBeNull()
         expect(await storage.loadMlsSnapshot()).toBeNull()
         expect(await storage.loadDeviceAttestation()).toBeNull()
-        expect(await storage.loadRecoveryPassphrase()).toBeNull()
+        expect(await storage.loadKeptPassphrase()).toBeNull()
+        expect(await storage.loadHistoryKeyStanding()).toBeNull()
     })
 
     it("stores rows encrypted — the plaintext is not recoverable from the row", async () => {
-        await storage.saveRecoveryPassphrase(WORDS)
+        await storage.saveKeptPassphrase(KEPT)
         const db = await indexedDB.databases?.().then(() => undefined)
         void db
         const raw = await new Promise<unknown>((resolve, reject) => {
@@ -190,14 +275,14 @@ describe("clear", () => {
         await storage.saveIdentityKeypair(KEYPAIR)
         await storage.saveMlsSnapshot(SNAPSHOT)
         await storage.saveDeviceAttestation(ATTESTATION)
-        await storage.saveRecoveryPassphrase(WORDS)
+        await storage.saveKeptPassphrase(KEPT)
 
         await storage.clear()
 
         expect(await storage.loadIdentityKeypair()).toBeNull()
         expect(await storage.loadMlsSnapshot()).toBeNull()
         expect(await storage.loadDeviceAttestation()).toBeNull()
-        expect(await storage.loadRecoveryPassphrase()).toBeNull()
+        expect(await storage.loadKeptPassphrase()).toBeNull()
         expect(await storage.getOrCreateDeviceId()).not.toBe(deviceId)
     })
 })

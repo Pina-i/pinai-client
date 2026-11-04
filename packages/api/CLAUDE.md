@@ -37,7 +37,7 @@ domain as `IKeyDirectoryPort`, which is what keeps the two independent.
 - Errors are unwrapped from `HTTPError` into plain `Error` with the server's
   message where there is one, so use cases do not import `ky` to read a
   failure. The DM, group, social, privacy, key-directory, session, admin, TOTP
-  and device-directory adapters and the history upload and wipe, whose refusals the
+  and device-directory adapters and the history key, upload and wipe, whose refusals the
   client tells apart, raise the domain's `IdpError` instead
   (`idp-error.ts`): status, `error` code and `actor_uri`, with the
   `error_description` as the message. Match on the code, never the words.
@@ -45,3 +45,7 @@ domain as `IKeyDirectoryPort`, which is what keeps the two independent.
   needs to check another's chain itself — root key, attestation, HPKE key and its signature —
   and the approvals as listed; a key that isn't base64 reads as none, an approval that isn't
   one is left out. `registerDevice` sends the HPKE key and its signature with the root key.
+- The history key (`history-archive-api.adapter.ts`): `GET /api/history/key` reads a `404` as
+  no key and refuses an answer whose bytes aren't their size (`parseHistoryKey`); `PUT` sets a
+  generation; uploads name theirs. A device approves itself by the passphrase and reports its
+  generation through the device directory (`/api/keys/devices/{id}/approvals`, `…/history-key`).

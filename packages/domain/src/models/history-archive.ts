@@ -4,6 +4,23 @@ import type { ApplicationMessage, AttachmentBlobKey, EditBody, ReactionBody, Tex
 /** The most entries `POST /api/history/messages` takes at once. */
 export const ARCHIVE_UPLOAD_LIMIT = 50
 
+/** The most entries waiting for the archive on a device; past it, the oldest go. */
+export const ARCHIVE_BUFFER_LIMIT = 1000
+
+/**
+ * An edit's entry id: its MLS ciphertext's digest as a version-8 UUID. Every device and every
+ * path that meets the edit — the sender's own, the live push, a history load — holds the same
+ * bytes, so the edit is archived once.
+ */
+export function editEntryId(ciphertextDigest: Uint8Array): string {
+    if (ciphertextDigest.length < 16) throw new Error("An edit's digest is at least 16 bytes")
+    const bytes = ciphertextDigest.slice(0, 16)
+    bytes[6] = (bytes[6] & 0x0f) | 0x80
+    bytes[8] = (bytes[8] & 0x3f) | 0x80
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
 /**
  * An entry of the history archive before it is sealed under the History Archive Key: a message,
  * an edit or a reaction, with what restoring it needs that the MLS body doesn't carry.

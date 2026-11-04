@@ -82,7 +82,8 @@ A full-page loading state doesn't draw a loader: it holds the splash. A loader i
 
 ## This device and its session
 
-- `_libs/session-device.ts` — once per page load, from `requireSession`: the device registers again when it has to (near its attestation's end, or no HPKE key yet), then names itself on the session — after a failed registration too, which the KeyPackage tick tries again (`use-replenish-key-packages.ts`).
+- `_libs/session-device.ts` — once per page load, from `requireSession`, it runs `startThisDeviceUseCase`: the device registers again when it has to (near its attestation's end, or no HPKE key yet), names itself on the session — after a failed registration too, which the KeyPackage tick tries again (`use-replenish-key-packages.ts`) — then its words are checked against the account's history key, a pending key settled first. Tried again at the next route when the IdP is out of reach.
+- The onboarding gate sends an account with no history key to setup, a local identity or not — a first device cut short resumes there —, unless this device saw a key before. `RecoverySetupPage` shows the words only once the IdP took generation 1, with a loader until then; a reload while the IdP is out of reach shows the words kept. Another device's key sends it to the restore page. `RecoveryRestorePage` sets the device up on mount and checks the typed words before anything is kept. "Clear history backup" (Settings → Devices) erases the entries only.
 - `_libs/device-mismatch.ts` — `signInAgainOnDeviceMismatch(error)` for a `catch` around a registration or the naming (`session-device.ts`, both onboarding pages): the app revokes its own session and signs in again, once a page. The tick's renewal goes through it too. The flow is the domain's (`sign-in-again.usecase.ts`).
 
 ## ViewModel pattern

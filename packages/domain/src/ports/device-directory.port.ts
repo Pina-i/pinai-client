@@ -8,4 +8,17 @@ import type { DeviceListResponse } from "../models/device"
 export interface IDeviceDirectoryPort {
     listDevices(idpUrl: string, accessToken: string): Promise<DeviceListResponse>
     markRevoked(idpUrl: string, accessToken: string, deviceId: string): Promise<void>
+    /**
+     * The session's own device approved by the passphrase: `signature` is the generation's
+     * approval key's. `IdpError` 409 `stale_history_key` under another generation.
+     */
+    approveByPassphrase(
+        idpUrl: string,
+        accessToken: string,
+        deviceId: string,
+        generation: number,
+        signature: Uint8Array,
+    ): Promise<void>
+    /** The device says it holds `generation`, from its own session. */
+    reportHistoryKey(idpUrl: string, accessToken: string, deviceId: string, generation: number): Promise<void>
 }

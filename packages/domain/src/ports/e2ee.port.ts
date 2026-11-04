@@ -7,6 +7,7 @@ import type {
     KeyPackageStatusResponse,
 } from "../models/e2ee"
 import type { ArchiveEnvelope, ArchivedEntry } from "../models/history-archive"
+import type { DerivedHistoryKey, HistoryKey, HistoryKeyStanding } from "../models/history-key"
 import type { UntrustedLeaf } from "../models/leaf-trust"
 
 /**
@@ -42,7 +43,7 @@ export interface IE2eePort {
 
     /**
      * Returns the actor URI the local identity is bound to (set after
-     * register / recoverFromPassphrase) or null. The onboarding gate
+     * register) or null. The onboarding gate
      * uses this to detect cross-account contamination — Alice logging
      * out and Pierre logging back in on the same browser must NOT
      * have Pierre inherit Alice's keys.
@@ -67,35 +68,6 @@ export interface IE2eePort {
      * outcome is that the gate sees a partial state and retries.
      */
     wipeLocalDevice(): Promise<void>
-
-    /**
-     * First-device bootstrap. Generates the local identity, registers the
-     * Device Root Key attestation, mints a 24-word recovery passphrase +
-     * history-archive salt, persists locally. Deduplicated against concurrent
-     * callers (StrictMode double-fire would otherwise mint two different mnemonics).
-     */
-    bootstrapFirstDevice(
-        idpUrl: string,
-        accessToken: string,
-        actorUri: ActorUri,
-    ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint; words: string[] }>
-
-    /** Source for the Settings → Devices passphrase-reveal UI. */
-    loadStoredPassphrase(): Promise<string[] | null>
-
-    saveStoredPassphrase(words: string[]): Promise<void>
-
-    /** Idempotent. Legacy no-op since the server-side recovery blob endpoint is gone. */
-    clearRecoveryKey(idpUrl: string, accessToken: string): Promise<void>
-
-    /**
-     * True when a wrapped MSK blob is configured on the server for
-     * this account. Used by the onboarding gate to decide between the
-     * full "Recover history" view and the degraded "Start fresh only"
-     * variant on a new device. Surfaces as a `boolean` rather than the
-     * raw blob to keep the caller from leaking ciphertext bytes around.
-     */
-    hasRecoveryKey(idpUrl: string, accessToken: string): Promise<boolean>
 
     /**
      * Compute the local user's MSK fingerprint for the UI. Reads from
@@ -191,8 +163,7 @@ export interface IE2eePort {
      * Remove commit per conversation it's a member of; PCS recovers
      * within each commit. The caller passes the conversation list
      * (typically every active DM/group from the local store) so the
-     * port stays free of zustand. Clears the wrapped Recovery Key
-     * blob when `also_clear_recovery` is set.
+     * port stays free of zustand.
      */
     revokeDevice(
         idpUrl: string,
@@ -200,7 +171,6 @@ export interface IE2eePort {
         actorUri: ActorUri,
         deviceId: DeviceId,
         conversationIds: ConversationId[],
-        opts?: { also_clear_recovery?: boolean },
     ): Promise<{ removed_from: ConversationId[] }>
 
     /**
@@ -284,21 +254,6 @@ export interface IE2eePort {
         actorUri: ActorUri,
     ): Promise<KeyPackageStatusResponse>
 
-    // ─── Legacy — kept on the interface for the integration test stub ──
-
-    setupRecoveryKey(
-        idpUrl: string,
-        accessToken: string,
-        passphrase: string,
-    ): Promise<void>
-
-    recoverFromPassphrase(
-        idpUrl: string,
-        accessToken: string,
-        actorUri: ActorUri,
-        passphrase: string,
-    ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint }>
-
     // ─── Per-device IdP attestation + history backup ────────────────────
 
     /**
@@ -313,14 +268,16 @@ export interface IE2eePort {
         actorUri: ActorUri,
     ): Promise<void>
 
-    /** Locally-cached 24-word passphrase, or null. */
-    getCachedPassphrase(): Promise<string[] | null>
-
     /**
-     * Queue an entry for the history archive: a message this device sent or read, or an edit.
-     * An id is queued once per page load; a no-op when the archive is unwired.
+     * Queue an entry for the history archive: a message this device sent or read. An id is queued
+     * once per page load; a no-op when the archive is unwired. Entries wait unsealed while the
+     * history key is unchecked or held — at most `ARCHIVE_BUFFER_LIMIT`, the oldest dropped —,
+     * and go out sealed under the generation held, their ids bound as associated data.
      */
     bufferForArchive(conversationId: ConversationId, entryId: string, entry: ArchiveEnvelope): void
+
+    /** An edit, under the id its MLS ciphertext gives (`editEntryId`): archived once, wherever met. */
+    bufferEditForArchive(conversationId: ConversationId, editCiphertext: Uint8Array, entry: ArchiveEnvelope): void
 
     /**
      * History-archive upload lifecycle — the auth layout starts/stops these. The access token is
@@ -329,18 +286,67 @@ export interface IE2eePort {
     startFlushing(idpUrl: string, accessToken: () => string | null): void
     stopFlushing(): void
 
+    // ─── The history key (`identity-provider/specs/e2ee.md § 3.6–3.9`) ─────
+
     /**
-     * Decrypt the server-side archive under the passphrase. `skipped` counts
-     * AES-GCM auth-tag failures (wrong passphrase, unrelated archive).
+     * 24 new words for `generation` and the key they give, sealed as this device's pending key
+     * before they are answered: never shown, reported or used to seal. The same words come back
+     * for the page load, until {@link IE2eePort.dropPendingHistoryKey}.
      */
-    restoreHistoryFromPassphrase(
+    mintHistoryKey(generation: number): Promise<{ words: string[]; key: HistoryKey }>
+
+    /** The pending key, its words left out; `null` when none waits. */
+    pendingHistoryKey(): Promise<HistoryKey | null>
+
+    /** The IdP took the pending key: its words become the ones this device keeps. A no-op without one. */
+    promotePendingHistoryKey(): Promise<void>
+
+    /** The pending key erased, with its words and their derivation. */
+    dropPendingHistoryKey(): Promise<void>
+
+    /** What `words` give under `salt`: Argon2id once per words and salt, then the check value and approval key. */
+    deriveHistoryKey(words: string[], salt: Uint8Array): Promise<DerivedHistoryKey>
+
+    /**
+     * Keeps `words` as this device's passphrase for `key`'s generation. Words that don't give
+     * `key`, a generation older than one seen, or words another tab replaced meanwhile throw.
+     */
+    keepPassphrase(words: string[], key: HistoryKey): Promise<void>
+
+    /** The newest generation of the history key this device has seen, `null` before any. */
+    newestHistoryGeneration(): Promise<number | null>
+
+    /**
+     * Reads the key in force and stands the words this device keeps against it (`standingAgainst`).
+     * The standing is recorded; out of `holds`, nothing is uploaded and the words stay.
+     */
+    checkHistoryKey(idpUrl: string, accessToken: string): Promise<HistoryKeyStanding>
+
+    /** The standing this page load found, else the one last recorded. */
+    historyKeyStanding(): Promise<HistoryKeyStanding>
+
+    /**
+     * This device approved by the passphrase it holds: the generation's approval key over
+     * `PINAI-DEVICE-APPROVAL-v1` for its own root key. Checked first when unchecked; throws when
+     * it holds none.
+     */
+    signPassphraseApproval(
         idpUrl: string,
         accessToken: string,
-        passphrase: string[],
-    ): Promise<{ entries: ArchivedEntry[]; skipped: number }>
+        actorUri: ActorUri,
+    ): Promise<{ deviceId: DeviceId; generation: number; signature: Uint8Array; rootKey: Uint8Array }>
 
-    /** Wipe server archive + drop local passphrase + purge cached History Archive Key. */
-    clearHistoryBackup(idpUrl: string, accessToken: string): Promise<void>
+    /** Approved by the passphrase over `rootKey` and reported under `generation`. */
+    recordPassphraseApproval(generation: number, rootKey: Uint8Array): Promise<void>
+
+    /**
+     * The archive opened under the key this device holds, each entry with the ids its row
+     * carries as associated data; `skipped` counts those that don't open — damaged, or moved.
+     */
+    restoreHistory(idpUrl: string, accessToken: string): Promise<{ entries: ArchivedEntry[]; skipped: number }>
+
+    /** The words this device keeps, for Settings → Devices. */
+    loadStoredPassphrase(): Promise<string[] | null>
 
     // ─── Pairing ──────────────────────────────────────────────────────
 

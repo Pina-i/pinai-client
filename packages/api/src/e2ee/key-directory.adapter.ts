@@ -19,11 +19,9 @@ import type {
     KeyPackageStatusResponse,
 } from "@pinai/domain/models/e2ee"
 import type {
-    Argon2Params,
     CommitView,
     IdentityKeysResponse,
     IKeyDirectoryPort,
-    RecoveryBlobResponse,
     RegisterDeviceResponse,
     WelcomeView,
 } from "@pinai/domain/ports/key-directory.port"
@@ -264,24 +262,6 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
                 .json<{ id: string }>(),
         )
     }
-
-    // Legacy — /api/keys/recovery is gone; the passphrase now derives the
-    // History Archive Key. Methods stay on the interface for the
-    // integration test stub.
-    async putRecoveryBlob(
-        _idpUrl: string,
-        _accessToken: string,
-        _body: { wrapped_msk: Uint8Array; salt: Uint8Array; argon2_params: Argon2Params },
-    ): Promise<void> {}
-
-    async getRecoveryBlob(
-        _idpUrl: string,
-        _accessToken: string,
-    ): Promise<RecoveryBlobResponse | null> {
-        return null
-    }
-
-    async deleteRecoveryBlob(_idpUrl: string, _accessToken: string): Promise<void> {}
 }
 
 interface RawCommitView {

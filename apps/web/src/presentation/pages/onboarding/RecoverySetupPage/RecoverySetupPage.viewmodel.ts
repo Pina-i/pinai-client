@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
 
 import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstrap-first-device.usecase"
-import { getE2eePort } from "@/ioc"
+import { getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getSessionPort } from "@/ioc"
 import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
 import { useAppStore } from "@/store/store"
 
@@ -20,8 +20,9 @@ export interface RecoverySetupViewModel {
 }
 
 /**
- * Runs bootstrap on mount, then shows the 24 generated words. Continue
- * and Skip both navigate to /home — the cryptographic state is the same.
+ * Runs the first device's bootstrap on mount, then shows the 24 words — only once the IdP took
+ * the history key they give. A device that finds the account has a key another device set goes to
+ * the restore page instead. Continue and Skip both navigate to /home.
  */
 export function useRecoverySetupPageViewModel(): RecoverySetupViewModel {
     const signedIn = useAppStore((s) => s.accessToken !== null)
@@ -39,55 +40,48 @@ export function useRecoverySetupPageViewModel(): RecoverySetupViewModel {
         if (!accessToken || !idpUrl || !ownActorUri) return
         let cancelled = false
         ;(async () => {
+            let kept: string[] | null = null
             try {
                 const port = getE2eePort()
-                // Fast path: a passphrase is already stored on this
-                // device (hard refresh, or the user navigated back to
-                // this route after completing setup once). Skip the
-                // full bootstrap so the "Setting up your recovery
-                // passphrase…" loader doesn't flash needlessly — that
-                // text belongs to the *actual* setup work, not the
-                // re-render path.
-                const existing = await port.loadStoredPassphrase()
+                // Words kept already (a reload after setup) are only checked; the loader shows either way.
+                kept = await port.loadStoredPassphrase()
                 if (cancelled) return
-                if (existing && existing.length === 24) {
-                    setWords(existing)
-                    setStatus("done")
-                    return
-                }
-                // Cold path: real bootstrap — register, generate
-                // mnemonic, wrap MSK, upload. This is where the
-                // visible loader makes sense.
-                setStatus("running")
-                const result = await bootstrapFirstDeviceUseCase({
+                setStatus(kept ? "checking" : "running")
+                const outcome = await bootstrapFirstDeviceUseCase({
                     e2eePort: port,
+                    sessionPort: getSessionPort(),
+                    historyArchivePort: getHistoryArchivePort(),
+                    deviceDirectoryPort: getDeviceDirectoryPort(),
                 })({
                     idpUrl,
                     accessToken,
                     actorUri: ownActorUri,
                 })
                 if (cancelled) return
-                setWords(result.words)
+                if (outcome.kind === "has-key") {
+                    void navigate({ to: "/onboarding/recovery-restore" })
+                    return
+                }
+                setWords(outcome.words)
                 setStatus("done")
             } catch (e) {
                 if (cancelled || (await signInAgainOnDeviceMismatch(e))) return
+                // The IdP took these words already: an IdP out of reach doesn't take them back.
+                if (kept) {
+                    setWords(kept)
+                    setStatus("done")
+                    return
+                }
                 setStatus("error")
                 setError(e instanceof Error ? e.message : "Setup failed.")
             }
         })()
         return () => {
-            // Cancel this effect's in-flight bootstrap. Don't gate
-            // re-entry with a ref — under React strict mode the
-            // cleanup runs between two effect invocations on the
-            // same mount; a ref-guarded "already ran" check would
-            // suppress the second invocation while the first was
-            // cancelled, stranding the page at status="running".
-            // `bootstrapFirstDeviceUseCase` is idempotent
-            // (register/setupRecoveryKey both deduplicate or
-            // overwrite), so two passes are safe.
+            // Don't gate re-entry with a ref: under strict mode the cleanup runs between two
+            // invocations, and a guard would strand the page. A second run sets the same key.
             cancelled = true
         }
-    }, [signedIn, idpUrl, ownActorUri, attemptNonce])
+    }, [signedIn, idpUrl, ownActorUri, attemptNonce, navigate])
 
     const onCopy = useCallback(() => {
         if (words.length === 0) return
@@ -102,9 +96,7 @@ export function useRecoverySetupPageViewModel(): RecoverySetupViewModel {
         void navigate({ to: "/home" })
     }, [navigate])
 
-    // Skip and Continue are functionally identical — the recovery blob
-    // is already uploaded and the local copy is already saved. Naming
-    // them differently is purely a UX nudge.
+    // The words are kept already either way; the two names are a nudge.
     const onSkip = onContinue
 
     const onRetry = useCallback(() => {

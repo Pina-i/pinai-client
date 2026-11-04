@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
+import { ed25519 } from "@noble/curves/ed25519.js"
+import { hkdf } from "@noble/hashes/hkdf.js"
+import { hmac } from "@noble/hashes/hmac.js"
+import { sha256 } from "@noble/hashes/sha2.js"
 
+import { verifyStrict } from "@pinai/crypto/attestation-chain.adapter"
+import { approvalBytes, archiveEntryAad } from "@pinai/crypto/canonical-bytes"
 import { HistoryArchiveAdapter } from "@pinai/crypto/history-archive.adapter"
 
 // Trimmed BIP-39 word list — content doesn't matter for these tests,
@@ -11,6 +17,9 @@ const SAMPLE_PASSPHRASE = [
     "across", "act", "action", "actor", "actress", "actual",
 ]
 const SALT = new Uint8Array(16).fill(7)
+const HAK = new Uint8Array(32).fill(3)
+const AAD = archiveEntryAad("11112222-3333-4444-5555-666677778888", "aaaabbbb-cccc-dddd-eeee-ffff00001111")
+const encode = (text: string) => new TextEncoder().encode(text)
 
 describe("HistoryArchiveAdapter", () => {
     it("derives a 32-byte key deterministically from (passphrase, salt)", async () => {
@@ -29,28 +38,43 @@ describe("HistoryArchiveAdapter", () => {
         expect(k1).not.toEqual(k2)
     })
 
-    it("encrypt then decrypt round-trips plaintext", async () => {
-        const a = new HistoryArchiveAdapter()
-        const key = await a.deriveKey(SAMPLE_PASSPHRASE, SALT)
-        const plaintext = new TextEncoder().encode("hello world")
-        const { ciphertext, nonce } = await a.encrypt(key, plaintext)
-        const decoded = await a.decrypt(key, ciphertext, nonce)
-        expect(Array.from(decoded)).toEqual(Array.from(plaintext))
+    it("gives the check value and the approval public key as the spec writes them", () => {
+        const derived = new HistoryArchiveAdapter().derive(HAK)
+
+        expect(derived.checkValue).toEqual(hmac(sha256, HAK, encode("pinai/history-archive/check-v1")))
+        const seed = hkdf(sha256, HAK, new Uint8Array(32), encode("pinai/device-approval/v1"), 32)
+        expect(derived.approvalPublicKey).toEqual(ed25519.getPublicKey(seed))
     })
 
-    it("decrypt with wrong key throws", async () => {
+    it("approves with the key whose public half it gives, strictly verifiable", () => {
         const a = new HistoryArchiveAdapter()
-        const key = await a.deriveKey(SAMPLE_PASSPHRASE, SALT)
-        const wrong = await a.deriveKey(SAMPLE_PASSPHRASE, new Uint8Array(16).fill(9))
-        const { ciphertext, nonce } = await a.encrypt(key, new TextEncoder().encode("x"))
-        await expect(a.decrypt(wrong, ciphertext, nonce)).rejects.toThrow()
+        const bytes = approvalBytes("https://idp.test/users/alice", "550e8400-e29b-41d4-a716-446655440000", new Uint8Array(32))
+
+        const signature = a.signApproval(HAK, bytes)
+
+        expect(verifyStrict(signature, bytes, a.derive(HAK).approvalPublicKey)).toBe(true)
+        expect(verifyStrict(signature, bytes, a.derive(new Uint8Array(32).fill(4)).approvalPublicKey)).toBe(false)
+    })
+
+    it("encrypt then decrypt round-trips plaintext under the same associated data", async () => {
+        const a = new HistoryArchiveAdapter()
+        const plaintext = encode("hello world")
+        const { ciphertext, nonce } = await a.encrypt(HAK, plaintext, AAD)
+        expect(Array.from(await a.decrypt(HAK, ciphertext, nonce, AAD))).toEqual(Array.from(plaintext))
+    })
+
+    it("decrypt with the wrong key or other associated data throws", async () => {
+        const a = new HistoryArchiveAdapter()
+        const { ciphertext, nonce } = await a.encrypt(HAK, encode("x"), AAD)
+        await expect(a.decrypt(new Uint8Array(32).fill(9), ciphertext, nonce, AAD)).rejects.toThrow()
+        const moved = archiveEntryAad("11112222-3333-4444-5555-666677778888", "99990000-cccc-dddd-eeee-ffff00001111")
+        await expect(a.decrypt(HAK, ciphertext, nonce, moved)).rejects.toThrow()
     })
 
     it("each encrypt produces a fresh nonce", async () => {
         const a = new HistoryArchiveAdapter()
-        const key = await a.deriveKey(SAMPLE_PASSPHRASE, SALT)
-        const a1 = await a.encrypt(key, new TextEncoder().encode("x"))
-        const a2 = await a.encrypt(key, new TextEncoder().encode("x"))
+        const a1 = await a.encrypt(HAK, encode("x"), AAD)
+        const a2 = await a.encrypt(HAK, encode("x"), AAD)
         expect(a1.nonce).not.toEqual(a2.nonce)
     })
 })

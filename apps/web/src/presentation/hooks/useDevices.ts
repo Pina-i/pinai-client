@@ -14,7 +14,7 @@ export const devicesQueryKey = (idpUrl: string) => ["devices", idpUrl] as const
 
 /**
  * Fetch the user's devices via TanStack Query. Pure data — revoke /
- * recovery-clear orchestration lives in `DevicesEditor.viewmodel`.
+ * backup-clear orchestration lives in `DevicesEditor.viewmodel`.
  *
  * The local device id (used to compute `is_current`) is resolved once
  * per session through `IE2eePort.getDeviceId`; the rows are augmented

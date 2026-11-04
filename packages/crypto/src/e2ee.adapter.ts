@@ -7,6 +7,8 @@
 
 import { ed25519 } from "@noble/curves/ed25519.js"
 import { equalBytes } from "@noble/curves/utils.js"
+import { sha256 } from "@noble/hashes/sha2.js"
+import { bytesToHex } from "@noble/hashes/utils.js"
 import { generateMnemonic } from "@scure/bip39"
 import { wordlist } from "@scure/bip39/wordlists/english.js"
 
@@ -33,27 +35,45 @@ import {
     type UntrustedLeaf,
 } from "@pinai/domain/models/leaf-trust"
 import {
+    ARCHIVE_BUFFER_LIMIT,
     ARCHIVE_UPLOAD_LIMIT,
     decodeArchiveEnvelope,
+    editEntryId,
     encodeArchiveEnvelope,
     type ArchiveEnvelope,
     type ArchivedEntry,
 } from "@pinai/domain/models/history-archive"
-import { IdpError } from "@pinai/domain/models/idp-error"
+import {
+    approvalCarriedOver,
+    buffersForArchive,
+    isSettled,
+    newestGenerationSeen,
+    passphraseVerdict,
+    standingAgainst,
+    type DerivedHistoryKey,
+    type HistoryKey,
+    type HistoryKeyStanding,
+} from "@pinai/domain/models/history-key"
+import { IdpError, isStaleHistoryKey } from "@pinai/domain/models/idp-error"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
 import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
 import type { HpkeKeyPair, IHpkePort } from "@pinai/domain/ports/hpke.port"
 import type { IJwksCachePort } from "@pinai/domain/ports/jwks-cache.port"
 
 import { verifyLeafCredential } from "./attestation-chain.adapter"
-import { attestationBytes, deviceHpkeKeyBytes, leafBindingBytes } from "./canonical-bytes"
-import type { HistoryArchiveAdapter } from "./history-archive.adapter"
+import {
+    approvalBytes,
+    archiveEntryAad,
+    attestationBytes,
+    deviceHpkeKeyBytes,
+    leafBindingBytes,
+} from "./canonical-bytes"
+import { HISTORY_SALT_BYTES, type HistoryArchiveAdapter } from "./history-archive.adapter"
 import type { IdentityAdapter } from "./identity.adapter"
 import type { IKeyDirectoryPort } from "@pinai/domain/ports/key-directory.port"
 import type { IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
 import { PairingInitiator, PairingResponder } from "./pairing.adapter"
-import type { RecoveryAdapter } from "./recovery.adapter"
-import type { DeviceAttestation, E2eeStorage } from "./sealed-storage"
+import type { DeviceAttestation, E2eeStorage, KeptPassphrase } from "./sealed-storage"
 
 /** Renew the Device Root Key attestation silently when within this window of expiry. */
 const ATTESTATION_RENEWAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
@@ -133,12 +153,15 @@ function refusedForGood(error: unknown): boolean {
     )
 }
 
+type HeldKey = { generation: number; hak: Uint8Array }
+type Holding = { standing: HistoryKeyStanding; key: HeldKey | null }
+const UNCHECKED: Holding = { standing: { kind: "unchecked" }, key: null }
+
 export class E2eeAdapter implements IE2eePort {
     private readonly identity: IdentityAdapter
     private readonly mls: IMlsEngine
     private readonly storage: E2eeStorage
     private readonly directory: IKeyDirectoryPort
-    private readonly recovery: RecoveryAdapter
     private readonly hpke: IHpkePort
     private readonly jwks: IJwksCachePort
     // Optional — when null, the per-decrypt archive buffer is a no-op.
@@ -151,7 +174,6 @@ export class E2eeAdapter implements IE2eePort {
         mls: IMlsEngine,
         storage: E2eeStorage,
         directory: IKeyDirectoryPort,
-        recovery: RecoveryAdapter,
         hpke: IHpkePort,
         jwks: IJwksCachePort,
         historyArchive: IHistoryArchivePort | null = null,
@@ -161,7 +183,6 @@ export class E2eeAdapter implements IE2eePort {
         this.mls = mls
         this.storage = storage
         this.directory = directory
-        this.recovery = recovery
         this.hpke = hpke
         this.jwks = jwks
         this.historyArchive = historyArchive
@@ -327,7 +348,7 @@ export class E2eeAdapter implements IE2eePort {
         }
     }
 
-    // ─── History-backup engine ────────────────────────────────────────
+    // ─── The history key and its archive ──────────────────────────────
 
     private archiveBuffer: Array<{
         conversationId: ConversationId
@@ -338,17 +359,37 @@ export class E2eeAdapter implements IE2eePort {
     private archivedIds = new Set<string>()
     private flushing: Promise<void> | null = null
     private flushTimer: ReturnType<typeof setInterval> | null = null
-    private cachedHistoryArchiveKey: Uint8Array | null = null
     private flushIdpUrl: string | null = null
     private flushAccessToken: (() => string | null) | null = null
 
+    /** The standing and, while it holds, the key it holds: replaced together, never half. */
+    private holding: Holding = UNCHECKED
+    // The first check is a flow's, after the naming: before it, a pending key may still be promoted.
+    private checkedOnce = false
+    private checking: Promise<HistoryKeyStanding> | null = null
+    private minted: { generation: number; minting: Promise<{ words: string[]; key: HistoryKey }> } | null = null
+    /** HAKs by a digest of their words and salt, in flight included: one Argon2id run each. */
+    private readonly derivations = new Map<string, Promise<Uint8Array>>()
+    // One writer of the passphrase rows at a time within the page; another tab is caught by re-reading.
+    private passphraseTurn: Promise<unknown> = Promise.resolve()
+
     bufferForArchive(conversationId: ConversationId, entryId: string, entry: ArchiveEnvelope): void {
         if (!this.historyArchive || !this.historyCrypto) return
-        if (this.archivedIds.has(entryId)) return
+        if (!buffersForArchive(this.holding.standing) || this.archivedIds.has(entryId)) return
         this.archivedIds.add(entryId)
         const plaintext = new TextEncoder().encode(encodeArchiveEnvelope(entry))
         this.archiveBuffer.push({ conversationId, entryId, plaintext })
+        this.boundArchiveBuffer()
         if (this.archiveBuffer.length >= 10) void this.flushArchiveNow()
+    }
+
+    bufferEditForArchive(conversationId: ConversationId, editCiphertext: Uint8Array, entry: ArchiveEnvelope): void {
+        this.bufferForArchive(conversationId, editEntryId(sha256(editCiphertext)), entry)
+    }
+
+    private boundArchiveBuffer(): void {
+        const over = this.archiveBuffer.length - ARCHIVE_BUFFER_LIMIT
+        if (over > 0) this.archiveBuffer.splice(0, over)
     }
 
     startFlushing(idpUrl: string, accessToken: () => string | null): void {
@@ -360,6 +401,7 @@ export class E2eeAdapter implements IE2eePort {
         }, 2000)
     }
 
+    // The key held stays: a flow may be using it, and the next start checks it again.
     stopFlushing(): void {
         if (this.flushTimer) {
             clearInterval(this.flushTimer)
@@ -367,43 +409,178 @@ export class E2eeAdapter implements IE2eePort {
         }
         this.flushIdpUrl = null
         this.flushAccessToken = null
-        this.cachedHistoryArchiveKey = null
     }
 
-    async getCachedPassphrase(): Promise<string[] | null> {
-        return this.storage.loadRecoveryPassphrase()
+    mintHistoryKey(generation: number): Promise<{ words: string[]; key: HistoryKey }> {
+        if (this.minted?.generation === generation) return this.minted.minting
+        const minted = { generation, minting: this.mint(generation) }
+        this.minted = minted
+        minted.minting.catch(() => {
+            if (this.minted === minted) this.minted = null
+        })
+        return minted.minting
     }
 
-    async restoreHistoryFromPassphrase(
+    private async mint(generation: number): Promise<{ words: string[]; key: HistoryKey }> {
+        const words = generateMnemonic(wordlist, 256).split(" ")
+        const salt = crypto.getRandomValues(new Uint8Array(HISTORY_SALT_BYTES))
+        const hak = await this.hakFor(words, salt)
+        const key = { generation, salt, ...this.sealer().derive(hak) }
+        await this.inPassphraseTurn(() => this.storage.savePendingPassphrase({ words, key, hak }))
+        return { words, key }
+    }
+
+    async pendingHistoryKey(): Promise<HistoryKey | null> {
+        return (await this.storage.loadPendingPassphrase())?.key ?? null
+    }
+
+    promotePendingHistoryKey(): Promise<void> {
+        return this.inPassphraseTurn(async () => {
+            const before = await this.storage.loadKeptPassphrase()
+            const pending = await this.storage.loadPendingPassphrase()
+            if (!pending) return
+            await this.keepUnderTurn(pending.words, pending.key, pending.hak, before)
+            await this.storage.clearPendingPassphrase()
+        })
+    }
+
+    async dropPendingHistoryKey(): Promise<void> {
+        const minted = this.minted
+        this.minted = null
+        const forgotten = await minted?.minting.catch(() => null)
+        if (forgotten) this.derivations.delete(derivationId(forgotten.words, forgotten.key.salt))
+        await this.inPassphraseTurn(async () => {
+            const pending = await this.storage.loadPendingPassphrase()
+            if (pending) this.derivations.delete(derivationId(pending.words, pending.key.salt))
+            await this.storage.clearPendingPassphrase()
+        })
+    }
+
+    async deriveHistoryKey(words: string[], salt: Uint8Array): Promise<DerivedHistoryKey> {
+        return this.sealer().derive(await this.hakFor(words, salt))
+    }
+
+    keepPassphrase(words: string[], key: HistoryKey): Promise<void> {
+        return this.inPassphraseTurn(async () => {
+            const before = await this.storage.loadKeptPassphrase()
+            await this.keepUnderTurn(words, key, await this.hakFor(words, key.salt), before)
+        })
+    }
+
+    private async keepUnderTurn(
+        words: string[],
+        key: HistoryKey,
+        hak: Uint8Array,
+        before: KeptPassphrase | null,
+    ): Promise<void> {
+        const seen = await this.storage.loadNewestHistoryGeneration()
+        if (seen !== null && key.generation < seen) throw new Error("This history key is older than one already seen")
+        if (passphraseVerdict(this.sealer().derive(hak), key) !== "holds") {
+            throw new Error("These words don't give the account's history key")
+        }
+        const approvedRootKey = approvalCarriedOver(before, words, key.generation)
+        const kept = { words: [...words], generation: key.generation, approvedRootKey, derived: { salt: key.salt, hak } }
+        // Another tab may have kept words since this one started.
+        const now = await this.storage.loadKeptPassphrase()
+        if (!sameKeptWords(now, before)) {
+            if (!now || !sameWords(now.words, words) || now.generation !== key.generation) {
+                throw new Error("Another tab kept other words meanwhile")
+            }
+        } else {
+            await this.storage.saveKeptPassphrase(kept)
+        }
+        await this.seeGeneration(seen, key)
+        const settled = isSettled(approvedRootKey, await this.rootKey())
+        await this.setHolding({ kind: "holds", generation: key.generation, settled }, { generation: key.generation, hak })
+    }
+
+    async newestHistoryGeneration(): Promise<number | null> {
+        return this.storage.loadNewestHistoryGeneration()
+    }
+
+    checkHistoryKey(idpUrl: string, accessToken: string): Promise<HistoryKeyStanding> {
+        this.checking ??= this.inPassphraseTurn(() => this.doCheckHistoryKey(idpUrl, accessToken)).finally(() => {
+            this.checking = null
+        })
+        return this.checking
+    }
+
+    private async doCheckHistoryKey(idpUrl: string, accessToken: string): Promise<HistoryKeyStanding> {
+        const key = await this.archive().getKey(idpUrl, accessToken)
+        const kept = await this.storage.loadKeptPassphrase()
+        const seen = await this.storage.loadNewestHistoryGeneration()
+        const facts = kept && {
+            generation: kept.generation,
+            salt: kept.derived.salt,
+            approvedRootKey: kept.approvedRootKey,
+            ...this.sealer().derive(kept.derived.hak),
+        }
+        const standing = standingAgainst(key, facts, seen, await this.rootKey())
+        await this.seeGeneration(seen, key)
+        const held = standing.kind === "holds" && kept ? { generation: standing.generation, hak: kept.derived.hak } : null
+        return this.setHolding(standing, held)
+    }
+
+    async historyKeyStanding(): Promise<HistoryKeyStanding> {
+        if (this.holding.standing.kind !== "unchecked") return this.holding.standing
+        return (await this.storage.loadHistoryKeyStanding()) ?? this.holding.standing
+    }
+
+    async signPassphraseApproval(
         idpUrl: string,
         accessToken: string,
-        passphrase: string[],
+        actorUri: ActorUri,
+    ): Promise<{ deviceId: DeviceId; generation: number; signature: Uint8Array; rootKey: Uint8Array }> {
+        if (this.holding.standing.kind === "unchecked") await this.checkHistoryKey(idpUrl, accessToken)
+        const held = this.holding.key
+        if (!held) throw new Error("This device holds no current history passphrase")
+        const attestation = await this.storage.loadDeviceAttestation()
+        if (!attestation) throw new Error("This device has no root key yet")
+        const deviceId = await this.storage.getOrCreateDeviceId()
+        const rootKey = attestation.drk_public
+        const signature = this.sealer().signApproval(held.hak, approvalBytes(actorUri, deviceId, rootKey))
+        return { deviceId, generation: held.generation, signature, rootKey }
+    }
+
+    recordPassphraseApproval(generation: number, rootKey: Uint8Array): Promise<void> {
+        return this.inPassphraseTurn(async () => {
+            const held = this.holding.key
+            const kept = await this.storage.loadKeptPassphrase()
+            // Words replaced meanwhile, here or on another tab, weren't the ones approved.
+            if (!held || !kept || kept.generation !== generation || !equalBytes(kept.derived.hak, held.hak)) return
+            await this.storage.saveKeptPassphrase({ ...kept, approvedRootKey: rootKey })
+            const { standing } = this.holding
+            if (standing.kind === "holds" && standing.generation === generation) {
+                await this.setHolding({ ...standing, settled: isSettled(rootKey, await this.rootKey()) }, held)
+            }
+        })
+    }
+
+    async loadStoredPassphrase(): Promise<string[] | null> {
+        return (await this.storage.loadKeptPassphrase())?.words ?? null
+    }
+
+    async restoreHistory(
+        idpUrl: string,
+        accessToken: string,
     ): Promise<{ entries: ArchivedEntry[]; skipped: number }> {
-        if (!this.historyArchive || !this.historyCrypto) {
-            return { entries: [], skipped: 0 }
-        }
-        const salt = await this.historyArchive.getSalt(idpUrl, accessToken)
-        if (!salt) return { entries: [], skipped: 0 }
-        const historyArchiveKey = await this.historyCrypto.deriveKey(passphrase, salt)
+        if (this.holding.standing.kind === "unchecked") await this.checkHistoryKey(idpUrl, accessToken)
+        const held = this.holding.key
+        if (!held) throw new Error("This device holds no current history passphrase")
+        const archive = this.archive()
+        const sealer = this.sealer()
 
         const entries: ArchivedEntry[] = []
         let skipped = 0
         let cursor: { after_id: string; after_created_at: string } | null = null
         do {
-            const page = await this.historyArchive.downloadPage(
-                idpUrl,
-                accessToken,
-                cursor,
-                100,
-            )
+            const page = await archive.downloadPage(idpUrl, accessToken, cursor, 100)
             for (const entry of page.entries) {
                 let plain: Uint8Array
                 try {
-                    plain = await this.historyCrypto.decrypt(
-                        historyArchiveKey,
-                        entry.ciphertext,
-                        entry.nonce,
-                    )
+                    // Under the ids the row carries: an entry moved to others fails its tag.
+                    const aad = archiveEntryAad(entry.conversation_id, entry.id)
+                    plain = await sealer.decrypt(held.hak, entry.ciphertext, entry.nonce, aad)
                 } catch {
                     skipped += 1
                     continue
@@ -418,49 +595,93 @@ export class E2eeAdapter implements IE2eePort {
         return { entries, skipped }
     }
 
-    async clearHistoryBackup(idpUrl: string, accessToken: string): Promise<void> {
-        if (this.historyArchive) {
-            await this.historyArchive.wipeArchive(idpUrl, accessToken)
+    private async setHolding(standing: HistoryKeyStanding, key: HeldKey | null): Promise<HistoryKeyStanding> {
+        this.holding = { standing, key }
+        this.checkedOnce = true
+        if (!buffersForArchive(standing)) this.archiveBuffer = []
+        try {
+            await this.storage.saveHistoryKeyStanding(standing)
+        } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn("[history-key] recording the standing failed", e)
         }
-        await this.storage.clearRecoveryPassphrase()
-        this.cachedHistoryArchiveKey = null
-        this.archiveBuffer = []
-        this.archivedIds.clear()
+        return standing
+    }
+
+    private async seeGeneration(seen: number | null, key: HistoryKey | null): Promise<void> {
+        const newest = newestGenerationSeen(seen, key)
+        if (newest !== null && newest !== seen) await this.storage.saveNewestHistoryGeneration(newest)
+    }
+
+    private async rootKey(): Promise<Uint8Array | null> {
+        return (await this.storage.loadDeviceAttestation())?.drk_public ?? null
+    }
+
+    private hakFor(words: string[], salt: Uint8Array): Promise<Uint8Array> {
+        const id = derivationId(words, salt)
+        let hak = this.derivations.get(id)
+        if (!hak) {
+            const deriving = this.sealer().deriveKey(words, salt)
+            deriving.catch(() => {
+                if (this.derivations.get(id) === deriving) this.derivations.delete(id)
+            })
+            this.derivations.set(id, deriving)
+            hak = deriving
+        }
+        return hak
+    }
+
+    private inPassphraseTurn<T>(work: () => Promise<T>): Promise<T> {
+        const run = this.passphraseTurn.then(work)
+        this.passphraseTurn = run.catch(() => undefined)
+        return run
+    }
+
+    private archive(): IHistoryArchivePort {
+        if (!this.historyArchive) throw new Error("No history archive is wired")
+        return this.historyArchive
+    }
+
+    private sealer(): HistoryArchiveAdapter {
+        if (!this.historyCrypto) throw new Error("No history archive is wired")
+        return this.historyCrypto
     }
 
     /** One drain at a time: the timer and a full buffer both ask for one. */
     private flushArchiveNow(): Promise<void> {
-        this.flushing ??= this.drainArchive().finally(() => {
-            this.flushing = null
-        })
+        // A turn later, so entries queued in one go — a history page's — leave as one batch.
+        this.flushing ??= Promise.resolve()
+            .then(() => this.drainArchive())
+            .finally(() => {
+                this.flushing = null
+            })
         return this.flushing
     }
 
-    /** Derives the History Archive Key lazily; idle when no passphrase exists. */
+    // On stale_history_key the key is read again and the batch sent again once; a second stale waits for the next flush.
     private async drainArchive(): Promise<void> {
+        let staleOnce = false
         while (this.archiveBuffer.length > 0) {
             const idpUrl = this.flushIdpUrl
             const accessToken = this.flushAccessToken?.()
             if (!this.historyArchive || !this.historyCrypto || !idpUrl || !accessToken) return
-            if (!this.cachedHistoryArchiveKey) {
-                const phrase = await this.storage.loadRecoveryPassphrase()
-                if (!phrase) return
-                const salt = await this.historyArchive.getSalt(idpUrl, accessToken)
-                if (!salt) return
-                this.cachedHistoryArchiveKey = await this.historyCrypto.deriveKey(phrase, salt)
+            if (this.holding.standing.kind === "unchecked") {
+                if (!this.checkedOnce || !(await this.recheck(idpUrl, accessToken))) return
             }
-            const key = this.cachedHistoryArchiveKey
-            const sealer = this.historyCrypto
+            const holding = this.holding
+            if (!holding.key) return
             const batch = this.archiveBuffer.splice(0, ARCHIVE_UPLOAD_LIMIT)
             try {
-                const entries = await Promise.all(
-                    batch.map(async (e) => {
-                        const { ciphertext, nonce } = await sealer.encrypt(key, e.plaintext)
-                        return { id: e.entryId, conversation_id: e.conversationId, ciphertext, nonce }
-                    }),
-                )
-                await this.historyArchive.uploadBatch(idpUrl, accessToken, entries)
+                await this.uploadSealed(idpUrl, accessToken, holding.key, batch)
             } catch (err) {
+                if (isStaleHistoryKey(err)) {
+                    this.archiveBuffer.unshift(...batch)
+                    this.boundArchiveBuffer()
+                    if (this.holding === holding) this.holding = UNCHECKED
+                    if (staleOnce) return
+                    staleOnce = true
+                    continue
+                }
                 if (refusedForGood(err)) {
                     // eslint-disable-next-line no-console
                     console.warn("[history-archive] the IdP refused a batch; dropping it", err)
@@ -469,9 +690,38 @@ export class E2eeAdapter implements IE2eePort {
                 // eslint-disable-next-line no-console
                 console.warn("[history-archive] flush failed; re-buffering", err)
                 this.archiveBuffer.unshift(...batch)
+                this.boundArchiveBuffer()
                 return
             }
         }
+    }
+
+    private async recheck(idpUrl: string, accessToken: string): Promise<boolean> {
+        try {
+            await this.checkHistoryKey(idpUrl, accessToken)
+            return true
+        } catch (err) {
+            // eslint-disable-next-line no-console
+            console.warn("[history-key] reading the history key failed; tried again at the next flush", err)
+            return false
+        }
+    }
+
+    private async uploadSealed(
+        idpUrl: string,
+        accessToken: string,
+        held: HeldKey,
+        batch: Array<{ conversationId: ConversationId; entryId: string; plaintext: Uint8Array }>,
+    ): Promise<void> {
+        const sealer = this.sealer()
+        const entries = await Promise.all(
+            batch.map(async (e) => {
+                const aad = archiveEntryAad(e.conversationId, e.entryId)
+                const { ciphertext, nonce } = await sealer.encrypt(held.hak, e.plaintext, aad)
+                return { id: e.entryId, conversation_id: e.conversationId, ciphertext, nonce }
+            }),
+        )
+        await this.archive().uploadBatch(idpUrl, accessToken, held.generation, entries)
     }
 
     /**
@@ -565,9 +815,6 @@ export class E2eeAdapter implements IE2eePort {
     private providerInitPromise: Promise<void> | null = null
     private identityBindPromise: Promise<void> | null = null
     private registerPromise: Promise<{ device_id: DeviceId; fingerprint: Fingerprint }> | null = null
-    private bootstrapPromise:
-        | Promise<{ device_id: DeviceId; fingerprint: Fingerprint; words: string[] }>
-        | null = null
 
     /**
      * Take a fresh provider snapshot + the current group-id list and
@@ -659,58 +906,6 @@ export class E2eeAdapter implements IE2eePort {
         }
     }
 
-    async bootstrapFirstDevice(
-        idpUrl: string,
-        accessToken: string,
-        actorUri: ActorUri,
-    ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint; words: string[] }> {
-        if (this.bootstrapPromise) return this.bootstrapPromise
-        this.bootstrapPromise = this.doBootstrapFirstDevice(idpUrl, accessToken, actorUri)
-        try {
-            return await this.bootstrapPromise
-        } catch (e) {
-            // Allow retries on failure; success can stay cached so
-            // re-mounts within the same session short-circuit.
-            this.bootstrapPromise = null
-            throw e
-        }
-    }
-
-    private async doBootstrapFirstDevice(
-        idpUrl: string,
-        accessToken: string,
-        actorUri: ActorUri,
-    ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint; words: string[] }> {
-        const { device_id, fingerprint } = await this.register(idpUrl, accessToken, actorUri)
-
-        // Re-bootstrap idempotency: reusing the existing passphrase prevents
-        // overwriting words the user already wrote down on paper.
-        const existing = await this.storage.loadRecoveryPassphrase()
-        if (existing && existing.length === 24) {
-            return { device_id, fingerprint, words: existing }
-        }
-
-        const mnemonic = generateMnemonic(wordlist, 256)
-        const words = mnemonic.split(" ")
-        if (words.length !== 24) {
-            throw new Error(`bootstrap: expected 24-word mnemonic, got ${words.length}`)
-        }
-        void mnemonic
-        await this.storage.saveRecoveryPassphrase(words)
-
-        // Salt for Argon2id History Archive Key derivation. Set-once on the server.
-        if (this.historyArchive) {
-            try {
-                const salt = crypto.getRandomValues(new Uint8Array(16))
-                await this.historyArchive.setSalt(idpUrl, accessToken, salt)
-            } catch (e) {
-                // eslint-disable-next-line no-console
-                console.warn("[bootstrap] history salt mint failed (non-fatal)", e)
-            }
-        }
-        return { device_id, fingerprint, words }
-    }
-
     async hasLocalIdentity(): Promise<boolean> {
         return (await this.storage.loadIdentityKeypair()) !== null
     }
@@ -739,32 +934,13 @@ export class E2eeAdapter implements IE2eePort {
         this.providerInitPromise = null
         this.identityBindPromise = null
         this.registerPromise = null
-        this.bootstrapPromise = null
+        this.holding = UNCHECKED
+        this.checkedOnce = false
+        this.minted = null
+        this.derivations.clear()
+        this.archiveBuffer = []
+        this.archivedIds.clear()
         await this.mls.resetProvider()
-    }
-
-    async loadStoredPassphrase(): Promise<string[] | null> {
-        return this.storage.loadRecoveryPassphrase()
-    }
-
-    async saveStoredPassphrase(words: string[]): Promise<void> {
-        return this.storage.saveRecoveryPassphrase(words)
-    }
-
-    async hasRecoveryKey(idpUrl: string, accessToken: string): Promise<boolean> {
-        const blob = await this.directory.getRecoveryBlob(idpUrl, accessToken)
-        return blob !== null
-    }
-
-    async clearRecoveryKey(idpUrl: string, accessToken: string): Promise<void> {
-        // Server delete first — the local wipe is harmless even if the
-        // server call later fails (the user can still recover by
-        // re-typing whatever they have written down, against the now-
-        // stale server blob… which won't exist). Order-wise, deleting
-        // the server blob is the user-meaningful side effect; the
-        // local copy is a UX-only artifact.
-        await this.directory.deleteRecoveryBlob(idpUrl, accessToken)
-        await this.storage.clearRecoveryPassphrase()
     }
 
     async getOwnFingerprint(): Promise<Fingerprint | null> {
@@ -1129,70 +1305,6 @@ export class E2eeAdapter implements IE2eePort {
         }
     }
 
-    // ─── Recovery Key ─────────────────────────────────────────────────
-
-    async setupRecoveryKey(
-        idpUrl: string,
-        accessToken: string,
-        passphrase: string,
-    ): Promise<void> {
-        if (passphrase.length < 8) {
-            // The UI's strength meter does the heavy lifting; this is
-            // a last-line guard for callers that bypass it.
-            throw new Error("Recovery passphrase must be at least 8 characters")
-        }
-        const keypair = await this.storage.loadIdentityKeypair()
-        if (!keypair) {
-            throw new Error("Cannot set up Recovery Key before registering an identity")
-        }
-        const blob = await this.recovery.wrap(keypair.msk_private, passphrase)
-        await this.directory.putRecoveryBlob(idpUrl, accessToken, blob)
-    }
-
-    async recoverFromPassphrase(
-        idpUrl: string,
-        accessToken: string,
-        actorUri: ActorUri,
-        passphrase: string,
-    ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint }> {
-        const blob = await this.directory.getRecoveryBlob(idpUrl, accessToken)
-        if (!blob) {
-            throw new Error("No Recovery Key configured for this account")
-        }
-        const mskPrivate = await this.recovery.unwrap(blob, passphrase)
-
-        // The wrapped blob carries only MSK private. SSK + USK are
-        // regenerated fresh on every recovery (per spec § 9: "Restores
-        // MSK locally. Generates fresh device leaf, signs with restored
-        // SSK"). MSK signs the new SSK + USK so the chain stays
-        // unbroken; the published identity row is overwritten on the
-        // server, peers see the same MSK fingerprint and never trip
-        // the identity-change warning.
-        const restored = this.identity.recoverFromMsk(mskPrivate)
-        await this.storage.saveIdentityKeypair(restored)
-        await this.directory.publishIdentity(
-            idpUrl,
-            accessToken,
-            this.identity.publicKeys(restored),
-        )
-
-        // Bind the device to this actor URI — same purpose as in
-        // register(): the gate uses it to detect cross-account
-        // contamination on subsequent mounts.
-        await this.storage.setBoundActorUri(actorUri)
-
-        // Bring the fresh device's MLS Identity online + seed its
-        // KeyPackage stash so peers can add it to groups.
-        await this.ensureInitialized(actorUri)
-        const deviceId = await this.storage.getOrCreateDeviceId()
-        await this.uploadKeyPackageBatch(idpUrl, accessToken, deviceId, INITIAL_KEY_PACKAGE_BATCH)
-
-        return {
-            device_id: deviceId,
-            fingerprint: this.identity.fingerprint(restored.msk_public),
-        }
-    }
-
     // ─── Pairing ──────────────────────────────────────────────────────
 
     async startPairingAsInitiator(): Promise<{
@@ -1457,7 +1569,6 @@ export class E2eeAdapter implements IE2eePort {
         actorUri: ActorUri,
         deviceId: DeviceId,
         conversationIds: ConversationId[],
-        opts?: { also_clear_recovery?: boolean },
     ): Promise<{ removed_from: ConversationId[] }> {
         await this.ensureInitialized(actorUri)
 
@@ -1492,17 +1603,26 @@ export class E2eeAdapter implements IE2eePort {
             })
         }
 
-        if (opts?.also_clear_recovery) {
-            try {
-                await this.directory.deleteRecoveryBlob(idpUrl, accessToken)
-            } catch (e) {
-                // eslint-disable-next-line no-console
-                console.warn("revokeDevice: clearing recovery blob failed:", e)
-            }
-        }
-
         return { removed_from: removed }
     }
+}
+
+function sameWords(a: readonly string[], b: readonly string[]): boolean {
+    return a.length === b.length && a.every((word, i) => word === b[i])
+}
+
+function sameKeptWords(a: KeptPassphrase | null, b: KeptPassphrase | null): boolean {
+    if (!a || !b) return a === b
+    return a.generation === b.generation && sameWords(a.words, b.words)
+}
+
+// A digest, not the words: the map outlives the flow that typed them.
+function derivationId(words: readonly string[], salt: Uint8Array): string {
+    const text = new TextEncoder().encode(words.join(" "))
+    const input = new Uint8Array(salt.length + text.length)
+    input.set(salt)
+    input.set(text, salt.length)
+    return bytesToHex(sha256(input))
 }
 
 function tell(listener: (leaf: UntrustedLeaf) => void, leaf: UntrustedLeaf): void {

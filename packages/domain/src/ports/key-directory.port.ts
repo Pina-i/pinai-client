@@ -2,10 +2,9 @@
  * The IdP key directory + MLS Delivery Service, as the client needs it.
  *
  * A port, not an adapter interface: the E2EE core talks to it to claim key
- * packages, post commits and welcomes, and store the wrapped recovery blob,
- * and none of that is HTTP-specific. Keeping the contract here is what stops
- * the crypto core from having to depend on the REST client that happens to
- * implement it today.
+ * packages and post commits and welcomes, and none of that is HTTP-specific.
+ * Keeping the contract here is what stops the crypto core from having to
+ * depend on the REST client that happens to implement it today.
  *
  * Endpoint shapes come from `identity-provider/specs/e2ee.md`. The DTOs
  * below are the wire shapes, base64 already decoded to bytes.
@@ -43,25 +42,6 @@ export interface IdentityKeysResponse {
     keys: IdentityPublicKeys
     published_at: string
     rotated_at: string
-}
-
-export interface Argon2Params {
-    /** Memory cost in KiB. */
-    m_kib: number
-    /** Time cost (iterations). */
-    t: number
-    /** Parallelism. */
-    p: number
-}
-
-export interface RecoveryBlobResponse {
-    /** XChaCha20-Poly1305 ciphertext of MSK, with 24-byte nonce prepended. */
-    wrapped_msk: Uint8Array
-    /** ≥ 16 bytes — server validates this. */
-    salt: Uint8Array
-    argon2_params: Argon2Params
-    created_at: string
-    updated_at: string
 }
 
 /** Response from `POST /api/keys/devices`. `signed_message` is returned so the client can locally re-verify. */
@@ -175,19 +155,4 @@ export interface IKeyDirectoryPort {
             welcome_blob: Uint8Array
         },
     ): Promise<{ id: string }>
-
-    // ─── Recovery Key ─────────────────────────────────────────────────
-
-    putRecoveryBlob(
-        idpUrl: string,
-        accessToken: string,
-        body: { wrapped_msk: Uint8Array; salt: Uint8Array; argon2_params: Argon2Params },
-    ): Promise<void>
-    /** Returns null when the user hasn't opted into Recovery Key. */
-    getRecoveryBlob(
-        idpUrl: string,
-        accessToken: string,
-    ): Promise<RecoveryBlobResponse | null>
-    /** Opt out — clears the wrapped blob. No-op if nothing was set. */
-    deleteRecoveryBlob(idpUrl: string, accessToken: string): Promise<void>
 }

@@ -35,3 +35,17 @@ export const DEVICE_MISMATCH = "device_mismatch"
 export function isDeviceMismatch(error: unknown): boolean {
     return error instanceof IdpError && error.code === DEVICE_MISMATCH
 }
+
+/** An upload, a report or an approval naming a generation that isn't the history key's current one. */
+export const STALE_HISTORY_KEY = "stale_history_key"
+
+export function isStaleHistoryKey(error: unknown): boolean {
+    return error instanceof IdpError && error.code === STALE_HISTORY_KEY
+}
+
+/** Another device set that generation of the history key first. */
+export const HISTORY_KEY_CONFLICT = "history_key_conflict"
+
+export function isHistoryKeyConflict(error: unknown): boolean {
+    return error instanceof IdpError && error.code === HISTORY_KEY_CONFLICT
+}

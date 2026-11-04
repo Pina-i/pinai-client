@@ -13,7 +13,6 @@
  * What's not covered yet (intentional, lands in later 4b turns):
  * - IndexedDB storage round-trip (jsdom lacks IndexedDB; pull in
  *   `fake-indexeddb/auto` when `storage.adapter.ts` gets tested).
- * - Recovery Key wrap/unwrap — Argon2id integration is a separate turn.
  * - SPAKE2 pairing — separate turn.
  */
 
@@ -24,7 +23,6 @@ import { loadWasmModule } from "./setup/wasm"
 import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
 import { MlsAdapter } from "@pinai/mls/wasm.adapter"
 import { asActorUri } from "@pinai/domain/models/identity"
-import { DEFAULT_ARGON2_PARAMS, NobleRecoveryAdapter } from "@pinai/crypto/recovery.adapter"
 
 import { FakeIssuers, credentialFor, testDevice } from "./setup/issuers"
 
@@ -117,23 +115,6 @@ describe("mls adapter — two-member round trip", () => {
                 "hello bob, encrypted",
             )
         }
-    })
-
-    it("recoverFromMsk derives the same MSK public", () => {
-        const idAdapter = new NobleIdentityAdapter()
-        const original = idAdapter.generate()
-        const recovered = idAdapter.recoverFromMsk(original.msk_private)
-        // Same MSK private → same MSK public → same fingerprint, even
-        // though SSK + USK are rotated.
-        expect(recovered.msk_public).toEqual(original.msk_public)
-        expect(idAdapter.fingerprint(recovered.msk_public)).toBe(
-            idAdapter.fingerprint(original.msk_public),
-        )
-        // SSK + USK are fresh, so their bytes differ.
-        expect(recovered.ssk_public).not.toEqual(original.ssk_public)
-        expect(recovered.usk_public).not.toEqual(original.usk_public)
-        // The fresh SSK + USK still validate under the same MSK.
-        expect(idAdapter.validatePublicKeys(idAdapter.publicKeys(recovered))).toBe(true)
     })
 
     it("export_secret returns matching bytes on both sides", async () => {
@@ -232,56 +213,5 @@ describe("mls adapter — what a device checks of a leaf", () => {
             await alice.encryptApplication(conversationId, new TextEncoder().encode("same key")),
         )
         expect(after.kind).toBe("application")
-    })
-})
-
-describe("recovery adapter — Argon2id wrap / XChaCha20-Poly1305 round trip", () => {
-    // Test-only Argon2id params — the spec's m=64 MiB / t=3 default is
-    // intentionally slow on real hardware and would dominate the test
-    // suite's wall time. Production paths use DEFAULT_ARGON2_PARAMS.
-    const FAST_PARAMS = { m_kib: 64, t: 1, p: 1 }
-
-    const recovery = new NobleRecoveryAdapter()
-
-    it("round-trips an MSK private with the right passphrase", async () => {
-        const msk = new Uint8Array(32)
-        crypto.getRandomValues(msk)
-
-        const blob = await recovery.wrap(msk, "correct horse battery staple", FAST_PARAMS)
-        const restored = await recovery.unwrap(blob, "correct horse battery staple")
-        expect(restored).toEqual(msk)
-    })
-
-    it("rejects the wrong passphrase with a single user-friendly error", async () => {
-        const msk = new Uint8Array(32)
-        crypto.getRandomValues(msk)
-        const blob = await recovery.wrap(msk, "real-passphrase", FAST_PARAMS)
-        await expect(recovery.unwrap(blob, "wrong-passphrase")).rejects.toThrow(
-            /wrong passphrase or corrupt data/i,
-        )
-    })
-
-    it("rejects a tampered ciphertext", async () => {
-        const msk = new Uint8Array(32)
-        crypto.getRandomValues(msk)
-        const blob = await recovery.wrap(msk, "real-passphrase", FAST_PARAMS)
-        // Flip a byte mid-ciphertext (after the 24-byte nonce).
-        blob.wrapped_msk[30] ^= 0x01
-        await expect(recovery.unwrap(blob, "real-passphrase")).rejects.toThrow(
-            /wrong passphrase or corrupt data/i,
-        )
-    })
-
-    it("emits a fresh salt + nonce on each wrap (deterministic input → different blobs)", async () => {
-        const msk = new Uint8Array(32)
-        crypto.getRandomValues(msk)
-        const a = await recovery.wrap(msk, "same-passphrase", FAST_PARAMS)
-        const b = await recovery.wrap(msk, "same-passphrase", FAST_PARAMS)
-        expect(a.salt).not.toEqual(b.salt)
-        expect(a.wrapped_msk).not.toEqual(b.wrapped_msk)
-    })
-
-    it("DEFAULT_ARGON2_PARAMS matches the spec's recommendation", () => {
-        expect(DEFAULT_ARGON2_PARAMS).toEqual({ m_kib: 64 * 1024, t: 3, p: 4 })
     })
 })

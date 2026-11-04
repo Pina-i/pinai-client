@@ -5,7 +5,9 @@ import { toast } from "sonner"
 import { reactionsToReplay, type RestoredMessage } from "@pinai/domain/models/history-archive"
 import { addressParts } from "@pinai/domain/models/identity"
 import { restoreHistoryFromPassphraseUseCase } from "@pinai/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
-import { getE2eePort } from "@/ioc"
+import { registerIdentityUseCase } from "@pinai/domain/usecases/e2ee/register-identity.usecase"
+import { setUpThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/set-up-this-device.usecase"
+import { getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getSessionPort } from "@/ioc"
 import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
 import type { Message } from "@/lib/types"
 import type { RecoveryPassphraseInputHandle } from "@/presentation/molecules/RecoveryPassphraseInput/RecoveryPassphraseInput"
@@ -43,11 +45,11 @@ export interface RecoveryRestoreViewModel {
 /**
  * History restore on a new device.
  *
- * Bootstrap (MSK + Device Root Key) runs silently in the background on mount
- * so both "Restore" and "Start fresh" exit with a fully-set-up device. The
- * passphrase is only needed for decrypting the server-side archive — without
- * it the user can still chat, but messages from before today won't follow
- * them here.
+ * The device is set up silently on mount — registered, named on its session,
+ * its KeyPackages published — so both "Restore" and "Start fresh" exit with a
+ * fully-set-up device. The words are checked against the account's history key
+ * before anything is kept; right, the device approves itself with them and
+ * reports its generation, then the archive is restored.
  */
 export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
     const idpUrl = useAppStore((s) => s.idpUrl)
@@ -74,15 +76,10 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
     useEffect(() => {
         const accessToken = useAppStore.getState().accessToken
         if (!idpUrl || !accessToken || !ownActorUri) return
-        const port = getE2eePort()
-        // Already done in a previous mount on the same session — just
-        // open the input.
+        const e2eePort = getE2eePort()
         bootstrapRef.current = (async () => {
-            if (await port.hasLocalIdentity()) {
-                await port.registerDevice(idpUrl, accessToken, ownActorUri)
-                return
-            }
-            await port.register(idpUrl, accessToken, ownActorUri)
+            await setUpThisDeviceUseCase({ e2eePort, sessionPort: getSessionPort() })(idpUrl, accessToken, ownActorUri)
+            await registerIdentityUseCase({ e2eePort })({ idpUrl, accessToken, actorUri: ownActorUri })
         })()
         let cancelled = false
         bootstrapRef.current
@@ -120,28 +117,26 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
     }, [])
 
     const onRestore = useCallback(async () => {
-        if (!idpUrl || !accessToken || !canRestore) return
+        if (!idpUrl || !accessToken || !ownActorUri || !canRestore) return
         setStatus("restoring")
         setError(null)
         try {
-            // Make sure bootstrap finished before we hit the archive.
-            // restoreHistoryFromPassphrase doesn't strictly need MSK, but
-            // the user is about to land on /home where the rest of the
-            // app expects a complete device.
             if (bootstrapRef.current) await bootstrapRef.current
 
             const result = await restoreHistoryFromPassphraseUseCase({
                 e2eePort: getE2eePort(),
-            })({ idpUrl, accessToken, passphrase: words })
+                sessionPort: getSessionPort(),
+                historyArchivePort: getHistoryArchivePort(),
+                deviceDirectoryPort: getDeviceDirectoryPort(),
+            })({ idpUrl, accessToken, actorUri: ownActorUri, passphrase: words })
 
-            setRestored(result.messages.length)
-            setSkipped(result.skipped)
-
-            if (result.decrypted === 0 && result.skipped > 0) {
+            if (result.kind !== "restored") {
                 setStatus("ready")
-                toast.error("Wrong passphrase — no entries decrypted")
+                toast.error(REFUSALS[result.kind])
                 return
             }
+            setRestored(result.messages.length)
+            setSkipped(result.skipped)
 
             const byConversation = new Map<string, RestoredMessage[]>()
             for (const m of result.messages) {
@@ -170,9 +165,6 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
                 }
             }
 
-            // Persist the verified passphrase locally so Settings → Devices
-            // can reveal it and the history flusher can encrypt new entries.
-            await getE2eePort().saveStoredPassphrase(words)
             setStatus("done")
             toast.success(
                 result.messages.length === 0
@@ -181,10 +173,11 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
             )
             void navigate({ to: "/home" })
         } catch (e) {
+            if (await signInAgainOnDeviceMismatch(e)) return
             setStatus("error")
             setError(e instanceof Error ? e.message : "Restore failed")
         }
-    }, [idpUrl, accessToken, canRestore, words, navigate])
+    }, [idpUrl, accessToken, ownActorUri, canRestore, words, navigate])
 
     const onStartFresh = useCallback(async () => {
         try {
@@ -223,6 +216,14 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
         onStartFresh,
     }
 }
+
+const REFUSALS = {
+    "wrong-passphrase": "Wrong passphrase — these aren't your account's 24 words",
+    "key-swapped": "Your instance changed your history key — nothing was restored",
+    "no-key": "Your account has no history passphrase yet",
+    "rolled-back": "Your instance went back to an older history key — nothing was restored",
+    "key-changed": "Your history key changed meanwhile — nothing was restored",
+} as const
 
 function restoredToMessage(m: RestoredMessage): Message {
     const author = m.senderDisplayName?.trim() || addressParts(m.senderAddress).handle || "Restored"

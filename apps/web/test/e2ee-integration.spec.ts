@@ -35,17 +35,21 @@ import { decryptDownloaded, encryptForUpload } from "@pinai/crypto/attachment-cr
 import { E2eeAdapter } from "@pinai/crypto/e2ee.adapter"
 import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
 import type {
-    Argon2Params,
     CommitView,
     IdentityKeysResponse,
     IKeyDirectoryPort,
-    RecoveryBlobResponse,
     RegisterDeviceResponse,
     WelcomeView,
 } from "@pinai/domain/ports/key-directory.port"
 import { MlsAdapter } from "@pinai/mls/wasm.adapter"
-import { NobleRecoveryAdapter } from "@pinai/crypto/recovery.adapter"
-import type { DeviceAttestation, E2eeStorage, MlsSnapshot } from "@pinai/crypto/sealed-storage"
+import type {
+    DeviceAttestation,
+    E2eeStorage,
+    KeptPassphrase,
+    MlsSnapshot,
+    PendingPassphrase,
+} from "@pinai/crypto/sealed-storage"
+import type { HistoryKeyStanding } from "@pinai/domain/models/history-key"
 import type { LocalFile } from "@pinai/domain/models/file"
 import { IdpError } from "@pinai/domain/models/idp-error"
 import { asActorUri } from "@pinai/domain/models/identity"
@@ -323,21 +327,6 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
         })
         return { id }
     }
-
-    async putRecoveryBlob(
-        _idpUrl: string,
-        _accessToken: string,
-        _body: { wrapped_msk: Uint8Array; salt: Uint8Array; argon2_params: Argon2Params },
-    ): Promise<void> {
-        // Recovery is exercised in a separate suite — this stub stays inert
-        // so the integration test stays focused on the messaging loop.
-    }
-    async getRecoveryBlob(): Promise<RecoveryBlobResponse | null> {
-        return null
-    }
-    async deleteRecoveryBlob(): Promise<void> {
-        /* no-op */
-    }
 }
 
 // ─── In-memory storage (one per adapter — distinct device ids) ───────
@@ -346,7 +335,10 @@ class InMemoryE2eeStorage implements E2eeStorage {
     private deviceId: DeviceId | null = null
     private keypair: IdentityKeypair | null = null
     private snapshot: MlsSnapshot | null = null
-    private recoveryPassphrase: string[] | null = null
+    private kept: KeptPassphrase | null = null
+    private pending: PendingPassphrase | null = null
+    private standing: HistoryKeyStanding | null = null
+    private newest: number | null = null
     private boundActorUri: ActorUri | null = null
     private deviceAttestation: DeviceAttestation | null = null
 
@@ -370,14 +362,32 @@ class InMemoryE2eeStorage implements E2eeStorage {
     async loadMlsSnapshot(): Promise<MlsSnapshot | null> {
         return this.snapshot
     }
-    async saveRecoveryPassphrase(words: string[]): Promise<void> {
-        this.recoveryPassphrase = [...words]
+    async saveKeptPassphrase(kept: KeptPassphrase): Promise<void> {
+        this.kept = structuredClone(kept)
     }
-    async loadRecoveryPassphrase(): Promise<string[] | null> {
-        return this.recoveryPassphrase
+    async loadKeptPassphrase(): Promise<KeptPassphrase | null> {
+        return structuredClone(this.kept)
     }
-    async clearRecoveryPassphrase(): Promise<void> {
-        this.recoveryPassphrase = null
+    async savePendingPassphrase(pending: PendingPassphrase): Promise<void> {
+        this.pending = structuredClone(pending)
+    }
+    async loadPendingPassphrase(): Promise<PendingPassphrase | null> {
+        return structuredClone(this.pending)
+    }
+    async clearPendingPassphrase(): Promise<void> {
+        this.pending = null
+    }
+    async saveNewestHistoryGeneration(generation: number): Promise<void> {
+        this.newest = generation
+    }
+    async loadNewestHistoryGeneration(): Promise<number | null> {
+        return this.newest
+    }
+    async saveHistoryKeyStanding(standing: HistoryKeyStanding): Promise<void> {
+        this.standing = standing
+    }
+    async loadHistoryKeyStanding(): Promise<HistoryKeyStanding | null> {
+        return this.standing
     }
     async saveDeviceAttestation(attestation: DeviceAttestation): Promise<void> {
         this.deviceAttestation = attestation
@@ -395,7 +405,10 @@ class InMemoryE2eeStorage implements E2eeStorage {
         this.deviceId = null
         this.keypair = null
         this.snapshot = null
-        this.recoveryPassphrase = null
+        this.kept = null
+        this.pending = null
+        this.standing = null
+        this.newest = null
         this.boundActorUri = null
     }
 }
@@ -415,8 +428,7 @@ async function buildAdapter(
     await mls.initialize({ module_or_path: wasmModule } as never)
     const storage = new InMemoryE2eeStorage()
     const identity = new NobleIdentityAdapter()
-    const recovery = new NobleRecoveryAdapter()
-    const e2ee = new E2eeAdapter(identity, mls, storage, directory, recovery, mls, issuers.jwks)
+    const e2ee = new E2eeAdapter(identity, mls, storage, directory, mls, issuers.jwks)
     directory.bindToken(accessToken, actorUri)
     return { e2ee, mls, storage }
 }
@@ -430,7 +442,6 @@ async function reload(directory: InMemoryKeyDirectory, ctx: AdapterCtx): Promise
         mls,
         ctx.storage,
         directory,
-        new NobleRecoveryAdapter(),
         mls,
         issuers.jwks,
     )
