@@ -105,9 +105,12 @@ export function mayAsk(standing: HistoryKeyStanding): boolean {
     return standing.kind !== "holds"
 }
 
-/** The answering side acts on approval (§ 3.9): it holds the passphrase and found the approval key its own. */
+/**
+ * The answering side acts on approval (§ 3.9) and has said it holds the generation: the asker is in
+ * by it only once the list shows it at the current one.
+ */
 export function mayAnswer(standing: HistoryKeyStanding): boolean {
-    return actsOnApproval(standing)
+    return actsOnApproval(standing) && standing.settled
 }
 
 /**
@@ -210,6 +213,18 @@ export function nextRequestAt(openedAt: readonly number[], now: number): number 
  */
 export function renewsByItself(input: { reason: HandshakeFailure; answered: boolean; openedAt: number; now: number }): boolean {
     return input.reason === "expired" && !input.answered && input.now >= input.openedAt + APPROVAL_REQUEST_LIFETIME_MS
+}
+
+/**
+ * Approved, the device asks whether it is in after these, the last one from then on: the approving
+ * device may not yet show at the current generation.
+ */
+export const ENTER_BACKOFF_MS = [2_000, 4_000, 8_000, 15_000, 30_000] as const
+/** Approved and still not in after this: the page says the approving device hasn't finished. */
+export const STILL_WAITING_AFTER_MS = 20_000
+
+export function enterDelay(attemptsInARow: number): number {
+    return ENTER_BACKOFF_MS[Math.min(attemptsInARow, ENTER_BACKOFF_MS.length - 1)]
 }
 
 /** Before the next read of the relay: longer after failures in a row, much longer when it asked to slow down. */

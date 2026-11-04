@@ -47,6 +47,7 @@ import { FakeIssuers } from "./setup/issuers"
 
 const wired = vi.hoisted(() => ({
     deps: null as unknown as { e2ee: unknown; relay: unknown; directory: unknown },
+    history: null as unknown,
     handler: null as ((event: unknown) => void) | null,
 }))
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), message: vi.fn() }))
@@ -54,6 +55,7 @@ vi.mock("@/ioc", () => ({
     getE2eePort: () => wired.deps.e2ee,
     getApprovalRelayPort: () => wired.deps.relay,
     getDeviceDirectoryPort: () => wired.deps.directory,
+    getHistoryArchivePort: () => wired.history,
     getAuthPort: vi.fn(),
     getAuthPlatform: vi.fn(),
 }))
@@ -299,7 +301,7 @@ describe("the Door's controller", () => {
         const asker = await asking(net, phone)
         const prompt = door(net, laptop)
         await prompt.refresh()
-        vi.spyOn(laptop.e2ee, "checkHistoryKey").mockResolvedValue({ kind: "no-passphrase" })
+        vi.spyOn(laptop.e2ee, "checkHistoryKey").mockResolvedValue({ kind: "no-passphrase", generation: 1 })
 
         await prompt.answer(codeOf(asker.state))
 
@@ -634,6 +636,71 @@ describe("the asking section's view model", () => {
         await act(async () => document.dispatchEvent(new Event("visibilitychange")))
         await advance(10)
         expect(net.calls.length).toBeGreaterThan(reads)
+    })
+
+    /** The phone's section on screen, `entered` told once it is in; the laptop answers its code. */
+    async function approvedPhone() {
+        const accounts = await account()
+        const { idp, laptop, phone, net } = accounts
+        wired.history = idp
+        signIn(phone, net.deps(phone))
+        const entered = vi.fn()
+        function Entering() {
+            const rendered = useApproveFromAnotherDeviceViewModel({ ready: true, wordsStarted: false, fallbackLabel: "Web client", onIn: entered })
+            useEffect(() => {
+                vm = rendered
+            })
+            return null
+        }
+        await render(Entering)
+        await until(() => vm?.halves !== null)
+        idp.log.length = 0
+        const prompt = door(net, laptop)
+        await prompt.refresh()
+        await prompt.answer(codeOf(vm.state))
+        for (let i = 0; i < 8 && vm.state.kind !== "approved"; i++) {
+            await prompt.poll()
+            await advance(3_000)
+        }
+        expect(vm.state.kind).toBe("approved")
+        const reads = () => net.calls.filter((call) => call === `listDevices:${phone.storage.deviceId}`).length
+        // The laptop's row as the instance lists it before its report: not yet at the current generation.
+        const laptopRow = net.rows.get(laptop.storage.deviceId) as DeviceListEntry
+        const reported = () => net.list({ ...laptopRow, history_generation: 1, approvals: [...laptopRow.approvals] })
+        return { ...accounts, entered, reads, reported }
+    }
+
+    it("once approved, publishes its KeyPackages and goes on — only once the list shows it in — then reads nothing more", async () => {
+        const { idp, entered, reads, reported } = await approvedPhone()
+
+        await advance(100)
+        expect(entered).not.toHaveBeenCalled()
+        expect(idp.log).not.toContain("key packages")
+
+        await advance(35_000)
+        expect(vm.status).toBe("Approved. Waiting for your other device to finish: it hasn't yet said it holds your history passphrase.")
+        expect(vm.statusShown).toBe(true)
+
+        reported()
+        await until(() => entered.mock.calls.length === 1, 500)
+        expect(idp.log.filter((line) => line === "key packages")).toHaveLength(1)
+
+        const after = reads()
+        await advance(30_000)
+        expect(reads()).toBe(after)
+        expect(entered).toHaveBeenCalledOnce()
+    })
+
+    it("reads nothing more once the section goes, mid-wait", async () => {
+        const { entered, reads } = await approvedPhone()
+        await advance(100)
+
+        await unmount()
+        const after = reads()
+        await advance(5 * 60_000)
+
+        expect(reads()).toBe(after)
+        expect(entered).not.toHaveBeenCalled()
     })
 
     it("words what is happening", () => {

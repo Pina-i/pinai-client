@@ -22,11 +22,8 @@ import { HomeLayout } from "@/presentation/templates/HomeLayout/HomeLayout"
 import { Backdrop } from "@/presentation/atoms/backdrop/backdrop"
 import { Button } from "@/presentation/atoms/Button/Button"
 
-function AuthenticatedLayout() {
-    // Gate the app shell behind onboarding — bootstrap happens explicitly
-    // inside the setup view so the passphrase can be shown to the user.
-    const gate = useIdentityOnboardingGate()
-
+/** What runs only for a device the gate let in: a device that is out joins nothing, syncs nothing, saves nothing. */
+function AppRuntime() {
     useIdpWebSocket()
     useHeartbeat()
     useTypingPruner()
@@ -34,19 +31,25 @@ function AuthenticatedLayout() {
     useLoadDmConversations()
     useLoadPresence()
     useConsumeMlsWelcomes()
-    useReplenishKeyPackages(gate.status === "ready")
     useHistoryArchiveFlusher()
     const { onDeviceListChanged } = useDeviceFanout()
     useEffect(() => registerDeviceFanoutHandler(onDeviceListChanged), [onDeviceListChanged])
+    return null
+}
+
+function AuthenticatedLayout() {
+    // Gate the app shell behind onboarding — bootstrap happens explicitly
+    // inside the setup view so the passphrase can be shown to the user.
+    const gate = useIdentityOnboardingGate()
+    useReplenishKeyPackages(gate.status === "ready")
 
     // The splash screen stands in for the gate's loader, so a hard refresh
     // shows one loader from first paint to the shell.
     useHoldSplashScreen(gate.status === "loading" || gate.status === "redirecting")
     const showError = gate.status === "error"
 
-    // The data hooks above re-render this layout on every conversation-list or
-    // presence refresh; a stable element keeps that from cascading through the
-    // shell. HomeLayout and the Outlet still update through their own subscriptions.
+    // A stable element keeps this layout's re-renders from cascading through the shell; HomeLayout
+    // and the Outlet update through their own subscriptions.
     const shell = useMemo(
         () => (
             <HomeLayout>
@@ -71,6 +74,7 @@ function AuthenticatedLayout() {
                     </motion.div>
                 )}
             </AnimatePresence>
+            {gate.status === "ready" && <AppRuntime />}
             {gate.status === "ready" && shell}
             {gate.status === "ready" && <ApprovalDoor />}
         </>

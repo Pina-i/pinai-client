@@ -49,3 +49,12 @@ export const HISTORY_KEY_CONFLICT = "history_key_conflict"
 export function isHistoryKeyConflict(error: unknown): boolean {
     return error instanceof IdpError && error.code === HISTORY_KEY_CONFLICT
 }
+
+/**
+ * The IdP couldn't be had: no answer at all — a failed fetch is a `TypeError`, a timeout a
+ * `TimeoutError` — or a server failing (`5xx`). A refusal, or an answer that makes no sense, is not.
+ */
+export function isUnreachable(error: unknown): boolean {
+    if (error instanceof IdpError) return error.status >= 500
+    return error instanceof TypeError || (error instanceof Error && error.name === "TimeoutError")
+}

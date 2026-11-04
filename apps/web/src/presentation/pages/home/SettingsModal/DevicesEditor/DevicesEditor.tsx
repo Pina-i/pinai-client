@@ -89,6 +89,16 @@ export function DevicesEditor() {
                     </div>
                 )}
 
+                {/* Mounted throughout, so the banner is announced as it comes. */}
+                <div role="status">
+                    {vm.listRefused && (
+                        <div className="mb-3 rounded-[14px] border border-[color-mix(in_oklab,var(--idle)_40%,transparent)] bg-[color-mix(in_oklab,var(--idle)_10%,transparent)] px-3.5 py-3 text-[12px] leading-[1.5] text-idle">
+                            Your instance sent a device list naming a device twice. Nothing new is trusted on this
+                            device until it stops.
+                        </div>
+                    )}
+                </div>
+
                 {vm.isLoading && <div className={statePanel}>Loading devices…</div>}
 
                 {vm.error != null && !vm.isLoading && (
@@ -109,6 +119,7 @@ export function DevicesEditor() {
                                 device={d}
                                 onRevoke={() => void vm.onRevokeDevice(d.device_id)}
                                 isRevoking={vm.revokingDeviceId === d.device_id}
+                                notApproved={vm.unapproved.has(d.device_id)}
                             />
                         ))}
                     </div>

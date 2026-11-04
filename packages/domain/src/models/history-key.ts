@@ -66,7 +66,8 @@ export type MismatchReason = "check-value" | "approval-key" | "rollback" | "rela
 
 export type HistoryKeyStanding =
     | { kind: "unchecked" }
-    | { kind: "no-passphrase" }
+    /** `generation`: the key in force, never below the newest seen. */
+    | { kind: "no-passphrase"; generation: number }
     | { kind: "no-key" }
     /** `settled` once approved by the words over the device's current root key, and reported. */
     | { kind: "holds"; generation: number; settled: boolean }
@@ -100,7 +101,7 @@ export function standingAgainst(
     })
     if (!key) return newestSeen ? mismatch("rollback") : { kind: "no-key" }
     if (newestSeen && key.generation < newestSeen) return mismatch("rollback")
-    if (!kept) return { kind: "no-passphrase" }
+    if (!kept) return { kind: "no-passphrase", generation: key.generation }
     const verdict = sameBytes(kept.salt, key.salt) ? passphraseVerdict(kept, key) : "wrong"
     if (kept.generation !== key.generation) return mismatch(verdict === "holds" ? "relabelled" : "check-value")
     if (verdict === "wrong") return mismatch("check-value")
@@ -140,9 +141,10 @@ export function parseHistoryKeyStanding(value: unknown): HistoryKeyStanding | nu
     if (typeof value !== "object" || value === null) return null
     const row = value as Record<string, unknown>
     switch (row.kind) {
-        case "no-passphrase":
         case "no-key":
             return { kind: row.kind }
+        case "no-passphrase":
+            return isGeneration(row.generation) ? { kind: row.kind, generation: row.generation } : null
         case "holds":
             return isGeneration(row.generation) && typeof row.settled === "boolean"
                 ? { kind: "holds", generation: row.generation, settled: row.settled }

@@ -15,14 +15,24 @@ interface ApproveFromAnotherDeviceProps {
     wordsStarted: boolean
     /** This device's label until the instance's list names it. */
     fallbackLabel: string
+    /** Where to type the code. */
+    instruction?: string
+    /** Approved and in: its KeyPackages are out. */
+    onIn?: () => void
 }
 
 /**
  * The code to type on an approved device: "Pass"'s "Another device" tab
  * (`identity-provider/docs/plans/2026-11-02-history-key-sharing-design.md § 5.2`).
  */
-export function ApproveFromAnotherDevice({ ready, wordsStarted, fallbackLabel }: ApproveFromAnotherDeviceProps) {
-    const vm = useApproveFromAnotherDeviceViewModel({ ready, wordsStarted, fallbackLabel })
+export function ApproveFromAnotherDevice({
+    ready,
+    wordsStarted,
+    fallbackLabel,
+    instruction = "Open Pīna'i on one of your devices and type it when it asks.",
+    onIn,
+}: ApproveFromAnotherDeviceProps) {
+    const vm = useApproveFromAnotherDeviceViewModel({ ready, wordsStarted, fallbackLabel, onIn })
     const approved = vm.state.kind === "approved"
 
     return (
@@ -65,13 +75,13 @@ export function ApproveFromAnotherDevice({ ready, wordsStarted, fallbackLabel }:
 
                 {!approved && (
                     <p className="m-0 mt-4 text-center text-[14px] leading-[1.55] text-muted-foreground">
-                        Open Pīna'i on one of your devices and type it when it asks.
+                        {instruction}
                     </p>
                 )}
                 {/* Mounted throughout, so each change is announced; the approval's own headline shows it. */}
                 <p
                     role="status"
-                    className={cn("m-0 mt-2 min-h-[1lh] text-center text-[12.5px] text-muted-foreground", approved && "sr-only")}
+                    className={cn("m-0 mt-2 min-h-[1lh] text-center text-[12.5px] text-muted-foreground", !vm.statusShown && "sr-only")}
                 >
                     {vm.status}
                 </p>

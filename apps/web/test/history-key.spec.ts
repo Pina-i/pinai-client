@@ -138,7 +138,7 @@ describe("the history key's rules", () => {
         expect(standingAgainst(key, kept(), 3, root)).toMatchObject({ kind: "mismatch", reason: "rollback", generation: 2 })
         expect(standingAgainst(null, kept(), 2, root)).toMatchObject({ kind: "mismatch", reason: "rollback", generation: 0 })
         expect(standingAgainst(null, null, null, root)).toEqual({ kind: "no-key" })
-        expect(standingAgainst(key, null, 2, root)).toEqual({ kind: "no-passphrase" })
+        expect(standingAgainst(key, null, 2, root)).toEqual({ kind: "no-passphrase", generation: 2 })
     })
 
     it("words give the generation they were kept for, no other", () => {
@@ -184,7 +184,6 @@ describe("the account's first device", () => {
         expect(idp.log).toEqual([
             "register device",
             "name session",
-            "key packages",
             "read key",
             "seal pending 1",
             "set key 1",
@@ -193,6 +192,7 @@ describe("the account's first device", () => {
             "approve by passphrase 1",
             "report 1",
             "save words 1 approved",
+            "key packages",
         ])
         expect(outcome).toEqual({ kind: "holds", words: laptop.storage.kept?.words })
         expect(idp.key?.setByDevice).toBe(laptop.storage.deviceId)
@@ -292,7 +292,7 @@ describe("the account's first device", () => {
         const reloaded = historyDevice(idp, "laptop", laptop.storage)
 
         expect(await found(reloaded)).toEqual({ kind: "holds", words })
-        expect(idp.log).toEqual(["register device", "name session", "key packages", "read key"])
+        expect(idp.log).toEqual(["register device", "name session", "read key", "key packages"])
     })
 })
 
@@ -305,7 +305,7 @@ describe("the 24 words typed on a device", () => {
 
         expect(await typeWords(phone, generateMnemonic(wordlist, 256).split(" "))).toEqual({ kind: "wrong-passphrase" })
         expect(phone.storage.kept).toBeNull()
-        expect(idp.log).toEqual(["register device", "name session", "key packages", "read key"])
+        expect(idp.log).toEqual(["register device", "name session", "read key"])
     })
 
     it("keeps the right words, approves the device with them and reports, then restores", async () => {
@@ -325,12 +325,12 @@ describe("the 24 words typed on a device", () => {
         expect(idp.log).toEqual([
             "register device",
             "name session",
-            "key packages",
             "read key",
             "save words 1",
             "approve by passphrase 1",
             "report 1",
             "save words 1 approved",
+            "key packages",
             "read archive",
         ])
         expect(restored).toMatchObject({ kind: "restored", decrypted: 3, skipped: 0 })

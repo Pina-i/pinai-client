@@ -3,8 +3,11 @@ import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
 
 import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstrap-first-device.usecase"
+import { gateThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/gate-this-device.usecase"
 import { getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getSessionPort } from "@/ioc"
+import { admissionDeps } from "@/presentation/_libs/admission-deps"
 import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
+import { GATE_PAGES } from "@/presentation/_libs/gate-pages"
 import { useAppStore } from "@/store/store"
 
 export type SetupStatus = "checking" | "running" | "done" | "error"
@@ -22,7 +25,7 @@ export interface RecoverySetupViewModel {
 /**
  * Runs the first device's bootstrap on mount, then shows the 24 words — only once the IdP took
  * the history key they give. A device that finds the account has a key another device set goes to
- * the restore page instead. Continue and Skip both navigate to /home.
+ * the page the gate decides instead. Continue and Skip both navigate to /home.
  */
 export function useRecoverySetupPageViewModel(): RecoverySetupViewModel {
     const signedIn = useAppStore((s) => s.accessToken !== null)
@@ -59,7 +62,9 @@ export function useRecoverySetupPageViewModel(): RecoverySetupViewModel {
                 })
                 if (cancelled) return
                 if (outcome.kind === "has-key") {
-                    void navigate({ to: "/onboarding/recovery-restore" })
+                    // The gate's own decision, without mounting the app on the way to the device's page.
+                    const route = await gateThisDeviceUseCase(admissionDeps())(idpUrl, accessToken, ownActorUri)
+                    if (!cancelled) void navigate({ to: GATE_PAGES[route] })
                     return
                 }
                 setWords(outcome.words)

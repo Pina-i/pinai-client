@@ -52,6 +52,16 @@ export function devicesToAdd(present: readonly LeafVerdict[], me: string, trust:
     )
 }
 
+/**
+ * When a sibling no KeyPackage could be claimed for is tried again: a device publishes its stash
+ * only once in, after the approvals that start the sync adding it, and its upload starts none.
+ */
+export const UNCLAIMED_RETRY_MS = [5_000, 15_000, 60_000, 5 * 60_000, 15 * 60_000] as const
+
+export function unclaimedRetryDelay(attempt: number): number {
+    return UNCLAIMED_RETRY_MS[Math.min(attempt, UNCLAIMED_RETRY_MS.length - 1)]
+}
+
 /** A group conversation snapshot returned by create / rename. */
 export interface GroupView {
     conversationId: string

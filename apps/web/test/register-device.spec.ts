@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { asActorUri } from "@pinai/domain/models/identity"
 
+import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
 import type { IHpkePort } from "@pinai/domain/ports/hpke.port"
 import type { IKeyDirectoryPort } from "@pinai/domain/ports/key-directory.port"
@@ -147,26 +148,38 @@ describe("replenishKeyPackagesUseCase", () => {
         actorUri: asActorUri("https://idp.alice.com/users/alice"),
     }
     const STATUS = { devices: [], refill_threshold: 20, cap: 100 }
+    const holds = async () => ({ kind: "holds", generation: 1, settled: true }) as const
+    const deps = (e2eePort: IE2eePort) => ({ e2eePort, deviceDirectoryPort: {} as IDeviceDirectoryPort })
 
-    it("renews the attestation when due before it tops the stash up", async () => {
+    it("renews the attestation when due, then — the device in — tops the stash up, publishing nothing else", async () => {
         const order: string[] = []
         const port = {
             registerDevice: vi.fn(async () => void order.push("renew")),
+            checkHistoryKey: vi.fn(async () => (order.push("check"), holds())),
+            recordAdmission: vi.fn(async () => undefined),
+            register: vi.fn(),
             replenishKeyPackages: vi.fn(async () => (order.push("refill"), STATUS)),
         } as unknown as IE2eePort
 
-        expect(await replenishKeyPackagesUseCase({ e2eePort: port })(input)).toEqual({ status: STATUS })
-        expect(order).toEqual(["renew", "refill"])
+        expect(await replenishKeyPackagesUseCase(deps(port))(input)).toEqual({
+            admission: { kind: "in", by: "passphrase" },
+            status: STATUS,
+        })
+        expect(order).toEqual(["renew", "check", "refill"])
+        expect(port.register).not.toHaveBeenCalled()
     })
 
     it("tops the stash up all the same when the renewal fails, and says why", async () => {
         const failure = new IdpError(503, "", "Service unavailable")
         const port = {
             registerDevice: vi.fn(async () => Promise.reject(failure)),
+            checkHistoryKey: vi.fn(holds),
+            recordAdmission: vi.fn(async () => undefined),
             replenishKeyPackages: vi.fn(async () => STATUS),
         } as unknown as IE2eePort
 
-        expect(await replenishKeyPackagesUseCase({ e2eePort: port })(input)).toEqual({
+        expect(await replenishKeyPackagesUseCase(deps(port))(input)).toEqual({
+            admission: { kind: "in", by: "passphrase" },
             status: STATUS,
             renewalFailure: failure,
         })

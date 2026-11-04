@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { deviceListKey } from "@pinai/domain/models/device"
 import type { ConversationId } from "@pinai/domain/models/e2ee"
+import { unclaimedRetryDelay } from "@pinai/domain/models/group"
 import { oneAtATime, syncOwnGroupsUseCase } from "@pinai/domain/usecases/e2ee/sync-own-groups.usecase"
 import { getDeviceDirectoryPort, getE2eePort } from "@/ioc"
 import { devicesQueryKey } from "@/presentation/hooks/useDevices"
@@ -13,7 +14,8 @@ import { useAppStore } from "@/store/store"
  * leaves it doesn't trust committed out, then the user's approved devices they lack. It runs on
  * every device-list refresh, so a device signed in while this one was offline is caught when this
  * one comes back; the WS `device_joined` and `device_approved` pushes only refresh the list, and
- * the run reads it again itself before judging anyone. One run at a time, page-wide.
+ * the run reads it again itself before judging anyone. One run at a time, page-wide. A sibling it
+ * couldn't claim a KeyPackage for is tried again with a backoff (`unclaimedRetryDelay`) until none is left.
  */
 const sync = oneAtATime(syncOwnGroupsUseCase)
 
@@ -45,6 +47,20 @@ export function useDeviceFanout(): {
     // A group this device founds or joins changes neither the device list nor, often, the ids.
     const [groupsHeld, setGroupsHeld] = useState(0)
     useEffect(() => getE2eePort().onGroupHeld(() => setGroupsHeld((n) => n + 1)), [])
+    const [retries, setRetries] = useState(0)
+    const retry = useRef<{ attempts: number; timer: ReturnType<typeof setTimeout> | undefined; live: boolean }>({
+        attempts: 0,
+        timer: undefined,
+        live: true,
+    })
+    useEffect(() => {
+        const held = retry.current
+        held.live = true
+        return () => {
+            held.live = false
+            clearTimeout(held.timer)
+        }
+    }, [])
     // A registration changed this device's row, and its leaves have a new credential to take.
     useEffect(
         () =>
@@ -59,13 +75,17 @@ export function useDeviceFanout(): {
         if (listKey === null || !idpUrl || !accessToken || !actorUri) return
         void (async () => {
             // With no conversation, the device list is still reviewed: revocations kept, devices announced.
-            const { failed, reviewFailure } = await sync(
+            const { failed, reviewFailure, unclaimed } = await sync(
                 idpUrl,
                 accessToken,
                 actorUri,
                 conversationIds ? (conversationIds.split(",") as ConversationId[]) : [],
                 { e2ee: getE2eePort(), deviceDirectory: getDeviceDirectoryPort() },
             )
+            const held = retry.current
+            clearTimeout(held.timer)
+            if (unclaimed.length === 0) held.attempts = 0
+            else if (held.live) held.timer = setTimeout(() => setRetries((n) => n + 1), unclaimedRetryDelay(held.attempts++))
             if (reviewFailure !== undefined) {
                 // eslint-disable-next-line no-console
                 console.warn("[fanout] reviewing the device list failed", reviewFailure)
@@ -75,7 +95,7 @@ export function useDeviceFanout(): {
                 console.warn("[fanout] keeping a group in step failed", conversationId, error)
             }
         })()
-    }, [listKey, idpUrl, signedIn, actorUri, conversationIds, groupsHeld])
+    }, [listKey, idpUrl, signedIn, actorUri, conversationIds, groupsHeld, retries])
 
     const onDeviceListChanged = useCallback(() => {
         if (!idpUrl) return

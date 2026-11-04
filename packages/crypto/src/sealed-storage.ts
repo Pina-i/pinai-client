@@ -8,6 +8,7 @@ import {
     type KnownDevice,
 } from "@pinai/domain/models/device-trust"
 import type { ActorUri, DeviceId, IdentityKeypair, ConversationId } from "@pinai/domain/models/e2ee"
+import { parseAdmission, type Admission } from "@pinai/domain/models/admission"
 import {
     isGeneration,
     parseHistoryKeyStanding,
@@ -42,9 +43,13 @@ const DEVICE_ATTESTATION = "device_attestation"
 
 /** One row per collection — this store keeps a single current value each. */
 const CURRENT = "current"
-/** Beside the kept words: the words minted but not yet taken by the IdP, the last standing, the newest generation seen. */
+/**
+ * Beside the kept words: the words minted but not yet taken by the IdP, the last standing and
+ * admission, the newest generation seen.
+ */
 const PENDING = "pending"
 const STANDING = "standing"
+const ADMISSION = "admission"
 const NEWEST_GENERATION = "newest_generation"
 /**
  * `device_trust`, beside the attestation: a store of its own would take an IndexedDB upgrade. One
@@ -175,6 +180,8 @@ export interface E2eeStorage {
     clearPendingPassphrase(): Promise<void>
     saveHistoryKeyStanding(standing: HistoryKeyStanding): Promise<void>
     loadHistoryKeyStanding(): Promise<HistoryKeyStanding | null>
+    saveAdmission(admission: Admission): Promise<void>
+    loadAdmission(): Promise<Admission | null>
     saveNewestHistoryGeneration(generation: number): Promise<void>
     loadNewestHistoryGeneration(): Promise<number | null>
     /**
@@ -295,6 +302,14 @@ export class SealedStorage implements E2eeStorage {
 
     async loadHistoryKeyStanding(): Promise<HistoryKeyStanding | null> {
         return this.openOrSetAside(RECOVERY_PASSPHRASE, STANDING, parseHistoryKeyStanding)
+    }
+
+    async saveAdmission(admission: Admission): Promise<void> {
+        await this.seal(RECOVERY_PASSPHRASE, admission, ADMISSION)
+    }
+
+    async loadAdmission(): Promise<Admission | null> {
+        return this.openOrSetAside(RECOVERY_PASSPHRASE, ADMISSION, parseAdmission)
     }
 
     async saveNewestHistoryGeneration(generation: number): Promise<void> {

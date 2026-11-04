@@ -7,89 +7,50 @@ import { RecoveryPassphraseInput } from "@/presentation/molecules/RecoveryPassph
 import { cn } from "@/presentation/_libs/utils"
 
 import { ApproveFromAnotherDevice } from "./ApproveFromAnotherDevice/ApproveFromAnotherDevice"
-import { useRecoveryRestorePageViewModel } from "./RecoveryRestorePage.viewmodel"
+import { ResetIntro, StartOverHere } from "./ResetIntro/ResetIntro"
+import { useRecoveryRestorePageViewModel, type RestoreVariant } from "./RecoveryRestorePage.viewmodel"
 
-// MSK + Device Root Key are bootstrapped silently, so both Restore and Start fresh exit ready.
-export function RecoveryRestorePage() {
-    const vm = useRecoveryRestorePageViewModel()
+/**
+ * Where a device that isn't in stays — § 5.2's new-device page, or § 5.4's reset page — until another
+ * device approves it, its 24 words are typed, or it signs out: there is no other way in.
+ */
+export function RecoveryRestorePage({ variant = "new-device" }: { variant?: RestoreVariant }) {
+    const vm = useRecoveryRestorePageViewModel(variant)
     const isMidEntry = vm.filledCount > 0
     const isRestoring = vm.status === "restoring"
     const initials = (vm.welcomeName[0] ?? "?").toUpperCase()
+    const reset = variant === "reset"
 
     return (
         <div className="relative flex min-h-app items-center justify-center overflow-auto bg-background">
             <Backdrop />
             <PageTransition className="relative z-[2] grid w-full max-w-[1200px] grid-cols-[1.1fr_1fr] gap-9 px-14 py-10">
                 <div>
-                    <Breadcrumb />
+                    <Breadcrumb device={reset ? "This device" : "New device"} current={reset ? "History reset" : "Recover history"} />
 
-                    <WelcomeChip
-                        name={vm.welcomeName}
-                        initials={initials}
-                        deviceLabel={vm.deviceLabel}
-                    />
+                    {reset ? (
+                        <ResetIntro cause={vm.resetCause} />
+                    ) : (
+                        <>
+                            <WelcomeChip name={vm.welcomeName} initials={initials} deviceLabel={vm.deviceLabel} />
+                            {isMidEntry ? <HeroMidEntry /> : <HeroEmpty />}
+                        </>
+                    )}
 
-                    {isMidEntry ? <HeroMidEntry /> : <HeroEmpty />}
+                    {vm.offersWayIn && (
+                        <ApproveFromAnotherDevice
+                            ready={vm.deviceReady}
+                            wordsStarted={isMidEntry}
+                            fallbackLabel={vm.deviceLabel}
+                            instruction={reset ? "Open Pīna'i on the device that reset your history and type it when it asks." : undefined}
+                            onIn={vm.onIn}
+                        />
+                    )}
 
-                    <ApproveFromAnotherDevice ready={vm.deviceReady} wordsStarted={isMidEntry} fallbackLabel={vm.deviceLabel} />
-
-                    <p className="eye mb-2 mt-7">Or with your 24 words</p>
-                    <p className="m-0 mb-3.5 max-w-[520px] text-[14px] leading-[1.6] text-muted-foreground">
-                        {isMidEntry ? (
-                            <>
-                                We've matched {vm.filledCount} of your 24 words. {24 - vm.filledCount}{" "}
-                                {24 - vm.filledCount === 1 ? "is" : "are"} still empty — finish those and
-                                we'll restore everything.
-                            </>
-                        ) : (
-                            <>
-                                Your old conversations are sealed on your other devices: approve this
-                                one from them, or unlock them here with the 24 words you saved. Paste or
-                                type them once, and your messages, photos and rooms come right back.
-                            </>
-                        )}
-                    </p>
-
-                    <div className="mt-[18px] flex max-w-[540px] flex-col gap-2.5">
-                        {isMidEntry ? (
-                            <>
-                                <RowFact
-                                    icon="✓"
-                                    title="What's ready"
-                                    body={`${vm.filledCount} of 24 words match the dictionary. ${
-                                        24 - vm.filledCount
-                                    } ${24 - vm.filledCount === 1 ? "slot remains" : "slots remain"} empty.`}
-                                />
-                                <RowFact
-                                    icon="↺"
-                                    title="Take your time"
-                                    body="Order matters — they must be in the same sequence you saved."
-                                />
-                            </>
-                        ) : (
-                            <>
-                                <RowFact
-                                    icon="↺"
-                                    title="Bring everything back"
-                                    body="Past chats, voice rooms you're in, the friends you've added. All restored on this device."
-                                />
-                                <RowFact
-                                    icon="✓"
-                                    title="Faster: paste them all"
-                                    body="Most password managers can paste the whole 24 words at once."
-                                />
-                                <RowFact
-                                    icon="?"
-                                    title="Lost the passphrase?"
-                                    body="You can still chat from this device — but messages from before today won't follow you here."
-                                    tone="warning"
-                                />
-                            </>
-                        )}
-                    </div>
+                    {vm.offersWayIn && <WordsIntro reset={reset} filledCount={vm.filledCount} />}
 
                     <div className={cn("mt-7 flex items-center gap-2.5", isMidEntry && "mt-6")}>
-                        {isMidEntry ? (
+                        {!vm.offersWayIn ? null : isMidEntry ? (
                             <Button variant="secondary" size="inline" onPress={vm.onClear} isDisabled={isRestoring}>
                                 <Trash2 className="h-[15px] w-[15px]" />
                                 Clear all
@@ -106,26 +67,46 @@ export function RecoveryRestorePage() {
                             </Button>
                         )}
 
-                        <Button
-                            size="inline"
-                            onPress={() => void vm.onRestore()}
-                            isDisabled={!vm.canRestore || isRestoring}
-                        >
-                            {isRestoring ? "Restoring…" : "Restore"}
-                            {!isRestoring && <ArrowRight className="h-[15px] w-[15px]" />}
-                        </Button>
+                        {vm.offersWayIn ? (
+                            <Button
+                                size="inline"
+                                onPress={() => void vm.onRestore()}
+                                isDisabled={!vm.canRestore || isRestoring}
+                            >
+                                {isRestoring ? "Restoring…" : "Restore"}
+                                {!isRestoring && <ArrowRight className="h-[15px] w-[15px]" />}
+                            </Button>
+                        ) : (
+                            vm.resetCause === "unknown-change" && (
+                                <Button variant="secondary" size="inline" onPress={vm.onIn}>
+                                    Check again
+                                </Button>
+                            )
+                        )}
 
                         <span className="flex-1" />
 
+                        {vm.isIn && (
+                            <Button
+                                variant="ghost"
+                                onPress={vm.onIn}
+                                isDisabled={isRestoring}
+                                className="text-[12.5px] underline-offset-[3px]"
+                            >
+                                Back to Pīna'i
+                            </Button>
+                        )}
                         <Button
                             variant="ghost"
-                            onPress={vm.onStartFresh}
-                            isDisabled={vm.status === "initializing" || isRestoring}
+                            onPress={vm.onSignOut}
+                            isDisabled={isRestoring}
                             className="text-[12.5px] underline-offset-[3px]"
                         >
-                            Start fresh on this device
+                            Sign out
                         </Button>
                     </div>
+
+                    {reset && <StartOverHere />}
 
                     {vm.status === "error" && vm.error && (
                         <p className="mt-4 text-[12px] text-dnd">
@@ -135,26 +116,93 @@ export function RecoveryRestorePage() {
                 </div>
 
                 <div>
-                    <RecoveryPassphraseInput
-                        value={vm.words}
-                        onChange={vm.setWords}
-                        disabled={isRestoring}
-                        handleRef={vm.inputHandleRef}
-                    />
+                    {vm.offersWayIn && (
+                        <RecoveryPassphraseInput
+                            value={vm.words}
+                            onChange={vm.setWords}
+                            disabled={isRestoring}
+                            handleRef={vm.inputHandleRef}
+                        />
+                    )}
                 </div>
             </PageTransition>
         </div>
     )
 }
 
-function Breadcrumb() {
+/** How the 24 words let this device in, and how far the typing got. */
+function WordsIntro({ reset, filledCount }: { reset: boolean; filledCount: number }) {
+    const isMidEntry = filledCount > 0
+    return (
+        <>
+            <p className="eye mb-2 mt-7">{reset ? "Or its 24 words" : "Or with your 24 words"}</p>
+            <p className="m-0 mb-3.5 max-w-[520px] text-[14px] leading-[1.6] text-muted-foreground">
+                {reset ? (
+                    <>The new words, from the device that reset your history. Your old ones no longer open it.</>
+                ) : isMidEntry ? (
+                    <>
+                        We've matched {filledCount} of your 24 words. {24 - filledCount}{" "}
+                        {24 - filledCount === 1 ? "is" : "are"} still empty — finish those and
+                        we'll restore everything.
+                    </>
+                ) : (
+                    <>
+                        Your old conversations are sealed on your other devices: approve this
+                        one from them, or unlock them here with the 24 words you saved. Paste or
+                        type them once, and your messages, photos and rooms come right back.
+                    </>
+                )}
+            </p>
+
+            <div className="mt-[18px] flex max-w-[540px] flex-col gap-2.5">
+                {isMidEntry ? (
+                    <>
+                        <RowFact
+                            icon="✓"
+                            title="What's ready"
+                            body={`${filledCount} of 24 words match the dictionary. ${
+                                24 - filledCount
+                            } ${24 - filledCount === 1 ? "slot remains" : "slots remain"} empty.`}
+                        />
+                        <RowFact
+                            icon="↺"
+                            title="Take your time"
+                            body="Order matters — they must be in the same sequence you saved."
+                        />
+                    </>
+                ) : reset ? null : (
+                    <>
+                        <RowFact
+                            icon="↺"
+                            title="Bring everything back"
+                            body="Past chats, voice rooms you're in, the friends you've added. All restored on this device."
+                        />
+                        <RowFact
+                            icon="✓"
+                            title="Faster: paste them all"
+                            body="Most password managers can paste the whole 24 words at once."
+                        />
+                        <RowFact
+                            icon="?"
+                            title="No device and no words left?"
+                            body="Starting over from here comes in a later release. Until then, this device waits here for one of your devices to approve it, or for your 24 words."
+                            tone="warning"
+                        />
+                    </>
+                )}
+            </div>
+        </>
+    )
+}
+
+function Breadcrumb({ device, current }: { device: string; current: string }) {
     return (
         <div className="mb-3.5 flex items-center gap-[7px] text-[12px] text-muted-foreground">
             <span>Sign in</span>
             <span className="text-line2">›</span>
-            <span>New device</span>
+            <span>{device}</span>
             <span className="text-line2">›</span>
-            <span className="font-medium text-foreground">Recover history</span>
+            <span className="font-medium text-foreground">{current}</span>
         </div>
     )
 }

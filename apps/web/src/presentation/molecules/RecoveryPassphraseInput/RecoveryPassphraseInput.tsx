@@ -19,7 +19,7 @@ interface RecoveryPassphraseInputProps {
     /** 24-element array. Empty string for unfilled slots. */
     value: string[]
     onChange: (next: string[]) => void
-    /** Optional disable — used by the degraded "Start fresh only" variant. */
+    /** Disabled while the words are being checked. */
     disabled?: boolean
     handleRef?: RefObject<RecoveryPassphraseInputHandle | null>
 }

@@ -1,13 +1,15 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { useLocation } from "@tanstack/react-router"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
+import { unapprovedListed } from "@pinai/domain/models/device-trust"
 import { clearHistoryBackupUseCase } from "@pinai/domain/usecases/e2ee/clear-history-backup.usecase"
 import { revokeDeviceUseCase } from "@pinai/domain/usecases/e2ee/revoke-device.usecase"
 import { getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getSessionPort } from "@/ioc"
 import { devicesQueryKey, useDevices, type DeviceRow } from "@/presentation/hooks/useDevices"
 import { type RecentSignIn, useRecentSignIn } from "@/presentation/hooks/use-recent-sign-in"
+import { useTrustEvents } from "@/presentation/hooks/use-trust-events"
 import { useAppStore } from "@/store/store"
 
 import { settingsHref } from "../SettingsModal.viewmodel"
@@ -16,6 +18,10 @@ export interface DevicesEditorViewModel {
     rows: DeviceRow[] | undefined
     isLoading: boolean
     error: unknown
+    /** Rows this device, acting on approval, found unapproved: "Not mine" revokes them. */
+    unapproved: ReadonlySet<string>
+    /** The instance sent a list naming a device twice: nothing new is trusted until it stops. */
+    listRefused: boolean
 
     passphraseWords: string[] | null
     isPassphraseLoading: boolean
@@ -44,6 +50,8 @@ export interface DevicesEditorViewModel {
  *    only — the passphrase and its generation stay, saving goes on
  *  - a refusal for a password typed too long ago asks for it again, and
  *    comes back to this pane
+ *  - the trust events standing: the devices an acting review left unapproved
+ *    (only an acting device announces any), and a device list refused
  *
  * Revoke + clear both run sequentially to avoid two concurrent MLS
  * commits racing each other against the same conversation epoch.
@@ -59,6 +67,9 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
     const { refused } = recentSignIn
 
     const { rows, isLoading, error } = useDevices()
+    const events = useTrustEvents()
+    const unapproved = useMemo(() => unapprovedListed(events, rows ?? []), [events, rows])
+    const listRefused = events.some((e) => e.kind === "device-list-refused")
 
     const [passphraseWords, setPassphraseWords] = useState<string[] | null>(null)
     const [isPassphraseLoading, setIsPassphraseLoading] = useState(true)
@@ -141,6 +152,8 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
         rows,
         isLoading,
         error,
+        unapproved,
+        listRefused,
         passphraseWords,
         isPassphraseLoading,
         isClearingHistoryBackup,

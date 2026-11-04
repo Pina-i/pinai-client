@@ -58,7 +58,7 @@ function e2ee(change: Partial<Record<keyof IE2eePort, unknown>> = {}) {
         refreshOwnLeaf: vi.fn().mockResolvedValue({ refreshed: false }),
         reviewDevices: vi.fn().mockResolvedValue(trusting),
         removeUntrustedLeaves: vi.fn().mockResolvedValue({ removed: 0 }),
-        addOwnDevices: vi.fn().mockResolvedValue({ added: 1 }),
+        addOwnDevices: vi.fn().mockResolvedValue({ added: 1, unclaimed: [] }),
         ...change,
     } as unknown as Pick<IE2eePort, "catchUp" | "refreshOwnLeaf" | "reviewDevices" | "removeUntrustedLeaves" | "addOwnDevices"> &
         Record<string, ReturnType<typeof vi.fn>>
@@ -77,13 +77,13 @@ describe("syncOwnGroupsUseCase", () => {
             refreshOwnLeaf: log("refresh", { refreshed: true }),
             reviewDevices: vi.fn().mockImplementation(async () => (order.push("review"), trusting)),
             removeUntrustedLeaves: log("drop", { removed: 1 }),
-            addOwnDevices: log("add", { added: 1 }),
+            addOwnDevices: log("add", { added: 1, unclaimed: [] }),
         })
         const devices = directory(vi.fn().mockImplementation(async () => (order.push("list"), { devices: listed })))
 
         const outcome = await syncOwnGroupsUseCase(IDP, "tok", DAN, ["g1", "g2"], { e2ee: port, deviceDirectory: devices })
 
-        expect(outcome).toEqual({ added: 2, removed: 2, failed: [] })
+        expect(outcome).toEqual({ added: 2, removed: 2, unclaimed: [], failed: [] })
         expect(order).toEqual([
             "catch up g1",
             "refresh g1",
@@ -131,7 +131,7 @@ describe("syncOwnGroupsUseCase", () => {
 
         const outcome = await syncOwnGroupsUseCase(IDP, "tok", DAN, ["g1"], { e2ee: port, deviceDirectory: directory() })
 
-        expect(outcome).toEqual({ added: 0, removed: 0, failed: [] })
+        expect(outcome).toEqual({ added: 0, removed: 0, unclaimed: [], failed: [] })
         expect(port.removeUntrustedLeaves).toHaveBeenCalledWith(IDP, "tok", "g1", undecided("dan-1"), expect.any(Function))
         expect(port.addOwnDevices).not.toHaveBeenCalled()
     })
@@ -153,7 +153,7 @@ describe("syncOwnGroupsUseCase", () => {
             deviceDirectory: directory(vi.fn().mockRejectedValue(failure)),
         })
 
-        expect(outcome).toEqual({ added: 0, removed: 0, failed: [], reviewFailure: failure })
+        expect(outcome).toEqual({ added: 0, removed: 0, unclaimed: [], failed: [], reviewFailure: failure })
         expect(port.reviewDevices).not.toHaveBeenCalled()
         expect(port.removeUntrustedLeaves).toHaveBeenCalledWith(IDP, "tok", "g1", null, expect.any(Function))
         expect(port.addOwnDevices).not.toHaveBeenCalled()
@@ -165,7 +165,7 @@ describe("syncOwnGroupsUseCase", () => {
 
         const outcome = await syncOwnGroupsUseCase(IDP, "tok", DAN, ["g1"], { e2ee: port, deviceDirectory: directory() })
 
-        expect(outcome).toEqual({ added: 1, removed: 0, failed: [{ conversationId: "g1", error: failure }] })
+        expect(outcome).toEqual({ added: 1, removed: 0, unclaimed: [], failed: [{ conversationId: "g1", error: failure }] })
     })
 
     it("goes no further in a group it couldn't catch up", async () => {
@@ -174,7 +174,7 @@ describe("syncOwnGroupsUseCase", () => {
 
         const outcome = await syncOwnGroupsUseCase(IDP, "tok", DAN, ["g1"], { e2ee: port, deviceDirectory: directory() })
 
-        expect(outcome).toEqual({ added: 0, removed: 0, failed: [{ conversationId: "g1", error: failure }] })
+        expect(outcome).toEqual({ added: 0, removed: 0, unclaimed: [], failed: [{ conversationId: "g1", error: failure }] })
         expect(port.refreshOwnLeaf).not.toHaveBeenCalled()
         expect(port.removeUntrustedLeaves).not.toHaveBeenCalled()
         expect(port.addOwnDevices).not.toHaveBeenCalled()
@@ -184,7 +184,7 @@ describe("syncOwnGroupsUseCase", () => {
         const failure = new Error("connection reset")
         const port = e2ee({
             removeUntrustedLeaves: vi.fn().mockRejectedValueOnce(failure).mockResolvedValue({ removed: 0 }),
-            addOwnDevices: vi.fn().mockRejectedValueOnce(failure).mockResolvedValue({ added: 1 }),
+            addOwnDevices: vi.fn().mockRejectedValueOnce(failure).mockResolvedValue({ added: 1, unclaimed: [] }),
         })
 
         const outcome = await syncOwnGroupsUseCase(IDP, "tok", DAN, ["g1", "g2"], { e2ee: port, deviceDirectory: directory() })
@@ -192,6 +192,7 @@ describe("syncOwnGroupsUseCase", () => {
         expect(outcome).toEqual({
             added: 1,
             removed: 0,
+            unclaimed: [],
             failed: [
                 { conversationId: "g1", error: failure },
                 { conversationId: "g1", error: failure },

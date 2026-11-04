@@ -1,3 +1,4 @@
+import { deviceAdmission } from "../../models/admission"
 import type { ActorUri } from "../../models/e2ee"
 import { restoredMessages, type RestoredMessage } from "../../models/history-archive"
 import { passphraseVerdict } from "../../models/history-key"
@@ -47,13 +48,13 @@ export type PassphraseRestore =
 /**
  * The 24 words typed on this device (`identity-provider/specs/e2ee.md § 6.4`): checked against
  * the key in force before anything is read, an empty archive or not. Right, they are kept, the
- * device approves itself with them and reports the generation, then the archive is restored.
+ * device approves itself with them and reports the generation — it is in: its KeyPackages go out
+ * —, then the archive is restored.
  */
 export const restoreHistoryFromPassphraseUseCase =
     (deps: RestoreHistoryDeps) =>
     async ({ idpUrl, accessToken, actorUri, passphrase }: RestoreHistoryInput): Promise<PassphraseRestore> => {
         await setUpThisDeviceUseCase(deps)(idpUrl, accessToken, actorUri)
-        await registerIdentityUseCase(deps)({ idpUrl, accessToken, actorUri })
         const key = await deps.historyArchivePort.getKey(idpUrl, accessToken)
         if (!key) return { kind: "no-key" }
         const seen = await deps.e2eePort.newestHistoryGeneration()
@@ -65,6 +66,7 @@ export const restoreHistoryFromPassphraseUseCase =
         await deps.e2eePort.keepPassphrase(passphrase, key)
         const standing = await approveByPassphraseUseCase(deps)(idpUrl, accessToken, actorUri)
         if (standing.kind !== "holds") return { kind: "key-changed" }
+        await registerIdentityUseCase(deps)({ idpUrl, accessToken, actorUri, admission: deviceAdmission(standing, null) })
         const { entries, skipped } = await deps.e2eePort.restoreHistory(idpUrl, accessToken)
         return { kind: "restored", messages: restoredMessages(entries), decrypted: entries.length, skipped }
     }

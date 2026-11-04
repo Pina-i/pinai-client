@@ -1,3 +1,4 @@
+import { deviceAdmission } from "../../models/admission"
 import type { ActorUri } from "../../models/e2ee"
 import { FIRST_HISTORY_GENERATION } from "../../models/history-key"
 import { isHistoryKeyConflict } from "../../models/idp-error"
@@ -33,13 +34,13 @@ export type FirstDeviceOutcome =
 /**
  * The account's first device (`identity-provider/specs/e2ee.md § 6.1`): set up, a pending key
  * settled, then — no key in force — generation 1 minted and sealed as pending, set, and only once
- * the IdP took it kept, approved, reported and shown. Another device's key erases it.
+ * the IdP took it kept, approved, reported and shown. Its KeyPackages go out once it holds the key,
+ * never before. Another device's key erases it.
  */
 export const bootstrapFirstDeviceUseCase =
     (deps: BootstrapFirstDeviceDeps) =>
     async ({ idpUrl, accessToken, actorUri }: BootstrapFirstDeviceInput): Promise<FirstDeviceOutcome> => {
         await setUpThisDeviceUseCase(deps)(idpUrl, accessToken, actorUri)
-        await registerIdentityUseCase(deps)({ idpUrl, accessToken, actorUri })
         let standing = await checkHistoryKeyUseCase(deps)(idpUrl, accessToken, actorUri)
         if (standing.kind === "no-key") {
             const { key } = await deps.e2eePort.mintHistoryKey(FIRST_HISTORY_GENERATION)
@@ -53,6 +54,8 @@ export const bootstrapFirstDeviceUseCase =
             await deps.e2eePort.promotePendingHistoryKey()
             standing = await approveByPassphraseUseCase(deps)(idpUrl, accessToken, actorUri)
         }
-        const words = standing.kind === "holds" ? await deps.e2eePort.loadStoredPassphrase() : null
+        if (standing.kind !== "holds") return { kind: "has-key" }
+        await registerIdentityUseCase(deps)({ idpUrl, accessToken, actorUri, admission: deviceAdmission(standing, null) })
+        const words = await deps.e2eePort.loadStoredPassphrase()
         return words ? { kind: "holds", words } : { kind: "has-key" }
     }

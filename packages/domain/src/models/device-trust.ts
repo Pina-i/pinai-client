@@ -5,6 +5,7 @@
  */
 
 import { hexOf, sameBytes } from "./bytes"
+import type { DeviceListEntry } from "./device"
 import type { DeviceId } from "./e2ee"
 import type { CurrentHistoryKey, HistoryKeyStanding } from "./history-key"
 import { leafOrigin, type LeafVerdict, type OwnLeafRefusal, type UntrustedLeaf } from "./leaf-trust"
@@ -306,6 +307,19 @@ export type TrustEvent =
     | { kind: "untrusted-leaf"; leaf: UntrustedLeaf }
     /** A code handshake's peer whose keys the list doesn't show for it, or whose chain doesn't verify. */
     | { kind: "handshake-keys-refused"; deviceId: DeviceId; reason: HandshakeKeysRefusal }
+
+/**
+ * The listed devices an unapproved-device event stands for, by id and the root key listed now: one
+ * whose root key changed since is another device, not yet judged.
+ */
+export function unapprovedListed(
+    events: readonly TrustEvent[],
+    devices: readonly Pick<DeviceListEntry, "device_id" | "drk_public_key">[],
+): Set<DeviceId> {
+    const unapproved = events.flatMap((e) => (e.kind === "unapproved-device" ? [e] : []))
+    const listed = devices.flatMap((d) => (d.drk_public_key ? [{ deviceId: d.device_id, rootKey: d.drk_public_key }] : []))
+    return new Set(listed.filter((d) => unapproved.some((e) => sameDevice(e, d))).map((d) => d.deviceId))
+}
 
 /** What an event is about: a second one about the same thing replaces it. */
 export function trustEventKey(event: TrustEvent): string {

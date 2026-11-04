@@ -1,6 +1,6 @@
 import { useEffect } from "react"
 
-import { getE2eePort } from "@/ioc"
+import { admissionDeps } from "@/presentation/_libs/admission-deps"
 import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
 import { registerKeyPackagesLowHandler } from "@/presentation/hooks/useIdpWebSocket"
 import { useAppStore } from "@/store/store"
@@ -10,9 +10,10 @@ import {
 } from "@pinai/domain/usecases/e2ee/replenish-keypackages.usecase"
 
 /**
- * Keeps this device addable to groups: renews its attestation when due, then tops its KeyPackage
- * stash up, on entering the app, every 6 h and on `key_packages_low`. Only once the gate admits the
- * device — before, it has no identity.
+ * Keeps this device addable to groups: renews its attestation when due, then — while it is in —
+ * tops its KeyPackage stash up, on entering the app, every 6 h and on `key_packages_low`. Enabled
+ * once the gate lets the device in; one that turned out since refills nothing
+ * (`replenishKeyPackagesUseCase`).
  */
 export function useReplenishKeyPackages(enabled: boolean): void {
     const idpUrl = useAppStore((s) => s.idpUrl)
@@ -20,7 +21,7 @@ export function useReplenishKeyPackages(enabled: boolean): void {
 
     useEffect(() => {
         if (!enabled || !idpUrl || !ownActorUri) return
-        const replenish = replenishKeyPackagesUseCase({ e2eePort: getE2eePort() })
+        const replenish = replenishKeyPackagesUseCase(admissionDeps())
         // The token is read per run so that refreshing it doesn't restart the timer.
         const run = () => {
             const accessToken = useAppStore.getState().accessToken

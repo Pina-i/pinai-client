@@ -13,6 +13,7 @@ import { generateMnemonic } from "@scure/bip39"
 import { wordlist } from "@scure/bip39/wordlists/english.js"
 
 import { bytesToBase64 } from "@pinai/domain/lib/bytes"
+import type { Admission, CheckedPartner } from "@pinai/domain/models/admission"
 import { peerAgainstList, type HandshakeRole } from "@pinai/domain/models/approval-handshake"
 import type { DeviceListEntry } from "@pinai/domain/models/device"
 import {
@@ -161,14 +162,6 @@ function applicationMessageReviver(_key: string, value: unknown): unknown {
     }
     return value
 }
-
-/**
- * How many KeyPackages we upload on first registration. The IdP caps
- * at 100 by default; 50 is half of that — enough to seed the stash
- * with headroom but not so many that the first registration blocks
- * for noticeable time.
- */
-const INITIAL_KEY_PACKAGE_BATCH = 50
 
 /** How many epoch races a prune loses before it gives up for now. */
 const MAX_EPOCH_CONFLICTS = 5
@@ -380,6 +373,10 @@ export class E2eeAdapter implements IE2eePort {
         for (const listener of this.trustListeners) tell(listener, event)
     }
 
+    private withdrawUnapproved(): void {
+        this.withdraw((event) => event.kind === "unapproved-device")
+    }
+
     private withdraw(stops: (event: Exclude<TrustEvent, { kind: "untrusted-leaf" }>) => boolean): void {
         for (const [key, event] of this.trustEvents) {
             if (!stops(event)) continue
@@ -457,21 +454,26 @@ export class E2eeAdapter implements IE2eePort {
         devices: readonly DeviceListEntry[],
     ): Promise<DeviceTrustVerdict> {
         const thisDevice = await this.storage.getOrCreateDeviceId()
+        // A review that decides nothing announces nobody (§ 3.9 "Who acts").
+        const decidesNothing = (listed: KnownDevice[] = []) => {
+            this.withdrawUnapproved()
+            return undecided(thisDevice, listed)
+        }
         const duplicates = duplicateDeviceIds(devices.map((d) => d.device_id))
         if (duplicates.length > 0) {
             this.stand({ kind: "device-list-refused", duplicates })
-            return undecided(thisDevice)
+            return decidesNothing()
         }
         this.withdraw((event) => event.kind === "device-list-refused")
         const listed = devices.flatMap((d) => (d.drk_public_key ? [{ deviceId: d.device_id, rootKey: d.drk_public_key }] : []))
         const revoked = devices.filter((d) => d.revoked_at !== null).map((d) => d.device_id)
         const kept = await this.withTrustRows(() => ({ change: { revoked }, result: null }))
-        if (!kept) return undecided(thisDevice, listed)
+        if (!kept) return decidesNothing(listed)
 
         const pending = (await this.storage.loadPendingPassphrase())?.key.generation ?? null
         const decider = await this.decider(idpUrl, accessToken, pending)
         this.warnOfReset(listed, kept.trust, thisDevice, pending)
-        if (!decider) return undecided(thisDevice, listed)
+        if (!decider) return decidesNothing(listed)
 
         const checked = await checkListedDevices(actorUri, devices, decider.approvalKey, this.jwks, this.rootChecks)
         const ownRootKey = (await this.storage.loadDeviceAttestation())?.drk_public ?? null
@@ -481,7 +483,7 @@ export class E2eeAdapter implements IE2eePort {
                 return { change: result.keep, result }
             })
         )?.result
-        if (!judged) return undecided(thisDevice, listed)
+        if (!judged) return decidesNothing(listed)
         this.withdraw((event) => event.kind === "unapproved-device" && !judged.unapproved.some((d) => sameDevice(d, event)))
         for (const device of judged.unapproved) this.stand({ kind: "unapproved-device", ...device })
         return {
@@ -782,6 +784,19 @@ export class E2eeAdapter implements IE2eePort {
         return (await this.storage.loadHistoryKeyStanding()) ?? this.holding.standing
     }
 
+    async recordAdmission(admission: Admission): Promise<void> {
+        try {
+            await this.storage.saveAdmission(admission)
+        } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn("[history-key] recording the admission failed", e)
+        }
+    }
+
+    recordedAdmission(): Promise<Admission | null> {
+        return this.storage.loadAdmission()
+    }
+
     async signPassphraseApproval(
         idpUrl: string,
         accessToken: string,
@@ -854,6 +869,7 @@ export class E2eeAdapter implements IE2eePort {
     private async setHolding(standing: HistoryKeyStanding, key: HeldKey | null): Promise<HistoryKeyStanding> {
         this.holding = { standing, key }
         this.checkedOnce = true
+        if (!actsOnApproval(standing)) this.withdrawUnapproved()
         if (!buffersForArchive(standing)) this.archiveBuffer = []
         if (standing.kind === "holds") this.reset = null
         this.withdraw((event) => event.kind === "reset-by-unapproved" && event.generation !== this.reset?.generation)
@@ -1109,15 +1125,12 @@ export class E2eeAdapter implements IE2eePort {
         accessToken: string,
         actorUri: ActorUri,
     ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint }> {
-        // Dedupe concurrent callers — two StrictMode mounts would otherwise
-        // each upload INITIAL_KEY_PACKAGE_BATCH KPs and overshoot the cap.
+        // A success stands for the page load; a failure is tried again by the next caller.
         if (this.registerPromise) return this.registerPromise
         this.registerPromise = this.doRegister(idpUrl, accessToken, actorUri)
         try {
             return await this.registerPromise
         } catch (e) {
-            // Allow retries on failure; success can stay cached so
-            // re-mounts within the same session short-circuit.
             this.registerPromise = null
             throw e
         }
@@ -1130,44 +1143,25 @@ export class E2eeAdapter implements IE2eePort {
     ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint }> {
         // The root key and its attestation first: every KeyPackage's credential carries them.
         await this.registerDevice(idpUrl, accessToken, actorUri)
-        await this.ensureInitialized(actorUri)
 
         const deviceId = await this.storage.getOrCreateDeviceId()
         let keypair = await this.storage.loadIdentityKeypair()
-
         if (!keypair) {
             keypair = this.identity.generate()
             await this.storage.saveIdentityKeypair(keypair)
-            // Local-only — IdP attestation of the Device Root Key lands via
-            // `registerDevice`, separately from this keypair.
         }
-
-        // Bind the device to this actor URI so the onboarding gate can
-        // detect cross-account contamination on the next mount. Done
-        // unconditionally (covers both the first-register path AND
-        // re-runs against an existing keypair, where the binding may
-        // not yet be set from a legacy session).
-        await this.storage.setBoundActorUri(actorUri)
-
-        // Seed the KeyPackage stash, but only refill what's missing
-        // up to the IdP's cap. A previous (broken) session may have
-        // already published KPs whose private halves are gone — the
-        // IdP would still count them against the cap, and a blind
-        // upload of `INITIAL_KEY_PACKAGE_BATCH` would 4xx. Polling
-        // status first turns the flow into "top up to cap, never
-        // overshoot."
-        const status = await this.directory.getKeyPackageStatus(idpUrl, accessToken)
-        const myDevice = status.devices.find((d) => d.device_id === deviceId)
-        const have = myDevice?.available ?? 0
-        const wanted = Math.min(INITIAL_KEY_PACKAGE_BATCH, Math.max(0, status.cap - have))
-        if (wanted > 0) {
-            await this.uploadKeyPackageBatch(idpUrl, accessToken, deviceId, wanted)
-        }
-
+        // A reload topping the stash up past its threshold would mint the difference each time: only the refill's rule publishes.
+        await this.replenishKeyPackages(idpUrl, accessToken, actorUri)
         return {
             device_id: deviceId,
             fingerprint: this.identity.fingerprint(keypair.msk_public),
         }
+    }
+
+    /** The engine's identity bound to this account, and the storage marked as its, for the gate's check on the next load. */
+    private async bindToAccount(actorUri: ActorUri): Promise<void> {
+        await this.ensureInitialized(actorUri)
+        if ((await this.storage.getBoundActorUri()) !== actorUri) await this.storage.setBoundActorUri(actorUri)
     }
 
     async hasLocalIdentity(): Promise<boolean> {
@@ -1258,15 +1252,12 @@ export class E2eeAdapter implements IE2eePort {
         actorUri: ActorUri,
     ): Promise<KeyPackageStatusResponse> {
         // A KeyPackage made before the snapshot restore would lose its private half to it.
-        await this.ensureInitialized(actorUri)
+        await this.bindToAccount(actorUri)
         const status = await this.directory.getKeyPackageStatus(idpUrl, accessToken)
         const deviceId = await this.storage.getOrCreateDeviceId()
         const myDevice = status.devices.find((d) => d.device_id === deviceId)
 
-        // Either we've never published any (first run) or the server
-        // has flagged us — both refill to the cap. The
-        // `INITIAL_KEY_PACKAGE_BATCH` we use on register is half-cap;
-        // a refill tops up to the full server-reported max.
+        // Never published any, or flagged at the threshold: both refill to the cap (§ 3.5).
         const needsFirstStash = !myDevice
         const needsRefill = myDevice?.needs_refill ?? false
         if (!needsFirstStash && !needsRefill) return status
@@ -1648,6 +1639,29 @@ export class E2eeAdapter implements IE2eePort {
         return (await this.readTrust())?.partners ?? []
     }
 
+    async checkHandshakePartners(
+        actorUri: ActorUri,
+        devices: readonly DeviceListEntry[],
+    ): Promise<{ partners: CheckedPartner[]; revokedSeen: DeviceId[] } | null> {
+        const revoked = devices.filter((d) => d.revoked_at !== null).map((d) => d.device_id)
+        const twice = duplicateDeviceIds(devices.map((d) => d.device_id)).length > 0
+        // A revocation is final (§ 3.9): kept as soon as seen, but not from a list refused whole.
+        const trust = twice ? await this.readTrust() : (await this.withTrustRows(() => ({ change: { revoked }, result: null })))?.trust
+        if (!trust) return null
+        const attestation = await this.storage.loadDeviceAttestation()
+        const deviceId = await this.storage.getOrCreateDeviceId()
+        // Over the root key this device holds now: an approval of a root key it had before approves nothing.
+        const bytes = attestation && approvalBytes(actorUri, deviceId, attestation.drk_public)
+        const listed = devices.filter((d) => d.device_id === deviceId).flatMap((d) => d.approvals)
+        const partners = trust.partners.map((partner) => ({
+            ...partner,
+            approvesThisDevice:
+                !!bytes &&
+                listed.some((a) => a.by === "device" && a.device_id === partner.deviceId && verifyStrict(a.signature, bytes, partner.rootKey)),
+        }))
+        return { partners, revokedSeen: trust.revoked }
+    }
+
     /** The trust rows as kept, in the rows' turn; `null` when the revocations can't be read. */
     private readTrust(): Promise<DeviceTrust | null> {
         const run = this.trustTurn.then(async () => {
@@ -1754,7 +1768,7 @@ export class E2eeAdapter implements IE2eePort {
         accessToken: string,
         conversationId: ConversationId,
         trust: DeviceTrustVerdict,
-    ): Promise<{ added: number }> {
+    ): Promise<{ added: number; unclaimed: DeviceId[] }> {
         // A device-list refresh and a group just held can start runs together; the second finds
         // what the first added.
         return this.inGroup(conversationId, () => this.doAddOwnDevices(idpUrl, accessToken, conversationId, trust))
@@ -1765,12 +1779,13 @@ export class E2eeAdapter implements IE2eePort {
         accessToken: string,
         conversationId: ConversationId,
         trust: DeviceTrustVerdict,
-    ): Promise<{ added: number }> {
+    ): Promise<{ added: number; unclaimed: DeviceId[] }> {
         await this.ensureInitialized(null)
         const me = await this.storage.getBoundActorUri()
         const acting = this.actingNow(trust)
-        if (!acting?.acting || !me || !(await this.mls.hasGroup(conversationId))) return { added: 0 }
+        if (!acting?.acting || !me || !(await this.mls.hasGroup(conversationId))) return { added: 0, unclaimed: [] }
         const unavailable = new Set<DeviceId>()
+        const unclaimed = new Set<DeviceId>()
         const added = await this.commitEach(idpUrl, accessToken, conversationId, async () => {
             for (;;) {
                 const present = []
@@ -1782,10 +1797,12 @@ export class E2eeAdapter implements IE2eePort {
                     claimed = await this.directory.claimKeyPackage(idpUrl, accessToken, me, device.deviceId)
                 } catch {
                     unavailable.add(device.deviceId)
+                    unclaimed.add(device.deviceId)
                     continue
                 }
                 if (claimed.device_id !== device.deviceId) {
                     unavailable.add(device.deviceId)
+                    unclaimed.add(device.deviceId)
                     continue
                 }
                 const verdict = await this.checkClaim(me, claimed, device.rootKey)
@@ -1808,7 +1825,7 @@ export class E2eeAdapter implements IE2eePort {
                 }
             }
         })
-        return { added }
+        return { added, unclaimed: [...unclaimed] }
     }
 
     async refreshOwnLeaf(

@@ -1,11 +1,12 @@
 import type { DeviceTrustVerdict } from "../../models/device-trust"
-import type { ActorUri, ConversationId } from "../../models/e2ee"
+import type { ActorUri, ConversationId, DeviceId } from "../../models/e2ee"
 import type { IDeviceDirectoryPort } from "../../ports/device-directory.port"
 import type { IE2eePort } from "../../ports/e2ee.port"
 
 type Failure = { conversationId: ConversationId; error: unknown }
 
-export type OwnGroupsSync = { added: number; removed: number; failed: Failure[]; reviewFailure?: unknown }
+/** `unclaimed`: the approved siblings still missing from a group for want of a KeyPackage — to try again. */
+export type OwnGroupsSync = { added: number; removed: number; unclaimed: DeviceId[]; failed: Failure[]; reviewFailure?: unknown }
 
 export type OwnGroupsSyncDeps = {
     e2ee: Pick<IE2eePort, "catchUp" | "refreshOwnLeaf" | "reviewDevices" | "removeUntrustedLeaves" | "addOwnDevices">
@@ -70,6 +71,7 @@ export async function syncOwnGroupsUseCase(
 
     let added = 0
     let removed = 0
+    const unclaimed = new Set<DeviceId>()
     for (const conversationId of caughtUp) {
         try {
             removed += (await e2ee.removeUntrustedLeaves(idpUrl, accessToken, conversationId, trust, reviewAgain)).removed
@@ -79,12 +81,15 @@ export async function syncOwnGroupsUseCase(
         const now: DeviceTrustVerdict | null = trust
         if (!now?.acting) continue
         try {
-            added += (await e2ee.addOwnDevices(idpUrl, accessToken, conversationId, now)).added
+            const outcome = await e2ee.addOwnDevices(idpUrl, accessToken, conversationId, now)
+            added += outcome.added
+            for (const deviceId of outcome.unclaimed) unclaimed.add(deviceId)
         } catch (error) {
             failed.push({ conversationId, error })
         }
     }
-    return reviewFailure === undefined ? { added, removed, failed } : { added, removed, failed, reviewFailure }
+    const outcome = { added, removed, unclaimed: [...unclaimed], failed }
+    return reviewFailure === undefined ? outcome : { ...outcome, reviewFailure }
 }
 
 /**

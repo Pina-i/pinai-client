@@ -51,8 +51,9 @@ Three collaborators could not come, and the shape of each is the mobile work:
   words, the one generation they give, the root key the device approved
   itself over with them, and their salt and HAK, so a check runs no Argon2id;
   `pending`: words minted whose `PUT` is unanswered, with their key and HAK;
-  `standing`: where the words stood when last checked; `newest_generation`:
-  the newest generation seen. Read strictly — 24 words, a 16-byte salt, a
+  `standing`: where the words stood when last checked; `admission`: whether the
+  device was in at its last check, read when the IdP can't be reached;
+  `newest_generation`: the newest generation seen. Read strictly — 24 words, a 16-byte salt, a
   32-byte HAK; a row that won't open or parse is moved to
   `<key>:unreadable:<ISO time>:<random>`, never deleted; a device key that can't be
   loaded throws),
@@ -131,6 +132,12 @@ Three collaborators could not come, and the shape of each is the mobile work:
   instances; `replenishKeyPackages` likewise shares one run, so the
   entry check, the 6 h timer and a `key_packages_low` push never
   overshoot the stash cap. The whole port is intentionally idempotent.
+  - **KeyPackages** go out through `register` and `replenishKeyPackages` only, the
+    domain calling them for a device that is in (`registerIdentityUseCase`,
+    `replenishKeyPackagesUseCase`). Both follow the refill's rule (§ 3.5): a stash at
+    the threshold, or one the status doesn't list, filled to the cap — never topped up
+    on a reload above it. Both bind the account (`bindToAccount`): the engine's
+    credential and the storage's bound actor URI.
   - **Registration** (`registerDevice`): the root key and the HPKE key (from
     `IHpkePort`, made once) together, the HPKE key signed by the root key; again
     within 30 days of expiry, and at once for a device holding no HPKE key. The
@@ -160,11 +167,15 @@ Three collaborators could not come, and the shape of each is the mobile work:
     revocations kept for good — unless the kept ones can't be read, and then
     nothing is decided; then, unless a pending key waits, the key read again:
     only `holds` acts (`judgeDevices`), the devices found approved and those
-    seen kept. Any device warns of a reset by a device it never found approved,
-    or attributed to itself while it sets none, and of a key changed under the
-    generation it holds. Events stand until what they are about changes
-    (`onTrustWithdrawn`), are replayed to late listeners, read whole with
-    `trustSnapshot`, logged; an unapproved device stands again after a reload.
+    seen kept; every review that decides nothing — a list naming an id twice,
+    revocations that can't be read, a device not acting — withdraws the unapproved
+    devices it announced, and so does a check of the key that finds the device no
+    longer holding (`setHolding`): only an acting device announces. Any device warns of a reset by
+    a device it never found approved, or attributed to itself while it sets
+    none, and of a key changed under the generation it holds. Events stand until
+    what they are about changes (`onTrustWithdrawn`), are replayed to late
+    listeners, read whole with `trustSnapshot`, logged; an unapproved device
+    stands again after a reload.
   - **A verdict acts** only while the device holds its generation
     (`actingNow`): one from before a new generation adds nobody and commits no
     own leaf out.
@@ -181,7 +192,9 @@ Three collaborators could not come, and the shape of each is the mobile work:
     `revokeDevice` keeps the revocation, then every leaf naming the device, one
     a commit.
   - `addOwnDevices` takes the verdict: a sibling no verified leaf stands for is
-    added, its KeyPackage carrying the root key it was approved over.
+    added, its KeyPackage carrying the root key it was approved over; one no
+    KeyPackage could be claimed for is answered in `unclaimed`, for the fanout to
+    try again.
   - `commitEach` — the one loop for a run of commits (`pruneGroup`,
     `addOwnDevices`, `refreshOwnLeaf`, `removeUntrustedLeaves`): one a commit,
     looked at again after each, an epoch race caught up and tried again, five at most.
@@ -196,7 +209,12 @@ Three collaborators could not come, and the shape of each is the mobile work:
     latest reason and withdrawn once the device passes; a list naming an id
     twice (`device-list-refused`), an issuer out of reach or an expiry
     `unsettled`; `signDeviceApproval`, `approvesThisDevice`; partners kept, and
-    the rows read, in the trust rows' turn.
+    the rows read, in the trust rows' turn. `checkHandshakePartners` — for the
+    domain's `deviceAdmission`: the list's revocations kept for good first (not
+    from a list naming an id twice), then each partner's `by: device` approvals
+    listed for this device, verified over its current root key under the
+    partner's root key from the exchange. `recordAdmission` / `recordedAdmission`
+    — the admission row.
   - **The history key** (`identity-provider/specs/e2ee.md § 3.6–3.9`): the flows
     are the domain's; here the crypto and the standing (`standingAgainst`).
     `mintHistoryKey` seals the words as pending before answering them, the same
@@ -220,8 +238,10 @@ Three collaborators could not come, and the shape of each is the mobile work:
 ## Use cases
 
 `@pinai/domain/usecases/e2ee/`:
-- `register-identity.usecase.ts`
+- `register-identity.usecase.ts` — KeyPackages only once in (`check-admission.usecase.ts`,
+  `models/admission.ts`)
 - `replenish-keypackages.usecase.ts`
+- `gate-this-device.usecase.ts` — where the onboarding gate sends the device
 - The history key's: `set-up-this-device`, `bootstrap-first-device`,
   `restore-history-from-passphrase`, `approve-by-passphrase`,
   `check-history-key` — see `packages/domain/CLAUDE.md`.
@@ -576,7 +596,21 @@ vitest setup, so a package's specs sit there until it needs its own.
   uploads on `stale_history_key`, the archive's associated data;
   `history-key-api.spec.ts`, its routes; `history-key-vectors.spec.ts`,
   known answers computed with OpenSSL and Python's `cryptography`.
-- `apps/web/test/gate-routing.spec.ts` — 6a gate's pure decision table.
+- `apps/web/test/gate-routing.spec.ts` — the gate's table (`decideGateRoute`, `resetCause`),
+  `isUnreachable`, and the gate on real engines: setup, the new-device and reset pages, the
+  offline rule on what was recorded.
+- `apps/web/test/admission.spec.ts` — when a device is in: the rule, then real keys (a
+  partner's approval over the current root key and the exchanged key, an old partner, a
+  list-swapped key, a rollback and a swapped approval key no partner overrides, revocations
+  kept); KeyPackages on each path only once in, through the real `register` and refills
+  (`publishingDevice`): the refill's rule, a failed renewal, a device turned out.
+- `apps/web/test/onboarding-pages.spec.ts` — the gate hook's re-checks (throttle, trust
+  events, the newest deciding, a failure, an unmount or a sign-out mid-check), the tick
+  gated on it, the new-device and reset pages rendered.
+- `apps/web/test/devices-warnings.spec.ts` — Settings → Devices' "not approved", "Not mine"
+  and the refused-list banner, from the engine's own reviews.
+- `apps/web/test/device-fanout-retry.spec.ts` — the fanout's backoff for unclaimed siblings;
+  `e2ee-integration.spec.ts` has a sibling's stash landing late, mid-run included.
 - `apps/web/test/recovery-passphrase-input.spec.ts` — 6a `isPassphraseComplete`
   predicate.
 

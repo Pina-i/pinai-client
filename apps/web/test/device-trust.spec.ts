@@ -22,6 +22,7 @@ import {
     resetByUnapproved,
     resetSince,
     trustEventKey,
+    unapprovedListed,
     undecided,
     withTrust,
     type CheckedApproval,
@@ -217,6 +218,17 @@ describe("what a review judges and keeps", () => {
         expect(trustEventKey({ kind: "reset-by-unapproved", generation: 2, setByDevice: "a" })).not.toBe(
             trustEventKey({ kind: "reset-by-unapproved", generation: 3, setByDevice: "a" }),
         )
+    })
+
+    it("marks the listed devices an unapproved-device event stands for, by id and the root key listed now", () => {
+        const event = { kind: "unapproved-device", deviceId: "phone", displayName: "Phone", rootKey: root(2), arrived: true } as const
+        const listed = [
+            { device_id: "phone", drk_public_key: root(2) },
+            { device_id: "tablet", drk_public_key: root(3) },
+        ]
+        expect([...unapprovedListed([event], listed)]).toEqual(["phone"])
+        expect([...unapprovedListed([event], [{ device_id: "phone", drk_public_key: root(9) }])]).toEqual([])
+        expect([...unapprovedListed([{ kind: "device-list-refused", duplicates: ["phone"] }], listed)]).toEqual([])
     })
 })
 
@@ -530,6 +542,45 @@ describe("reviewing the device list", () => {
 
         await review(laptop, [laptopRow, listedDevice(phone, [approvedBy(self, phone)])])
         expect(unapproved(withdrawn)).toEqual([{ ...standing, arrived: true }])
+        expect(unapproved(laptop.e2ee.trustSnapshot())).toEqual([])
+    })
+
+    it("withdraws the devices it announced once it no longer acts: a device without the current passphrase announces nobody", async () => {
+        const { idp, laptop, laptopRow } = await account()
+        const phone = testDevice(issuers, ACTOR)
+        const devices = [laptopRow, listedDevice(phone)]
+        const { withdrawn } = heard(laptop)
+        await review(laptop, devices)
+        expect(unapproved(laptop.e2ee.trustSnapshot())).toHaveLength(1)
+
+        const other = historyDevice(idp, "elsewhere")
+        await idp.session().linkDevice(IDP, other.token, other.storage.deviceId)
+        await idp.setKey(IDP, other.token, (await other.e2ee.mintHistoryKey(2)).key)
+        expect((await review(laptop, devices)).acting).toBe(false)
+
+        expect(unapproved(laptop.e2ee.trustSnapshot())).toEqual([])
+        expect(unapproved(withdrawn).map((e) => e.kind === "unapproved-device" && e.deviceId)).toEqual([phone.deviceId])
+    })
+
+    it("withdraws them the moment its own check finds it no longer holds the passphrase, review or not", async () => {
+        const { idp, laptop, laptopRow } = await account()
+        await review(laptop, [laptopRow, listedDevice(testDevice(issuers, ACTOR))])
+        expect(unapproved(laptop.e2ee.trustSnapshot())).toHaveLength(1)
+
+        idp.key = { ...idp.key!, approvalPublicKey: ed25519.keygen().publicKey }
+        await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
+
+        expect(unapproved(laptop.e2ee.trustSnapshot())).toEqual([])
+    })
+
+    it("withdraws them on a list naming a device twice, which decides nothing", async () => {
+        const { laptop, laptopRow } = await account()
+        const phone = testDevice(issuers, ACTOR)
+        await review(laptop, [laptopRow, listedDevice(phone)])
+        expect(unapproved(laptop.e2ee.trustSnapshot())).toHaveLength(1)
+
+        await review(laptop, [laptopRow, listedDevice(phone), listedDevice(phone)])
+
         expect(unapproved(laptop.e2ee.trustSnapshot())).toEqual([])
     })
 

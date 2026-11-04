@@ -15,6 +15,8 @@ interface DeviceCardProps {
     onRevoke: () => void
     /** True while a revoke for this device is in flight. */
     isRevoking?: boolean
+    /** This device, acting on approval, found no approval of it that verifies: its revoke reads "Not mine". */
+    notApproved?: boolean
 }
 
 const KIND_ICON_PROPS = "h-3.5 w-3.5"
@@ -57,7 +59,7 @@ function statusLabel(device: DeviceRow): string {
     }
 }
 
-export function DeviceCard({ device, onRevoke, isRevoking }: DeviceCardProps) {
+export function DeviceCard({ device, onRevoke, isRevoking, notApproved = false }: DeviceCardProps) {
     const isRevoked = device.revoked_at !== null
     const isCurrent = device.is_current
 
@@ -98,6 +100,11 @@ export function DeviceCard({ device, onRevoke, isRevoking }: DeviceCardProps) {
                                 revoked
                             </span>
                         )}
+                        {notApproved && !isRevoked && (
+                            <span className="rounded-full bg-[color-mix(in_oklab,var(--idle)_18%,transparent)] px-[7px] py-px font-mono text-[9px] uppercase tracking-[0.08em] text-idle">
+                                not approved
+                            </span>
+                        )}
                     </div>
                     <div className="mt-[3px] flex flex-wrap items-center gap-2">
                         <span
@@ -122,8 +129,16 @@ export function DeviceCard({ device, onRevoke, isRevoking }: DeviceCardProps) {
                     </div>
                 </div>
                 {!isRevoked && !isCurrent && (
-                    <button type="button" onClick={onRevoke} disabled={isRevoking} className={pill({ variant: "revoke" })}>
-                        {isRevoking ? "Revoking…" : "Revoke"}
+                    <button
+                        type="button"
+                        onClick={onRevoke}
+                        disabled={isRevoking}
+                        aria-label={
+                            isRevoking ? undefined : notApproved ? `Not mine: sign out ${device.display_name}` : `Revoke ${device.display_name}`
+                        }
+                        className={pill({ variant: "revoke" })}
+                    >
+                        {isRevoking ? "Revoking…" : notApproved ? "Not mine" : "Revoke"}
                     </button>
                 )}
             </div>

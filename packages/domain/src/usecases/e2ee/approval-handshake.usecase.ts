@@ -3,10 +3,12 @@ import {
     APPROVAL_REQUEST_LIFETIME_MS,
     POLL_BACKOFF_MS,
     RATE_LIMITED_RETRY_MS,
+    STILL_WAITING_AFTER_MS,
     UNREACHABLE_RETRY_MS,
     HandshakeRefused,
     answerableRequests,
     closedMeans,
+    enterDelay,
     failureShown,
     isRefusedForGood,
     isTooManyRequests,
@@ -31,6 +33,9 @@ import type { WsServerEvent } from "../../models/ws"
 import type { IApprovalRelayPort } from "../../ports/approval-relay.port"
 import type { IDeviceDirectoryPort } from "../../ports/device-directory.port"
 import type { ApprovalHandshakeSession, IE2eePort } from "../../ports/e2ee.port"
+
+import type { CheckAdmissionDeps } from "./check-admission.usecase"
+import { registerIdentityUseCase } from "./register-identity.usecase"
 
 export interface HandshakeDeps {
     e2ee: Pick<
@@ -603,6 +608,76 @@ export class ApprovalAsking {
     }
 
     private set(state: AskingState): void {
+        this.state = state
+        for (const listener of this.listeners) listener()
+    }
+
+    private now(): number {
+        return (this.context.now ?? Date.now)()
+    }
+}
+
+/** Approved, then: `waiting` once the approving device is slow to show at the current generation; `refused` for good. */
+export type EnteringState =
+    | { kind: "entering"; waiting: boolean }
+    | { kind: "in" }
+    | { kind: "refused"; error: unknown }
+
+/**
+ * The asking device once approved: its KeyPackages go out as soon as it is in
+ * (`registerIdentityUseCase`), asked again with a backoff (`nextDelay`) until then. A refusal the
+ * same request would meet again — a revoked device, `device_mismatch` — ends it. Ticks never
+ * overlap.
+ */
+export class ApprovedEntry {
+    state: EnteringState = { kind: "entering", waiting: false }
+
+    private readonly deps: CheckAdmissionDeps
+    private readonly context: Pick<HandshakeContext, "idpUrl" | "accessToken" | "actorUri" | "now" | "report">
+    private readonly since: number
+    private attempts = 0
+    private ticking: Promise<void> | null = null
+    private readonly listeners = new Set<() => void>()
+
+    constructor(deps: CheckAdmissionDeps, context: Pick<HandshakeContext, "idpUrl" | "accessToken" | "actorUri" | "now" | "report">) {
+        this.deps = deps
+        this.context = context
+        this.since = this.now()
+    }
+
+    onChange(listener: () => void): () => void {
+        this.listeners.add(listener)
+        return () => this.listeners.delete(listener)
+    }
+
+    tick(): Promise<void> {
+        this.ticking ??= this.step().finally(() => {
+            this.ticking = null
+        })
+        return this.ticking
+    }
+
+    nextDelay(): number {
+        return enterDelay(Math.max(0, this.attempts - 1))
+    }
+
+    private async step(): Promise<void> {
+        if (this.state.kind !== "entering") return
+        const accessToken = this.context.accessToken()
+        if (!accessToken) return
+        try {
+            const { idpUrl, actorUri } = this.context
+            const admission = await registerIdentityUseCase(this.deps)({ idpUrl, accessToken, actorUri })
+            if (admission.kind === "in") return this.set({ kind: "in" })
+        } catch (error) {
+            if (isRefusedForGood(error)) return this.set({ kind: "refused", error })
+            this.context.report?.("letting this device in", error)
+        }
+        this.attempts += 1
+        this.set({ kind: "entering", waiting: this.now() - this.since >= STILL_WAITING_AFTER_MS })
+    }
+
+    private set(state: EnteringState): void {
         this.state = state
         for (const listener of this.listeners) listener()
     }

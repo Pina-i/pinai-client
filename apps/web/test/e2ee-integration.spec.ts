@@ -64,6 +64,7 @@ import type {
 } from "@pinai/crypto/sealed-storage"
 import type { HistoryKeyStanding } from "@pinai/domain/models/history-key"
 import type { DeviceListEntry } from "@pinai/domain/models/device"
+import type { Admission } from "@pinai/domain/models/admission"
 import { oneAtATime, syncOwnGroupsUseCase } from "@pinai/domain/usecases/e2ee/sync-own-groups.usecase"
 import {
     emptyDeviceTrust,
@@ -361,6 +362,7 @@ class InMemoryE2eeStorage implements E2eeStorage {
     private kept: KeptPassphrase | null = null
     private pending: PendingPassphrase | null = null
     private standing: HistoryKeyStanding | null = null
+    private admission: Admission | null = null
     private newest: number | null = null
     private boundActorUri: ActorUri | null = null
     private deviceAttestation: DeviceAttestation | null = null
@@ -412,6 +414,12 @@ class InMemoryE2eeStorage implements E2eeStorage {
     }
     async loadHistoryKeyStanding(): Promise<HistoryKeyStanding | null> {
         return this.standing
+    }
+    async saveAdmission(admission: Admission): Promise<void> {
+        this.admission = admission
+    }
+    async loadAdmission(): Promise<Admission | null> {
+        return this.admission
     }
     async saveDeviceAttestation(attestation: DeviceAttestation): Promise<void> {
         this.deviceAttestation = attestation
@@ -943,7 +951,7 @@ describe("MLS E2EE — a user's devices bring each other into their groups", () 
         const added = await dan1.e2ee.addOwnDevices(issuer, "dan1-token", conversationId, await trusting(dan1, dan2))
         await dan2.e2ee.consumePendingWelcomes(issuer, "dan2-token", danActor)
 
-        expect(added).toEqual({ added: 1 })
+        expect(added).toEqual({ added: 1, unclaimed: [] })
         const fromDan2 = await dan2.e2ee.encryptOutbound(conversationId, text("from dan2"))
         expect(await read(bob, "bob-token", fromDan2)).toBe("from dan2")
         expect(await read(dan1, "dan1-token", fromDan2)).toBe("from dan2")
@@ -952,6 +960,7 @@ describe("MLS E2EE — a user's devices bring each other into their groups", () 
         expect(await read(dan1, "dan1-token", fromBob)).toBe("from bob")
         expect(await dan1.e2ee.addOwnDevices(issuer, "dan1-token", conversationId, await trusting(dan1, dan2))).toEqual({
             added: 0,
+            unclaimed: [],
         })
     })
 
@@ -962,7 +971,7 @@ describe("MLS E2EE — a user's devices bring each other into their groups", () 
 
         const added = await dan2.e2ee.addOwnDevices(issuer, "dan2-token", conversationId, await trusting(dan2, dan1))
 
-        expect(added).toEqual({ added: 0 })
+        expect(added).toEqual({ added: 0, unclaimed: [] })
         expect(await dan2.mls.hasGroup(conversationId)).toBe(false)
         expect(directory.packagesOf(danActor)).toBe(packages)
         expect((await directory.getCommitsSince(issuer, "dan2-token", conversationId, 0)).commits).toHaveLength(
@@ -981,7 +990,10 @@ describe("MLS E2EE — a user's devices bring each other into their groups", () 
         const second = await dan2.e2ee.addOwnDevices(issuer, "dan2-token", conversationId, await trusting(dan2, dan1, dan3))
         await dan3.e2ee.consumePendingWelcomes(issuer, "dan3-token", danActor)
 
-        expect([first, second]).toEqual([{ added: 1 }, { added: 0 }])
+        expect([first, second]).toEqual([
+            { added: 1, unclaimed: [] },
+            { added: 0, unclaimed: [] },
+        ])
         expect(await dan2.mls.getEpoch(conversationId)).toBe(await dan1.mls.getEpoch(conversationId))
         const fromDan3 = await dan3.e2ee.encryptOutbound(conversationId, text("from dan3"))
         expect(await read(bob, "bob-token", fromDan3)).toBe("from dan3")
@@ -998,6 +1010,7 @@ describe("MLS E2EE — a user's devices bring each other into their groups", () 
 
         expect(await dan1.e2ee.addOwnDevices(issuer, "dan1-token", conversationId, await trusting(dan1, dan2))).toEqual({
             added: 1,
+            unclaimed: [],
         })
         await dan2.e2ee.consumePendingWelcomes(issuer, "dan2-token", danActor)
         expect(await read(bob, "bob-token", await dan2.e2ee.encryptOutbound(conversationId, text("in"))))
@@ -1346,11 +1359,11 @@ describe("MLS E2EE — a leaf is trusted on its attestation and its leaf binding
         const dan2Id = await dan2.storage.getOrCreateDeviceId()
         directory.stash(danActor, dan2Id, [await forgedPackage(dan2)])
 
-        expect(await dan.e2ee.addOwnDevices(issuer, "dan-token", conversationId, await trusting(dan, dan2))).toEqual({ added: 0 })
+        expect(await dan.e2ee.addOwnDevices(issuer, "dan-token", conversationId, await trusting(dan, dan2))).toEqual({ added: 0, unclaimed: [] })
         expect(directory.welcomeRouting.filter((w) => w.recipient_device_id === dan2Id)).toEqual([])
         // Its own KeyPackage, the same verdict: added.
         directory.stash(danActor, dan2Id, [await dan2.mls.createKeyPackage()])
-        expect(await dan.e2ee.addOwnDevices(issuer, "dan-token", conversationId, await trusting(dan, dan2))).toEqual({ added: 1 })
+        expect(await dan.e2ee.addOwnDevices(issuer, "dan-token", conversationId, await trusting(dan, dan2))).toEqual({ added: 1, unclaimed: [] })
     })
 
     it("announces a leaf a commit brings in that fails its checks, and the same leaf met in a Welcome's tree", async () => {
@@ -1669,7 +1682,7 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         const outcome = await sync()
         await phone.e2ee.consumePendingWelcomes(issuer, "phone-token", danActor)
 
-        expect(outcome).toEqual({ added: 1, removed: 0, failed: [] })
+        expect(outcome).toEqual({ added: 1, removed: 0, unclaimed: [], failed: [] })
         expect(directory.welcomeRouting.filter((w) => w.recipient_actor_uri === danActor).map((w) => w.recipient_device_id)).toEqual([
             self.deviceId,
             phoneRow.deviceId,
@@ -1688,8 +1701,62 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         await commitUnchecked(directory, bob, "bob-token", (await bob.mls.addMember(conversationId, await packageOf(stranger))).commit)
         await laptop.e2ee.catchUp(issuer, "laptop-token", conversationId)
 
-        expect(await sync()).toEqual({ added: 0, removed: 0, failed: [] })
+        expect(await sync()).toEqual({ added: 0, removed: 0, unclaimed: [], failed: [] })
         expect(await leavesOf(laptop)).toContainEqual([stranger.deviceId, bytesToBase64(stranger.rootKey.publicKey)])
+    })
+
+    /** A sibling approved with the code: registered, listed approved, its KeyPackages not yet out — it publishes once in. */
+    async function approvedNotPublished(directory: InMemoryKeyDirectory, self: TestDevice, rows: DeviceListEntry[]) {
+        const phone = await buildAdapter(directory, "phone-token", danActor)
+        await phone.e2ee.registerDevice(issuer, "phone-token", danActor)
+        const row = await asListed(phone, danActor)
+        rows.push(listedDevice(row, [approvedBy(self, row)]))
+        return { phone, row, publish: () => phone.e2ee.register(issuer, "phone-token", danActor) }
+    }
+
+    it("tells of an approved sibling no KeyPackage could be claimed for, and adds it once its stash lands", async () => {
+        const { directory, bob, self, rows, sync } = await danAccount()
+        const { phone, row, publish } = await approvedNotPublished(directory, self, rows)
+
+        expect(await sync()).toEqual({ added: 0, removed: 0, unclaimed: [row.deviceId], failed: [] })
+
+        await publish()
+        expect(await sync()).toEqual({ added: 1, removed: 0, unclaimed: [], failed: [] })
+        await phone.e2ee.consumePendingWelcomes(issuer, "phone-token", danActor)
+        expect(await read(bob, "bob-token", await phone.e2ee.encryptOutbound(conversationId, text("in at last")))).toBe("in at last")
+    })
+
+    it("adds a sibling whose stash lands mid-run where it can, and tells of the groups it still misses", async () => {
+        const { directory, bob, laptop, self, rows, deps } = await danAccount()
+        const second: ConversationId = "cdcd1111-2222-3333-4444-555566667777"
+        await bob.e2ee.addContactToGroup(issuer, "bob-token", second, danActor)
+        await laptop.e2ee.consumePendingWelcomes(issuer, "laptop-token", danActor)
+        const { phone, row, publish } = await approvedNotPublished(directory, self, rows)
+        const claim = directory.claimKeyPackage.bind(directory)
+        let landed = false
+        vi.spyOn(directory, "claimKeyPackage").mockImplementation(async (...args) => {
+            try {
+                return await claim(...args)
+            } finally {
+                // The upload lands between the first group's claim and the second's.
+                if (!landed && args[3] === row.deviceId) {
+                    landed = true
+                    await publish()
+                }
+            }
+        })
+        const syncBoth = () => syncOwnGroupsUseCase(issuer, "laptop-token", danActor, [conversationId, second], deps)
+
+        expect(await syncBoth()).toEqual({ added: 1, removed: 0, unclaimed: [row.deviceId], failed: [] })
+        expect(await syncBoth()).toEqual({ added: 1, removed: 0, unclaimed: [], failed: [] })
+        expect(await syncBoth()).toEqual({ added: 0, removed: 0, unclaimed: [], failed: [] })
+
+        expect(await phone.e2ee.consumePendingWelcomes(issuer, "phone-token", danActor)).toEqual({ joined: 2 })
+        for (const id of [conversationId, second]) {
+            const sent = await phone.e2ee.encryptOutbound(id, text(`in ${id}`))
+            const got = await bob.e2ee.decryptInbound(id, sent, { idpUrl: issuer, accessToken: "bob-token" })
+            expect((got?.body as TextBody).text).toBe(`in ${id}`)
+        }
     })
 
     it("commits out a leaf of its account whose root key the list doesn't show for its device", async () => {
@@ -1724,7 +1791,7 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         await laptop.e2ee.catchUp(issuer, "laptop-token", conversationId)
         const heard = untrustedLeavesOf(laptop)
 
-        expect(await sync()).toEqual({ added: 0, removed: 1, failed: [] })
+        expect(await sync()).toEqual({ added: 0, removed: 1, unclaimed: [], failed: [] })
 
         expect(heard).toMatchObject([{ deviceId: tabletRow.deviceId, reason: "not-approved" }])
         expect((await leavesOf(laptop)).map(([device]) => device)).not.toContain(tabletRow.deviceId)
@@ -1803,7 +1870,7 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         await bobAdds(directory, bob, await packageOf(lapsed))
         await laptop.e2ee.catchUp(issuer, "laptop-token", conversationId)
 
-        expect(await sync()).toEqual({ added: 0, removed: 0, failed: [] })
+        expect(await sync()).toEqual({ added: 0, removed: 0, unclaimed: [], failed: [] })
 
         expect(untrustedLeavesOf(laptop)).toMatchObject([{ deviceId: away.deviceId, reason: "expired" }])
         expect((await leavesOf(laptop)).map(([device]) => device)).toContain(away.deviceId)
@@ -1843,7 +1910,7 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         const claimed = await directory.claimKeyPackage(issuer, "bob-token", danActor, phone.row.deviceId)
         await bobAdds(directory, bob, claimed.key_package, phone.row.deviceId)
 
-        expect(await sync()).toEqual({ added: 0, removed: 0, failed: [] })
+        expect(await sync()).toEqual({ added: 0, removed: 0, unclaimed: [], failed: [] })
 
         expect(listDevices).toHaveBeenCalledTimes(2)
         expect(untrustedLeavesOf(laptop)).toEqual([])
@@ -1865,7 +1932,7 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         history.key = { generation: 2, salt: elsewhere.slice(0, 16), checkValue: elsewhere, approvalPublicKey: elsewhere, setByDevice: null }
         await laptop.e2ee.checkHistoryKey(issuer, "laptop-token")
 
-        expect(await laptop.e2ee.addOwnDevices(issuer, "laptop-token", conversationId, trust)).toEqual({ added: 0 })
+        expect(await laptop.e2ee.addOwnDevices(issuer, "laptop-token", conversationId, trust)).toEqual({ added: 0, unclaimed: [] })
         expect(await laptop.e2ee.removeUntrustedLeaves(issuer, "laptop-token", conversationId, trust)).toEqual({ removed: 0 })
     })
 

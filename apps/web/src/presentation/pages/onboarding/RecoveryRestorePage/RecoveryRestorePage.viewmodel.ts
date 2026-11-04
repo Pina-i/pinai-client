@@ -2,12 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
 
+import { resetCause, type ResetCause } from "@pinai/domain/models/admission"
 import { reactionsToReplay, type RestoredMessage } from "@pinai/domain/models/history-archive"
 import { addressParts } from "@pinai/domain/models/identity"
+import { logoutUseCase } from "@pinai/domain/usecases/auth/logout.usecase"
+import { checkAdmissionUseCase } from "@pinai/domain/usecases/e2ee/check-admission.usecase"
 import { restoreHistoryFromPassphraseUseCase } from "@pinai/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
-import { registerIdentityUseCase } from "@pinai/domain/usecases/e2ee/register-identity.usecase"
 import { setUpThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/set-up-this-device.usecase"
-import { getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getSessionPort } from "@/ioc"
+import { getAuthPlatform, getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getSessionPort } from "@/ioc"
+import { admissionDeps } from "@/presentation/_libs/admission-deps"
 import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
 import type { Message } from "@/lib/types"
 import type { RecoveryPassphraseInputHandle } from "@/presentation/molecules/RecoveryPassphraseInput/RecoveryPassphraseInput"
@@ -19,10 +22,22 @@ import { useAppStore } from "@/store/store"
 
 export type RestoreStatus = "initializing" | "ready" | "restoring" | "done" | "error"
 
+/** § 5.2's page for a device that never held the account's passphrase; § 5.4's for one whose words no longer give it. */
+export type RestoreVariant = "new-device" | "reset"
+
 export interface RecoveryRestoreViewModel {
     status: RestoreStatus
     /** Registered and named on its session: it can ask another device to approve it. */
     deviceReady: boolean
+    /** Let in already — arrived from Settings → Devices: it may go back. Never a way in. */
+    isIn: boolean
+    /** What the reset page says happened; `null` until known. */
+    resetCause: ResetCause | null
+    /**
+     * Another device's code and the 24 words can let this device in: never on a reset no start over
+     * explains — no device holds the key the instance put in, and the old words are refused.
+     */
+    offersWayIn: boolean
     /** Display name for the welcome chip — falls back to handle, then "you". */
     welcomeName: string
     /** "Chrome on macOS" / "Web client" — decorative chip subtitle. */
@@ -41,27 +56,30 @@ export interface RecoveryRestoreViewModel {
     onPaste: () => void
     onClear: () => void
     onRestore: () => Promise<void>
-    onStartFresh: () => void
+    /** On to the app — approved from another device, or already in —, or to whichever page the gate says. */
+    onIn: () => void
+    onSignOut: () => void
 }
 
 /**
- * History restore on a new device.
- *
- * The device is set up silently on mount — registered, named on its session,
- * its KeyPackages published — so both "Restore" and "Start fresh" exit with a
- * fully-set-up device. The words are checked against the account's history key
- * before anything is kept; right, the device approves itself with them and
- * reports its generation, then the archive is restored.
+ * The pages a device that isn't in stays on: no way in but another device's approval or the 24
+ * words — or signing out. The device is set up on mount — registered and named on its session, no
+ * KeyPackage published —, then whether it is in read. The words are checked against the account's
+ * history key before anything is kept; right, the device approves itself with them, reports its
+ * generation and publishes its KeyPackages, then the archive is restored.
  */
-export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
+export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-device"): RecoveryRestoreViewModel {
     const idpUrl = useAppStore((s) => s.idpUrl)
     const accessToken = useAppStore((s) => s.accessToken)
     const signedIn = useAppStore((s) => s.accessToken !== null)
     const user = useAppStore((s) => s.user)
+    const clearSession = useAppStore((s) => s.clearSession)
     const navigate = useNavigate()
 
     const [status, setStatus] = useState<RestoreStatus>("initializing")
     const [deviceReady, setDeviceReady] = useState(false)
+    const [isIn, setIsIn] = useState(false)
+    const [cause, setCause] = useState<ResetCause | null>(null)
     const [words, setWords] = useState<string[]>(() =>
         Array.from({ length: RECOVERY_WORD_COUNT }, () => ""),
     )
@@ -81,10 +99,25 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
         if (!idpUrl || !accessToken || !ownActorUri) return
         const e2eePort = getE2eePort()
         let cancelled = false
+        // The gate recorded the standing it sent the device here on: the page says why at once.
+        void e2eePort.historyKeyStanding().then(
+            (standing) => {
+                if (!cancelled) setCause((known) => known ?? resetCause(standing))
+            },
+            () => undefined,
+        )
         bootstrapRef.current = (async () => {
             await setUpThisDeviceUseCase({ e2eePort, sessionPort: getSessionPort() })(idpUrl, accessToken, ownActorUri)
             if (!cancelled) setDeviceReady(true)
-            await registerIdentityUseCase({ e2eePort })({ idpUrl, accessToken, actorUri: ownActorUri })
+            try {
+                const { standing, admission } = await checkAdmissionUseCase(admissionDeps())(idpUrl, accessToken, ownActorUri)
+                if (cancelled) return
+                setIsIn(admission.kind === "in")
+                setCause(resetCause(standing))
+            } catch (e) {
+                // eslint-disable-next-line no-console
+                console.warn("Reading whether this device is in failed:", e)
+            }
         })()
         bootstrapRef.current
             .then(() => {
@@ -183,16 +216,12 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
         }
     }, [idpUrl, accessToken, ownActorUri, canRestore, words, navigate])
 
-    const onStartFresh = useCallback(async () => {
-        try {
-            if (bootstrapRef.current) await bootstrapRef.current
-        } catch {
-            // Bootstrap failures already surfaced via setStatus("error");
-            // navigate anyway so the user isn't stuck — the gate will
-            // route them back here next mount if needed.
-        }
-        void navigate({ to: "/home" })
-    }, [navigate])
+    // The gate at /home lets in only a device that is.
+    const onIn = useCallback(() => void navigate({ to: "/home" }), [navigate])
+
+    const onSignOut = useCallback(() => {
+        if (idpUrl) logoutUseCase(idpUrl, clearSession, getAuthPlatform())
+    }, [idpUrl, clearSession])
 
     const welcomeName =
         user?.display_name?.trim() ||
@@ -205,6 +234,9 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
     return {
         status,
         deviceReady,
+        isIn,
+        resetCause: variant === "reset" ? cause : null,
+        offersWayIn: variant === "new-device" || cause === "newer-generation",
         welcomeName,
         deviceLabel,
         words,
@@ -218,7 +250,8 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
         onPaste,
         onClear,
         onRestore: onRestore as () => Promise<void>,
-        onStartFresh,
+        onIn,
+        onSignOut,
     }
 }
 

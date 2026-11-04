@@ -8,8 +8,15 @@ import {
     requestLifeLeft,
     type HandshakeFailure,
 } from "@pinai/domain/models/approval-handshake"
-import { ApprovalAsking, type AskingState } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
+import {
+    ApprovalAsking,
+    ApprovedEntry,
+    type AskingState,
+    type EnteringState,
+} from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
 import { getApprovalRelayPort, getDeviceDirectoryPort, getE2eePort } from "@/ioc"
+import { admissionDeps } from "@/presentation/_libs/admission-deps"
+import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
 import { devicesQueryKey } from "@/presentation/hooks/useDevices"
 import { useAppStore } from "@/store/store"
 
@@ -27,6 +34,8 @@ export interface ApproveFromAnotherDeviceViewModel {
     approvers: Array<{ deviceId: string; label: string; kind: DeviceKind }>
     /** One line on what is happening, or what happened to the last code. */
     status: string | null
+    /** Approved, the headline says it: the line is shown only when it says more. */
+    statusShown: boolean
     /** "New code" after one went, "Show a code" once set aside; `null` when the page asks by itself. */
     action: "new-code" | "show-code" | null
     onAction: () => void
@@ -85,15 +94,32 @@ export function askingStatus(state: AskingState): string | null {
     }
 }
 
+/** What the line under the code says once the device is approved, on its way in. */
+export function enteringStatus(entering: EnteringState): string {
+    switch (entering.kind) {
+        case "entering":
+            return entering.waiting
+                ? "Approved. Waiting for your other device to finish: it hasn't yet said it holds your history passphrase."
+                : "This device is approved. Letting it in…"
+        case "in":
+            return "This device is approved."
+        case "refused":
+            return "Your instance refused to let this device in."
+    }
+}
+
 /**
  * The "Another device" section of the restore page: being on screen is the user asking. A request
  * opens once the device is set up (`ready`); it ends when the section goes or the 24 words are
  * being typed (`wordsStarted`), and a code that went any way but unanswered waits for "New code".
+ * Approved, the device publishes its KeyPackages once it is in (`registerIdentityUseCase`), then
+ * goes on (`onIn`).
  */
 export function useApproveFromAnotherDeviceViewModel(input: {
     ready: boolean
     wordsStarted: boolean
     fallbackLabel: string
+    onIn?: () => void
 }): ApproveFromAnotherDeviceViewModel {
     const idpUrl = useAppStore((s) => s.idpUrl)
     const signedIn = useAppStore((s) => s.accessToken !== null)
@@ -143,6 +169,52 @@ export function useApproveFromAnotherDeviceViewModel(input: {
         }
     }, [ready, signedIn, idpUrl, actorUri])
 
+    const onIn = useRef(input.onIn)
+    useEffect(() => {
+        onIn.current = input.onIn
+    })
+    const approved = state.kind === "approved"
+    const [entering, setEntering] = useState<EnteringState | null>(null)
+    useEffect(() => {
+        if (!approved || !idpUrl || !actorUri) return
+        const entry = new ApprovedEntry(admissionDeps(), {
+            idpUrl,
+            actorUri,
+            accessToken: () => useAppStore.getState().accessToken,
+            report: (what, e) => warn(what)(e),
+        })
+        const unsubscribe = entry.onChange(() => setEntering(entry.state))
+        let live = true
+        let timer: ReturnType<typeof setTimeout> | undefined
+        // One tick at a time, the next after its backoff; none while the page is hidden.
+        const tick = () => {
+            clearTimeout(timer)
+            if (!live || document.hidden) return
+            void entry.tick().then(async () => {
+                if (!live) return
+                const settled = entry.state
+                if (settled.kind === "in") return onIn.current?.()
+                if (settled.kind === "refused") {
+                    if (!(await signInAgainOnDeviceMismatch(settled.error))) warn("letting this device in")(settled.error)
+                    return
+                }
+                clearTimeout(timer)
+                timer = setTimeout(tick, entry.nextDelay())
+            })
+        }
+        const onVisible = () => {
+            if (!document.hidden) tick()
+        }
+        document.addEventListener("visibilitychange", onVisible)
+        tick()
+        return () => {
+            live = false
+            clearTimeout(timer)
+            unsubscribe()
+            document.removeEventListener("visibilitychange", onVisible)
+        }
+    }, [approved, idpUrl, actorUri])
+
     // Typing the words is the user taking the other way: the request ends, "Show a code" brings one back.
     const wasStarted = useRef(wordsStarted)
     useEffect(() => {
@@ -189,7 +261,8 @@ export function useApproveFromAnotherDeviceViewModel(input: {
         nextCode: shown && !shown.answered ? nextCodeWording(shown.deadline, now) : null,
         thisDevice: own?.display_name || input.fallbackLabel,
         approvers,
-        status: askingStatus(state),
+        status: approved && entering ? enteringStatus(entering) : askingStatus(state),
+        statusShown: !approved || entering?.kind === "refused" || (entering?.kind === "entering" && entering.waiting),
         action: state.kind === "stopped" ? "new-code" : state.kind === "paused" ? "show-code" : null,
         onAction: () => void asking.current?.again().catch(warn("asking for a new code")),
     }

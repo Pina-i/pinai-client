@@ -183,6 +183,35 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `HandshakePartner` — a device approved both ways in a code handshake, with the
   root key and HPKE key the exchange gave, never the list's: the `partners` row
   (`DEVICE_TRUST_ROWS`), which 18h shares by.
+- `unapprovedListed` — the listed rows an `unapproved-device` event stands for, by id
+  and the root key listed now (Settings → Devices).
+
+### models/admission.ts + check-admission, gate-this-device, register-identity
+- **No way in without approval** (`identity-provider/specs/e2ee.md § 3.6`).
+  `deviceAdmission(standing, partners)` — in by the passphrase (`holds`), or by a
+  handshake partner (`CheckedPartner`) listed unrevoked (nor seen revoked) under the
+  root key the exchange gave, at the generation this device's own check stood on
+  (`no-passphrase` carries it, never below the newest seen), one of its `by: device`
+  approvals verifying over this device's current root key under that exchanged key
+  (`IE2eePort.checkHandshakePartners`). A mismatch other than a start over elsewhere
+  (`resetCause` `unknown-change`: rollback, relabel, a key changed under its generation)
+  is a lie this device caught: no partner overrides it. Out too from a list naming an id
+  twice. A non-holding device's best judgement: the acting devices verify chains
+  themselves before adding or sharing. `needsPartners` — the list is read only then.
+- `decideGateRoute` — a pending key or `no-key` → `setup`; in → `app`; out with a
+  `mismatch` → `reset`, else `new-device`. `routeRechecks` — a route change re-checks
+  at most once in 30 s, never while a check runs; `forcesRecheck` — `reset-by-unapproved`,
+  `key-replaced`, `approval-key-differs` re-check at once.
+- `checkAdmissionUseCase` — one key read (the standing's), the list only when partners
+  count; the admission recorded (`IE2eePort.recordAdmission`). `gateThisDeviceUseCase` —
+  a pending key goes to setup unchecked; an IdP out of reach (`isUnreachable`) decides
+  on the recorded standing and admission, so a device let in, by its words or a partner,
+  reloads offline; any other failure, or nothing recorded, is thrown.
+- `registerIdentityUseCase` publishes KeyPackages (`IE2eePort.register`) only once in,
+  and answers the admission; a flow that has just decided it (`bootstrap-first-device`,
+  `restore-history-from-passphrase`) passes it in, recorded, not read again. Paths: the
+  first device after its self-approval, typed words after the approval, a code once the
+  list shows the partner's approval (`ApprovedEntry`).
 
 ### models/approval-handshake.ts + ports/approval-relay.port.ts + usecases/e2ee/approval-handshake.usecase.ts
 - The code handshake (`identity-provider/specs/e2ee.md § 3.10`); its bytes and
@@ -193,7 +222,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   10 minutes ran out on this device's clock (`renewsByItself`): § 2 promises each
   of the instance's guesses costs the user an action. The relay's `expires_at`
   never counts — it can shorten it.
-- Rules: `mayAsk` / `mayAnswer`; `canonicalId` (lowercase UUIDs, else none);
+- Rules: `mayAsk` / `mayAnswer` (holding the words **settled**: approved and the
+  generation reported, so the asker finds it listed at the current one); `canonicalId`
+  (lowercase UUIDs, else none);
   `answerableRequests` (another device's, **unanswered**, not set aside, none
   unless acting — no clock of this device's judges them); `closedMeans`;
   `relayRefusal`, `isTooManyRequests`, `isRefusedForGood` by status and code;
@@ -213,6 +244,10 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   next, `mayAsk` checked before each open, the hourly budget passed in so it
   outlives a remount; `stopped` (a code that went otherwise) and `paused` (the
   page set it aside) wait for `again`; `stop({ keepalive })` ends the request.
+- `ApprovedEntry` — the asking device once approved: `registerIdentityUseCase` until it
+  is in, `nextDelay` 2 → 4 → 8 → 15 → 30 s (`enterDelay`), `waiting` past
+  `STILL_WAITING_AFTER_MS` (20 s: the approving device hasn't finished), `refused` on a
+  refusal for good (`isRefusedForGood`; `device_mismatch` is the page's to sign in again).
 - `ApprovalAnswering` — the Door's: unanswered requests, its own run kept
   whatever the list says, an older read dropped, a code tried once never tried
   again (`usedCodes`), one tab per request (`AnswerLock`), `not-acting` and
@@ -484,7 +519,11 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   `reviewAgain`: the list read once more before the first own leaf goes on
   approval grounds, that review used from then on) and the approved siblings
   added (`addOwnDevices`). Runs with no conversation too. Names what failed;
-  the hook logs it, the domain doesn't. `oneAtATime` — one run at a time, the
+  the hook logs it, the domain doesn't. `unclaimed` — approved siblings no KeyPackage
+  could be claimed for (a device approved with the code publishes only once in, after
+  the approvals that start the sync, and its upload starts none): the hook runs again
+  after `unclaimedRetryDelay` (5 s → 15 s → 60 s → 5 min, then every 15 min) while any
+  is left. `oneAtATime` — one run at a time, the
   calls made meanwhile one run after it, with the latest arguments. See
   `identity-provider/specs/e2ee.md § 6.2`, § 3.9.
 
@@ -504,23 +543,25 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   device's root key as it is now, `isSettled`), `mismatch` (`check-value`, `approval-key`,
   `rollback` — a generation below the newest seen, or none after one —, `relabelled` — the kept
   generation's key under another number; the words are kept, nothing uploaded), `no-key`,
-  `no-passphrase`. Generations only move forward; words give the one generation they were kept
-  for. `newestGenerationSeen`, `approvalCarriedOver`, `buffersForArchive`.
+  `no-passphrase` (with the key's generation). Generations only move forward; words give the one
+  generation they were kept for. `newestGenerationSeen`, `approvalCarriedOver`, `buffersForArchive`.
 - `IHistoryArchivePort` — `getKey` (`null` before the first), `setKey` (compare-and-set:
   `history_key_conflict` for another device's), uploads naming their generation
   (`stale_history_key`), `wipeArchive` (entries only). `IDeviceDirectoryPort` —
   `approveByPassphrase`, `reportHistoryKey`.
 - `set-up-this-device.usecase.ts` registers the device then names its session: setting a key,
-  approving and reporting take the naming. Publishing KeyPackages is its own step after it
-  (`registerIdentityUseCase`).
+  approving and reporting take the naming. It publishes no KeyPackage: that waits until the
+  device is in (`registerIdentityUseCase`).
 - `settle-pending-history-key.usecase.ts` — a pending key (minted, sealed, its `PUT` unanswered)
   settles before anything else: the key in force is it → kept; none → set again; another → erased.
 - `bootstrap-first-device.usecase.ts` — the first device: no key in force, generation 1 is minted
-  and sealed as pending, set, then kept, approved, reported and shown; another device's key erases
-  it (`has-key`). A device without words on an account with a key mints nothing.
+  and sealed as pending, set, then kept, approved, reported, its KeyPackages published, and shown;
+  another device's key erases it (`has-key`, nothing published). A device without words on an
+  account with a key mints nothing.
 - `restore-history-from-passphrase.usecase.ts` — typed words checked against the key in force, an
   empty archive or not, a key below the newest seen refused (`rolled-back`); right, kept, approved
-  and reported, then the archive restored — `key-changed` when a generation lands meanwhile.
+  and reported, its KeyPackages published, then the archive restored — `key-changed` when a
+  generation lands meanwhile.
 - `approve-by-passphrase.usecase.ts` — a device that comes to hold the current passphrase
   approves itself and reports; `stale_history_key` reads the key again and answers the standing.
 - `check-history-key.usecase.ts` — the pending key settled, then the standing; holding the key
@@ -568,13 +609,18 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   (`DEVICE_MISMATCH`): `sign-in-again.usecase.ts`.
 - `isStaleHistoryKey` / `isHistoryKeyConflict` — a generation that isn't the current one; another
   device's generation set first.
+- `isUnreachable` — no answer (a failed fetch is a `TypeError`, a `TimeoutError`) or a `5xx`;
+  a refusal or a nonsensical answer is not. Only it falls back to what was recorded.
 
 ### usecases/e2ee/replenish-keypackages.usecase.ts
 - The KeyPackage tick (entry, every 6 h, `key_packages_low`): the attestation
-  renewed when due (`identity-provider/specs/e2ee.md § 6.7`), then the stash
-  topped up. A failed renewal holds no refill up; it is answered as
-  `renewalFailure` and tried again at the next tick. A registration bringing a
-  new attestation is announced (`IE2eePort.onDeviceRegistered`).
+  renewed when due (`identity-provider/specs/e2ee.md § 6.7`), then — only while the
+  device is in (`checkAdmissionUseCase`) — `replenishKeyPackages`, which fills to the
+  cap only a stash at the threshold or not listed (§ 3.5), a first batch included; a
+  device out gets `status: null` and refills nothing. A failed renewal holds no refill
+  up; it is answered as `renewalFailure` (the hook signs in again on
+  `device_mismatch`) and tried again at the next tick. A registration bringing a new
+  attestation is announced (`IE2eePort.onDeviceRegistered`).
 
 ### usecases/e2ee/distribute-group-keys.usecase.ts
 - Keys new group members one at a time: concurrent Add commits race the epoch.

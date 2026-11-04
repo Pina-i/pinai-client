@@ -6,6 +6,7 @@ import type {
     Fingerprint,
     KeyPackageStatusResponse,
 } from "../models/e2ee"
+import type { Admission, CheckedPartner } from "../models/admission"
 import type { ExchangedKeys, HandshakeRole } from "../models/approval-handshake"
 import type { DeviceListEntry } from "../models/device"
 import type { DeviceTrustVerdict, HandshakeKeysRefusal, HandshakePartner, TrustEvent } from "../models/device-trust"
@@ -23,13 +24,9 @@ import type { DerivedHistoryKey, HistoryKey, HistoryKeyStanding } from "../model
  */
 export interface IE2eePort {
     /**
-     * One-time setup on a fresh device. Generates the MSK / SSK / USK
-     * triple, publishes the public halves to
-     * `POST /api/keys/identity`, then uploads an initial KeyPackage
-     * stash via `POST /api/keys/packages`.
-     *
-     * Idempotent: calling on a device that already has a stored
-     * identity is a no-op (returns the existing fingerprint).
+     * Registers the device, binds its leaf credential to this account and tops its KeyPackage stash
+     * up to the first batch. Publishing makes the device addable to conversations: only
+     * `registerIdentityUseCase` calls it, for a device that is in. Idempotent within a page load.
      */
     register(idpUrl: string, accessToken: string, actorUri: ActorUri): Promise<{
         device_id: DeviceId
@@ -207,14 +204,15 @@ export interface IE2eePort {
      * own whose leaf verifies as that device over the root key it was approved over. Nothing unless
      * `trust` acts under the generation this device still holds. A group this device doesn't hold
      * is left alone: founding one here would fork it. A commit that loses an epoch race is dropped;
-     * the group catches up and is looked at again. Runs on one device take turns.
+     * the group catches up and is looked at again. Runs on one device take turns. `unclaimed`: the
+     * devices left out because no KeyPackage of theirs could be claimed — a stash not yet published.
      */
     addOwnDevices(
         idpUrl: string,
         accessToken: string,
         conversationId: ConversationId,
         trust: DeviceTrustVerdict,
-    ): Promise<{ added: number }>
+    ): Promise<{ added: number; unclaimed: DeviceId[] }>
 
     /**
      * The account's devices as this device judges them itself (`identity-provider/specs/e2ee.md
@@ -373,6 +371,12 @@ export interface IE2eePort {
     /** The standing this page load found, else the one last recorded. */
     historyKeyStanding(): Promise<HistoryKeyStanding>
 
+    /** Kept beside the standing, for a page load that can't reach the IdP: a failure to keep it is logged. */
+    recordAdmission(admission: Admission): Promise<void>
+
+    /** The admission last recorded; `null` before any. */
+    recordedAdmission(): Promise<Admission | null>
+
     /**
      * This device approved by the passphrase it holds: the generation's approval key over
      * `PINAI-DEVICE-APPROVAL-v1` for its own root key. Checked first when unchecked; throws when
@@ -439,6 +443,18 @@ export interface IE2eePort {
 
     /** The devices this one approved, and was approved by, in a code handshake. */
     handshakePartners(): Promise<HandshakePartner[]>
+
+    /**
+     * What `deviceAdmission` judges a device without the passphrase on, from `devices` — `GET
+     * /api/keys/devices` read just before: each handshake partner with whether one of its `by:
+     * device` approvals listed for this device verifies over this device's current root key under
+     * the partner's root key from the exchange, and the revocations seen — the list's kept for good
+     * first, unless it names an id twice. `null` when the kept revocations can't be read.
+     */
+    checkHandshakePartners(
+        actorUri: ActorUri,
+        devices: readonly DeviceListEntry[],
+    ): Promise<{ partners: CheckedPartner[]; revokedSeen: DeviceId[] } | null>
 }
 
 /**

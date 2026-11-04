@@ -24,6 +24,7 @@ import {
     closedMeans,
     codeDigits,
     codeHalves,
+    enterDelay,
     failureShown,
     isRefusedForGood,
     isWholeCode,
@@ -42,7 +43,13 @@ import {
 import type { DeviceListEntry } from "@pinai/domain/models/device"
 import type { HandshakePartner, TrustEvent } from "@pinai/domain/models/device-trust"
 import { IdpError } from "@pinai/domain/models/idp-error"
-import { ApprovalAsking, answeringRun, type AskingState, type HandshakeRun } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
+import {
+    ApprovalAsking,
+    ApprovedEntry,
+    answeringRun,
+    type AskingState,
+    type HandshakeRun,
+} from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
 import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstrap-first-device.usecase"
 
 import { FakeAccount, type Clock } from "./setup/approval-relay"
@@ -67,12 +74,13 @@ describe("the handshake's rules", () => {
         ...change,
     })
 
-    it("lets a device without the current passphrase ask, and only one acting on approval answer", () => {
-        expect(mayAsk({ kind: "no-passphrase" })).toBe(true)
+    it("lets a device without the current passphrase ask, and only one acting on approval, its generation reported, answer", () => {
+        expect(mayAsk({ kind: "no-passphrase", generation: 1 })).toBe(true)
         expect(mayAsk({ kind: "mismatch", generation: 2, setByDevice: "n", reason: "check-value", held: 1 })).toBe(true)
         expect(mayAsk({ kind: "holds", generation: 1, settled: true })).toBe(false)
         expect(mayAnswer({ kind: "holds", generation: 1, settled: true })).toBe(true)
-        expect(mayAnswer({ kind: "no-passphrase" })).toBe(false)
+        expect(mayAnswer({ kind: "holds", generation: 1, settled: false })).toBe(false)
+        expect(mayAnswer({ kind: "no-passphrase", generation: 1 })).toBe(false)
         expect(mayAnswer({ kind: "mismatch", generation: 1, setByDevice: null, reason: "approval-key", held: 1 })).toBe(false)
     })
 
@@ -943,5 +951,58 @@ describe("the asking device's request", () => {
         await asking.again()
         expect(net.isOpen(net.last())).toBe(true)
         expect(net.last()).not.toBe(first)
+    })
+})
+
+describe("the approved device on its way in", () => {
+    const context = (clock: { at: number }) => ({
+        idpUrl: IDP,
+        actorUri: ACTOR,
+        accessToken: () => "tok",
+        now: () => clock.at,
+    })
+    const entry = (checkHistoryKey: () => Promise<unknown>, clock = { at: 0 }) =>
+        new ApprovedEntry(
+            {
+                e2eePort: { checkHistoryKey, recordAdmission: async () => undefined, register: async () => undefined } as never,
+                deviceDirectoryPort: { listDevices: async () => ({ devices: [] }) } as never,
+            },
+            context(clock),
+        )
+
+    it("asks again after 2, 4, 8, 15 then every 30 s, and says it waits once 20 s went by", async () => {
+        expect([0, 1, 2, 3, 4, 7].map(enterDelay)).toEqual([2_000, 4_000, 8_000, 15_000, 30_000, 30_000])
+        const clock = { at: 0 }
+        const waiting = entry(async () => ({ kind: "no-passphrase", generation: 1 }), clock)
+
+        await waiting.tick()
+        expect(waiting.state).toEqual({ kind: "entering", waiting: false })
+        expect(waiting.nextDelay()).toBe(2_000)
+        clock.at = 21_000
+        await waiting.tick()
+        expect(waiting.state).toEqual({ kind: "entering", waiting: true })
+        expect(waiting.nextDelay()).toBe(4_000)
+    })
+
+    it("is in once the device is, and asks nothing more", async () => {
+        const check = vi.fn(async () => ({ kind: "holds", generation: 1, settled: true }))
+        const entering = entry(check)
+
+        await entering.tick()
+        await entering.tick()
+
+        expect(entering.state).toEqual({ kind: "in" })
+        expect(check).toHaveBeenCalledOnce()
+    })
+
+    it("stops on a refusal the same request would meet again, `device_mismatch` among them, and goes on past one that may pass", async () => {
+        const mismatched = new IdpError(403, "device_mismatch", "This session signed in another device")
+        const refused = entry(async () => Promise.reject(mismatched))
+        await refused.tick()
+        expect(refused.state).toEqual({ kind: "refused", error: mismatched })
+
+        const passing = entry(async () => Promise.reject(new TypeError("Failed to fetch")))
+        await passing.tick()
+        expect(passing.state).toEqual({ kind: "entering", waiting: false })
     })
 })

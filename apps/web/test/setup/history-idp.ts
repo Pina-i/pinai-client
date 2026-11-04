@@ -6,9 +6,12 @@ import { verifyStrict } from "@pinai/crypto/attestation-chain.adapter"
 import { approvalBytes } from "@pinai/crypto/canonical-bytes"
 import { E2eeAdapter } from "@pinai/crypto/e2ee.adapter"
 import { HistoryArchiveAdapter } from "@pinai/crypto/history-archive.adapter"
-import type { DeviceAttestation, E2eeStorage, KeptPassphrase, PendingPassphrase } from "@pinai/crypto/sealed-storage"
+import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
+import type { DeviceAttestation, E2eeStorage, KeptPassphrase, MlsSnapshot, PendingPassphrase } from "@pinai/crypto/sealed-storage"
+import { MlsAdapter } from "@pinai/mls/wasm.adapter"
+import type { Admission } from "@pinai/domain/models/admission"
 import { emptyDeviceTrust, withTrust, type DeviceTrust, type DeviceTrustRow } from "@pinai/domain/models/device-trust"
-import type { ActorUri, DeviceId } from "@pinai/domain/models/e2ee"
+import type { ActorUri, DeviceId, IdentityKeypair, KeyPackageStatusResponse } from "@pinai/domain/models/e2ee"
 import {
     sameHistoryKey,
     type CurrentHistoryKey,
@@ -20,7 +23,12 @@ import { IdpError } from "@pinai/domain/models/idp-error"
 import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
 import type { ArchiveEntry, ArchivePage, IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
 import type { IJwksCachePort } from "@pinai/domain/ports/jwks-cache.port"
+import type { IKeyDirectoryPort, RegisterDeviceResponse } from "@pinai/domain/ports/key-directory.port"
+import type { IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
 import type { ISessionPort } from "@pinai/domain/ports/session.port"
+
+import { FakeIssuers } from "./issuers"
+import { loadWasmModule } from "./wasm"
 
 export const IDP = "https://idp.test"
 export const ACTOR: ActorUri = asActorUri("https://idp.test/users/alice_xk9mp")
@@ -50,6 +58,7 @@ const stale = () => new IdpError(409, "stale_history_key", "Not the account's cu
 export class FakeHistoryIdp implements IHistoryArchivePort {
     key: CurrentHistoryKey | null = null
     readonly log: string[] = []
+    readonly keyPackages = new FakeKeyPackages(this.log)
     readonly archive = new Map<string, ArchiveEntry & { created_at: string }>()
     readonly uploads: Array<{ generation: number; ids: string[] }> = []
     readonly approvals: Array<{ deviceId: string; generation: number }> = []
@@ -153,9 +162,15 @@ export class MemoryHistoryStorage {
     readonly deviceId = crypto.randomUUID() as DeviceId
     rootKey = ed25519.keygen()
     hpkeKey = x25519.keygen()
+    /** The IdP's attestation of the root key, for a device whose engine makes KeyPackages (`publishingDevice`). */
+    attested: RegisterDeviceResponse | null = null
+    boundActorUri: ActorUri | null = null
+    identityKeypair: IdentityKeypair | null = null
+    mlsSnapshot: MlsSnapshot | null = null
     kept: KeptPassphrase | null = null
     pending: PendingPassphrase | null = null
     standing: HistoryKeyStanding | null = null
+    admission: Admission | null = null
     newest: number | null = null
     trust: DeviceTrust = emptyDeviceTrust()
     /** Trust rows the next read finds unreadable, as a sealed row that won't open. */
@@ -171,7 +186,26 @@ export class MemoryHistoryStorage {
                     drk_public: this.rootKey.publicKey,
                     drk_private: this.rootKey.secretKey,
                     hpke: { public_key: this.hpkeKey.publicKey, private_key: this.hpkeKey.secretKey },
+                    ...(this.attested && {
+                        signature: this.attested.signature,
+                        kid: this.attested.kid,
+                        issued_at: this.attested.issued_at,
+                        expires_at: this.attested.expires_at,
+                        signed_message: this.attested.signed_message,
+                    }),
                 }) as DeviceAttestation,
+            getBoundActorUri: async () => this.boundActorUri,
+            setBoundActorUri: async (actorUri: ActorUri) => {
+                this.boundActorUri = actorUri
+            },
+            loadIdentityKeypair: async () => this.identityKeypair,
+            saveIdentityKeypair: async (keypair: IdentityKeypair) => {
+                this.identityKeypair = keypair
+            },
+            loadMlsSnapshot: async () => this.mlsSnapshot,
+            saveMlsSnapshot: async (snapshot: MlsSnapshot) => {
+                this.mlsSnapshot = snapshot
+            },
             saveKeptPassphrase: async (kept: KeptPassphrase) => {
                 this.log.push(`save words ${kept.generation}${kept.approvedRootKey ? " approved" : ""}`)
                 this.kept = structuredClone(kept)
@@ -190,6 +224,10 @@ export class MemoryHistoryStorage {
                 this.standing = structuredClone(standing)
             },
             loadHistoryKeyStanding: async () => structuredClone(this.standing),
+            saveAdmission: async (admission: Admission) => {
+                this.admission = structuredClone(admission)
+            },
+            loadAdmission: async () => structuredClone(this.admission),
             saveNewestHistoryGeneration: async (generation: number) => {
                 this.newest = generation
             },
@@ -222,13 +260,19 @@ const NO_JWKS: IJwksCachePort = {
  * device's next page load is `historyDevice(idp, name, device.storage)`. `jwks` attests the devices
  * it reviews.
  */
-export function historyDevice(idp: FakeHistoryIdp, name: string, storage = new MemoryHistoryStorage(), jwks = NO_JWKS) {
+export function historyDevice(
+    idp: FakeHistoryIdp,
+    name: string,
+    storage = new MemoryHistoryStorage(),
+    jwks = NO_JWKS,
+    engine: { mls: IMlsEngine } | null = null,
+) {
     const sealer = new FastSealer()
     const e2ee = new E2eeAdapter(
-        {} as never,
-        {} as never,
+        engine ? new NobleIdentityAdapter() : ({} as never),
+        engine ? engine.mls : ({} as never),
         storage.asStorage(),
-        {} as never,
+        engine ? (idp.keyPackages as unknown as IKeyDirectoryPort) : ({} as never),
         {} as never,
         jwks,
         idp,
@@ -240,10 +284,12 @@ export function historyDevice(idp: FakeHistoryIdp, name: string, storage = new M
         idp.rootKeys.set(storage.deviceId, storage.rootKey.publicKey)
         idp.log.push("register device")
     })
-    vi.spyOn(e2ee, "register").mockImplementation(async () => {
-        idp.log.push("key packages")
-        return { device_id: storage.deviceId, fingerprint: "" }
-    })
+    if (!engine) {
+        vi.spyOn(e2ee, "register").mockImplementation(async () => {
+            idp.log.push("key packages")
+            return { device_id: storage.deviceId, fingerprint: "" }
+        })
+    }
     const deps = {
         e2eePort: e2ee,
         sessionPort: idp.session(),
@@ -251,4 +297,51 @@ export function historyDevice(idp: FakeHistoryIdp, name: string, storage = new M
         deviceDirectoryPort: idp.directory(),
     }
     return { name, e2ee, storage, sealer, token: `tok-${name}`, deps }
+}
+
+/**
+ * `historyDevice` whose `register` and refills are the real ones: its engine makes KeyPackages
+ * under the credential its attested root key binds, and the IdP keeps its stash
+ * (`FakeHistoryIdp.keyPackages`). Registration itself still only logs.
+ */
+export async function publishingDevice(idp: FakeHistoryIdp, name: string, storage = new MemoryHistoryStorage(), jwks = NO_JWKS) {
+    const mls = new MlsAdapter()
+    await mls.initialize({ module_or_path: await loadWasmModule() } as never)
+    storage.attested ??= new FakeIssuers().attest(ACTOR, storage.deviceId, storage.rootKey.publicKey)
+    return historyDevice(idp, name, storage, jwks, { mls })
+}
+
+/** The KeyPackage routes as the IdP answers them (`identity-provider/specs/e2ee.md § 3.5`): a stash per device, at most `cap`. */
+export class FakeKeyPackages {
+    readonly available = new Map<string, number>()
+    readonly cap: number
+    readonly threshold: number
+    private readonly log: string[]
+
+    constructor(log: string[], cap = 12, threshold = 4) {
+        this.log = log
+        this.cap = cap
+        this.threshold = threshold
+    }
+
+    /** Lists only the devices with a package left, as the IdP does. */
+    async getKeyPackageStatus(): Promise<KeyPackageStatusResponse> {
+        const devices = [...this.available]
+            .filter(([, available]) => available > 0)
+            .map(([device_id, available]) => ({ device_id, available, needs_refill: available <= this.threshold }))
+        return { devices, refill_threshold: this.threshold, cap: this.cap }
+    }
+
+    async uploadKeyPackages(_idpUrl: string, _token: string, deviceId: string, packages: unknown[]) {
+        const after = (this.available.get(deviceId) ?? 0) + packages.length
+        if (after > this.cap) throw new IdpError(400, "invalid_request", "Past the stash's cap")
+        this.available.set(deviceId, after)
+        this.log.push(`upload ${packages.length}`)
+        return { uploaded: packages.length, available_after: after }
+    }
+
+    /** Claims taken by peers: the stash shrinks. */
+    take(deviceId: string, count: number): void {
+        this.available.set(deviceId, Math.max(0, (this.available.get(deviceId) ?? 0) - count))
+    }
 }
