@@ -1,5 +1,4 @@
 import type { ActorUri, ConversationId, DeviceId } from "../models/e2ee"
-import type { GroupLeaf } from "../models/group"
 import type { LeafClaim, LeafCredential, MlsLeaf } from "../models/leaf-trust"
 
 export type MlsCiphertext = Uint8Array
@@ -120,9 +119,6 @@ export interface IMlsEngine {
         actorUri: ActorUri,
         deviceId: DeviceId,
     ): Promise<number | null>
-
-    /** Every leaf of the group whose credential is one, by the actor and device it names. */
-    groupMembers(conversationId: ConversationId): Promise<GroupLeaf[]>
 
     /** Every leaf of the group, credential or not. */
     groupLeaves(conversationId: ConversationId): Promise<MlsLeaf[]>

@@ -30,13 +30,34 @@ export const COLLECTIONS = [
 /** Slot the web keeps its `CryptoKey` in — see {@link IdbKeyValueStore.putCryptoKey}. */
 const CRYPTO_KEY_SLOT = "device_key"
 
-export function openE2eeDatabase(name: string): Promise<IDBPDatabase> {
-    return openDB(name, DB_VERSION, {
-        upgrade(db) {
-            for (const collection of COLLECTIONS) {
-                if (!db.objectStoreNames.contains(collection)) db.createObjectStore(collection)
-            }
-        },
+/**
+ * A connection a newer build in another tab needs to upgrade is let go (`onBlocking` then drops the
+ * handle); an upgrade an older tab holds up rejects instead of hanging, and a later open tries again.
+ */
+export function openE2eeDatabase(name: string, onBlocking: () => void = () => undefined): Promise<IDBPDatabase> {
+    let opened: IDBPDatabase | null = null
+    return new Promise((resolve, reject) => {
+        let refused = false
+        openDB(name, DB_VERSION, {
+            upgrade(db) {
+                for (const collection of COLLECTIONS) {
+                    if (!db.objectStoreNames.contains(collection)) db.createObjectStore(collection)
+                }
+            },
+            blocked() {
+                refused = true
+                reject(new Error("Another tab holds this account's storage open under an older version: reload it"))
+            },
+            blocking() {
+                opened?.close()
+                onBlocking()
+            },
+        }).then((db) => {
+            // Opened once the other tab let go, after this open gave up: nobody holds it.
+            if (refused) return db.close()
+            opened = db
+            resolve(db)
+        }, reject)
     })
 }
 
@@ -62,8 +83,11 @@ export class IdbKeyValueStore implements IKeyValueStore {
     private async openIfNeeded(): Promise<IDBPDatabase> {
         if (this.db) return this.db
         if (this.name === null) throw new Error("No account storage is open — sign in first")
-        this.db = await openE2eeDatabase(this.name)
-        return this.db
+        const db: IDBPDatabase = await openE2eeDatabase(this.name, () => {
+            if (this.db === db) this.db = null
+        })
+        this.db = db
+        return db
     }
 
     close(): void {

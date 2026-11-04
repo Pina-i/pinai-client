@@ -32,13 +32,11 @@ import { renewAccessToken } from "@/presentation/_libs/session-renewal"
 const UNDECRYPTABLE_PLACEHOLDER = "[encrypted]"
 
 /** Module-level slot — `useDeviceFanout` registers its callback here. */
-const deviceFanoutHandlerRef: { current: ((e: import("@pinai/domain/models/ws").DeviceJoinedPayload) => void) | null } = {
+const deviceFanoutHandlerRef: { current: (() => void) | null } = {
     current: null,
 }
 
-export function registerDeviceFanoutHandler(
-    handler: (e: import("@pinai/domain/models/ws").DeviceJoinedPayload) => void,
-): () => void {
+export function registerDeviceFanoutHandler(handler: () => void): () => void {
     deviceFanoutHandlerRef.current = handler
     return () => {
         if (deviceFanoutHandlerRef.current === handler) {
@@ -648,9 +646,10 @@ export function useIdpWebSocket(): void {
                     }
                     break
                 }
-                case "device_joined": {
+                case "device_joined":
+                case "device_approved": {
                     // useDeviceFanout owns the actual fanout via its registered ref.
-                    deviceFanoutHandlerRef.current?.(event.data)
+                    deviceFanoutHandlerRef.current?.()
                     break
                 }
                 case "key_packages_low": {

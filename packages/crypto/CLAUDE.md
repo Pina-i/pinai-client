@@ -54,10 +54,15 @@ Three collaborators could not come, and the shape of each is the mobile work:
   `standing`: where the words stood when last checked; `newest_generation`:
   the newest generation seen. Read strictly — 24 words, a 16-byte salt, a
   32-byte HAK; a row that won't open or parse is moved to
-  `<key>:unreadable:<ISO time>`, never deleted; a device key that can't be
+  `<key>:unreadable:<ISO time>:<random>`, never deleted; a device key that can't be
   loaded throws),
   `device_attestation` (the root key, its attestation and the device's HPKE
-  key — `hpke` null in a row from before it, which registers again). All at-rest blobs are
+  key — `hpke` null in a row from before it, which registers again — and,
+  beside it, `device_trust`'s rows `trust:seen`, `trust:approved` (device ids
+  with root keys) and `trust:revoked` (device ids): a store of their own would
+  take an IndexedDB upgrade. Read as the passphrase's are, an unreadable row set
+  aside and named (`unreadable`); `addToDeviceTrust` reads each row again just
+  before writing it, so another tab's additions stay). All at-rest blobs are
   encrypted under the same per-device key; the key is also re-used
   by the Zustand `persist` middleware so the message-plaintext cache
   lives behind the same key material.
@@ -92,10 +97,17 @@ Three collaborators could not come, and the shape of each is the mobile work:
   is fetched), expiry (5 min skew, as for the device chain),
   the attestation under the issuer's JWKS key (fetched again once on failure,
   for rotation), the leaf binding under the attested root key over the
-  LeafNode's own signature key. `verifyDeviceChain(actorUri, device, jwks)` —
-  § 3.3 for one listed device: unrevoked, JWKS → attestation → root key → HPKE
-  key; approvals not looked at. An issuer out of reach is `unreachable`, never
-  a bad signature.
+  LeafNode's own signature key. `verifyDeviceRoot` — one listed device,
+  unrevoked, JWKS → attestation → root key: what announcing and approving rest
+  on. `verifyDeviceChain` adds its HPKE key, for sharing the passphrase. An
+  issuer out of reach is `unreachable`, never a bad signature.
+  `checkListedDevices(actorUri, devices, approvalKey, jwks, rootChecks?)` — each
+  listed device's root chain (cached by the row's content until its expiry,
+  `unreachable` never kept) and each approval's signature over its listed root
+  key (`verifyApproval`): by the passphrase under the approval key this device
+  derived, never the listed one; by a device under that device's listed root
+  key, carried as `approverRootKey`. Who is approved is the domain's
+  `approvedDevices`.
 - **`e2ee.adapter.ts`** — `E2eeAdapter`. The `IE2eePort` impl. Wires
   every sub-adapter into `register`, `replenishKeyPackages`,
   `encryptOutbound`, `decryptInbound`, `addContactToGroup`,
@@ -126,15 +138,43 @@ Three collaborators could not come, and the shape of each is the mobile work:
     verifying is `KeyPackageUnavailable` —, `addOwnDevices`), each as the very
     device it was claimed for (`admitsClaim`); every leaf met — a Welcome's tree
     on a join or rejoin, a commit's `leavesMet` in `decryptInbound` and the
-    catch-up. One met that fails stays in the group, is logged, recorded by
-    conversation and leaf index — until that leaf verifies, changes or leaves —
-    and goes to `onUntrustedLeaf` listeners, late ones getting the records held.
-    An issuer out of reach records nothing: the leaf is checked when next met.
+    catch-up. One met that fails is logged and recorded by conversation and leaf
+    index — until that leaf verifies, changes or leaves — and goes to
+    `onTrustEvent` listeners, late ones getting the records held; it is
+    committed out by `removeUntrustedLeaves` when forged, and stays when its
+    attestation only expired. An issuer out of reach records nothing: the leaf
+    is checked when next met. Verdicts are kept by leaf fingerprint until the
+    attestation's expiry, `unreachable` never.
+  - **Trust** (`reviewDevices`, `identity-provider/specs/e2ee.md § 3.9`): a list
+    naming an id twice refused whole (`device-list-refused`); the list's
+    revocations kept for good — unless the kept ones can't be read, and then
+    nothing is decided; then, unless a pending key waits, the key read again:
+    only `holds` acts (`judgeDevices`), the devices found approved and those
+    seen kept. Any device warns of a reset by a device it never found approved,
+    or attributed to itself while it sets none, and of a key changed under the
+    generation it holds. Events stand until what they are about changes
+    (`onTrustWithdrawn`), are replayed to late listeners, read whole with
+    `trustSnapshot`, logged; an unapproved device stands again after a reload.
+  - **A verdict acts** only while the device holds its generation
+    (`actingNow`): one from before a new generation adds nobody and commits no
+    own leaf out.
+  - **`removeUntrustedLeaves`** — in the group's queue, through `commitEach`:
+    every non-own leaf of the tree as it stands judged again before each commit
+    (`judgeLeaf`; an index changes hands): a forgery, any device; an own leaf
+    the acting verdict doesn't approve over its root key (recorded
+    `not-listed` / `not-approved`), once `reviewAgain` read the list again. A
+    commit refused other than by an epoch race throws, the records kept for the
+    next sync; one refused for good (a `4xx` but `401`, `408`, `409`, `429`)
+    isn't built again this page load.
   - **Removal**: `pruneGroup` also commits out leaves whose credential names
-    nobody; `revokeDevice` every leaf naming the device, one a commit.
+    nobody or that a check shows forged (`leafOrigin`), whomever they name;
+    `revokeDevice` keeps the revocation, then every leaf naming the device, one
+    a commit.
+  - `addOwnDevices` takes the verdict: a sibling no verified leaf stands for is
+    added, its KeyPackage carrying the root key it was approved over.
   - `commitEach` — the one loop for a run of commits (`pruneGroup`,
-    `addOwnDevices`, `refreshOwnLeaf`): one a commit, looked at again after each,
-    an epoch race caught up and tried again, five at most.
+    `addOwnDevices`, `refreshOwnLeaf`, `removeUntrustedLeaves`): one a commit,
+    looked at again after each, an epoch race caught up and tried again, five at most.
   - **`refreshOwnLeaf`** — a commit putting the credential the device makes now
     into its own leaf when the leaf carries another: one from before the leaf
     binding, or before a renewal — a registration under way is waited for. Run by
@@ -505,9 +545,13 @@ vitest setup, so a package's specs sit there until it needs its own.
 - `apps/web/test/canonical-bytes.spec.ts`, `hpke.spec.ts` (RFC 9180 A.1.1 through
   the real bundle), `attestation-chain.spec.ts` (both chains), `register-device.spec.ts`
   (the root key and HPKE key registration, the tick's renewal); the integration suite's
-  last block checks leaves end to end — forged KeyPackages refused, untrusted leaves
-  announced and forgotten, own leaves refreshed, a renewal racing a refresh or a refill.
-  Its directory attests as the IdP would (`test/setup/issuers.ts`).
+  last blocks check leaves end to end — forged KeyPackages refused, untrusted leaves
+  announced and forgotten, own leaves refreshed, a renewal racing a refresh or a refill,
+  and an acting device's adds and commits out. Its directory attests as the IdP would
+  (`test/setup/issuers.ts`, which also writes list rows and approvals).
+- `apps/web/test/device-trust.spec.ts` — the approval rules, real signatures checked
+  (the IdP's canonical bytes among them), and the review: who acts, the events, the
+  trust rows.
 - `apps/web/test/message-status.spec.ts` — fade-window math behind the
   `MessageStatus` molecule.
 - `apps/web/test/history-key.spec.ts` — the history key's flows with the real

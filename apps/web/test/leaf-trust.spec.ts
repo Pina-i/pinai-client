@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 import { asActorUri } from "@pinai/domain/models/identity"
 import {
     admitsClaim,
+    leafOrigin,
     sameCredential,
     untrustedLeaf,
     type LeafCredential,
@@ -36,6 +37,22 @@ describe("admitsClaim", () => {
 
     it("keeps the reason a leaf failed its checks", () => {
         expect(admitsClaim({ ok: false, reason: "binding" }, DAN, "dan-1")).toEqual({ ok: false, reason: "binding" })
+    })
+
+    it("refuses a sibling's KeyPackage under another root key than the one it was approved over", () => {
+        expect(admitsClaim(TRUSTED, DAN, "dan-1", new Uint8Array(32))).toBe(TRUSTED)
+        expect(admitsClaim(TRUSTED, DAN, "dan-1", new Uint8Array(32).fill(1))).toEqual({ ok: false, reason: "not-claimed-device" })
+    })
+})
+
+describe("leafOrigin", () => {
+    it("calls forged only a leaf a check shows isn't the device it names", () => {
+        expect(leafOrigin(TRUSTED)).toBe("verified")
+        for (const reason of ["malformed", "issuer-mismatch", "attestation", "binding"] as const) {
+            expect(leafOrigin({ ok: false, reason })).toBe("forged")
+        }
+        expect(leafOrigin({ ok: false, reason: "unreachable" })).toBe("unsettled")
+        expect(leafOrigin({ ok: false, reason: "expired" })).toBe("unsettled")
     })
 })
 

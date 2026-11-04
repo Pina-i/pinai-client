@@ -13,6 +13,25 @@ import { generateMnemonic } from "@scure/bip39"
 import { wordlist } from "@scure/bip39/wordlists/english.js"
 
 import { bytesToBase64 } from "@pinai/domain/lib/bytes"
+import type { DeviceListEntry } from "@pinai/domain/models/device"
+import {
+    actsOnApproval,
+    duplicateDeviceIds,
+    firstToCommitOut,
+    judgeDevices,
+    judgeLeaf,
+    keyChangedUnder,
+    resetByUnapproved,
+    resetSince,
+    sameDevice,
+    trustEventKey,
+    undecided,
+    type DeviceTrust,
+    type DeviceTrustVerdict,
+    type HistoryReset,
+    type KnownDevice,
+    type TrustEvent,
+} from "@pinai/domain/models/device-trust"
 import type {
     ActorUri,
     ApplicationMessage,
@@ -26,6 +45,7 @@ import { KeyPackageUnavailable, devicesToAdd, leavesToRemove } from "@pinai/doma
 import { instanceOrigin } from "@pinai/domain/models/identity"
 import {
     admitsClaim,
+    leafOrigin,
     sameCredential,
     untrustedLeaf,
     type LeafClaim,
@@ -60,7 +80,7 @@ import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.po
 import type { HpkeKeyPair, IHpkePort } from "@pinai/domain/ports/hpke.port"
 import type { IJwksCachePort } from "@pinai/domain/ports/jwks-cache.port"
 
-import { verifyLeafCredential } from "./attestation-chain.adapter"
+import { attestedUntil, checkListedDevices, verifyLeafCredential, type RootChecks } from "./attestation-chain.adapter"
 import {
     approvalBytes,
     archiveEntryAad,
@@ -289,50 +309,113 @@ export class E2eeAdapter implements IE2eePort {
 
     // ─── Leaf checks ──────────────────────────────────────────────────
 
-    /** A claimed KeyPackage's leaf: `identity-provider/specs/e2ee.md § 3.4`, and the device it was claimed for. */
-    private async checkClaim(actorUri: ActorUri, claim: ClaimedKeyPackage): Promise<LeafVerdict> {
+    /**
+     * A claimed KeyPackage's leaf: `identity-provider/specs/e2ee.md § 3.4`, and the device it was
+     * claimed for — over `rootKey` too, for a sibling found approved over it.
+     */
+    private async checkClaim(actorUri: ActorUri, claim: ClaimedKeyPackage, rootKey?: Uint8Array): Promise<LeafVerdict> {
         let leaf: LeafClaim
         try {
             leaf = await this.mls.inspectKeyPackage(claim.key_package)
         } catch {
             return { ok: false, reason: "malformed" }
         }
-        return admitsClaim(await verifyLeafCredential(leaf, this.jwks), actorUri, claim.device_id)
+        return admitsClaim(await verifyLeafCredential(leaf, this.jwks), actorUri, claim.device_id, rootKey)
+    }
+
+    /** Verdicts by leaf fingerprint, each until its attestation's expiry; an issuer out of reach is never kept. */
+    private readonly leafVerdicts = new Map<string, { verdict: LeafVerdict; until: number }>()
+    private readonly rootChecks: RootChecks = new Map()
+
+    private async verifyLeaf(leaf: MlsLeaf): Promise<LeafVerdict> {
+        const fingerprint = leafFingerprint(leaf)
+        const held = this.leafVerdicts.get(fingerprint)
+        if (held && held.until > Date.now()) return held.verdict
+        const verdict = await verifyLeafCredential(leaf, this.jwks)
+        const expiresAt = leaf.credential?.idp_att.expires_at
+        if (verdict.ok && expiresAt) this.leafVerdicts.set(fingerprint, { verdict, until: attestedUntil(expiresAt) })
+        else if (!verdict.ok && verdict.reason !== "unreachable") this.leafVerdicts.set(fingerprint, { verdict, until: Infinity })
+        return verdict
     }
 
     /** By conversation and leaf index; each holds while the group holds that leaf as recorded. */
     private readonly untrustedLeaves = new Map<string, { leaf: UntrustedLeaf; fingerprint: string }>()
-    private readonly untrustedLeafListeners = new Set<(leaf: UntrustedLeaf) => void>()
+    private readonly trustEvents = new Map<string, Exclude<TrustEvent, { kind: "untrusted-leaf" }>>()
+    private readonly trustListeners = new Set<(event: TrustEvent) => void>()
+    private readonly withdrawnListeners = new Set<(event: TrustEvent) => void>()
 
-    onUntrustedLeaf(listener: (leaf: UntrustedLeaf) => void): () => void {
-        this.untrustedLeafListeners.add(listener)
-        for (const { leaf } of this.untrustedLeaves.values()) tell(listener, leaf)
-        return () => this.untrustedLeafListeners.delete(listener)
+    onTrustEvent(listener: (event: TrustEvent) => void): () => void {
+        this.trustListeners.add(listener)
+        for (const event of this.trustSnapshot()) tell(listener, event)
+        return () => this.trustListeners.delete(listener)
+    }
+
+    onTrustWithdrawn(listener: (event: TrustEvent) => void): () => void {
+        this.withdrawnListeners.add(listener)
+        return () => this.withdrawnListeners.delete(listener)
+    }
+
+    trustSnapshot(): TrustEvent[] {
+        const leaves = [...this.untrustedLeaves.values()].map(({ leaf }): TrustEvent => ({ kind: "untrusted-leaf", leaf }))
+        return [...this.trustEvents.values(), ...leaves]
+    }
+
+    // A second event about the same thing is the one standing: it isn't told again.
+    private stand(event: Exclude<TrustEvent, { kind: "untrusted-leaf" }>): void {
+        const key = trustEventKey(event)
+        if (this.trustEvents.has(key)) return
+        this.trustEvents.set(key, event)
+        // eslint-disable-next-line no-console
+        console.warn(`[e2ee] trust: ${event.kind}`, event)
+        for (const listener of this.trustListeners) tell(listener, event)
+    }
+
+    private withdraw(stops: (event: Exclude<TrustEvent, { kind: "untrusted-leaf" }>) => boolean): void {
+        for (const [key, event] of this.trustEvents) {
+            if (!stops(event)) continue
+            this.trustEvents.delete(key)
+            for (const listener of this.withdrawnListeners) tell(listener, event)
+        }
+    }
+
+    private recordUntrusted(conversationId: ConversationId, leaf: MlsLeaf, reason: UntrustedLeaf["reason"]): void {
+        const key = `${conversationId}:${leaf.leafIndex}`
+        const fingerprint = leafFingerprint(leaf)
+        const held = this.untrustedLeaves.get(key)
+        if (held?.fingerprint === fingerprint && held.leaf.reason === reason) return
+        this.dropLeafRecord(key)
+        const record = untrustedLeaf(conversationId, leaf, reason)
+        this.untrustedLeaves.set(key, { leaf: record, fingerprint })
+        // eslint-disable-next-line no-console
+        console.warn(`[e2ee] a leaf in ${conversationId} isn't trusted (${reason})`, record)
+        for (const listener of this.trustListeners) tell(listener, { kind: "untrusted-leaf", leaf: record })
+    }
+
+    private dropLeafRecord(key: string): void {
+        const held = this.untrustedLeaves.get(key)
+        if (!held) return
+        this.untrustedLeaves.delete(key)
+        for (const listener of this.withdrawnListeners) tell(listener, { kind: "untrusted-leaf", leaf: held.leaf })
     }
 
     /**
      * Every leaf met in a group — a Welcome's tree, a commit bringing one in or replacing one — is
-     * checked; one failing is recorded and announced, never thrown: the group is the members', and
-     * what to do about it is the listeners'.
+     * checked; one failing is recorded and announced, never thrown: committing it out is a run of its
+     * own (`removeUntrustedLeaves`), queued with the group's other changes.
      */
     private async checkLeavesMet(conversationId: ConversationId, met: readonly MlsLeaf[]): Promise<void> {
         await this.forgetLeavesGone(conversationId)
         for (const leaf of met) {
             if (leaf.own) continue
             const key = `${conversationId}:${leaf.leafIndex}`
-            const fingerprint = leafFingerprint(leaf)
-            if (this.untrustedLeaves.get(key)?.fingerprint === fingerprint) continue
-            const verdict = await verifyLeafCredential(leaf, this.jwks)
+            if (this.untrustedLeaves.get(key)?.fingerprint === leafFingerprint(leaf)) continue
+            const verdict = await this.verifyLeaf(leaf)
             // An issuer out of reach says nothing of the leaf: it is checked again when next met.
             if (verdict.ok || verdict.reason === "unreachable") {
-                this.untrustedLeaves.delete(key)
+                this.dropLeafRecord(key)
                 continue
             }
-            const record = untrustedLeaf(conversationId, leaf, verdict.reason)
-            this.untrustedLeaves.set(key, { leaf: record, fingerprint })
-            // eslint-disable-next-line no-console
-            console.warn(`[e2ee] a leaf in ${conversationId} fails its checks (${verdict.reason})`, record)
-            for (const listener of this.untrustedLeafListeners) tell(listener, record)
+            this.recordUntrusted(conversationId, leaf, verdict.reason)
         }
     }
 
@@ -343,9 +426,171 @@ export class E2eeAdapter implements IE2eePort {
         const held = (await this.mls.hasGroup(conversationId)) ? await this.mls.groupLeaves(conversationId) : []
         for (const [key, { leaf, fingerprint }] of recorded) {
             if (!held.some((h) => h.leafIndex === leaf.leafIndex && leafFingerprint(h) === fingerprint)) {
-                this.untrustedLeaves.delete(key)
+                this.dropLeafRecord(key)
             }
         }
+    }
+
+    // ─── The account's devices, as this device judges them ────────────
+
+    /** The generation set past the one this device holds, as the last check of the key found it. */
+    private reset: HistoryReset | null = null
+    // One reader-writer of the trust rows at a time within the page; another tab's writes are read again before each put.
+    private trustTurn: Promise<unknown> = Promise.resolve()
+    /** Commit-outs the instance refused for good, by conversation and leaf fingerprint: not rebuilt this page load. */
+    private readonly refusedCommitOuts = new Set<string>()
+
+    async reviewDevices(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+        devices: readonly DeviceListEntry[],
+    ): Promise<DeviceTrustVerdict> {
+        const thisDevice = await this.storage.getOrCreateDeviceId()
+        const duplicates = duplicateDeviceIds(devices.map((d) => d.device_id))
+        if (duplicates.length > 0) {
+            this.stand({ kind: "device-list-refused", duplicates })
+            return undecided(thisDevice)
+        }
+        this.withdraw((event) => event.kind === "device-list-refused")
+        const listed = devices.flatMap((d) => (d.drk_public_key ? [{ deviceId: d.device_id, rootKey: d.drk_public_key }] : []))
+        const revoked = devices.filter((d) => d.revoked_at !== null).map((d) => d.device_id)
+        const kept = await this.withTrustRows(() => ({ change: { revoked }, result: null }))
+        if (!kept) return undecided(thisDevice, listed)
+
+        const pending = (await this.storage.loadPendingPassphrase())?.key.generation ?? null
+        const decider = await this.decider(idpUrl, accessToken, pending)
+        this.warnOfReset(listed, kept.trust, thisDevice, pending)
+        if (!decider) return undecided(thisDevice, listed)
+
+        const checked = await checkListedDevices(actorUri, devices, decider.approvalKey, this.jwks, this.rootChecks)
+        const ownRootKey = (await this.storage.loadDeviceAttestation())?.drk_public ?? null
+        const judged = (
+            await this.withTrustRows((trust) => {
+                const result = judgeDevices({ devices: checked, generation: decider.generation, trust, thisDevice, ownRootKey })
+                return { change: result.keep, result }
+            })
+        )?.result
+        if (!judged) return undecided(thisDevice, listed)
+        this.withdraw((event) => event.kind === "unapproved-device" && !judged.unapproved.some((d) => sameDevice(d, event)))
+        for (const device of judged.unapproved) this.stand({ kind: "unapproved-device", ...device })
+        return {
+            acting: true,
+            generation: decider.generation,
+            thisDevice,
+            listed,
+            approved: judged.approved,
+            unsettled: judged.unsettled,
+        }
+    }
+
+    /**
+     * The generation and the approval key this device derived itself, when it acts on approval —
+     * the key read again first, unless a pending key waits: settling it is the flow's, before any
+     * check.
+     */
+    private async decider(
+        idpUrl: string,
+        accessToken: string,
+        pending: number | null,
+    ): Promise<{ generation: number; approvalKey: Uint8Array } | null> {
+        if (!this.historyArchive || !this.historyCrypto || pending !== null) return null
+        await this.checkHistoryKey(idpUrl, accessToken)
+        const { standing, key } = this.holding
+        if (!actsOnApproval(standing) || !key) return null
+        return { generation: key.generation, approvalKey: this.sealer().derive(key.hak).approvalPublicKey }
+    }
+
+    /** `null` when the kept revocations can't be read: losing them would trust a device revoked before. */
+    private withTrustRows<T>(
+        decide: (trust: DeviceTrust) => { change: Partial<DeviceTrust>; result: T },
+    ): Promise<{ result: T; trust: DeviceTrust } | null> {
+        const run = this.trustTurn.then(async () => {
+            const { trust, unreadable } = await this.storage.loadDeviceTrust()
+            if (unreadable.includes("revoked")) {
+                // eslint-disable-next-line no-console
+                console.warn("[e2ee] the revocations kept can't be read: this review decides nothing")
+                return null
+            }
+            const { change, result } = decide(trust)
+            return { result, trust: await this.storage.addToDeviceTrust(change) }
+        })
+        this.trustTurn = run.catch(() => undefined)
+        return run
+    }
+
+    private warnOfReset(listed: readonly KnownDevice[], trust: DeviceTrust, thisDevice: DeviceId, pending: number | null): void {
+        const reset = this.reset && resetByUnapproved(this.reset, listed, trust, thisDevice, pending) ? this.reset : null
+        this.withdraw((event) => event.kind === "reset-by-unapproved" && event.generation !== reset?.generation)
+        if (reset) this.stand({ kind: "reset-by-unapproved", generation: reset.generation, setByDevice: reset.setByDevice })
+    }
+
+    /** `trust` as it can still be acted on: not once this device holds another generation, or none. */
+    private actingNow(trust: DeviceTrustVerdict | null): DeviceTrustVerdict | null {
+        if (!trust?.acting) return trust
+        const { standing, key } = this.holding
+        if (actsOnApproval(standing) && key?.generation === trust.generation) return trust
+        return { ...trust, acting: false }
+    }
+
+    async removeUntrustedLeaves(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        trust: DeviceTrustVerdict | null,
+        reviewAgain?: () => Promise<DeviceTrustVerdict | null>,
+    ): Promise<{ removed: number }> {
+        await this.ensureInitialized(null)
+        return this.inGroup(conversationId, async () => {
+            const me = await this.storage.getBoundActorUri()
+            if (!me || !(await this.mls.hasGroup(conversationId))) return { removed: 0 }
+            let verdict = this.actingNow(trust)
+            let reviewed = !reviewAgain
+            let trying: string | null = null
+            try {
+                const removed = await this.commitEach(idpUrl, accessToken, conversationId, async () => {
+                    for (;;) {
+                        const next = await this.leafToCommitOut(conversationId, me, verdict)
+                        if (!next) return null
+                        if (next.judgement.grounds === "approval" && !reviewed && reviewAgain) {
+                            reviewed = true
+                            verdict = this.actingNow(await reviewAgain())
+                            continue
+                        }
+                        this.recordUntrusted(conversationId, next.leaf, next.judgement.reason)
+                        trying = `${conversationId}:${leafFingerprint(next.leaf)}`
+                        return { commit: await this.mls.removeMember(conversationId, next.leaf.leafIndex) }
+                    }
+                })
+                return { removed }
+            } catch (error) {
+                if (trying && refusedForGood(error) && !(error instanceof IdpError && error.status === 409)) {
+                    this.refusedCommitOuts.add(trying)
+                }
+                throw error
+            }
+        })
+    }
+
+    /**
+     * Every non-own leaf of the group as it stands now judged (`judgeLeaf`), its records kept in step,
+     * and the first to commit out — a recorded index may hold another leaf by now.
+     */
+    private async leafToCommitOut(conversationId: ConversationId, me: ActorUri, trust: DeviceTrustVerdict | null) {
+        await this.forgetLeavesGone(conversationId)
+        const judged = []
+        for (const leaf of await this.mls.groupLeaves(conversationId)) {
+            if (leaf.own) continue
+            const judgement = judgeLeaf(await this.verifyLeaf(leaf), me, trust)
+            if (judgement.outcome === "trusted") this.dropLeafRecord(`${conversationId}:${leaf.leafIndex}`)
+            // One going on approval grounds is recorded as it goes: the list read again may still approve it.
+            else if (judgement.outcome === "warn" || (judgement.outcome === "remove" && judgement.grounds === "forged")) {
+                this.recordUntrusted(conversationId, leaf, judgement.reason)
+            }
+            const refused = this.refusedCommitOuts.has(`${conversationId}:${leafFingerprint(leaf)}`)
+            judged.push({ leaf, judgement, refused })
+        }
+        return firstToCommitOut(judged)
     }
 
     // ─── The history key and its archive ──────────────────────────────
@@ -516,6 +761,7 @@ export class E2eeAdapter implements IE2eePort {
             ...this.sealer().derive(kept.derived.hak),
         }
         const standing = standingAgainst(key, facts, seen, await this.rootKey())
+        this.reset = resetSince(key, kept?.generation ?? null, seen)
         await this.seeGeneration(seen, key)
         const held = standing.kind === "holds" && kept ? { generation: standing.generation, hak: kept.derived.hak } : null
         return this.setHolding(standing, held)
@@ -599,6 +845,14 @@ export class E2eeAdapter implements IE2eePort {
         this.holding = { standing, key }
         this.checkedOnce = true
         if (!buffersForArchive(standing)) this.archiveBuffer = []
+        if (standing.kind === "holds") this.reset = null
+        this.withdraw((event) => event.kind === "reset-by-unapproved" && event.generation !== this.reset?.generation)
+        const changed = keyChangedUnder(standing)
+        const changedKey = changed && trustEventKey(changed)
+        this.withdraw(
+            (event) => (event.kind === "approval-key-differs" || event.kind === "key-replaced") && trustEventKey(event) !== changedKey,
+        )
+        if (changed) this.stand(changed)
         try {
             await this.storage.saveHistoryKeyStanding(standing)
         } catch (e) {
@@ -940,6 +1194,12 @@ export class E2eeAdapter implements IE2eePort {
         this.derivations.clear()
         this.archiveBuffer = []
         this.archivedIds.clear()
+        this.reset = null
+        this.trustEvents.clear()
+        this.untrustedLeaves.clear()
+        this.leafVerdicts.clear()
+        this.rootChecks.clear()
+        this.refusedCommitOuts.clear()
         await this.mls.resetProvider()
     }
 
@@ -1388,9 +1648,12 @@ export class E2eeAdapter implements IE2eePort {
             const me = await this.storage.getBoundActorUri()
             if (!me || !(await this.mls.hasGroup(conversationId))) return { removed: 0 }
             const removed = await this.commitEach(idpUrl, accessToken, conversationId, async () => {
-                const leaves = (await this.mls.groupLeaves(conversationId))
-                    .filter((leaf) => !leaf.own)
-                    .map((leaf) => ({ leafIndex: leaf.leafIndex, actorUri: leaf.credential?.actor_uri ?? null }))
+                const leaves = []
+                for (const leaf of await this.mls.groupLeaves(conversationId)) {
+                    if (leaf.own) continue
+                    const verdict = await this.verifyLeaf(leaf)
+                    leaves.push({ leafIndex: leaf.leafIndex, actorUri: leaf.credential?.actor_uri ?? null, origin: leafOrigin(verdict) })
+                }
                 const [leaf] = leavesToRemove(leaves, roster, me)
                 return leaf === undefined ? null : { commit: await this.mls.removeMember(conversationId, leaf) }
             })
@@ -1469,47 +1732,46 @@ export class E2eeAdapter implements IE2eePort {
         idpUrl: string,
         accessToken: string,
         conversationId: ConversationId,
-        devices: readonly DeviceId[],
+        trust: DeviceTrustVerdict,
     ): Promise<{ added: number }> {
         // A device-list refresh and a group just held can start runs together; the second finds
         // what the first added.
-        return this.inGroup(conversationId, () =>
-            this.doAddOwnDevices(idpUrl, accessToken, conversationId, devices),
-        )
+        return this.inGroup(conversationId, () => this.doAddOwnDevices(idpUrl, accessToken, conversationId, trust))
     }
 
     private async doAddOwnDevices(
         idpUrl: string,
         accessToken: string,
         conversationId: ConversationId,
-        devices: readonly DeviceId[],
+        trust: DeviceTrustVerdict,
     ): Promise<{ added: number }> {
         await this.ensureInitialized(null)
         const me = await this.storage.getBoundActorUri()
-        if (!me || !(await this.mls.hasGroup(conversationId))) return { added: 0 }
+        const acting = this.actingNow(trust)
+        if (!acting?.acting || !me || !(await this.mls.hasGroup(conversationId))) return { added: 0 }
         const unavailable = new Set<DeviceId>()
         const added = await this.commitEach(idpUrl, accessToken, conversationId, async () => {
             for (;;) {
-                const [device] = devicesToAdd(await this.mls.groupMembers(conversationId), me, devices).filter(
-                    (d) => !unavailable.has(d),
-                )
+                const present = []
+                for (const leaf of await this.mls.groupLeaves(conversationId)) if (!leaf.own) present.push(await this.verifyLeaf(leaf))
+                const [device] = devicesToAdd(present, me, acting).filter((d) => !unavailable.has(d.deviceId))
                 if (device === undefined) return null
                 let claimed
                 try {
-                    claimed = await this.directory.claimKeyPackage(idpUrl, accessToken, me, device)
+                    claimed = await this.directory.claimKeyPackage(idpUrl, accessToken, me, device.deviceId)
                 } catch {
-                    unavailable.add(device)
+                    unavailable.add(device.deviceId)
                     continue
                 }
-                if (claimed.device_id !== device) {
-                    unavailable.add(device)
+                if (claimed.device_id !== device.deviceId) {
+                    unavailable.add(device.deviceId)
                     continue
                 }
-                const verdict = await this.checkClaim(me, claimed)
+                const verdict = await this.checkClaim(me, claimed, device.rootKey)
                 if (!verdict.ok) {
                     // eslint-disable-next-line no-console
-                    console.warn(`addOwnDevices: a KeyPackage of ${device} refused (${verdict.reason})`)
-                    unavailable.add(device)
+                    console.warn(`addOwnDevices: a KeyPackage of ${device.deviceId} refused (${verdict.reason})`)
+                    unavailable.add(device.deviceId)
                     continue
                 }
                 const out = await this.mls.addMember(conversationId, claimed.key_package)
@@ -1518,7 +1780,7 @@ export class E2eeAdapter implements IE2eePort {
                     merged: () =>
                         this.directory.postWelcome(idpUrl, accessToken, {
                             recipient_actor_uri: me,
-                            recipient_device_id: device,
+                            recipient_device_id: device.deviceId,
                             conversation_id: conversationId,
                             welcome_blob: out.welcome,
                         }),
@@ -1571,6 +1833,15 @@ export class E2eeAdapter implements IE2eePort {
         conversationIds: ConversationId[],
     ): Promise<{ removed_from: ConversationId[] }> {
         await this.ensureInitialized(actorUri)
+        const keeping = this.trustTurn.then(() => this.storage.addToDeviceTrust({ revoked: [deviceId] }))
+        this.trustTurn = keeping.catch(() => undefined)
+        try {
+            await keeping
+        } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn("revokeDevice: keeping the revocation failed; the device list brings it again", e)
+        }
+        this.withdraw((event) => event.kind === "unapproved-device" && event.deviceId === deviceId)
 
         const removed: ConversationId[] = []
         for (const conversationId of conversationIds) {
@@ -1625,12 +1896,12 @@ function derivationId(words: readonly string[], salt: Uint8Array): string {
     return bytesToHex(sha256(input))
 }
 
-function tell(listener: (leaf: UntrustedLeaf) => void, leaf: UntrustedLeaf): void {
+function tell(listener: (event: TrustEvent) => void, event: TrustEvent): void {
     try {
-        listener(leaf)
+        listener(event)
     } catch (e) {
         // eslint-disable-next-line no-console
-        console.warn("onUntrustedLeaf listener failed:", e)
+        console.warn("onTrustEvent listener failed:", e)
     }
 }
 

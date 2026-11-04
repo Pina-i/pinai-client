@@ -135,8 +135,11 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   (`null` when it is none) and signature key.
 - `LeafVerdict` / `LeafRefusal` — what `@pinai/crypto`'s checks found.
   `admitsClaim` — a claimed KeyPackage is added only as the very device it was
-  claimed for. `UntrustedLeaf` — a leaf met in a group that failed, named by
-  its credential's unverified word (`IE2eePort.onUntrustedLeaf`).
+  claimed for, over the root key a sibling was approved over. `leafOrigin` —
+  `forged` only when a check shows it; `unsettled` (unreachable, expired) is
+  taken at its word. `UntrustedLeaf` — a leaf met in a group that failed, or
+  an own-account one not trusted (`OwnLeafRefusal`), named by its
+  credential's unverified word (`IE2eePort.onTrustEvent`, `trustSnapshot`).
   `sameCredential` — whether a device's own leaf carries the credential it
   would make now (`refreshOwnLeaf`).
 
@@ -144,8 +147,42 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `DeviceListEntry` carries what another device needs to check the chain JWKS
   → attestation → root key → HPKE key itself (bytes, `null` without), the
   history generation it says it holds, and its approvals as listed — verified
-  by each device, never by the list. `DeviceChainVerdict` is
-  `verifyDeviceChain`'s answer (`@pinai/crypto`).
+  by each device, never by the list. `DeviceRootVerdict` — the root key's link
+  alone, what announcing and approving rest on; `DeviceChainVerdict` adds the
+  HPKE key, for sharing the passphrase (`@pinai/crypto`).
+- `deviceListKey` — what a review reads of the list as one string: a refetch
+  that only changed activity times compares equal.
+
+### models/device-trust.ts
+- Who each device trusts, decided by itself (`identity-provider/specs/e2ee.md § 3.9`).
+  `KnownDevice` — a device by id and root key: another root key is another device.
+- `approvedDevices` — over the `CheckedDevice`s `@pinai/crypto` verified: a root
+  chain that verifies, no revocation (listed, or seen before), an approval by the
+  generation's approval key or by a device so approved, matched by its id and the
+  root key the approval was checked under. Two links at most; none at all from a
+  list naming an id twice (`duplicateDeviceIds`), as a lookup by id could pick
+  either row. A chain `unsettled` (issuer out of reach, attestation expired)
+  decides nothing.
+- `actsOnApproval(standing)` — only `holds` decides on approval grounds.
+  `DeviceTrustVerdict` carries the generation it acted under (stale once the
+  device holds another) and the unsettled devices; `undecided` decides nothing.
+- `judgeDevices` — what an acting review finds and keeps: the approved (itself
+  included), the unsettled, every device still unapproved (`arrived` only the
+  first time it is seen under that root key — a notice's business, never the
+  state's), the devices seen and found approved.
+- `judgeLeaf` / `firstToCommitOut` — which leaf goes: a forgery whoever the
+  device; an attestation that only expired is warned of and stays; an own leaf
+  an acting verdict doesn't approve (`ownLeafStanding`); the unsettled are left.
+- `resetSince` / `resetByUnapproved` — a generation past the one held (holding
+  none, past the newest seen) set by a device never found approved over the root
+  key listed for it now, or attributed to this device when it is setting none.
+  `keyChangedUnder` — the key under the generation held changed:
+  `approval-key-differs`, or `key-replaced` (salt, check value).
+- `TrustEvent` / `trustEventKey` — what stands, keyed by what it is about.
+
+### models/bytes.ts
+- `sameBytes`, `hexOf` — the models' byte helpers: the lint boundary keeps models
+  off `lib/`.
 
 ### lib/bytes.ts
 - Base64 ↔ bytes, `base64url` for JWS/JWK and padded `base64` elsewhere
@@ -397,16 +434,21 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   editor offers them.
 
 ### A user's devices bring each other into their groups
-- `devicesToAdd(leaves, me, devices)` (`models/group.ts`) — the user's
-  devices a group holds no leaf for.
-- `sync-own-groups.usecase.ts` — for each conversation, one at a time:
-  catch it up on the commits it missed (`IE2eePort.catchUp`), make its own
-  leaf's credential current (`refreshOwnLeaf`, whose failure still lets the
-  siblings be added), then offer
-  it the user's other active devices (`addOwnDevices`, which adds them
-  only to groups this device holds). Names the conversations that failed;
-  the hook logs them, the domain doesn't. See
-  `identity-provider/specs/e2ee.md § 6.2`.
+- `devicesToAdd(present, me, verdict)` (`models/group.ts`) — the devices an
+  acting verdict found approved that no verified leaf (`present`) stands for
+  under that root key; none when the verdict doesn't act.
+- `sync-own-groups.usecase.ts` — every conversation caught up
+  (`IE2eePort.catchUp`) and its own leaf made current (`refreshOwnLeaf`, whose
+  failure still lets the siblings be added); then the device list read again
+  (`IDeviceDirectoryPort.listDevices`) and reviewed (`reviewDevices`), after
+  the catch-ups, so an add they brought is judged on a list as new; then in
+  each group the untrusted leaves committed out (`removeUntrustedLeaves`, given
+  `reviewAgain`: the list read once more before the first own leaf goes on
+  approval grounds, that review used from then on) and the approved siblings
+  added (`addOwnDevices`). Runs with no conversation too. Names what failed;
+  the hook logs it, the domain doesn't. `oneAtATime` — one run at a time, the
+  calls made meanwhile one run after it, with the latest arguments. See
+  `identity-provider/specs/e2ee.md § 6.2`, § 3.9.
 
 ### models/own-messages.ts
 - `isHeldHere` — a message from the user's own account is this device's
@@ -520,9 +562,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 
 ### Leaving a group's MLS state with its roster
 - `leavesToRemove(leaves, roster, me)` (`models/group.ts`) — every device of
-  someone the roster no longer holds, and every leaf whose credential names
-  nobody; nothing when the roster doesn't hold `me`, a view of the group that
-  isn't the user's.
+  someone the roster no longer holds, every leaf whose credential names
+  nobody, every leaf a check shows forged (`leafOrigin`); nothing when the
+  roster doesn't hold `me`, a view of the group that isn't the user's.
 - `remove-group-member.usecase.ts` — the REST removal first (the IdP checks
   it), then `IE2eePort.pruneGroup` with the roster that remains. A prune that
   fails doesn't undo the removal (`cutOff: false`): the next look finishes it.

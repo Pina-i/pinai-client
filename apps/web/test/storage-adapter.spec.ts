@@ -69,13 +69,13 @@ const PENDING: PendingPassphrase = {
     hak: bytes(22),
 }
 
-/** The history key's rows, raw: where an unreadable one is set aside. */
-async function passphraseRows(): Promise<string[]> {
+/** A collection's row keys, raw: where an unreadable one is set aside. */
+async function rowsOf(collection = "recovery_passphrase"): Promise<string[]> {
     return new Promise((resolve, reject) => {
         const req = indexedDB.open(e2eeDatabaseName(ALICE))
         req.onerror = () => reject(req.error)
         req.onsuccess = () => {
-            const keys = req.result.transaction("recovery_passphrase", "readonly").objectStore("recovery_passphrase").getAllKeys()
+            const keys = req.result.transaction(collection, "readonly").objectStore(collection).getAllKeys()
             keys.onsuccess = () => {
                 req.result.close()
                 resolve((keys.result as string[]).sort())
@@ -175,7 +175,7 @@ describe("sealed rows", () => {
             expect(await storage.loadKeptPassphrase()).toBeNull()
         }
 
-        const rows = await passphraseRows()
+        const rows = await rowsOf()
         expect(rows.filter((key) => key.startsWith("current:unreadable:"))).toHaveLength(3)
         expect(rows).not.toContain("current")
     })
@@ -185,7 +185,57 @@ describe("sealed rows", () => {
         await kv.put("recovery_passphrase", "current", bytes(40, 64))
 
         expect(await storage.loadKeptPassphrase()).toBeNull()
-        expect((await passphraseRows()).filter((key) => key.startsWith("current:unreadable:"))).toHaveLength(1)
+        expect((await rowsOf()).filter((key) => key.startsWith("current:unreadable:"))).toHaveLength(1)
+    })
+
+    it("adds to what it keeps of the account's devices, and starts with nothing", async () => {
+        expect(await storage.loadDeviceTrust()).toEqual({ trust: { seen: [], approved: [], revoked: [] }, unreadable: [] })
+
+        await storage.addToDeviceTrust({ seen: [{ deviceId: "phone", rootKey: bytes(30) }], approved: [{ deviceId: "phone", rootKey: bytes(30) }] })
+        const added = await storage.addToDeviceTrust({ approved: [{ deviceId: "tablet", rootKey: bytes(31) }], revoked: ["watch"] })
+
+        const trust = {
+            seen: [{ deviceId: "phone", rootKey: bytes(30) }],
+            approved: [
+                { deviceId: "phone", rootKey: bytes(30) },
+                { deviceId: "tablet", rootKey: bytes(31) },
+            ],
+            revoked: ["watch"],
+        }
+        expect(added).toEqual(trust)
+        expect(await storage.loadDeviceTrust()).toEqual({ trust, unreadable: [] })
+        expect((await storage.loadDeviceTrust()).trust.approved[1].rootKey).toBeInstanceOf(Uint8Array)
+    })
+
+    it("keeps what another tab added meanwhile: each row read again just before it is written", async () => {
+        const otherTab = webStorage()
+        await storage.loadDeviceTrust()
+        await otherTab.loadDeviceTrust()
+
+        await otherTab.addToDeviceTrust({ revoked: ["watch"], seen: [{ deviceId: "phone", rootKey: bytes(30) }] })
+        await storage.addToDeviceTrust({ revoked: ["tablet"], seen: [{ deviceId: "tablet", rootKey: bytes(31) }] })
+
+        const { trust } = await webStorage().loadDeviceTrust()
+        expect(trust.revoked).toEqual(["watch", "tablet"])
+        expect(trust.seen.map((d) => d.deviceId)).toEqual(["phone", "tablet"])
+    })
+
+    it("sets aside, never deletes, a trust row it can't read, names it, and reads the others", async () => {
+        await storage.addToDeviceTrust({ seen: [{ deviceId: "phone", rootKey: bytes(30) }], revoked: ["watch"] })
+        await storage["seal"]("device_attestation", { devices: [{ device_id: "phone", root_key: [1, 2] }] }, "trust:approved")
+        const kv = new IdbKeyValueStore(e2eeDatabaseName(ALICE))
+        await kv.put("device_attestation", "trust:revoked", bytes(42, 64))
+
+        expect(await storage.loadDeviceTrust()).toEqual({
+            trust: { seen: [{ deviceId: "phone", rootKey: bytes(30) }], approved: [], revoked: [] },
+            unreadable: ["approved", "revoked"],
+        })
+
+        const rows = await rowsOf("device_attestation")
+        expect(rows.filter((key) => key.startsWith("trust:approved:unreadable:"))).toHaveLength(1)
+        expect(rows.filter((key) => key.startsWith("trust:revoked:unreadable:"))).toHaveLength(1)
+        expect(rows).toContain("trust:seen")
+        expect(rows).not.toContain("trust:approved")
     })
 
     it("throws, touching nothing, when the device key can't be loaded", async () => {
@@ -276,13 +326,50 @@ describe("clear", () => {
         await storage.saveMlsSnapshot(SNAPSHOT)
         await storage.saveDeviceAttestation(ATTESTATION)
         await storage.saveKeptPassphrase(KEPT)
+        await storage.addToDeviceTrust({ revoked: ["watch"] })
 
         await storage.clear()
 
+        expect((await storage.loadDeviceTrust()).trust).toEqual({ seen: [], approved: [], revoked: [] })
         expect(await storage.loadIdentityKeypair()).toBeNull()
         expect(await storage.loadMlsSnapshot()).toBeNull()
         expect(await storage.loadDeviceAttestation()).toBeNull()
         expect(await storage.loadKeptPassphrase()).toBeNull()
         expect(await storage.getOrCreateDeviceId()).not.toBe(deviceId)
+    })
+})
+
+describe("a database another tab holds", () => {
+    const name = e2eeDatabaseName(asActorUri("https://idp.example/users/tabs"))
+
+    it("lets go of its connection when a newer build asks to upgrade, and is refused at its older version after", async () => {
+        const kv = new IdbKeyValueStore(name)
+        await kv.put("meta", "probe", bytes(1, 4))
+
+        const newer = await new Promise<IDBDatabase>((resolve, reject) => {
+            const request = indexedDB.open(name, 5)
+            request.onsuccess = () => resolve(request.result)
+            request.onerror = () => reject(request.error)
+        })
+        expect(newer.version).toBe(5)
+        newer.close()
+
+        // This build's version is older now: its next open is refused, never hangs.
+        await expect(kv.get("meta", "probe")).rejects.toThrow()
+    })
+
+    it("rejects instead of hanging while an older tab holds the database open", async () => {
+        const older = `${name}:older`
+        const held = await new Promise<IDBDatabase>((resolve, reject) => {
+            const request = indexedDB.open(older, 3)
+            request.onsuccess = () => resolve(request.result)
+            request.onerror = () => reject(request.error)
+        })
+
+        await expect(new IdbKeyValueStore(older).get("meta", "probe")).rejects.toThrow("older version")
+
+        held.close()
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        expect(await new IdbKeyValueStore(older).get("meta", "probe")).toBeUndefined()
     })
 })

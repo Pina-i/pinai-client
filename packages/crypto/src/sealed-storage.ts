@@ -1,3 +1,4 @@
+import { emptyDeviceTrust, withTrust, type DeviceTrust, type DeviceTrustRow, type KnownDevice } from "@pinai/domain/models/device-trust"
 import type { ActorUri, DeviceId, IdentityKeypair, ConversationId } from "@pinai/domain/models/e2ee"
 import {
     isGeneration,
@@ -37,6 +38,11 @@ const CURRENT = "current"
 const PENDING = "pending"
 const STANDING = "standing"
 const NEWEST_GENERATION = "newest_generation"
+/**
+ * `device_trust`, beside the attestation: a store of its own would take an IndexedDB upgrade. One
+ * row a part, so an unreadable one loses no other, and a new part is a new row.
+ */
+const TRUST_ROWS: Record<DeviceTrustRow, string> = { seen: "trust:seen", approved: "trust:approved", revoked: "trust:revoked" }
 const WORD_COUNT = 24
 const DEVICE_ID_KEY = "device_id"
 const BOUND_ACTOR_URI_KEY = "bound_actor_uri"
@@ -158,6 +164,14 @@ export interface E2eeStorage {
     loadHistoryKeyStanding(): Promise<HistoryKeyStanding | null>
     saveNewestHistoryGeneration(generation: number): Promise<void>
     loadNewestHistoryGeneration(): Promise<number | null>
+    /**
+     * What the device keeps of the account's devices (`identity-provider/specs/e2ee.md § 3.9`). Read
+     * as the history key's rows are: a row that won't open or parse is set aside, reads as empty,
+     * and is named in `unreadable`. Adding reads each row again just before writing it, so what
+     * another tab added meanwhile stays.
+     */
+    loadDeviceTrust(): Promise<{ trust: DeviceTrust; unreadable: DeviceTrustRow[] }>
+    addToDeviceTrust(change: Partial<DeviceTrust>): Promise<DeviceTrust>
     /** Replaces any previous attestation — used for renewal and rotation. */
     saveDeviceAttestation(att: DeviceAttestation): Promise<void>
     loadDeviceAttestation(): Promise<DeviceAttestation | null>
@@ -281,11 +295,49 @@ export class SealedStorage implements E2eeStorage {
         })
     }
 
-    // The words can't be had again: a row that won't open or parse is moved aside, as the message cache does.
+    async loadDeviceTrust(): Promise<{ trust: DeviceTrust; unreadable: DeviceTrustRow[] }> {
+        const trust = emptyDeviceTrust()
+        const unreadable: DeviceTrustRow[] = []
+        for (const row of ["seen", "approved", "revoked"] as const) {
+            const read = await this.readTrustRow(row)
+            if (read.setAside) unreadable.push(row)
+            if (read.value) Object.assign(trust, { [row]: read.value })
+        }
+        return { trust, unreadable }
+    }
+
+    async addToDeviceTrust(change: Partial<DeviceTrust>): Promise<DeviceTrust> {
+        let trust = emptyDeviceTrust()
+        for (const row of ["seen", "approved", "revoked"] as const) {
+            const held = { ...emptyDeviceTrust(), [row]: (await this.readTrustRow(row)).value ?? [] }
+            const added = withTrust(held, { [row]: change[row] ?? [] })
+            if (added !== held) {
+                const json = row === "revoked" ? { device_ids: [...added.revoked] } : { devices: added[row].map(knownDeviceToJson) }
+                await this.seal(DEVICE_ATTESTATION, json, TRUST_ROWS[row])
+            }
+            trust = { ...trust, [row]: added[row] }
+        }
+        return trust
+    }
+
+    private readTrustRow(row: DeviceTrustRow) {
+        const parse = row === "revoked" ? revokedFromJson : knownDevicesFromJson
+        return this.readOrSetAside<KnownDevice[] | DeviceId[]>(DEVICE_ATTESTATION, TRUST_ROWS[row], parse)
+    }
+
     private async openOrSetAside<T>(collection: string, key: string, parse: (value: unknown) => T | null): Promise<T | null> {
+        return (await this.readOrSetAside(collection, key, parse)).value
+    }
+
+    // Neither the words nor what was seen of the devices can be had again: an unreadable row is moved aside, as the message cache does.
+    private async readOrSetAside<T>(
+        collection: string,
+        key: string,
+        parse: (value: unknown) => T | null,
+    ): Promise<{ value: T | null; setAside: boolean }> {
         await this.deviceKey.ready()
         const bytes = await this.kv.get(collection, key)
-        if (!bytes) return null
+        if (!bytes) return { value: null, setAside: false }
         let value: unknown = undefined
         try {
             value = JSON.parse(decoder.decode(await this.deviceKey.open(unframe(bytes))))
@@ -293,12 +345,14 @@ export class SealedStorage implements E2eeStorage {
             // Unreadable: set aside below.
         }
         const parsed = value === undefined ? null : parse(value)
-        if (parsed !== null) return parsed
+        if (parsed !== null) return { value: parsed, setAside: false }
         // eslint-disable-next-line no-console
         console.warn(`${collection}/${key} can't be read; set aside`)
-        await this.kv.put(collection, `${key}:unreadable:${new Date().toISOString()}`, bytes)
+        // Two set aside within a millisecond keep each their own.
+        const suffix = crypto.randomUUID().slice(0, 8)
+        await this.kv.put(collection, `${key}:unreadable:${new Date().toISOString()}:${suffix}`, bytes)
         await this.kv.delete(collection, key)
-        return null
+        return { value: null, setAside: true }
     }
 
     async saveDeviceAttestation(att: DeviceAttestation): Promise<void> {
@@ -376,6 +430,27 @@ function pendingFromJson(value: unknown): PendingPassphrase | null {
     const hak = bytesOf(value.hak, 32)
     if (!words || !isGeneration(value.generation) || !salt || !checkValue || !approvalPublicKey || !hak) return null
     return { words, key: { generation: value.generation, salt, checkValue, approvalPublicKey }, hak }
+}
+
+function knownDeviceToJson(device: KnownDevice): object {
+    return { device_id: device.deviceId, root_key: Array.from(device.rootKey) }
+}
+
+function knownDevicesFromJson(value: unknown): KnownDevice[] | null {
+    if (!isRow(value) || !Array.isArray(value.devices)) return null
+    const devices: KnownDevice[] = []
+    for (const row of value.devices as unknown[]) {
+        const rootKey = isRow(row) ? bytesOf(row.root_key, 32) : undefined
+        if (!isRow(row) || typeof row.device_id !== "string" || !rootKey) return null
+        devices.push({ deviceId: row.device_id, rootKey })
+    }
+    return devices
+}
+
+function revokedFromJson(value: unknown): DeviceId[] | null {
+    if (!isRow(value) || !Array.isArray(value.device_ids)) return null
+    const ids = value.device_ids as unknown[]
+    return ids.every((id) => typeof id === "string") ? (ids as DeviceId[]) : null
 }
 
 function isRow(value: unknown): value is Record<string, unknown> {

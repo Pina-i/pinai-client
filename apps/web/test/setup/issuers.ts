@@ -1,7 +1,9 @@
 import { ed25519 } from "@noble/curves/ed25519.js"
 
-import { attestationBytes, leafBindingBytes } from "@pinai/crypto/canonical-bytes"
+import { approvalBytes, attestationBytes, deviceHpkeKeyBytes, leafBindingBytes } from "@pinai/crypto/canonical-bytes"
+import { HistoryArchiveAdapter } from "@pinai/crypto/history-archive.adapter"
 import { bytesToBase64 } from "@pinai/domain/lib/bytes"
+import type { DeviceApproval, DeviceListEntry } from "@pinai/domain/models/device"
 import { instanceOrigin } from "@pinai/domain/models/identity"
 import type { ActorUri, DeviceId } from "@pinai/domain/models/e2ee"
 import type { LeafCredential } from "@pinai/domain/models/leaf-trust"
@@ -77,4 +79,40 @@ export function credentialFor(device: TestDevice, signatureKey: Uint8Array): Lea
         },
         leaf_binding: bytesToBase64(binding),
     }
+}
+
+/** `GET /api/keys/devices`' row for `device`: its chain as the IdP lists it, an HPKE key its root key signed. */
+export function listedDevice(device: TestDevice, approvals: DeviceApproval[] = [], change: Partial<DeviceListEntry> = {}): DeviceListEntry {
+    const hpke = crypto.getRandomValues(new Uint8Array(32))
+    return {
+        device_id: device.deviceId,
+        display_name: "Chrome on Linux",
+        kind: "laptop",
+        paired_at: "2026-11-01T00:00:00Z",
+        last_seen_at: "2026-11-04T00:00:00Z",
+        revoked_at: null,
+        signed_in: true,
+        last_active_at: null,
+        drk_public_key: device.rootKey.publicKey,
+        attestation_signature: device.attestation.signature,
+        attestation_kid: device.attestation.kid,
+        attestation_expires_at: device.attestation.expires_at,
+        hpke_public_key: hpke,
+        hpke_key_signature: ed25519.sign(deviceHpkeKeyBytes(device.actorUri, device.deviceId, hpke), device.rootKey.secretKey),
+        history_generation: null,
+        approvals,
+        ...change,
+    }
+}
+
+/** `approver`'s root key approving `device` over `rootKey` — its own unless said. */
+export function approvedBy(approver: TestDevice, device: TestDevice, rootKey = device.rootKey.publicKey): DeviceApproval {
+    const signature = ed25519.sign(approvalBytes(device.actorUri, device.deviceId, rootKey), approver.rootKey.secretKey)
+    return { by: "device", device_id: approver.deviceId, signature, created_at: "2026-11-02T00:00:00Z" }
+}
+
+/** The approval key of `generation`, whose HAK is `hak`, approving `device` over its root key. */
+export function approvedByPassphrase(hak: Uint8Array, generation: number, device: TestDevice): DeviceApproval {
+    const bytes = approvalBytes(device.actorUri, device.deviceId, device.rootKey.publicKey)
+    return { by: "passphrase", generation, signature: new HistoryArchiveAdapter().signApproval(hak, bytes), created_at: "2026-11-02T00:00:00Z" }
 }

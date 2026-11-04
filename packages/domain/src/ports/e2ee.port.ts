@@ -6,9 +6,10 @@ import type {
     Fingerprint,
     KeyPackageStatusResponse,
 } from "../models/e2ee"
+import type { DeviceListEntry } from "../models/device"
+import type { DeviceTrustVerdict, TrustEvent } from "../models/device-trust"
 import type { ArchiveEnvelope, ArchivedEntry } from "../models/history-archive"
 import type { DerivedHistoryKey, HistoryKey, HistoryKeyStanding } from "../models/history-key"
-import type { UntrustedLeaf } from "../models/leaf-trust"
 
 /**
  * High-level, transport-agnostic E2EE operations the rest of the app
@@ -159,11 +160,10 @@ export interface IE2eePort {
     ): Promise<{ joined: number }>
 
     /**
-     * Revoke another device of this user. Builds + delivers one MLS
-     * Remove commit per conversation it's a member of; PCS recovers
-     * within each commit. The caller passes the conversation list
-     * (typically every active DM/group from the local store) so the
-     * port stays free of zustand.
+     * Revoke another device of this user: the revocation is kept for good, then one MLS Remove
+     * commit per leaf naming the device in each conversation; PCS recovers within each commit. The
+     * caller passes the conversation list (typically every active DM/group from the local store)
+     * so the port stays free of zustand.
      */
     revokeDevice(
         idpUrl: string,
@@ -174,9 +174,11 @@ export interface IE2eePort {
     ): Promise<{ removed_from: ConversationId[] }>
 
     /**
-     * Commit out of a group's MLS state every device of someone `roster` — the group's members as
-     * the IdP lists them — no longer holds, so nothing sent from then on decrypts for them. A
-     * commit that loses an epoch race is dropped; the group catches up and is looked at again.
+     * Commit out of a group's MLS state every leaf that isn't a device of someone `roster` — the
+     * group's members as the IdP lists them — holds, so nothing sent from then on decrypts for them:
+     * every device of someone gone, and every leaf whose credential names nobody or that a check of
+     * `identity-provider/specs/e2ee.md § 3.4` shows forged. A commit that loses an epoch race is
+     * dropped; the group catches up and is looked at again.
      */
     pruneGroup(
         idpUrl: string,
@@ -199,17 +201,55 @@ export interface IE2eePort {
     catchUp(idpUrl: string, accessToken: string, conversationId: ConversationId): Promise<void>
 
     /**
-     * Brings the user's other `devices` into a group this device holds keys for, one device a
-     * commit, each with a KeyPackage of its own (`devicesToAdd`). A group this device doesn't hold
-     * is left alone: founding one here would fork it. A commit that loses an epoch race is
-     * dropped; the group catches up and is looked at again. Runs on one device take turns.
+     * Brings into a group this device holds keys for the devices `trust` found approved that no
+     * verified leaf stands for (`devicesToAdd`), one device a commit, each with a KeyPackage of its
+     * own whose leaf verifies as that device over the root key it was approved over. Nothing unless
+     * `trust` acts under the generation this device still holds. A group this device doesn't hold
+     * is left alone: founding one here would fork it. A commit that loses an epoch race is dropped;
+     * the group catches up and is looked at again. Runs on one device take turns.
      */
     addOwnDevices(
         idpUrl: string,
         accessToken: string,
         conversationId: ConversationId,
-        devices: readonly DeviceId[],
+        trust: DeviceTrustVerdict,
     ): Promise<{ added: number }>
+
+    /**
+     * The account's devices as this device judges them itself (`identity-provider/specs/e2ee.md
+     * § 3.9`), from `devices` — `GET /api/keys/devices` read just before. A list naming a device id
+     * twice is refused whole (`device-list-refused`), as is a review whose kept revocations can't be
+     * read: nothing is decided or kept. Otherwise the revocations listed are kept for good, and,
+     * unless a pending history key waits, the key is read again: only a device holding the current
+     * passphrase, its own derivation of the approval key the stored one, acts — each device's root
+     * key and approvals checked under the key it derived, those found approved and those seen kept,
+     * every device still unapproved standing. Any device warns of a generation set by a device it
+     * never found approved, or attributed to itself when it set none.
+     */
+    reviewDevices(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+        devices: readonly DeviceListEntry[],
+    ): Promise<DeviceTrustVerdict>
+
+    /**
+     * Commits out of a group this device holds, one a commit, each judged against the tree as it
+     * stands just before (an index changes hands), every non-own leaf verified: a forgery
+     * (`identity-provider/specs/e2ee.md § 3.4`), and — when `trust` acts under the generation still
+     * held — a leaf of the account's own whose root key the list doesn't show approved for its
+     * device. Before the first of those, `reviewAgain` reads the list again. A leaf whose attestation
+     * only expired is warned of and stays; what couldn't be settled is left. A leaf committed out
+     * drops its record. A commit refused other than by an epoch race throws, the records kept for
+     * the next run; one refused for good isn't tried again in this page load.
+     */
+    removeUntrustedLeaves(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        trust: DeviceTrustVerdict | null,
+        reviewAgain?: () => Promise<DeviceTrustVerdict | null>,
+    ): Promise<{ removed: number }>
 
     /**
      * Puts in this device's own leaf the credential it would make now for the key the leaf
@@ -230,14 +270,21 @@ export interface IE2eePort {
     onDeviceRegistered(listener: () => void): () => void
 
     /**
-     * Calls `listener` with each leaf met in a group — in a Welcome's tree, or brought in or
-     * replaced by a commit — that fails the checks of `identity-provider/specs/e2ee.md § 3.4`.
-     * Each is recorded until the leaf at its index verifies, changes or leaves; the records held
-     * are replayed to a listener subscribing late. A leaf whose issuer couldn't be reached is
-     * checked again when next met, never recorded. The leaf stays in the group. Answers the
-     * unsubscribe.
+     * Calls `listener` with each trust event as it comes to stand: a device unapproved (`arrived`
+     * the first time this device sees it under that root key — what a notice is for), a generation
+     * set by a device this one never found approved, a key under the generation held that isn't
+     * the one its words give, a device list refused, and an untrusted leaf — one met failing the
+     * checks of `identity-provider/specs/e2ee.md § 3.4`, or a leaf of the account's own not
+     * approved. Those standing are replayed to a listener subscribing late. A leaf whose issuer
+     * couldn't be reached is checked again when next met, never recorded. Answers the unsubscribe.
      */
-    onUntrustedLeaf(listener: (leaf: UntrustedLeaf) => void): () => void
+    onTrustEvent(listener: (event: TrustEvent) => void): () => void
+
+    /** Calls `listener` with each trust event as it stops standing: what it was about changed. Answers the unsubscribe. */
+    onTrustWithdrawn(listener: (event: TrustEvent) => void): () => void
+
+    /** What stands now: rebuilt by each review after a reload, an unapproved device included. */
+    trustSnapshot(): TrustEvent[]
 
     /** Drop a group's MLS state from this device, as a group the user was removed from is cleared. */
     forgetGroup(conversationId: ConversationId): Promise<void>

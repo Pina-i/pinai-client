@@ -35,7 +35,6 @@ import init, {
 } from "openmls-wasm"
 
 import type { ActorUri, ConversationId, DeviceId } from "@pinai/domain/models/e2ee"
-import type { GroupLeaf } from "@pinai/domain/models/group"
 import type { LeafClaim, LeafCredential, MlsLeaf } from "@pinai/domain/models/leaf-trust"
 import type { HpkeKeyPair, HpkeSealed, IHpkePort } from "@pinai/domain/ports/hpke.port"
 import { decodeLeafCredential, encodeLeafCredential } from "./leaf-credential"
@@ -294,17 +293,6 @@ export class MlsAdapter implements IMlsEngine, IHpkePort {
             }
         }
         return null
-    }
-
-    async groupMembers(conversationId: ConversationId): Promise<GroupLeaf[]> {
-        const leaves: GroupLeaf[] = []
-        for (const m of this.requireGroup(conversationId).list_members()) {
-            const cred = decodeLeafCredential(m.credential_bytes)
-            if (cred) {
-                leaves.push({ leafIndex: m.leaf_index, actorUri: cred.actor_uri, deviceId: cred.device_id })
-            }
-        }
-        return leaves
     }
 
     async groupLeaves(conversationId: ConversationId): Promise<MlsLeaf[]> {

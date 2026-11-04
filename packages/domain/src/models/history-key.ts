@@ -3,6 +3,8 @@
  * the key `GET /api/history/key` answers, and where this device stands against it.
  */
 
+import { sameBytes } from "./bytes"
+
 export const FIRST_HISTORY_GENERATION = 1
 
 /** A generation of the account's history key, as `PUT /api/history/key` sets it. */
@@ -166,8 +168,4 @@ export function parseHistoryKeyStanding(value: unknown): HistoryKeyStanding | nu
 
 export function isGeneration(value: unknown): value is number {
     return typeof value === "number" && Number.isSafeInteger(value) && value > 0
-}
-
-function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
-    return a.length === b.length && a.every((byte, i) => byte === b[i])
 }

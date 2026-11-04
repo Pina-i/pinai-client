@@ -151,6 +151,8 @@ export type WsServerEvent =
     | { type: "mls_welcome_ready"; data: MlsWelcomeReadyPayload }
     | { type: "mls_commit"; data: MlsCommitPayload }
     | { type: "device_joined"; data: DeviceJoinedPayload }
+    /** A device of the user's was approved: each session reads the device list again. */
+    | { type: "device_approved"; data: { device_id: string } }
     | { type: "group_created"; data: GroupCreatedPayload }
     | { type: "member_added"; data: MemberAddedPayload }
     | { type: "member_removed"; data: MemberRemovedPayload }

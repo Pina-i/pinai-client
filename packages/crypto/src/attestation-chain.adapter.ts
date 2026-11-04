@@ -1,12 +1,13 @@
 import { ed25519 } from "@noble/curves/ed25519.js"
 
-import { decodeBase64 } from "@pinai/domain/lib/bytes"
-import type { DeviceChainVerdict, DeviceListEntry } from "@pinai/domain/models/device"
+import { bytesToBase64, decodeBase64 } from "@pinai/domain/lib/bytes"
+import type { DeviceChainVerdict, DeviceListEntry, DeviceRootVerdict } from "@pinai/domain/models/device"
+import type { CheckedApproval, CheckedDevice } from "@pinai/domain/models/device-trust"
 import { instanceOrigin } from "@pinai/domain/models/identity"
 import type { LeafClaim, LeafVerdict } from "@pinai/domain/models/leaf-trust"
 import type { IJwksCachePort } from "@pinai/domain/ports/jwks-cache.port"
 
-import { attestationBytes, deviceHpkeKeyBytes, leafBindingBytes } from "./canonical-bytes"
+import { approvalBytes, attestationBytes, deviceHpkeKeyBytes, leafBindingBytes } from "./canonical-bytes"
 
 const CLOCK_SKEW_MS = 5 * 60 * 1000 // 5 minutes
 
@@ -24,6 +25,11 @@ function stillAttested(expiresAt: string): "ok" | "expired" | "malformed" {
     const at = Date.parse(expiresAt)
     if (Number.isNaN(at)) return "malformed"
     return at + CLOCK_SKEW_MS < Date.now() ? "expired" : "ok"
+}
+
+/** Until when a check passed on an attestation expiring at `expiresAt` holds. */
+export function attestedUntil(expiresAt: string): number {
+    return Date.parse(expiresAt) + CLOCK_SKEW_MS
 }
 
 /**
@@ -80,12 +86,8 @@ export async function verifyLeafCredential(leaf: LeafClaim, jwks: IJwksCachePort
     return { ok: true, actorUri: cred.actor_uri, deviceId: cred.device_id, rootKey }
 }
 
-/** `identity-provider/specs/e2ee.md § 3.3` for one listed device; its approvals are another matter. */
-export async function verifyDeviceChain(
-    actorUri: string,
-    device: DeviceListEntry,
-    jwks: IJwksCachePort,
-): Promise<DeviceChainVerdict> {
+/** JWKS → attestation → root key for one listed device, unrevoked: what announcing and approving it rest on. */
+export async function verifyDeviceRoot(actorUri: string, device: DeviceListEntry, jwks: IJwksCachePort): Promise<DeviceRootVerdict> {
     if (device.revoked_at !== null) return { ok: false, reason: "revoked" }
     const { drk_public_key: rootKey, attestation_signature: signature } = device
     const { attestation_kid: kid, attestation_expires_at: expiresAt } = device
@@ -101,11 +103,93 @@ export async function verifyDeviceChain(
         signature,
     )
     if (attested !== "ok") return { ok: false, reason: attested }
+    return { ok: true, deviceId: device.device_id, rootKey }
+}
 
+/** `identity-provider/specs/e2ee.md § 3.3` for one listed device, its HPKE key included; its approvals are another matter. */
+export async function verifyDeviceChain(
+    actorUri: string,
+    device: DeviceListEntry,
+    jwks: IJwksCachePort,
+): Promise<DeviceChainVerdict> {
+    const root = await verifyDeviceRoot(actorUri, device, jwks)
+    if (!root.ok) return root
     const { hpke_public_key: hpkeKey, hpke_key_signature: hpkeSignature } = device
     if (!hpkeKey || !hpkeSignature) return { ok: false, reason: "no-hpke-key" }
-    if (!verifyStrict(hpkeSignature, deviceHpkeKeyBytes(actorUri, device.device_id, hpkeKey), rootKey)) {
+    if (!verifyStrict(hpkeSignature, deviceHpkeKeyBytes(actorUri, device.device_id, hpkeKey), root.rootKey)) {
         return { ok: false, reason: "hpke-signature" }
     }
-    return { ok: true, deviceId: device.device_id, rootKey, hpkePublicKey: hpkeKey }
+    return { ...root, hpkePublicKey: hpkeKey }
+}
+
+/** `signerKey` approved the device `deviceId` over `rootKey`: the `PINAI-DEVICE-APPROVAL-v1` bytes (§ 7.2). */
+export function verifyApproval(
+    signature: Uint8Array,
+    actorUri: string,
+    deviceId: string,
+    rootKey: Uint8Array,
+    signerKey: Uint8Array,
+): boolean {
+    return verifyStrict(signature, approvalBytes(actorUri, deviceId, rootKey), signerKey)
+}
+
+/** Root checks by the row's content, each until its attestation's expiry; an issuer out of reach is never kept. */
+export type RootChecks = Map<string, { verdict: DeviceRootVerdict; until: number }>
+
+async function verifyRootOnce(actorUri: string, device: DeviceListEntry, jwks: IJwksCachePort, cache: RootChecks | undefined) {
+    if (!cache || device.revoked_at !== null) return verifyDeviceRoot(actorUri, device, jwks)
+    const key = [
+        actorUri,
+        device.device_id,
+        device.drk_public_key && bytesToBase64(device.drk_public_key),
+        device.attestation_signature && bytesToBase64(device.attestation_signature),
+        device.attestation_kid,
+        device.attestation_expires_at,
+    ].join("|")
+    const held = cache.get(key)
+    if (held && held.until > Date.now()) return held.verdict
+    const verdict = await verifyDeviceRoot(actorUri, device, jwks)
+    if (verdict.ok && device.attestation_expires_at) cache.set(key, { verdict, until: attestedUntil(device.attestation_expires_at) })
+    else if (!verdict.ok && verdict.reason !== "unreachable") cache.set(key, { verdict, until: Infinity })
+    return verdict
+}
+
+/**
+ * Each listed device as this device checks it (`identity-provider/specs/e2ee.md § 3.9`): its root
+ * key's chain, and each approval over its listed root key — by the passphrase under `approvalKey`,
+ * the key this device derived itself and never the one the server lists; by a device under the
+ * root key listed for it, carried along so the rule matches it by id and root key. Who is approved
+ * is the domain's rule (`approvedDevices`).
+ */
+export async function checkListedDevices(
+    actorUri: string,
+    devices: readonly DeviceListEntry[],
+    approvalKey: Uint8Array,
+    jwks: IJwksCachePort,
+    rootChecks?: RootChecks,
+): Promise<CheckedDevice[]> {
+    const checked: CheckedDevice[] = []
+    for (const device of devices) {
+        const root = await verifyRootOnce(actorUri, device, jwks, rootChecks)
+        const rootKey = device.drk_public_key
+        const approvals = device.approvals.map((approval): CheckedApproval => {
+            if (approval.by === "passphrase") {
+                const verifies = rootKey !== null && verifyApproval(approval.signature, actorUri, device.device_id, rootKey, approvalKey)
+                return { by: "passphrase", generation: approval.generation, verifies }
+            }
+            const signer = devices.find((d) => d.device_id === approval.device_id)?.drk_public_key ?? null
+            const verifies =
+                rootKey !== null && signer !== null && verifyApproval(approval.signature, actorUri, device.device_id, rootKey, signer)
+            return { by: "device", approver: approval.device_id, approverRootKey: signer, verifies }
+        })
+        checked.push({
+            deviceId: device.device_id,
+            displayName: device.display_name,
+            rootKey,
+            revoked: device.revoked_at !== null,
+            chain: root.ok ? "ok" : root.reason === "unreachable" || root.reason === "expired" ? "unsettled" : "failed",
+            approvals,
+        })
+    }
+    return checked
 }

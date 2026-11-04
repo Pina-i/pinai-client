@@ -35,8 +35,8 @@ function AuthenticatedLayout() {
     useConsumeMlsWelcomes()
     useReplenishKeyPackages(gate.status === "ready")
     useHistoryArchiveFlusher()
-    const { onDeviceJoined } = useDeviceFanout()
-    useEffect(() => registerDeviceFanoutHandler(onDeviceJoined), [onDeviceJoined])
+    const { onDeviceListChanged } = useDeviceFanout()
+    useEffect(() => registerDeviceFanoutHandler(onDeviceListChanged), [onDeviceListChanged])
 
     // The splash screen stands in for the gate's loader, so a hard refresh
     // shows one loader from first paint to the shell.

@@ -3,6 +3,7 @@
  * comparing against the local device id.
  */
 
+import { hexOf } from "./bytes"
 import type { DeviceId } from "./e2ee"
 
 export type DeviceKind = "laptop" | "phone" | "tablet" | "unknown"
@@ -76,3 +77,31 @@ export type DeviceChainRefusal =
 export type DeviceChainVerdict =
     | { ok: true; deviceId: DeviceId; rootKey: Uint8Array; hpkePublicKey: Uint8Array }
     | { ok: false; reason: DeviceChainRefusal }
+
+/**
+ * The link JWKS → attestation → root key alone: what announcing and approving a device rest on. The
+ * HPKE key is the passphrase's business only.
+ */
+export type DeviceRootVerdict =
+    | { ok: true; deviceId: DeviceId; rootKey: Uint8Array }
+    | { ok: false; reason: Exclude<DeviceChainRefusal, "no-hpke-key" | "hpke-signature"> }
+
+/**
+ * What a review reads of the list, as one string: a refetch that changed none of it — only who was
+ * active when — compares equal, its bytes notwithstanding.
+ */
+export function deviceListKey(devices: readonly DeviceListEntry[]): string {
+    const read = devices.map((d) => [
+        d.device_id,
+        d.display_name,
+        d.revoked_at,
+        d.drk_public_key,
+        d.attestation_signature,
+        d.attestation_kid,
+        d.attestation_expires_at,
+        d.hpke_public_key,
+        d.hpke_key_signature,
+        d.approvals,
+    ])
+    return JSON.stringify(read, (_key, value: unknown) => (value instanceof Uint8Array ? hexOf(value) : value))
+}

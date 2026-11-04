@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { leavesToRemove, type GroupMember } from "@pinai/domain/models/group"
 import { asActorUri } from "@pinai/domain/models/identity"
+import type { LeafOrigin } from "@pinai/domain/models/leaf-trust"
 import { reconcileGroupKeysUseCase } from "@pinai/domain/usecases/e2ee/reconcile-group-keys.usecase"
 import { removeGroupMemberUseCase } from "@pinai/domain/usecases/e2ee/remove-group-member.usecase"
 
@@ -13,11 +14,7 @@ const ana = asActorUri("https://idp.test/users/ana")
 const bo = asActorUri("https://idp.test/users/bo")
 const cy = asActorUri("https://idp.other.test/users/cy")
 
-const leaf = (leafIndex: number, actorUri: typeof ana, deviceId = `d${leafIndex}`) => ({
-    leafIndex,
-    actorUri,
-    deviceId,
-})
+const leaf = (leafIndex: number, actorUri: typeof ana, origin: LeafOrigin = "verified") => ({ leafIndex, actorUri, origin })
 
 describe("leavesToRemove", () => {
     it("names every device of someone the roster no longer holds", () => {
@@ -27,9 +24,15 @@ describe("leavesToRemove", () => {
     })
 
     it("names every leaf whose credential names nobody: it can be no member's", () => {
-        const leaves = [leaf(0, ana), { leafIndex: 1, actorUri: null }, leaf(2, bo)]
+        const leaves = [leaf(0, ana), { leafIndex: 1, actorUri: null, origin: "forged" as const }, leaf(2, bo)]
 
         expect(leavesToRemove(leaves, [ana, bo], ana)).toEqual([1])
+    })
+
+    it("names a forged leaf whomever it names, and takes an unsettled one at its word", () => {
+        const leaves = [leaf(0, ana), leaf(1, bo, "forged"), leaf(2, bo, "unsettled"), leaf(3, cy, "unsettled")]
+
+        expect(leavesToRemove(leaves, [ana, bo], ana)).toEqual([1, 3])
     })
 
     it("names nothing from a roster that doesn't hold the user: it isn't this group's as they see it", () => {

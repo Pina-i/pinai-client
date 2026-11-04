@@ -7,6 +7,7 @@ import { approvalBytes } from "@pinai/crypto/canonical-bytes"
 import { E2eeAdapter } from "@pinai/crypto/e2ee.adapter"
 import { HistoryArchiveAdapter } from "@pinai/crypto/history-archive.adapter"
 import type { DeviceAttestation, E2eeStorage, KeptPassphrase, PendingPassphrase } from "@pinai/crypto/sealed-storage"
+import { emptyDeviceTrust, withTrust, type DeviceTrust, type DeviceTrustRow } from "@pinai/domain/models/device-trust"
 import type { ActorUri, DeviceId } from "@pinai/domain/models/e2ee"
 import {
     sameHistoryKey,
@@ -18,6 +19,7 @@ import { asActorUri } from "@pinai/domain/models/identity"
 import { IdpError } from "@pinai/domain/models/idp-error"
 import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
 import type { ArchiveEntry, ArchivePage, IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
+import type { IJwksCachePort } from "@pinai/domain/ports/jwks-cache.port"
 import type { ISessionPort } from "@pinai/domain/ports/session.port"
 
 export const IDP = "https://idp.test"
@@ -153,6 +155,9 @@ export class MemoryHistoryStorage {
     pending: PendingPassphrase | null = null
     standing: HistoryKeyStanding | null = null
     newest: number | null = null
+    trust: DeviceTrust = emptyDeviceTrust()
+    /** Trust rows the next read finds unreadable, as a sealed row that won't open. */
+    unreadable: DeviceTrustRow[] = []
     /** Where each write of words is noted; a device's is its IdP's, one timeline for both. */
     log: string[] = []
 
@@ -183,16 +188,35 @@ export class MemoryHistoryStorage {
                 this.newest = generation
             },
             loadNewestHistoryGeneration: async () => this.newest,
+            loadDeviceTrust: async () => {
+                const unreadable = this.unreadable
+                this.unreadable = []
+                for (const row of unreadable) this.trust = { ...this.trust, [row]: [] }
+                return { trust: structuredClone(this.trust), unreadable }
+            },
+            addToDeviceTrust: async (change: Partial<DeviceTrust>) => {
+                this.trust = structuredClone(withTrust(this.trust, change))
+                return structuredClone(this.trust)
+            },
         } as unknown as E2eeStorage
     }
+}
+
+/** For a device that reviews no device list: any check of an attestation fails loudly. */
+const NO_JWKS: IJwksCachePort = {
+    getKey: async () => {
+        throw new Error("This test device was given no JWKS")
+    },
+    invalidate: () => undefined,
 }
 
 /**
  * A device on `idp`: the real E2EE adapter, its history key engine whole, with registration and
  * KeyPackages standing in (they log, nothing more). Each device signs in with its own token; a
- * device's next page load is `historyDevice(idp, name, device.storage)`.
+ * device's next page load is `historyDevice(idp, name, device.storage)`. `jwks` attests the devices
+ * it reviews.
  */
-export function historyDevice(idp: FakeHistoryIdp, name: string, storage = new MemoryHistoryStorage()) {
+export function historyDevice(idp: FakeHistoryIdp, name: string, storage = new MemoryHistoryStorage(), jwks = NO_JWKS) {
     const sealer = new FastSealer()
     const e2ee = new E2eeAdapter(
         {} as never,
@@ -200,7 +224,7 @@ export function historyDevice(idp: FakeHistoryIdp, name: string, storage = new M
         storage.asStorage(),
         {} as never,
         {} as never,
-        {} as never,
+        jwks,
         idp,
         sealer,
     )

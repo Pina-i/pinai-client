@@ -1,3 +1,4 @@
+import { sameBytes } from "./bytes"
 import type { ActorUri, ConversationId, DeviceId } from "./e2ee"
 
 /**
@@ -46,16 +47,40 @@ export type LeafVerdict =
     | { ok: true; actorUri: ActorUri; deviceId: DeviceId; rootKey: Uint8Array }
     | { ok: false; reason: LeafRefusal }
 
-/** A claimed KeyPackage is added only when its leaf verifies as the very device it was claimed for. */
-export function admitsClaim(verdict: LeafVerdict, actorUri: string, deviceId: DeviceId): LeafVerdict {
+/**
+ * A claimed KeyPackage is added only when its leaf verifies as the very device it was claimed for —
+ * over `rootKey` too, for a sibling found approved over it: the instance attests root keys of its
+ * own under any device id.
+ */
+export function admitsClaim(verdict: LeafVerdict, actorUri: string, deviceId: DeviceId, rootKey?: Uint8Array): LeafVerdict {
     if (!verdict.ok) return verdict
-    if (verdict.actorUri === actorUri && verdict.deviceId === deviceId) return verdict
+    const sameRoot = rootKey === undefined || sameBytes(verdict.rootKey, rootKey)
+    if (verdict.actorUri === actorUri && verdict.deviceId === deviceId && sameRoot) return verdict
     return { ok: false, reason: "not-claimed-device" }
 }
 
 /**
+ * Whether a leaf is the device its credential names: `forged` when a check shows it isn't,
+ * `unsettled` when its issuer was out of reach or its attestation expired before the signatures
+ * were looked at.
+ */
+export type LeafOrigin = "verified" | "forged" | "unsettled"
+
+export function leafOrigin(verdict: LeafVerdict): LeafOrigin {
+    if (verdict.ok) return "verified"
+    return verdict.reason === "unreachable" || verdict.reason === "expired" ? "unsettled" : "forged"
+}
+
+/**
+ * A leaf of the device's own account its device list doesn't show with the credential's root key,
+ * or shows unapproved over it (§ 3.9).
+ */
+export type OwnLeafRefusal = "not-listed" | "not-approved"
+
+/**
  * A leaf met in a group — in a Welcome's tree, or brought in or replaced by a commit — that failed
- * its checks. Whom it names is its credential's word, unverified.
+ * its checks, or a leaf of the account's own a device acting on approval doesn't trust. Whom it
+ * names is its credential's word, unverified for a failed check.
  */
 export interface UntrustedLeaf {
     conversationId: ConversationId
@@ -63,10 +88,10 @@ export interface UntrustedLeaf {
     signatureKey: Uint8Array
     actorUri: ActorUri | null
     deviceId: DeviceId | null
-    reason: LeafRefusal
+    reason: LeafRefusal | OwnLeafRefusal
 }
 
-export function untrustedLeaf(conversationId: ConversationId, leaf: MlsLeaf, reason: LeafRefusal): UntrustedLeaf {
+export function untrustedLeaf(conversationId: ConversationId, leaf: MlsLeaf, reason: UntrustedLeaf["reason"]): UntrustedLeaf {
     return {
         conversationId,
         leafIndex: leaf.leafIndex,

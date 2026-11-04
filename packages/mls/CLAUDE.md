@@ -32,7 +32,6 @@ because Hermes has no WebAssembly.
   storage, not with the bound `Identity`: a device that reloads before it
   joins anything binds a new key, while the KeyPackages it published carry
   the old one. The `Identity` only makes KeyPackages and founds groups.
-  `groupMembers` lists the leaves by their decoded credentials;
   `clearPendingCommit` drops a commit the DS never took — openmls builds no
   other commit while one is pending.
   `rejoinGroup` takes a Welcome to a group already held only when it brings a
