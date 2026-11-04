@@ -6,6 +6,7 @@ import { PageTransition } from "@/presentation/atoms/page-transition/page-transi
 import { RecoveryPassphraseInput } from "@/presentation/molecules/RecoveryPassphraseInput/RecoveryPassphraseInput"
 import { cn } from "@/presentation/_libs/utils"
 
+import { ApproveFromAnotherDevice } from "./ApproveFromAnotherDevice/ApproveFromAnotherDevice"
 import { useRecoveryRestorePageViewModel } from "./RecoveryRestorePage.viewmodel"
 
 // MSK + Device Root Key are bootstrapped silently, so both Restore and Start fresh exit ready.
@@ -30,6 +31,9 @@ export function RecoveryRestorePage() {
 
                     {isMidEntry ? <HeroMidEntry /> : <HeroEmpty />}
 
+                    <ApproveFromAnotherDevice ready={vm.deviceReady} wordsStarted={isMidEntry} fallbackLabel={vm.deviceLabel} />
+
+                    <p className="eye mb-2 mt-7">Or with your 24 words</p>
                     <p className="m-0 mb-3.5 max-w-[520px] text-[14px] leading-[1.6] text-muted-foreground">
                         {isMidEntry ? (
                             <>
@@ -39,9 +43,9 @@ export function RecoveryRestorePage() {
                             </>
                         ) : (
                             <>
-                                Your old conversations are sealed on your other devices — only the 24
-                                words you saved can unlock them here. Paste or type them once, and your
-                                messages, photos and rooms come right back.
+                                Your old conversations are sealed on your other devices: approve this
+                                one from them, or unlock them here with the 24 words you saved. Paste or
+                                type them once, and your messages, photos and rooms come right back.
                             </>
                         )}
                     </p>

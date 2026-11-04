@@ -109,3 +109,18 @@ describe("OtpInput onComplete", () => {
         expect(onSubmit).not.toHaveBeenCalled()
     })
 })
+
+describe("OtpInput editing", () => {
+    it("keeps the later digits in place when a middle one is cleared, and fills the gap where it is", () => {
+        const onSubmit = vi.fn()
+        mount(onSubmit)
+        typeCode("123456")
+
+        typeInto(2, "")
+        expect([0, 1, 2, 3, 4, 5].map((i) => cell(i).value)).toEqual(["1", "2", "", "4", "5", "6"])
+        expect((host.querySelector('input[name="code"]') as HTMLInputElement).value).toBe("12456")
+
+        typeInto(2, "7")
+        expect(onSubmit).toHaveBeenLastCalledWith({ state: "127456", field: "127456" })
+    })
+})

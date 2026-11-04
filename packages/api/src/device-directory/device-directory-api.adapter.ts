@@ -59,6 +59,17 @@ export class DeviceDirectoryApiAdapter implements IDeviceDirectoryPort {
         }
     }
 
+    async approveByDevice(idpUrl: string, accessToken: string, deviceId: string, signature: Uint8Array): Promise<void> {
+        try {
+            await idp.post(`${deviceUrl(idpUrl, deviceId)}/approvals`, {
+                headers: { Authorization: `Bearer ${accessToken}` },
+                json: { by: "device", signature: bytesToBase64(signature) },
+            })
+        } catch (error) {
+            throw await idpErrorFrom(error, "Approving the device failed")
+        }
+    }
+
     async reportHistoryKey(idpUrl: string, accessToken: string, deviceId: string, generation: number): Promise<void> {
         try {
             await idp.put(`${deviceUrl(idpUrl, deviceId)}/history-key`, {
@@ -85,7 +96,8 @@ export function parseDeviceList(body: unknown): DeviceListResponse {
 
 function parseDevice(row: Row): DeviceListEntry {
     return {
-        device_id: String(row.device_id),
+        // Compared with the relay's and this device's own, which § 7.2 writes lowercase.
+        device_id: String(row.device_id).toLowerCase(),
         display_name: typeof row.display_name === "string" ? row.display_name : "",
         kind: (typeof row.kind === "string" ? row.kind : "unknown") as DeviceKind,
         paired_at: String(row.paired_at),
@@ -111,7 +123,7 @@ function parseApproval(row: Row): DeviceApproval | null {
     const createdAt = text(row.created_at)
     if (!signature || !createdAt) return null
     if (row.by === "device" && typeof row.device_id === "string") {
-        return { by: "device", device_id: row.device_id, signature, created_at: createdAt }
+        return { by: "device", device_id: row.device_id.toLowerCase(), signature, created_at: createdAt }
     }
     if (row.by === "passphrase" && typeof row.generation === "number") {
         return { by: "passphrase", generation: row.generation, signature, created_at: createdAt }
@@ -119,7 +131,7 @@ function parseApproval(row: Row): DeviceApproval | null {
     return null
 }
 
-function isRow(value: unknown): value is Row {
+export function isRow(value: unknown): value is Row {
     return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 

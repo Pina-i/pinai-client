@@ -2,13 +2,13 @@
 
 The IdP's HTTP and WebSocket surface, as adapters implementing domain ports.
 
-Sixteen files, one per resource: OIDC, NodeInfo (what an instance says
+Seventeen files, one per resource: OIDC, NodeInfo (what an instance says
 about itself before any sign-in), the instance's administration (its name and
 description, members, invitations, reset links — `/api/admin/*`, an admin's
 token only), the caller's sessions (which device each signed in, signing out
 the others), DMs, groups, social, privacy (blocks and the contact setting),
-presence, TOTP, user, user settings, device directory, the E2EE key
-directory, the history archive, and the WebSocket connection.
+presence, TOTP, user, user settings, device directory, the approval relay, the
+E2EE key directory, the history archive, and the WebSocket connection.
 `ky` for REST, `XMLHttpRequest` in `dm-api` where upload progress is needed,
 the platform `WebSocket` for the live connection.
 
@@ -49,3 +49,10 @@ domain as `IKeyDirectoryPort`, which is what keeps the two independent.
   no key and refuses an answer whose bytes aren't their size (`parseHistoryKey`); `PUT` sets a
   generation; uploads name theirs. A device approves itself by the passphrase and reports its
   generation through the device directory (`/api/keys/devices/{id}/approvals`, `…/history-key`).
+- The approval relay (`approval-relay-api.adapter.ts`, `/api/keys/devices/approval-requests`):
+  the handshake's bodies as standard base64, opaque; ids lowercased as § 7.2 writes them, a
+  row naming no UUID left out (`canonicalId`); `close` can be a keepalive request, to
+  outlive the page; every refusal an `IdpError` (`approval_request_taken`,
+  `approval_request_ended`, `approval_request_full`, `too_many_requests`). A device approves
+  another by its root key through the device directory (`approveByDevice`,
+  `{ by: "device", signature }`), whose list's device ids are lowercased too.

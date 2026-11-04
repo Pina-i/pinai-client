@@ -1,6 +1,6 @@
 # @pinai/crypto
 
-The E2EE core: MLS orchestration, identity, the history key, pairing, attestation
+The E2EE core: MLS orchestration, identity, the history key, the code handshake, attestation
 verification, attachment sealing, and the encrypted store's schema.
 
 Exactly one external entry point — `IE2eePort`, implemented by
@@ -59,7 +59,8 @@ Three collaborators could not come, and the shape of each is the mobile work:
   `device_attestation` (the root key, its attestation and the device's HPKE
   key — `hpke` null in a row from before it, which registers again — and,
   beside it, `device_trust`'s rows `trust:seen`, `trust:approved` (device ids
-  with root keys) and `trust:revoked` (device ids): a store of their own would
+  with root keys), `trust:revoked` (device ids) and `trust:partners` (device ids
+  with the root and HPKE keys a code handshake gave): a store of their own would
   take an IndexedDB upgrade. Read as the passphrase's are, an unreadable row set
   aside and named (`unreadable`); `addToDeviceTrust` reads each row again just
   before writing it, so another tab's additions stay). All at-rest blobs are
@@ -76,14 +77,23 @@ Three collaborators could not come, and the shape of each is the mobile work:
   (m=64 MiB, t=3, p=4); `derive(hak)` the check value
   and approval public key; `signApproval`; AES-256-GCM entries with the
   `PINAI-ARCHIVE-v1` ids as associated data.
-- **`spake2.ts`** — Hand-rolled SPAKE2 over Ristretto255 via
-  `@noble/curves`. M and N derived once via `ristretto255_hasher.hashToCurve`
-  from labels. Returns `{ ourMessage, derive(peerMessage) }` →
-  `{ sessionKey, ourConfirmation, verifyConfirmation }`.
-- **`pairing.adapter.ts`** — `PairingInitiator` / `PairingResponder`
-  classes. Wraps SPAKE2 + AEAD-sealed `IdentityKeypair` bundle.
-  Existing device emits a `QrPayload`; new device calls `fromQr` +
-  ferries SPAKE2 messages through caller-provided transport.
+- **`spake2-p256.ts`** — SPAKE2 as RFC 9382 specifies it, suite
+  SPAKE2-P256-SHA256-HKDF-HMAC: the RFC's M and N, SEC1 uncompressed shares
+  checked on the curve, TT, Ke/Ka, KcA/KcB with an AAD, the HMAC confirmations.
+  Pure; Appendix B's vectors pin it (`apps/web/test/spake2-p256.spec.ts`).
+- **`approval-handshake.ts`** — the code handshake (`identity-provider/specs/e2ee.md
+  § 3.10`): `newApprovalCode` (uniform, rejection-sampled), the code through
+  Argon2id (19 MiB, t=2, p=1, 40 bytes) salted with the request id, identities
+  `<actor_uri>\n<device_id>`, the request bound in the confirmation keys' AAD;
+  five messages, each `0x01 || type || payload` (the layout in its header); the
+  keys sealed AES-256-GCM under a key a direction from Ke, sent only once the
+  peer's confirmation verified. `ApprovalHandshake` is the port's
+  `ApprovalHandshakeSession`: a message out of turn or format, a seal that
+  doesn't open → `HandshakeRefused("tampered")`, a confirmation →
+  `"wrong-code"`; either ends the side. `close()` drops its secrets — done by
+  itself once the peer's keys came —; Argon2's output, the code's bytes and each
+  sealing key are zeroed after use. A man in the middle running one session
+  against each side gets at most two online guesses per code.
 - **`canonical-bytes.ts`** — the bytes the protocol signs
   (`identity-provider/specs/e2ee.md § 7.2`): `IDP-ATTEST-v1`,
   `PINAI-DEVICE-HPKE-v1`, `PINAI-LEAF-BINDING-v1`, `PINAI-DEVICE-APPROVAL-v1`,
@@ -113,7 +123,7 @@ Three collaborators could not come, and the shape of each is the mobile work:
   `encryptOutbound`, `decryptInbound`, `addContactToGroup`,
   `ensureGroupExists`, `consumePendingWelcomes`, `revokeDevice`, `addOwnDevices`, `pruneGroup`,
   `forgetGroup`, the history key's, `loadStoredPassphrase`,
-  `hasLocalIdentity`, `startPairingAsInitiator`, `pairAsResponder`,
+  `hasLocalIdentity`,
   `getOwnFingerprint`, `getPeerFingerprint`. Bootstrap paths
   (`ensureInitialized`, `register`) are guarded by cached promises
   so concurrent callers (React strict-mode double-fire, sibling
@@ -179,6 +189,14 @@ Three collaborators could not come, and the shape of each is the mobile work:
     into its own leaf when the leaf carries another: one from before the leaf
     binding, or before a renewal — a registration under way is waited for. Run by
     `syncOwnGroupsUseCase` after the catch-up.
+  - **The code handshake** (§ 3.10): `startApprovalHandshake` with this device's
+    root and HPKE keys; `checkHandshakePeer` — the peer's keys from the exchange
+    against its one listed row, no revocation seen, its root chain
+    (`verifyDeviceRoot`), a refusal standing as `handshake-keys-refused` with its
+    latest reason and withdrawn once the device passes; a list naming an id
+    twice (`device-list-refused`), an issuer out of reach or an expiry
+    `unsettled`; `signDeviceApproval`, `approvesThisDevice`; partners kept, and
+    the rows read, in the trust rows' turn.
   - **The history key** (`identity-provider/specs/e2ee.md § 3.6–3.9`): the flows
     are the domain's; here the crypto and the standing (`standingAgainst`).
     `mintHistoryKey` seals the words as pending before answering them, the same
@@ -207,9 +225,8 @@ Three collaborators could not come, and the shape of each is the mobile work:
 - The history key's: `set-up-this-device`, `bootstrap-first-device`,
   `restore-history-from-passphrase`, `approve-by-passphrase`,
   `check-history-key` — see `packages/domain/CLAUDE.md`.
-- `pair-device.usecase.ts` — `startPairingAsInitiatorUseCase` and
-  `pairAsResponderUseCase` plus a `PairDeviceTransport` interface
-  for caller-supplied message ferrying.
+- `approval-handshake.usecase.ts` — the code handshake's flows; see
+  `packages/domain/CLAUDE.md`.
 - `revoke-device.usecase.ts` — calls into the deferred port method.
 
 ## UI plumbing
@@ -535,10 +552,9 @@ All specs live in `apps/web/test/` — the app is still the only place with a
 vitest setup, so a package's specs sit there until it needs its own.
 
 - `apps/web/test/e2ee.spec.ts` — identity adapter + MLS two-member round trip.
-- `apps/web/test/spake2.spec.ts` — SPAKE2 round trip + wrong-password
-  detection + role-mismatch + tamper detection.
-- `apps/web/test/pairing.spec.ts` — full pairing dance round trip + tampered
-  pair_token + tampered ciphertext + malformed QR.
+- `apps/web/test/spake2-p256.spec.ts` — RFC 9382's M, N and Appendix B;
+  `approval-handshake.spec.ts` — the handshake's rules and two real engines over a
+  relay keeping the IdP's rules (`test/setup/approval-relay.ts`).
 - `apps/web/test/e2ee-integration.spec.ts` — Alice+Bob full-loop register →
   add → text → reaction → edit → attachment, plus a same-IdP
   routing case.

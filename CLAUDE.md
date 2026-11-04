@@ -101,7 +101,7 @@ pinai-client/                 # pnpm workspace root
 │   │                         #   `wasm.adapter.ts` is the only importer of
 │   │                         #   openmls-wasm. The native binding lands here.
 │   ├── crypto/               # @pinai/crypto — the E2EE core: MLS orchestration,
-│   │                         #   identity, the history key, pairing, attestation,
+│   │                         #   identity, the history key, the code handshake, attestation,
 │   │                         #   attachment sealing, the sealed store's schema.
 │   │                         #   All @noble, never crypto.subtle.
 │   └── domain/               # @pinai/domain — models, ports, use cases.

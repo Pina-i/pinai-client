@@ -189,10 +189,16 @@ describe("sealed rows", () => {
     })
 
     it("adds to what it keeps of the account's devices, and starts with nothing", async () => {
-        expect(await storage.loadDeviceTrust()).toEqual({ trust: { seen: [], approved: [], revoked: [] }, unreadable: [] })
+        expect(await storage.loadDeviceTrust()).toEqual({ trust: { seen: [], approved: [], revoked: [], partners: [] }, unreadable: [] })
 
         await storage.addToDeviceTrust({ seen: [{ deviceId: "phone", rootKey: bytes(30) }], approved: [{ deviceId: "phone", rootKey: bytes(30) }] })
-        const added = await storage.addToDeviceTrust({ approved: [{ deviceId: "tablet", rootKey: bytes(31) }], revoked: ["watch"] })
+        const partner = { deviceId: "laptop", rootKey: bytes(32), hpkeKey: bytes(33) }
+        const added = await storage.addToDeviceTrust({
+            approved: [{ deviceId: "tablet", rootKey: bytes(31) }],
+            revoked: ["watch"],
+            partners: [partner],
+        })
+        await storage.addToDeviceTrust({ partners: [{ ...partner }] })
 
         const trust = {
             seen: [{ deviceId: "phone", rootKey: bytes(30) }],
@@ -201,10 +207,13 @@ describe("sealed rows", () => {
                 { deviceId: "tablet", rootKey: bytes(31) },
             ],
             revoked: ["watch"],
+            partners: [partner],
         }
         expect(added).toEqual(trust)
         expect(await storage.loadDeviceTrust()).toEqual({ trust, unreadable: [] })
         expect((await storage.loadDeviceTrust()).trust.approved[1].rootKey).toBeInstanceOf(Uint8Array)
+        expect((await storage.loadDeviceTrust()).trust.partners[0].hpkeKey).toBeInstanceOf(Uint8Array)
+        expect(await rowsOf("device_attestation")).toContain("trust:partners")
     })
 
     it("keeps what another tab added meanwhile: each row read again just before it is written", async () => {
@@ -227,7 +236,7 @@ describe("sealed rows", () => {
         await kv.put("device_attestation", "trust:revoked", bytes(42, 64))
 
         expect(await storage.loadDeviceTrust()).toEqual({
-            trust: { seen: [{ deviceId: "phone", rootKey: bytes(30) }], approved: [], revoked: [] },
+            trust: { seen: [{ deviceId: "phone", rootKey: bytes(30) }], approved: [], revoked: [], partners: [] },
             unreadable: ["approved", "revoked"],
         })
 
@@ -330,7 +339,7 @@ describe("clear", () => {
 
         await storage.clear()
 
-        expect((await storage.loadDeviceTrust()).trust).toEqual({ seen: [], approved: [], revoked: [] })
+        expect((await storage.loadDeviceTrust()).trust).toEqual({ seen: [], approved: [], revoked: [], partners: [] })
         expect(await storage.loadIdentityKeypair()).toBeNull()
         expect(await storage.loadMlsSnapshot()).toBeNull()
         expect(await storage.loadDeviceAttestation()).toBeNull()

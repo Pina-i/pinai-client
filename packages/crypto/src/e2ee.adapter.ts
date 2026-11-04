@@ -13,6 +13,7 @@ import { generateMnemonic } from "@scure/bip39"
 import { wordlist } from "@scure/bip39/wordlists/english.js"
 
 import { bytesToBase64 } from "@pinai/domain/lib/bytes"
+import { peerAgainstList, type HandshakeRole } from "@pinai/domain/models/approval-handshake"
 import type { DeviceListEntry } from "@pinai/domain/models/device"
 import {
     actsOnApproval,
@@ -28,6 +29,8 @@ import {
     undecided,
     type DeviceTrust,
     type DeviceTrustVerdict,
+    type HandshakeKeysRefusal,
+    type HandshakePartner,
     type HistoryReset,
     type KnownDevice,
     type TrustEvent,
@@ -75,12 +78,20 @@ import {
     type HistoryKeyStanding,
 } from "@pinai/domain/models/history-key"
 import { IdpError, isStaleHistoryKey } from "@pinai/domain/models/idp-error"
-import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
+import type { ApprovalHandshakeSession, IE2eePort } from "@pinai/domain/ports/e2ee.port"
 import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
 import type { HpkeKeyPair, IHpkePort } from "@pinai/domain/ports/hpke.port"
 import type { IJwksCachePort } from "@pinai/domain/ports/jwks-cache.port"
 
-import { attestedUntil, checkListedDevices, verifyLeafCredential, type RootChecks } from "./attestation-chain.adapter"
+import { ApprovalHandshake, newApprovalCode } from "./approval-handshake"
+import {
+    attestedUntil,
+    checkListedDevices,
+    verifyDeviceRoot,
+    verifyLeafCredential,
+    verifyStrict,
+    type RootChecks,
+} from "./attestation-chain.adapter"
 import {
     approvalBytes,
     archiveEntryAad,
@@ -92,7 +103,6 @@ import { HISTORY_SALT_BYTES, type HistoryArchiveAdapter } from "./history-archiv
 import type { IdentityAdapter } from "./identity.adapter"
 import type { IKeyDirectoryPort } from "@pinai/domain/ports/key-directory.port"
 import type { IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
-import { PairingInitiator, PairingResponder } from "./pairing.adapter"
 import type { DeviceAttestation, E2eeStorage, KeptPassphrase } from "./sealed-storage"
 
 /** Renew the Device Root Key attestation silently when within this window of expiry. */
@@ -1565,76 +1575,87 @@ export class E2eeAdapter implements IE2eePort {
         }
     }
 
-    // ─── Pairing ──────────────────────────────────────────────────────
+    // ─── The code handshake (`identity-provider/specs/e2ee.md § 3.10`) ─────
 
-    async startPairingAsInitiator(): Promise<{
-        qr_payload: string
-        spake_message: Uint8Array
-        finalize: (
-            responderMessage: Uint8Array,
-            responderConfirmation: Uint8Array,
-        ) => Promise<{ our_confirmation: Uint8Array; sealed_bundle: Uint8Array }>
-    }> {
-        const keypair = await this.storage.loadIdentityKeypair()
-        if (!keypair) {
-            throw new Error("Cannot start pairing — this device has no identity registered")
-        }
-        const initiator = PairingInitiator.start(keypair)
-        return {
-            qr_payload: JSON.stringify(initiator.qrPayload),
-            spake_message: initiator.ourSpakeMessage,
-            finalize: async (responderMessage, responderConfirmation) => {
-                const reply = initiator.finalize(responderMessage, responderConfirmation)
-                return {
-                    our_confirmation: reply.ourConfirmation,
-                    sealed_bundle: reply.sealedBundle,
-                }
-            },
-        }
+    newApprovalCode(): string {
+        return newApprovalCode()
     }
 
-    async pairAsResponder(
-        idpUrl: string,
-        accessToken: string,
+    async startApprovalHandshake(input: {
+        role: HandshakeRole
+        code: string
+        requestId: string
+        actorUri: ActorUri
+        peerDeviceId: DeviceId | null
+    }): Promise<ApprovalHandshakeSession> {
+        const attestation = await this.storage.loadDeviceAttestation()
+        if (!attestation?.hpke) throw new Error("This device has no root key or HPKE key yet")
+        const deviceId = await this.storage.getOrCreateDeviceId()
+        const own = { rootKey: attestation.drk_public, hpkeKey: attestation.hpke.public_key }
+        return ApprovalHandshake.start({ ...input, deviceId, own })
+    }
+
+    async checkHandshakePeer(
         actorUri: ActorUri,
-        qrPayload: string,
-        initiatorSpakeMessage: Uint8Array,
-    ): Promise<{
-        spake_message: Uint8Array
-        our_confirmation: Uint8Array
-        finalize: (
-            initiatorConfirmation: Uint8Array,
-            sealedBundle: Uint8Array,
-        ) => Promise<{ device_id: DeviceId; fingerprint: Fingerprint }>
-    }> {
-        const responder = PairingResponder.fromQr(qrPayload, initiatorSpakeMessage)
-        return {
-            spake_message: responder.ourSpakeMessage,
-            our_confirmation: responder.ourConfirmation,
-            finalize: async (initiatorConfirmation, sealedBundle) => {
-                const recovered = responder.finalize(initiatorConfirmation, sealedBundle)
-                await this.storage.saveIdentityKeypair(recovered)
-
-                // The pairing inherited an existing user's identity —
-                // republishing isn't required (peers see the same MSK +
-                // existing SSK signature), but seeding this device's
-                // KeyPackage stash IS required so peers can add this
-                // device to their groups.
-                await this.ensureInitialized(actorUri)
-                const deviceId = await this.storage.getOrCreateDeviceId()
-                await this.uploadKeyPackageBatch(
-                    idpUrl,
-                    accessToken,
-                    deviceId,
-                    INITIAL_KEY_PACKAGE_BATCH,
-                )
-
-                return {
-                    device_id: deviceId,
-                    fingerprint: this.identity.fingerprint(recovered.msk_public),
-                }
-            },
+        peer: HandshakePartner,
+        devices: readonly DeviceListEntry[],
+    ): Promise<{ ok: true } | { ok: false; reason: HandshakeKeysRefusal | "unsettled" }> {
+        const trust = await this.readTrust()
+        // Losing the revocations kept would trust a device revoked before: nothing is decided.
+        if (!trust) return { ok: false, reason: "unsettled" }
+        const refuse = (reason: HandshakeKeysRefusal) => {
+            const event = { kind: "handshake-keys-refused" as const, deviceId: peer.deviceId, reason }
+            this.withdraw((e) => e.kind === event.kind && e.deviceId === peer.deviceId && e.reason !== reason)
+            this.stand(event)
+            return { ok: false as const, reason }
         }
+        const listed = peerAgainstList(devices, peer, trust.revoked)
+        if (listed === "duplicated") {
+            this.stand({ kind: "device-list-refused", duplicates: duplicateDeviceIds(devices.map((d) => d.device_id)) })
+            return { ok: false, reason: "unsettled" }
+        }
+        if (listed) return refuse(listed)
+        const row = devices.find((d) => d.device_id === peer.deviceId) as DeviceListEntry
+        const root = await verifyDeviceRoot(actorUri, row, this.jwks)
+        if (root.ok) {
+            this.withdraw((e) => e.kind === "handshake-keys-refused" && e.deviceId === peer.deviceId)
+            return { ok: true }
+        }
+        if (root.reason === "unreachable" || root.reason === "expired") return { ok: false, reason: "unsettled" }
+        return refuse(root.reason === "revoked" ? "revoked" : "attestation")
+    }
+
+    async signDeviceApproval(actorUri: ActorUri, deviceId: DeviceId, rootKey: Uint8Array): Promise<Uint8Array> {
+        const attestation = await this.storage.loadDeviceAttestation()
+        if (!attestation) throw new Error("This device has no root key yet")
+        return ed25519.sign(approvalBytes(actorUri, deviceId, rootKey), attestation.drk_private)
+    }
+
+    async approvesThisDevice(actorUri: ActorUri, approverRootKey: Uint8Array, signature: Uint8Array): Promise<boolean> {
+        const attestation = await this.storage.loadDeviceAttestation()
+        if (!attestation) return false
+        const deviceId = await this.storage.getOrCreateDeviceId()
+        return verifyStrict(signature, approvalBytes(actorUri, deviceId, attestation.drk_public), approverRootKey)
+    }
+
+    async rememberHandshakePartner(partner: HandshakePartner): Promise<void> {
+        const run = this.trustTurn.then(() => this.storage.addToDeviceTrust({ partners: [partner] }))
+        this.trustTurn = run.catch(() => undefined)
+        await run
+    }
+
+    async handshakePartners(): Promise<HandshakePartner[]> {
+        return (await this.readTrust())?.partners ?? []
+    }
+
+    /** The trust rows as kept, in the rows' turn; `null` when the revocations can't be read. */
+    private readTrust(): Promise<DeviceTrust | null> {
+        const run = this.trustTurn.then(async () => {
+            const { trust, unreadable } = await this.storage.loadDeviceTrust()
+            return unreadable.includes("revoked") ? null : trust
+        })
+        this.trustTurn = run.catch(() => undefined)
+        return run
     }
 
     async pruneGroup(

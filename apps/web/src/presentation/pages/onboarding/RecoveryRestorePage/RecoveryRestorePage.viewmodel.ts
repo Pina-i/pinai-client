@@ -21,6 +21,8 @@ export type RestoreStatus = "initializing" | "ready" | "restoring" | "done" | "e
 
 export interface RecoveryRestoreViewModel {
     status: RestoreStatus
+    /** Registered and named on its session: it can ask another device to approve it. */
+    deviceReady: boolean
     /** Display name for the welcome chip — falls back to handle, then "you". */
     welcomeName: string
     /** "Chrome on macOS" / "Web client" — decorative chip subtitle. */
@@ -59,6 +61,7 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
     const navigate = useNavigate()
 
     const [status, setStatus] = useState<RestoreStatus>("initializing")
+    const [deviceReady, setDeviceReady] = useState(false)
     const [words, setWords] = useState<string[]>(() =>
         Array.from({ length: RECOVERY_WORD_COUNT }, () => ""),
     )
@@ -77,11 +80,12 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
         const accessToken = useAppStore.getState().accessToken
         if (!idpUrl || !accessToken || !ownActorUri) return
         const e2eePort = getE2eePort()
+        let cancelled = false
         bootstrapRef.current = (async () => {
             await setUpThisDeviceUseCase({ e2eePort, sessionPort: getSessionPort() })(idpUrl, accessToken, ownActorUri)
+            if (!cancelled) setDeviceReady(true)
             await registerIdentityUseCase({ e2eePort })({ idpUrl, accessToken, actorUri: ownActorUri })
         })()
-        let cancelled = false
         bootstrapRef.current
             .then(() => {
                 if (!cancelled) setStatus("ready")
@@ -200,6 +204,7 @@ export function useRecoveryRestorePageViewModel(): RecoveryRestoreViewModel {
 
     return {
         status,
+        deviceReady,
         welcomeName,
         deviceLabel,
         words,

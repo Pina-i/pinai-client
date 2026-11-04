@@ -19,6 +19,19 @@ export function sameDevice(a: KnownDevice, b: KnownDevice): boolean {
     return a.deviceId === b.deviceId && sameBytes(a.rootKey, b.rootKey)
 }
 
+/**
+ * A device this one approved in a code handshake, and that approved it back (§ 3.10), with the
+ * keys the exchange gave — never the list's: the one device a device without the passphrase
+ * trusts, and the only ones it shares the passphrase with.
+ */
+export interface HandshakePartner extends KnownDevice {
+    hpkeKey: Uint8Array
+}
+
+export function samePartner(a: HandshakePartner, b: HandshakePartner): boolean {
+    return sameDevice(a, b) && sameBytes(a.hpkeKey, b.hpkeKey)
+}
+
 /** What this device keeps of the account's devices. Each part only grows. */
 export interface DeviceTrust {
     /** Seen while this device acted on approval: one is told as arriving once. */
@@ -27,27 +40,39 @@ export interface DeviceTrust {
     approved: KnownDevice[]
     /** Revocations seen: final, whatever the list shows later. */
     revoked: DeviceId[]
+    /** Approved both ways in a code handshake. */
+    partners: HandshakePartner[]
 }
 
 export type DeviceTrustRow = keyof DeviceTrust
 
+export const DEVICE_TRUST_ROWS: readonly DeviceTrustRow[] = ["seen", "approved", "revoked", "partners"]
+
 export function emptyDeviceTrust(): DeviceTrust {
-    return { seen: [], approved: [], revoked: [] }
+    return { seen: [], approved: [], revoked: [], partners: [] }
 }
 
 /** `trust` with what `change` adds; the very same object when it adds nothing. */
 export function withTrust(trust: DeviceTrust, change: Partial<DeviceTrust>): DeviceTrust {
-    const seen = withDevices(trust.seen, change.seen ?? [])
-    const approved = withDevices(trust.approved, change.approved ?? [])
+    const seen = withDevices(trust.seen, change.seen ?? [], sameDevice)
+    const approved = withDevices(trust.approved, change.approved ?? [], sameDevice)
+    const partners = withDevices(trust.partners, change.partners ?? [], samePartner)
     const newlyRevoked = [...new Set(change.revoked ?? [])].filter((id) => !trust.revoked.includes(id))
-    if (seen === trust.seen && approved === trust.approved && newlyRevoked.length === 0) return trust
-    return { seen, approved, revoked: newlyRevoked.length === 0 ? trust.revoked : [...trust.revoked, ...newlyRevoked] }
+    if (seen === trust.seen && approved === trust.approved && partners === trust.partners && newlyRevoked.length === 0) {
+        return trust
+    }
+    return {
+        seen,
+        approved,
+        revoked: newlyRevoked.length === 0 ? trust.revoked : [...trust.revoked, ...newlyRevoked],
+        partners,
+    }
 }
 
-function withDevices(held: KnownDevice[], more: readonly KnownDevice[]): KnownDevice[] {
-    const added: KnownDevice[] = []
+function withDevices<T>(held: T[], more: readonly T[], same: (a: T, b: T) => boolean): T[] {
+    const added: T[] = []
     for (const device of more) {
-        if (!held.some((d) => sameDevice(d, device)) && !added.some((d) => sameDevice(d, device))) added.push(device)
+        if (!held.some((d) => same(d, device)) && !added.some((d) => same(d, device))) added.push(device)
     }
     return added.length === 0 ? held : [...held, ...added]
 }
@@ -268,6 +293,9 @@ export function keyChangedUnder(
     return null
 }
 
+/** Why a handshake's peer was refused: its keys against its listed row, or its chain JWKS → attestation → root key. */
+export type HandshakeKeysRefusal = "not-listed" | "revoked" | "root-key" | "hpke-key" | "attestation"
+
 /** What a device's user is to be told: each stands until what it is about changes. */
 export type TrustEvent =
     | { kind: "unapproved-device"; deviceId: DeviceId; displayName: string; rootKey: Uint8Array; arrived: boolean }
@@ -276,6 +304,8 @@ export type TrustEvent =
     | { kind: "key-replaced"; generation: number }
     | { kind: "device-list-refused"; duplicates: DeviceId[] }
     | { kind: "untrusted-leaf"; leaf: UntrustedLeaf }
+    /** A code handshake's peer whose keys the list doesn't show for it, or whose chain doesn't verify. */
+    | { kind: "handshake-keys-refused"; deviceId: DeviceId; reason: HandshakeKeysRefusal }
 
 /** What an event is about: a second one about the same thing replaces it. */
 export function trustEventKey(event: TrustEvent): string {
@@ -291,5 +321,7 @@ export function trustEventKey(event: TrustEvent): string {
             return "list"
         case "untrusted-leaf":
             return `leaf:${event.leaf.conversationId}:${event.leaf.leafIndex}`
+        case "handshake-keys-refused":
+            return `handshake:${event.deviceId}`
     }
 }

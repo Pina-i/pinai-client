@@ -6,8 +6,9 @@ import type {
     Fingerprint,
     KeyPackageStatusResponse,
 } from "../models/e2ee"
+import type { ExchangedKeys, HandshakeRole } from "../models/approval-handshake"
 import type { DeviceListEntry } from "../models/device"
-import type { DeviceTrustVerdict, TrustEvent } from "../models/device-trust"
+import type { DeviceTrustVerdict, HandshakeKeysRefusal, HandshakePartner, TrustEvent } from "../models/device-trust"
 import type { ArchiveEnvelope, ArchivedEntry } from "../models/history-archive"
 import type { DerivedHistoryKey, HistoryKey, HistoryKeyStanding } from "../models/history-key"
 
@@ -395,47 +396,66 @@ export interface IE2eePort {
     /** The words this device keeps, for Settings → Devices. */
     loadStoredPassphrase(): Promise<string[] | null>
 
-    // ─── Pairing ──────────────────────────────────────────────────────
+    // ─── The code handshake (`identity-provider/specs/e2ee.md § 3.10`) ─────
+
+    /** Six digits drawn uniformly at random, for one request: shown, never sent anywhere. */
+    newApprovalCode(): string
 
     /**
-     * Begin a pairing session on the existing device. Returns the QR
-     * payload + the SPAKE2 message to ferry to the new device. The
-     * caller drives the protocol message-by-message; transport is
-     * unwired today.
+     * One side of one exchange on `requestId` keyed by `code`, carrying this device's root key and
+     * HPKE key. The answerer names the asking device; the asker learns its peer from the answer.
+     * Throws when this device has no root key or HPKE key yet.
      */
-    startPairingAsInitiator(): Promise<{
-        qr_payload: string
-        spake_message: Uint8Array
-        finalize: (
-            responderMessage: Uint8Array,
-            responderConfirmation: Uint8Array,
-        ) => Promise<{ our_confirmation: Uint8Array; sealed_bundle: Uint8Array }>
-    }>
+    startApprovalHandshake(input: {
+        role: HandshakeRole
+        code: string
+        requestId: string
+        actorUri: ActorUri
+        peerDeviceId: DeviceId | null
+    }): Promise<ApprovalHandshakeSession>
 
     /**
-     * New-device side of pairing. Caller supplies the QR payload
-     * (string) it just scanned and the initiator's SPAKE2 message
-     * (received via transport).
-     *
-     * Returns this device's SPAKE2 message + confirmation to send
-     * back, plus a finaliser that — given the initiator's reply —
-     * persists the recovered identity locally and seeds a fresh
-     * KeyPackage stash.
+     * The peer's keys as the exchange gave them, against `devices` — `GET /api/keys/devices` read
+     * just before: unrevoked (nor seen revoked), both keys the listed ones, its chain JWKS →
+     * attestation → root key verifying. A refusal stands as a trust event, its latest reason, and
+     * is withdrawn once the device passes; what can't be settled — a list naming an id twice, an
+     * issuer out of reach, an expired attestation, revocations kept that can't be read — is
+     * `unsettled`, never a refusal.
      */
-    pairAsResponder(
-        idpUrl: string,
-        accessToken: string,
+    checkHandshakePeer(
         actorUri: ActorUri,
-        qrPayload: string,
-        initiatorSpakeMessage: Uint8Array,
-    ): Promise<{
-        spake_message: Uint8Array
-        our_confirmation: Uint8Array
-        finalize: (
-            initiatorConfirmation: Uint8Array,
-            sealedBundle: Uint8Array,
-        ) => Promise<{ device_id: DeviceId; fingerprint: Fingerprint }>
-    }>
+        peer: HandshakePartner,
+        devices: readonly DeviceListEntry[],
+    ): Promise<{ ok: true } | { ok: false; reason: HandshakeKeysRefusal | "unsettled" }>
+
+    /** This device's root key over `PINAI-DEVICE-APPROVAL-v1` for `deviceId` and `rootKey`. */
+    signDeviceApproval(actorUri: ActorUri, deviceId: DeviceId, rootKey: Uint8Array): Promise<Uint8Array>
+
+    /** Whether `signature` is `approverRootKey` approving this very device over its own root key. */
+    approvesThisDevice(actorUri: ActorUri, approverRootKey: Uint8Array, signature: Uint8Array): Promise<boolean>
+
+    /** Kept in `device_trust` for good, with the keys from the exchange. */
+    rememberHandshakePartner(partner: HandshakePartner): Promise<void>
+
+    /** The devices this one approved, and was approved by, in a code handshake. */
+    handshakePartners(): Promise<HandshakePartner[]>
+}
+
+/**
+ * One side of a code handshake: SPAKE2 keyed by the code, then each side's keys sealed under the
+ * session key. The messages are opaque bytes for the relay.
+ */
+export interface ApprovalHandshakeSession {
+    /** The asker's first message, its SPAKE2 share; `null` for the answerer, which speaks second. */
+    opening(): Uint8Array | null
+    /**
+     * The peer's next message, in order: what to send back, and the peer's keys once they came. A
+     * confirmation that doesn't verify throws `HandshakeRefused("wrong-code")`; a message out of
+     * turn or format, or a seal that doesn't open, `HandshakeRefused("tampered")`.
+     */
+    receive(body: Uint8Array, from: DeviceId): { reply: Uint8Array | null; peerKeys: ExchangedKeys | null }
+    /** Its secrets dropped; it takes nothing more. Done by itself once the peer's keys came, or on a refusal. */
+    close(): void
 }
 
 export const E2EE_PORT = "E2EE_PORT"

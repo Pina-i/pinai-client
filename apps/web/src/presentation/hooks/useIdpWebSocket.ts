@@ -45,6 +45,20 @@ export function registerDeviceFanoutHandler(handler: () => void): () => void {
     }
 }
 
+export type ApprovalEvent = Extract<WsServerEvent, { type: "approval_requested" | "approval_message" | "approval_closed" }>
+
+/** Module-level slot — the approval prompt (`ApprovalDoor`) registers here. */
+const approvalHandlerRef: { current: ((event: ApprovalEvent) => void) | null } = { current: null }
+
+export function registerApprovalHandler(handler: (event: ApprovalEvent) => void): () => void {
+    approvalHandlerRef.current = handler
+    return () => {
+        if (approvalHandlerRef.current === handler) {
+            approvalHandlerRef.current = null
+        }
+    }
+}
+
 /** Module-level slot — `useReplenishKeyPackages` registers its refill here once the device is onboarded. */
 const keyPackagesLowHandlerRef: { current: (() => void) | null } = { current: null }
 
@@ -654,6 +668,12 @@ export function useIdpWebSocket(): void {
                 }
                 case "key_packages_low": {
                     keyPackagesLowHandlerRef.current?.()
+                    break
+                }
+                case "approval_requested":
+                case "approval_message":
+                case "approval_closed": {
+                    approvalHandlerRef.current?.(event)
                     break
                 }
                 case "friend_request":

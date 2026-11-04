@@ -178,7 +178,45 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   key listed for it now, or attributed to this device when it is setting none.
   `keyChangedUnder` — the key under the generation held changed:
   `approval-key-differs`, or `key-replaced` (salt, check value).
-- `TrustEvent` / `trustEventKey` — what stands, keyed by what it is about.
+- `TrustEvent` / `trustEventKey` — what stands, keyed by what it is about;
+  `handshake-keys-refused`, a handshake peer whose keys the list doesn't show.
+- `HandshakePartner` — a device approved both ways in a code handshake, with the
+  root key and HPKE key the exchange gave, never the list's: the `partners` row
+  (`DEVICE_TRUST_ROWS`), which 18h shares by.
+
+### models/approval-handshake.ts + ports/approval-relay.port.ts + usecases/e2ee/approval-handshake.usecase.ts
+- The code handshake (`identity-provider/specs/e2ee.md § 3.10`); its bytes and
+  crypto are `@pinai/crypto`'s, reached through `IE2eePort` (`startApprovalHandshake`
+  → `ApprovalHandshakeSession`, `checkHandshakePeer`, `signDeviceApproval`,
+  `approvesThisDevice`, `rememberHandshakePartner`).
+- **A new code without the user** only when nobody answered the last one and its
+  10 minutes ran out on this device's clock (`renewsByItself`): § 2 promises each
+  of the instance's guesses costs the user an action. The relay's `expires_at`
+  never counts — it can shorten it.
+- Rules: `mayAsk` / `mayAnswer`; `canonicalId` (lowercase UUIDs, else none);
+  `answerableRequests` (another device's, **unanswered**, not set aside, none
+  unless acting — no clock of this device's judges them); `closedMeans`;
+  `relayRefusal`, `isTooManyRequests`, `isRefusedForGood` by status and code;
+  `peerAgainstList` (a list naming an id twice decides nothing); `failureShown`
+  / `noteForNext` for the Door; `pollDelay` (3 → 6 → 12 → 30 s, 5 min after a
+  `429`); `nextRequestAt` (8 an hour, under the relay's 10).
+- `HandshakeRun` — one side of one exchange. The asker marks itself `answered`
+  as soon as another device posts; its `deadline` is its own clock's. `poll`
+  checks the deadline before any call. The answerer keeps the asker, then
+  approves it — an ambiguous failure posted again (`204` to a repeat), one
+  refused for good ending the run — then closes. The asker approves back only
+  once the list shows that approval verified under the key the exchange gave.
+  The answerer times out (`ANSWER_TIMEOUT_MS`); `cancel` and an answerer's
+  `abandon` after it took part end the request. The session's secrets go when it
+  settles; the last token held still closes after a sign-out.
+- `ApprovalAsking` — the asking page: `tick` one at a time, `nextDelay` for the
+  next, `mayAsk` checked before each open, the hourly budget passed in so it
+  outlives a remount; `stopped` (a code that went otherwise) and `paused` (the
+  page set it aside) wait for `again`; `stop({ keepalive })` ends the request.
+- `ApprovalAnswering` — the Door's: unanswered requests, its own run kept
+  whatever the list says, an older read dropped, a code tried once never tried
+  again (`usedCodes`), one tab per request (`AnswerLock`), `not-acting` and
+  `taken` acted on. Errors the flows swallow go to `HandshakeContext.report`.
 
 ### models/bytes.ts
 - `sameBytes`, `hexOf` — the models' byte helpers: the lint boundary keeps models

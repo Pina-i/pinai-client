@@ -13,7 +13,6 @@
  * What's not covered yet (intentional, lands in later 4b turns):
  * - IndexedDB storage round-trip (jsdom lacks IndexedDB; pull in
  *   `fake-indexeddb/auto` when `storage.adapter.ts` gets tested).
- * - SPAKE2 pairing — separate turn.
  */
 
 import { beforeAll, describe, expect, it } from "vitest"

@@ -19,6 +19,11 @@ export interface IDeviceDirectoryPort {
         generation: number,
         signature: Uint8Array,
     ): Promise<void>
+    /**
+     * The session's device approves `deviceId`, another device of the account: `signature` is its
+     * root key's over `PINAI-DEVICE-APPROVAL-v1` for `deviceId`'s root key as the IdP holds it.
+     */
+    approveByDevice(idpUrl: string, accessToken: string, deviceId: string, signature: Uint8Array): Promise<void>
     /** The device says it holds `generation`, from its own session. */
     reportHistoryKey(idpUrl: string, accessToken: string, deviceId: string, generation: number): Promise<void>
 }

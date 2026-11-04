@@ -1,4 +1,12 @@
-import { emptyDeviceTrust, withTrust, type DeviceTrust, type DeviceTrustRow, type KnownDevice } from "@pinai/domain/models/device-trust"
+import {
+    DEVICE_TRUST_ROWS,
+    emptyDeviceTrust,
+    withTrust,
+    type DeviceTrust,
+    type DeviceTrustRow,
+    type HandshakePartner,
+    type KnownDevice,
+} from "@pinai/domain/models/device-trust"
 import type { ActorUri, DeviceId, IdentityKeypair, ConversationId } from "@pinai/domain/models/e2ee"
 import {
     isGeneration,
@@ -42,7 +50,12 @@ const NEWEST_GENERATION = "newest_generation"
  * `device_trust`, beside the attestation: a store of its own would take an IndexedDB upgrade. One
  * row a part, so an unreadable one loses no other, and a new part is a new row.
  */
-const TRUST_ROWS: Record<DeviceTrustRow, string> = { seen: "trust:seen", approved: "trust:approved", revoked: "trust:revoked" }
+const TRUST_ROWS: Record<DeviceTrustRow, string> = {
+    seen: "trust:seen",
+    approved: "trust:approved",
+    revoked: "trust:revoked",
+    partners: "trust:partners",
+}
 const WORD_COUNT = 24
 const DEVICE_ID_KEY = "device_id"
 const BOUND_ACTOR_URI_KEY = "bound_actor_uri"
@@ -298,7 +311,7 @@ export class SealedStorage implements E2eeStorage {
     async loadDeviceTrust(): Promise<{ trust: DeviceTrust; unreadable: DeviceTrustRow[] }> {
         const trust = emptyDeviceTrust()
         const unreadable: DeviceTrustRow[] = []
-        for (const row of ["seen", "approved", "revoked"] as const) {
+        for (const row of DEVICE_TRUST_ROWS) {
             const read = await this.readTrustRow(row)
             if (read.setAside) unreadable.push(row)
             if (read.value) Object.assign(trust, { [row]: read.value })
@@ -308,21 +321,18 @@ export class SealedStorage implements E2eeStorage {
 
     async addToDeviceTrust(change: Partial<DeviceTrust>): Promise<DeviceTrust> {
         let trust = emptyDeviceTrust()
-        for (const row of ["seen", "approved", "revoked"] as const) {
+        for (const row of DEVICE_TRUST_ROWS) {
             const held = { ...emptyDeviceTrust(), [row]: (await this.readTrustRow(row)).value ?? [] }
             const added = withTrust(held, { [row]: change[row] ?? [] })
-            if (added !== held) {
-                const json = row === "revoked" ? { device_ids: [...added.revoked] } : { devices: added[row].map(knownDeviceToJson) }
-                await this.seal(DEVICE_ATTESTATION, json, TRUST_ROWS[row])
-            }
+            if (added !== held) await this.seal(DEVICE_ATTESTATION, trustRowToJson(row, added), TRUST_ROWS[row])
             trust = { ...trust, [row]: added[row] }
         }
         return trust
     }
 
     private readTrustRow(row: DeviceTrustRow) {
-        const parse = row === "revoked" ? revokedFromJson : knownDevicesFromJson
-        return this.readOrSetAside<KnownDevice[] | DeviceId[]>(DEVICE_ATTESTATION, TRUST_ROWS[row], parse)
+        const parse = row === "revoked" ? revokedFromJson : row === "partners" ? partnersFromJson : knownDevicesFromJson
+        return this.readOrSetAside<KnownDevice[] | DeviceId[] | HandshakePartner[]>(DEVICE_ATTESTATION, TRUST_ROWS[row], parse)
     }
 
     private async openOrSetAside<T>(collection: string, key: string, parse: (value: unknown) => T | null): Promise<T | null> {
@@ -445,6 +455,28 @@ function knownDevicesFromJson(value: unknown): KnownDevice[] | null {
         devices.push({ deviceId: row.device_id, rootKey })
     }
     return devices
+}
+
+function trustRowToJson(row: DeviceTrustRow, trust: DeviceTrust): object {
+    if (row === "revoked") return { device_ids: [...trust.revoked] }
+    if (row === "partners") {
+        return {
+            partners: trust.partners.map((p) => ({ ...knownDeviceToJson(p), hpke_key: Array.from(p.hpkeKey) })),
+        }
+    }
+    return { devices: trust[row].map(knownDeviceToJson) }
+}
+
+function partnersFromJson(value: unknown): HandshakePartner[] | null {
+    if (!isRow(value) || !Array.isArray(value.partners)) return null
+    const partners: HandshakePartner[] = []
+    for (const row of value.partners as unknown[]) {
+        const rootKey = isRow(row) ? bytesOf(row.root_key, 32) : undefined
+        const hpkeKey = isRow(row) ? bytesOf(row.hpke_key, 32) : undefined
+        if (!isRow(row) || typeof row.device_id !== "string" || !rootKey || !hpkeKey) return null
+        partners.push({ deviceId: row.device_id, rootKey, hpkeKey })
+    }
+    return partners
 }
 
 function revokedFromJson(value: unknown): DeviceId[] | null {

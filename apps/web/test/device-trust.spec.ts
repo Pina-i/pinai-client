@@ -126,9 +126,14 @@ describe("what a review judges and keeps", () => {
     it("keeps only what is new, and is the very same record when nothing is", () => {
         const trust = withTrust(emptyDeviceTrust(), { seen: [{ deviceId: "a", rootKey: root(1) }], revoked: ["b", "b"] })
 
-        expect(trust).toEqual({ seen: [{ deviceId: "a", rootKey: root(1) }], approved: [], revoked: ["b"] })
+        expect(trust).toEqual({ seen: [{ deviceId: "a", rootKey: root(1) }], approved: [], revoked: ["b"], partners: [] })
         expect(withTrust(trust, { seen: [{ deviceId: "a", rootKey: root(1) }], revoked: ["b"] })).toBe(trust)
         expect(withTrust(trust, { seen: [{ deviceId: "a", rootKey: root(2) }] }).seen).toHaveLength(2)
+
+        const partner = { deviceId: "c", rootKey: root(3), hpkeKey: root(4) }
+        const partnered = withTrust(trust, { partners: [partner] })
+        expect(withTrust(partnered, { partners: [{ ...partner }] })).toBe(partnered)
+        expect(withTrust(partnered, { partners: [{ ...partner, hpkeKey: root(5) }] }).partners).toHaveLength(2)
     })
 
     it("counts itself approved, keeps what it saw and found approved, and keeps the unsettled apart", () => {

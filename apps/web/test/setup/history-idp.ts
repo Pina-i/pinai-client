@@ -1,5 +1,5 @@
 import { vi } from "vitest"
-import { ed25519 } from "@noble/curves/ed25519.js"
+import { ed25519, x25519 } from "@noble/curves/ed25519.js"
 import { sha256 } from "@noble/hashes/sha2.js"
 
 import { verifyStrict } from "@pinai/crypto/attestation-chain.adapter"
@@ -125,6 +125,7 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
                 this.approvals.push({ deviceId, generation })
                 this.log.push(`approve by passphrase ${generation}`)
             },
+            approveByDevice: async () => undefined,
             reportHistoryKey: async (_idpUrl, accessToken, deviceId, generation) => {
                 this.ownDevice(accessToken, deviceId)
                 if (!this.key || generation !== this.key.generation) throw stale()
@@ -151,6 +152,7 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
 export class MemoryHistoryStorage {
     readonly deviceId = crypto.randomUUID() as DeviceId
     rootKey = ed25519.keygen()
+    hpkeKey = x25519.keygen()
     kept: KeptPassphrase | null = null
     pending: PendingPassphrase | null = null
     standing: HistoryKeyStanding | null = null
@@ -165,7 +167,11 @@ export class MemoryHistoryStorage {
         return {
             getOrCreateDeviceId: async () => this.deviceId,
             loadDeviceAttestation: async () =>
-                ({ drk_public: this.rootKey.publicKey, drk_private: this.rootKey.secretKey }) as DeviceAttestation,
+                ({
+                    drk_public: this.rootKey.publicKey,
+                    drk_private: this.rootKey.secretKey,
+                    hpke: { public_key: this.hpkeKey.publicKey, private_key: this.hpkeKey.secretKey },
+                }) as DeviceAttestation,
             saveKeptPassphrase: async (kept: KeptPassphrase) => {
                 this.log.push(`save words ${kept.generation}${kept.approvedRootKey ? " approved" : ""}`)
                 this.kept = structuredClone(kept)

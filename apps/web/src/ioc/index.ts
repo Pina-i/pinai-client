@@ -14,6 +14,7 @@ import { BrowserWindowFrameAdapter } from "@/adapters/window-frame/window-frame-
 import { type RenewAccessToken, retryUnauthorizedWith } from "@pinai/api/http"
 import { OidcAdapter } from "@pinai/api/auth/oidc.adapter"
 import { WebCryptoPkceAdapter } from "@/adapters/auth/pkce"
+import { ApprovalRelayApiAdapter } from "@pinai/api/device-directory/approval-relay-api.adapter"
 import { DeviceDirectoryApiAdapter } from "@pinai/api/device-directory/device-directory-api.adapter"
 import { SessionApiAdapter } from "@pinai/api/session/session-api.adapter"
 import { WebCryptoAttachmentCryptoAdapter } from "@pinai/crypto/attachment-crypto"
@@ -46,6 +47,7 @@ import type { IAppUpdatesPort } from "@pinai/domain/ports/app-updates.port"
 import type { IWindowFramePort } from "@pinai/domain/ports/window-frame.port"
 import type { AuthPlatform, IAuthPort, IAuthSessionStore } from "@pinai/domain/ports/auth.port"
 import { type Renewal, renewSessionUseCase } from "@pinai/domain/usecases/auth/renew-session.usecase"
+import type { IApprovalRelayPort } from "@pinai/domain/ports/approval-relay.port"
 import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
 import type { ISessionPort } from "@pinai/domain/ports/session.port"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
@@ -114,6 +116,7 @@ const presencePort: IPresencePort = new PresenceApiAdapter()
 const totpPort: ITotpPort = new TotpApiAdapter()
 const userPort: IUserPort = new UserApiAdapter()
 const deviceDirectoryPort: IDeviceDirectoryPort = new DeviceDirectoryApiAdapter()
+const approvalRelayPort: IApprovalRelayPort = new ApprovalRelayApiAdapter()
 const sessionPort: ISessionPort = new SessionApiAdapter()
 const attachmentCryptoPort: IAttachmentCryptoPort = new WebCryptoAttachmentCryptoAdapter()
 
@@ -249,6 +252,10 @@ export function getSessionPort(): ISessionPort {
 
 export function getDeviceDirectoryPort(): IDeviceDirectoryPort {
     return deviceDirectoryPort
+}
+
+export function getApprovalRelayPort(): IApprovalRelayPort {
+    return approvalRelayPort
 }
 
 export function getAttachmentCryptoPort(): IAttachmentCryptoPort {
