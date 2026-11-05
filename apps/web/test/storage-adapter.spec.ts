@@ -209,16 +209,22 @@ describe("sealed rows", () => {
     })
 
     it("adds to what it keeps of the account's devices, and starts with nothing", async () => {
-        expect(await storage.loadDeviceTrust()).toEqual({ trust: { seen: [], approved: [], revoked: [], partners: [] }, unreadable: [] })
+        expect(await storage.loadDeviceTrust()).toEqual({
+            trust: { seen: [], approved: [], revoked: [], partners: [], baselines: [], before: [] },
+            unreadable: [],
+        })
 
         await storage.addToDeviceTrust({ seen: [{ deviceId: "phone", rootKey: bytes(30) }], approved: [{ deviceId: "phone", rootKey: bytes(30) }] })
         const partner = { deviceId: "laptop", rootKey: bytes(32), hpkeKey: bytes(33) }
+        const before = { generation: 2, cause: "start-over" as const, devices: [{ deviceId: "phone", rootKey: bytes(30) }], refused: [{ deviceId: "watch", rootKey: bytes(34) }] }
         const added = await storage.addToDeviceTrust({
             approved: [{ deviceId: "tablet", rootKey: bytes(31) }],
             revoked: ["watch"],
             partners: [partner],
+            baselines: [2],
+            before: [before],
         })
-        await storage.addToDeviceTrust({ partners: [{ ...partner }] })
+        await storage.addToDeviceTrust({ partners: [{ ...partner }], baselines: [2], before: [{ generation: 2, cause: "replacement", devices: [], refused: [] }] })
 
         const trust = {
             seen: [{ deviceId: "phone", rootKey: bytes(30) }],
@@ -228,12 +234,16 @@ describe("sealed rows", () => {
             ],
             revoked: ["watch"],
             partners: [partner],
+            baselines: [2],
+            before: [before],
         }
         expect(added).toEqual(trust)
         expect(await storage.loadDeviceTrust()).toEqual({ trust, unreadable: [] })
         expect((await storage.loadDeviceTrust()).trust.approved[1].rootKey).toBeInstanceOf(Uint8Array)
         expect((await storage.loadDeviceTrust()).trust.partners[0].hpkeKey).toBeInstanceOf(Uint8Array)
-        expect(await rowsOf("device_attestation")).toContain("trust:partners")
+        expect((await storage.loadDeviceTrust()).trust.before[0].devices[0].rootKey).toBeInstanceOf(Uint8Array)
+        expect((await storage.loadDeviceTrust()).trust.before[0].refused[0].rootKey).toBeInstanceOf(Uint8Array)
+        expect(await rowsOf("device_attestation")).toEqual(expect.arrayContaining(["trust:partners", "trust:baselines", "trust:before"]))
     })
 
     it("keeps what another tab added meanwhile: each row read again just before it is written", async () => {
@@ -252,12 +262,13 @@ describe("sealed rows", () => {
     it("sets aside, never deletes, a trust row it can't read, names it, and reads the others", async () => {
         await storage.addToDeviceTrust({ seen: [{ deviceId: "phone", rootKey: bytes(30) }], revoked: ["watch"] })
         await storage["seal"]("device_attestation", { devices: [{ device_id: "phone", root_key: [1, 2] }] }, "trust:approved")
+        await storage["seal"]("device_attestation", { before: [{ generation: 0, devices: [] }] }, "trust:before")
         const kv = new IdbKeyValueStore(e2eeDatabaseName(ALICE))
         await kv.put("device_attestation", "trust:revoked", bytes(42, 64))
 
         expect(await storage.loadDeviceTrust()).toEqual({
-            trust: { seen: [{ deviceId: "phone", rootKey: bytes(30) }], approved: [], revoked: [], partners: [] },
-            unreadable: ["approved", "revoked"],
+            trust: { seen: [{ deviceId: "phone", rootKey: bytes(30) }], approved: [], revoked: [], partners: [], baselines: [], before: [] },
+            unreadable: ["approved", "revoked", "before"],
         })
 
         const rows = await rowsOf("device_attestation")
@@ -359,7 +370,7 @@ describe("clear", () => {
 
         await storage.clear()
 
-        expect((await storage.loadDeviceTrust()).trust).toEqual({ seen: [], approved: [], revoked: [], partners: [] })
+        expect((await storage.loadDeviceTrust()).trust).toEqual({ seen: [], approved: [], revoked: [], partners: [], baselines: [], before: [] })
         expect(await storage.loadIdentityKeypair()).toBeNull()
         expect(await storage.loadMlsSnapshot()).toBeNull()
         expect(await storage.loadDeviceAttestation()).toBeNull()

@@ -113,15 +113,16 @@ export function DevicesEditor() {
                     </div>
                 )}
 
-                {vm.rows && vm.rows.length === 0 && waiting === 0 && !vm.isLoading && (
+                {vm.rows && vm.rows.length === 0 && waiting === 0 && vm.fromBefore.length === 0 && !vm.isLoading && (
                     <div className={statePanel}>No devices yet — sign in on another device to see it here.</div>
                 )}
 
-                {vm.rows && (vm.rows.length > 0 || waiting > 0) && (
+                {vm.rows && (vm.rows.length > 0 || waiting > 0 || vm.fromBefore.length > 0) && (
                     <div className="flex flex-col gap-2">
                         {vm.waiting.map((d) => (
                             <WaitingSeat
                                 key={d.device_id}
+                                kind={vm.isRefused(d) ? "refused" : "waiting"}
                                 device={d}
                                 answering={vm.answering}
                                 seats={vm.seats}
@@ -129,6 +130,24 @@ export function DevicesEditor() {
                                 isRevoking={vm.revokingDeviceId === d.device_id}
                             />
                         ))}
+                        {vm.fromBeforeHeading && (
+                            <section aria-labelledby="devices-from-before" className="mb-1 flex flex-col gap-2">
+                                <h2 id="devices-from-before" className="fact m-0 mt-1 font-normal text-muted-foreground">
+                                    {vm.fromBeforeHeading}
+                                </h2>
+                                {vm.fromBefore.map((d) => (
+                                    <WaitingSeat
+                                        key={d.device_id}
+                                        kind="from-before"
+                                        device={d}
+                                        answering={vm.answering}
+                                        seats={vm.seats}
+                                        onNotMine={() => void vm.onRevokeDevice(d.device_id)}
+                                        isRevoking={vm.revokingDeviceId === d.device_id}
+                                    />
+                                ))}
+                            </section>
+                        )}
                         {vm.rows.map(({ device, holdsHistory, approvedBy }) => (
                             <DeviceCard
                                 key={device.device_id}

@@ -1,27 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useNavigate, useRouter } from "@tanstack/react-router"
-import { toast } from "sonner"
 
 import { replacedOn, resetCause, type ResetCause } from "@pinai/domain/models/admission"
+import type { DeviceId } from "@pinai/domain/models/e2ee"
 import { logoutUseCase } from "@pinai/domain/usecases/auth/logout.usecase"
-import { AwaitedShare, type AwaitedShareState } from "@pinai/domain/usecases/e2ee/accept-history-share.usecase"
+import type { AwaitedShareState } from "@pinai/domain/usecases/e2ee/accept-history-share.usecase"
 import { checkAdmissionUseCase } from "@pinai/domain/usecases/e2ee/check-admission.usecase"
 import { gateThisDeviceUseCase, pendingKeyRoute } from "@pinai/domain/usecases/e2ee/gate-this-device.usecase"
-import { restoreHistoryFromPassphraseUseCase } from "@pinai/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
 import { setUpThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/set-up-this-device.usecase"
-import { getAuthPlatform, getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getKeySharePort, getSessionPort } from "@/ioc"
-import { acceptWaitingShare } from "@/presentation/_libs/accept-share"
+import { getAuthPlatform, getDeviceDirectoryPort, getE2eePort, getSessionPort } from "@/ioc"
 import { admissionDeps } from "@/presentation/_libs/admission-deps"
 import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
+import { userAgentLabel } from "@/presentation/_libs/user-agent-label"
 import { GATE_PAGES } from "@/presentation/_libs/gate-pages"
-import { restoreDueHistory } from "@/presentation/_libs/history-restore"
 import { instanceHost } from "@/presentation/_libs/instance-host"
 import { warnE2ee } from "@/presentation/_libs/key-share-deps"
+import { START_OVER_NOTICES } from "@/presentation/organisms/StartOverPanel/StartOverPanel.viewmodel"
 import { dropSearchParam } from "@/presentation/_libs/search-param"
-import {
-    RECOVERY_WORD_COUNT,
-    isPassphraseComplete,
-} from "@/presentation/molecules/RecoveryPassphraseInput/RecoveryPassphraseInput.helper"
+import { useAwaitedShare } from "@/presentation/hooks/use-awaited-share"
+import { useTypedWords } from "@/presentation/hooks/use-typed-words"
 import { useAppStore } from "@/store/store"
 
 export type RestoreStatus = "initializing" | "ready" | "restoring" | "done" | "error"
@@ -46,6 +43,8 @@ export interface RecoveryRestoreViewModel {
     resetCause: ResetCause | null
     /** On the reset page: the device this one found approved that replaced the words, by its label; `null` for any other. */
     replacedOn: string | null
+    /** "It wasn't me" on the reset page: the device the key names, kept apart from the devices from before. */
+    refused: DeviceId | null
     /**
      * Another device's code and the 24 words can let this device in: never on a reset no start over
      * explains — no device holds the key the instance put in, and the old words are refused.
@@ -96,11 +95,6 @@ export interface RecoveryRestoreViewModel {
     onRolledBack: () => void
 }
 
-const NOTICES = {
-    conflict: "Another of your devices set a new passphrase at the same moment, so this one didn't start over.",
-    "key-changed": "This device started over, then another of your devices set a newer passphrase: its words are the ones now.",
-} as const
-
 /**
  * The pages a device that isn't in stays on, drawn as Pass: no way in but another device's approval,
  * the 24 words, or a start over — or signing out. The device is set up on mount — registered and
@@ -111,7 +105,6 @@ const NOTICES = {
  */
 export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-device"): RecoveryRestoreViewModel {
     const idpUrl = useAppStore((s) => s.idpUrl)
-    const accessToken = useAppStore((s) => s.accessToken)
     const signedIn = useAppStore((s) => s.accessToken !== null)
     const user = useAppStore((s) => s.user)
     const clearSession = useAppStore((s) => s.clearSession)
@@ -125,22 +118,23 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
     const [deviceReady, setDeviceReady] = useState(false)
     const [isIn, setIsIn] = useState(false)
     // Set together: a newer generation's title waits for its setter, so it never changes under the user's eyes.
-    const [reset, setReset] = useState<{ cause: ResetCause | null; replacedOn: string | null }>({ cause: null, replacedOn: null })
+    const [reset, setReset] = useState<{ cause: ResetCause | null; replacedOn: string | null; refused: DeviceId | null }>({
+        cause: null,
+        replacedOn: null,
+        refused: null,
+    })
     const [tab, setTab] = useState<RestoreTab>(askedTab ?? "device")
     const [startOverShown, showStartOver] = useState(askedTab === "start-over")
     const [startingOver, setStartingOver] = useState(false)
     const [newWords, setNewWords] = useState<string[] | null>(null)
-    const [words, setWords] = useState<string[]>(() => Array.from({ length: RECOVERY_WORD_COUNT }, () => ""))
     const [error, setError] = useState<string | null>(null)
     const [notice, setNotice] = useState<string | null>(null)
     const [rolledBack, setRolledBack] = useState(false)
     const [lacksWords, setLacksWords] = useState(false)
-    const [share, setShare] = useState<AwaitedShareState | null>(null)
     const [approvedHere, setApprovedHere] = useState(false)
     const [attempt, setAttempt] = useState(0)
     const approvedRef = useRef(false)
     const typing = useRef(false)
-    const awaitedRef = useRef<AwaitedShare | null>(null)
 
     // Both actions await it, so a press mid-setup doesn't race the silent registration.
     const bootstrapRef = useRef<Promise<void> | null>(null)
@@ -159,7 +153,7 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
         void e2eePort.historyKeyStanding().then(
             (standing) => {
                 if (cancelled || resetCause(standing) !== "unknown-change") return
-                setReset((known) => (known.cause ? known : { cause: "unknown-change", replacedOn: null }))
+                setReset((known) => (known.cause ? known : { cause: "unknown-change", replacedOn: null, refused: null }))
             },
             () => undefined,
         )
@@ -189,15 +183,18 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
                 setLacksWords(standing.kind !== "holds")
                 const cause = resetCause(standing)
                 let setterLabel: string | null = null
+                let refused: DeviceId | null = null
                 if (variant === "reset" && cause === "newer-generation") {
                     try {
                         const { devices } = await getDeviceDirectoryPort().listDevices(idpUrl, accessToken)
-                        setterLabel = replacedOn(standing, await e2eePort.resetSetter(devices), devices)
+                        const setter = await e2eePort.resetSetter(devices)
+                        setterLabel = replacedOn(standing, setter, devices)
+                        refused = setter && !setter.self ? setter.deviceId : null
                     } catch (e) {
                         warnE2ee("reading who replaced the words", e)
                     }
                 }
-                if (!cancelled) setReset({ cause, replacedOn: setterLabel })
+                if (!cancelled) setReset({ cause, replacedOn: setterLabel, refused })
             } catch (e) {
                 // eslint-disable-next-line no-console
                 console.warn("Reading whether this device is in failed:", e)
@@ -219,91 +216,35 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
 
     // A start over takes the words itself: a share kept meanwhile must not carry the page off before they are shown.
     const listening = lacksWords && status !== "initializing" && status !== "error" && !startingOver && newWords === null
-    useEffect(() => {
-        if (!listening) return
-        const awaited = new AwaitedShare(acceptWaitingShare, warnE2ee)
-        awaitedRef.current = awaited
-        let live = true
-        let timer: ReturnType<typeof setTimeout> | undefined
-        const unsubscribe = awaited.onChange(() => {
-            const settled = awaited.state
-            setShare(settled)
-            // Approved here, the section goes on itself once the restore settles; typed words go on their own way.
-            if (settled.kind === "kept" && !approvedRef.current && !typing.current) void navigate({ to: "/home" })
-            if (settled.kind === "ended") {
-                void signInAgainOnDeviceMismatch(settled.error).then((signingIn) => {
-                    if (!signingIn) warnE2ee("reading the history key share", settled.error)
-                })
-            }
-        })
-        const tick = () => {
-            clearTimeout(timer)
-            if (!live || document.hidden) return
-            void awaited.tick().then(() => {
-                if (live && awaited.state.kind === "waiting") timer = setTimeout(tick, awaited.nextDelay())
-            })
-        }
-        const onVisible = () => {
-            if (!document.hidden) tick()
-        }
-        document.addEventListener("visibilitychange", onVisible)
-        tick()
-        return () => {
-            live = false
-            clearTimeout(timer)
-            unsubscribe()
-            document.removeEventListener("visibilitychange", onVisible)
-            if (awaitedRef.current === awaited) awaitedRef.current = null
-        }
-    }, [listening, navigate])
+    // Approved here, the section goes on itself once the restore settles; typed words go on their own way.
+    const awaited = useAwaitedShare(listening, () => {
+        if (!approvedRef.current && !typing.current) void navigate({ to: "/home" })
+    })
+    const share = awaited.share
+    const { again } = awaited
 
     const onApproved = useCallback(() => {
         approvedRef.current = true
         setApprovedHere(true)
-        void awaitedRef.current?.again()
-    }, [])
+        again()
+    }, [again])
 
-    const canRestore = useMemo(() => isPassphraseComplete(words), [words])
-
-    const onRestore = useCallback(async () => {
-        if (!idpUrl || !accessToken || !ownActorUri || !canRestore) return
-        setStatus("restoring")
+    const setUp = useCallback(() => bootstrapRef.current, [])
+    const onTyping = useCallback((busy: boolean) => {
+        typing.current = busy
+        if (!busy) return
         setError(null)
         setNotice(null)
-        typing.current = true
-        try {
-            if (bootstrapRef.current) await bootstrapRef.current
-
-            const result = await restoreHistoryFromPassphraseUseCase({
-                ...admissionDeps(),
-                sessionPort: getSessionPort(),
-                historyArchivePort: getHistoryArchivePort(),
-                keySharePort: getKeySharePort(),
-                report: warnE2ee,
-            })({ idpUrl, accessToken, actorUri: ownActorUri, passphrase: words })
-
-            if (result.kind !== "kept") {
-                setStatus("ready")
-                toast.error(REFUSALS[result.kind])
-                return
-            }
-            const restore = await restoreDueHistory()
-            setStatus("done")
-            if (restore.kind === "failed") {
-                toast.error("Your history couldn't be brought back", { description: "It's tried again the next time Pīna'i starts." })
-            } else {
-                const count = restore.kind === "restored" ? restore.messages : 0
-                toast.success(count === 0 ? "Device set up" : `Restored ${count} message${count === 1 ? "" : "s"}`)
-            }
-            void navigate({ to: "/home" })
-        } catch (e) {
-            if (await signInAgainOnDeviceMismatch(e)) return
-            setStatus("error")
-            setError(e instanceof Error ? e.message : "Restore failed")
-        } finally {
-            typing.current = false
-        }
-    }, [idpUrl, accessToken, ownActorUri, canRestore, words, navigate])
+    }, [])
+    const onWordsKept = useCallback(() => {
+        setStatus("done")
+        void navigate({ to: "/home" })
+    }, [navigate])
+    const onWordsFailed = useCallback((message: string) => {
+        setStatus("error")
+        setError(message)
+    }, [])
+    const typed = useTypedWords({ ready: setUp, onBusy: onTyping, onKept: onWordsKept, onFailed: onWordsFailed })
 
     // The gate at /home lets in only a device that is.
     const onIn = useCallback(() => void navigate({ to: "/home" }), [navigate])
@@ -320,7 +261,7 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
         (how: "conflict" | "key-changed") => {
             const accessToken = useAppStore.getState().accessToken
             if (!idpUrl || !accessToken || !ownActorUri) return
-            setNotice(NOTICES[how])
+            setNotice(START_OVER_NOTICES[how])
             void gateThisDeviceUseCase(admissionDeps())(idpUrl, accessToken, ownActorUri).then(
                 (route) => {
                     const to = GATE_PAGES[route]
@@ -355,34 +296,35 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
         setStartingOver(busy)
     }, [])
 
-    const deviceLabel = useMemo(() => summariseUserAgent(), [])
+    const deviceLabel = useMemo(() => userAgentLabel(), [])
     const offersStartOver = !isIn
     // A device found in has no Start over tab: it opens on another way in.
     const shownTab = !offersStartOver && tab === "start-over" ? "device" : tab
 
     return {
-        status,
+        status: typed.restoring ? "restoring" : status,
         deviceReady,
         isIn,
         resetCause: variant === "reset" ? reset.cause : null,
         replacedOn: variant === "reset" ? reset.replacedOn : null,
+        refused: variant === "reset" ? reset.refused : null,
         offersWayIn: variant === "new-device" || reset.cause === "newer-generation",
         instance: instanceHost(idpUrl),
         offersStartOver,
         deviceLabel,
         tab: shownTab,
         setTab: chooseTab,
-        busy: startingOver || status === "restoring",
+        busy: startingOver || typed.restoring,
         startOverShown,
         showStartOver: toggleStartOver,
-        words,
-        setWords,
-        canRestore,
+        words: typed.words,
+        setWords: typed.setWords,
+        canRestore: typed.canRestore,
         error,
         notice,
         rolledBack,
         approvedHere,
-        onRestore,
+        onRestore: typed.onRestore,
         onIn,
         onSignOut,
         share,
@@ -400,51 +342,4 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
 function askedIn(searchStr: string): RestoreTab | null {
     const asked = new URLSearchParams(searchStr).get(TAB_PARAM)
     return TABS.find((tab) => tab === asked) ?? null
-}
-
-const REFUSALS = {
-    "wrong-passphrase": "Wrong passphrase — these aren't your account's 24 words",
-    "key-swapped": "Your instance changed your history key — nothing was restored",
-    "no-key": "Your account has no history passphrase yet",
-    "rolled-back": "Your instance went back to an older history key — nothing was restored",
-    "key-changed": "Your history key changed meanwhile — nothing was restored",
-} as const
-
-/**
- * Coarse browser+OS label mirroring the IdP's server-side UA parser.
- * Decorative — never used as an identifier. Returns "Web client" when
- * nothing matches.
- */
-function summariseUserAgent(): string {
-    if (typeof navigator === "undefined") return "Web client"
-    const ua = navigator.userAgent
-    if (!ua) return "Web client"
-
-    const os = ua.includes("Mac OS X") || ua.includes("macOS")
-        ? "macOS"
-        : ua.includes("Windows")
-          ? "Windows"
-          : ua.includes("Android")
-            ? "Android"
-            : ua.includes("iPhone")
-              ? "iOS"
-              : ua.includes("iPad")
-                ? "iPadOS"
-                : ua.includes("Linux")
-                  ? "Linux"
-                  : "this device"
-
-    const browser = ua.includes("Edg/") || ua.includes("Edge/")
-        ? "Edge"
-        : ua.includes("OPR/") || ua.includes("Opera/")
-          ? "Opera"
-          : ua.includes("Firefox/")
-            ? "Firefox"
-            : ua.includes("Chrome/")
-              ? "Chrome"
-              : ua.includes("Safari/")
-                ? "Safari"
-                : "Web"
-
-    return `${browser} on ${os}`
 }

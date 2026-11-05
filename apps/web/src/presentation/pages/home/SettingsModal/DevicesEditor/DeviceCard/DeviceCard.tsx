@@ -1,9 +1,9 @@
 import { HelpCircle, KeyRound, Laptop, Smartphone, Tablet } from "lucide-react"
 
 import { deviceStatus } from "@pinai/domain/models/device"
-import { formatLastSeen } from "@pinai/domain/models/relative-time"
 
 import type { DeviceRow } from "@/presentation/hooks/useDevices"
+import { activityLabel } from "@/presentation/_libs/device-activity"
 import { dayLabel } from "@/presentation/_libs/day-label"
 import { deviceFingerprint } from "@/presentation/_libs/device-fingerprint"
 import { cn } from "@/presentation/_libs/utils"
@@ -39,30 +39,12 @@ function kindIcon(kind: DeviceRow["kind"]) {
     }
 }
 
-function statusLabel(device: DeviceRow): string | null {
-    // This device is in use as the list is read, whatever its session's last renewal says.
-    if (device.is_current) return "Active now"
-    const status = deviceStatus(device)
-    switch (status.kind) {
-        case "revoked":
-            return `Revoked ${dayLabel(status.at)}`
-        case "signed-in": {
-            const seen = status.lastActiveAt && formatLastSeen(status.lastActiveAt, new Date())
-            return seen ? `Active ${seen}` : "Signed in"
-        }
-        case "signed-out": {
-            const seen = formatLastSeen(device.last_seen_at, new Date())
-            return seen ? `Last seen ${seen}` : null
-        }
-    }
-}
-
 export function DeviceCard({ device, holdsHistory, approvedBy, onRevoke, isRevoking }: DeviceCardProps) {
     const isRevoked = device.revoked_at !== null
     const isCurrent = device.is_current
     const isSignedOut = !isRevoked && !isCurrent && deviceStatus(device).kind === "signed-out"
 
-    const lastSeenLabel = statusLabel(device)
+    const lastSeenLabel = activityLabel(device)
     const showLivePulse = lastSeenLabel === "Active now" || lastSeenLabel === "Active just now"
     const facts = [
         ...(approvedBy ? [`approved by ${approvedBy}`] : []),

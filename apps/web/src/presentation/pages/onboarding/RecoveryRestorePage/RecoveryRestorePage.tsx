@@ -3,14 +3,14 @@ import { useEffect, useRef } from "react"
 import type { ResetCause } from "@pinai/domain/models/admission"
 import { Button } from "@/presentation/atoms/Button/Button"
 import { SegmentedTabPanel, SegmentedTabs, type SegmentedTab } from "@/presentation/molecules/SegmentedTabs/SegmentedTabs"
+import { ApproveFromAnotherDevice } from "@/presentation/organisms/ApproveFromAnotherDevice/ApproveFromAnotherDevice"
 import { NewWords } from "@/presentation/organisms/NewWords/NewWords"
+import { StartOverPanel, type StartOverReason } from "@/presentation/organisms/StartOverPanel/StartOverPanel"
+import { WordsPanel } from "@/presentation/organisms/WordsPanel/WordsPanel"
 import { PassCard, PassShell } from "@/presentation/templates/PassShell/PassShell"
 
-import { ApproveFromAnotherDevice } from "./ApproveFromAnotherDevice/ApproveFromAnotherDevice"
 import { ResetNote } from "./ResetNote/ResetNote"
-import { StartOverPanel, type StartOverReason } from "./StartOverPanel/StartOverPanel"
 import { UnknownChange } from "./UnknownChange/UnknownChange"
-import { WordsPanel } from "./WordsPanel/WordsPanel"
 import {
     useRecoveryRestorePageViewModel,
     type RecoveryRestoreViewModel,
@@ -65,6 +65,7 @@ export function RecoveryRestorePage({ variant = "new-device" }: { variant?: Rest
             onRolledBack={vm.onRolledBack}
             onBusy={vm.onStartOverBusy}
             replacedOn={vm.replacedOn}
+            refused={reason === "not-me" ? vm.refused : null}
         />
     )
     const tabs = (reset ? RESET_TABS : NEW_DEVICE_TABS).filter((t) => t.id !== "start-over" || vm.offersStartOver)

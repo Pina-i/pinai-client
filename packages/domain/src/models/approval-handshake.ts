@@ -167,11 +167,12 @@ export function peerAgainstList(
  */
 export function answerableRequests(
     requests: readonly ApprovalRequest[],
-    input: { thisDevice: DeviceId; acting: boolean; dismissed: ReadonlySet<string> },
+    input: { thisDevice: DeviceId; acting: boolean; dismissed: ReadonlySet<string>; refused?: ReadonlySet<DeviceId> },
 ): ApprovalRequest[] {
     if (!input.acting) return []
     return requests
         .filter((r) => r.deviceId !== input.thisDevice && r.approverDeviceId === null && !input.dismissed.has(r.id))
+        .filter((r) => !input.refused?.has(r.deviceId))
         .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
 }
 

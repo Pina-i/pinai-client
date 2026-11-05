@@ -1,7 +1,10 @@
 import { FIRST_HISTORY_GENERATION, settlePending } from "../../models/history-key"
 import { isHistoryKeyConflict } from "../../models/idp-error"
 import type { IE2eePort } from "../../ports/e2ee.port"
+import type { IDeviceDirectoryPort } from "../../ports/device-directory.port"
 import type { IHistoryArchivePort } from "../../ports/history-archive.port"
+
+import { takeDeviceBaseline, type DeviceBaselineDeps } from "./take-device-baseline.usecase"
 
 /**
  * Held across the account's tabs for as long as `run` runs, the others waiting; where the platform
@@ -30,27 +33,41 @@ export function pendingKeyTurn<T>(deps: PendingKeyDeps, run: () => Promise<T>): 
 
 /**
  * A pending key is settled before anything else (`settlePending`): the key in force is it, so its
- * words are kept — a later generation's shown as new words, a start over's whose answer was lost —;
- * a first generation with no key in force is set again; a row written moments ago is left for a
- * later settle; anything else is erased. From a session that named its device.
+ * words are kept — a later generation's shown as new words, a start over's whose answer was lost,
+ * its baseline taken as the flow would have —; a first generation with no key in force is set
+ * again; a row written moments ago is left for a later settle; anything else is erased. From a
+ * session that named its device.
  */
-export function settlePendingHistoryKeyUseCase(deps: PendingKeyDeps & { historyArchivePort: IHistoryArchivePort }) {
-    return (idpUrl: string, accessToken: string): Promise<void> =>
-        pendingKeyTurn(deps, async () => {
+export function settlePendingHistoryKeyUseCase(
+    deps: PendingKeyDeps & { historyArchivePort: IHistoryArchivePort; deviceDirectoryPort?: IDeviceDirectoryPort; report?: DeviceBaselineDeps["report"] },
+) {
+    return async (idpUrl: string, accessToken: string): Promise<void> => {
+        const kept = await pendingKeyTurn(deps, async () => {
             const pending = await deps.e2eePort.pendingHistoryKey()
-            if (!pending) return
+            if (!pending) return null
             const current = await deps.historyArchivePort.getKey(idpUrl, accessToken)
             const settlement = settlePending(pending, current)
-            if (settlement === "leave") return
-            if (settlement === "erase") return deps.e2eePort.dropPendingHistoryKey()
+            if (settlement === "leave") return null
+            if (settlement === "erase") {
+                await deps.e2eePort.dropPendingHistoryKey()
+                return null
+            }
             if (settlement === "send-again") {
                 try {
                     await deps.historyArchivePort.setKey(idpUrl, accessToken, pending)
                 } catch (error) {
-                    if (isHistoryKeyConflict(error)) return deps.e2eePort.dropPendingHistoryKey()
+                    if (isHistoryKeyConflict(error)) {
+                        await deps.e2eePort.dropPendingHistoryKey()
+                        return null
+                    }
                     throw error
                 }
             }
             await deps.e2eePort.promotePendingHistoryKey({ show: pending.generation > FIRST_HISTORY_GENERATION })
+            return pending
         })
+        if (kept?.intent && deps.deviceDirectoryPort) {
+            await takeDeviceBaseline({ ...deps, deviceDirectoryPort: deps.deviceDirectoryPort }, idpUrl, accessToken, kept.generation, kept.intent)
+        }
+    }
 }

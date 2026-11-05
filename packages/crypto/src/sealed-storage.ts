@@ -4,6 +4,8 @@ import {
     withTrust,
     type DeviceTrust,
     type DeviceTrustRow,
+    type BaselineIntent,
+    type DevicesBefore,
     type HandshakePartner,
     type KnownDevice,
 } from "@pinai/domain/models/device-trust"
@@ -66,6 +68,8 @@ const TRUST_ROWS: Record<DeviceTrustRow, string> = {
     approved: "trust:approved",
     revoked: "trust:revoked",
     partners: "trust:partners",
+    baselines: "trust:baselines",
+    before: "trust:before",
 }
 const WORD_COUNT = 24
 const DEVICE_ID_KEY = "device_id"
@@ -159,6 +163,8 @@ export interface PendingPassphrase {
     mintedAt: number | null
     /** Minted to replace words this device holds: its promotion marks the re-archive due. */
     rearchive?: true
+    /** What its baseline keeps once the IdP took it: read by the settle after a lost answer. */
+    intent?: BaselineIntent
 }
 
 /** The archive's restore due under `generation`, and when it was last applied (`null` before). */
@@ -409,8 +415,7 @@ export class SealedStorage implements E2eeStorage {
     }
 
     private readTrustRow(row: DeviceTrustRow) {
-        const parse = row === "revoked" ? revokedFromJson : row === "partners" ? partnersFromJson : knownDevicesFromJson
-        return this.readOrSetAside<KnownDevice[] | DeviceId[] | HandshakePartner[]>(DEVICE_ATTESTATION, TRUST_ROWS[row], parse)
+        return this.readOrSetAside<DeviceTrust[DeviceTrustRow]>(DEVICE_ATTESTATION, TRUST_ROWS[row], TRUST_ROW_PARSERS[row])
     }
 
     private async openOrSetAside<T>(collection: string, key: string, parse: (value: unknown) => T | null): Promise<T | null> {
@@ -513,7 +518,14 @@ function pendingToJson(pending: PendingPassphrase): object {
         hak: Array.from(pending.hak),
         minted_at: pending.mintedAt,
         ...(pending.rearchive ? { rearchive: true } : {}),
+        ...(pending.intent ? { intent: { cause: pending.intent.cause, refused: pending.intent.refused } } : {}),
     }
+}
+
+function intentFromJson(value: unknown): BaselineIntent | null {
+    if (!isRow(value) || (value.cause !== "start-over" && value.cause !== "replacement")) return null
+    if (value.refused !== null && typeof value.refused !== "string") return null
+    return { cause: value.cause, refused: value.refused }
 }
 
 function pendingFromJson(value: unknown): PendingPassphrase | null {
@@ -526,8 +538,17 @@ function pendingFromJson(value: unknown): PendingPassphrase | null {
     const mintedAt = value.minted_at ?? null
     if (!words || !isGeneration(value.generation) || !salt || !checkValue || !approvalPublicKey || !hak) return null
     if (mintedAt !== null && !Number.isFinite(mintedAt)) return null
+    const intent = value.intent === undefined ? null : intentFromJson(value.intent)
+    if (value.intent !== undefined && !intent) return null
     const key = { generation: value.generation, salt, checkValue, approvalPublicKey }
-    return { words, key, hak, mintedAt: mintedAt as number | null, ...(value.rearchive === true ? { rearchive: true as const } : {}) }
+    return {
+        words,
+        key,
+        hak,
+        mintedAt: mintedAt as number | null,
+        ...(value.rearchive === true ? { rearchive: true as const } : {}),
+        ...(intent ? { intent } : {}),
+    }
 }
 
 function knownDeviceToJson(device: KnownDevice): object {
@@ -546,13 +567,54 @@ function knownDevicesFromJson(value: unknown): KnownDevice[] | null {
 }
 
 function trustRowToJson(row: DeviceTrustRow, trust: DeviceTrust): object {
-    if (row === "revoked") return { device_ids: [...trust.revoked] }
-    if (row === "partners") {
-        return {
-            partners: trust.partners.map((p) => ({ ...knownDeviceToJson(p), hpke_key: Array.from(p.hpkeKey) })),
-        }
+    switch (row) {
+        case "revoked":
+            return { device_ids: [...trust.revoked] }
+        case "partners":
+            return { partners: trust.partners.map((p) => ({ ...knownDeviceToJson(p), hpke_key: Array.from(p.hpkeKey) })) }
+        case "baselines":
+            return { generations: [...trust.baselines] }
+        case "before":
+            return {
+                before: trust.before.map((b) => ({
+                    generation: b.generation,
+                    cause: b.cause,
+                    devices: b.devices.map(knownDeviceToJson),
+                    refused: b.refused.map(knownDeviceToJson),
+                })),
+            }
+        case "seen":
+        case "approved":
+            return { devices: trust[row].map(knownDeviceToJson) }
     }
-    return { devices: trust[row].map(knownDeviceToJson) }
+}
+
+const TRUST_ROW_PARSERS: { [R in DeviceTrustRow]: (value: unknown) => DeviceTrust[R] | null } = {
+    seen: knownDevicesFromJson,
+    approved: knownDevicesFromJson,
+    revoked: revokedFromJson,
+    partners: partnersFromJson,
+    baselines: baselinesFromJson,
+    before: beforeFromJson,
+}
+
+function baselinesFromJson(value: unknown): number[] | null {
+    if (!isRow(value) || !Array.isArray(value.generations)) return null
+    const generations = value.generations as unknown[]
+    return generations.every((g) => Number.isInteger(g) && (g as number) > 0) ? (generations as number[]) : null
+}
+
+function beforeFromJson(value: unknown): DevicesBefore[] | null {
+    if (!isRow(value) || !Array.isArray(value.before)) return null
+    const before: DevicesBefore[] = []
+    for (const entry of value.before as unknown[]) {
+        if (!isRow(entry) || !isGeneration(entry.generation)) return null
+        const devices = knownDevicesFromJson(entry)
+        const refused = knownDevicesFromJson({ devices: entry.refused })
+        if (!devices || !refused || (entry.cause !== "start-over" && entry.cause !== "replacement")) return null
+        before.push({ generation: entry.generation, cause: entry.cause, devices, refused })
+    }
+    return before
 }
 
 function partnersFromJson(value: unknown): HandshakePartner[] | null {

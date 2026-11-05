@@ -12,6 +12,8 @@ import { checkListedDevices, verifyApproval } from "@pinai/crypto/attestation-ch
 import type { DeviceListEntry } from "@pinai/domain/models/device"
 import {
     approvedDevicesBy,
+    deviceBaseline,
+    devicesBefore,
     duplicateDeviceIds,
     emptyDeviceTrust,
     firstToCommitOut,
@@ -25,7 +27,9 @@ import {
     unapprovedListed,
     undecided,
     withTrust,
+    type BaselineIntent,
     type CheckedApproval,
+    type DevicesBefore,
     type CheckedDevice,
     type DeviceTrustVerdict,
     type TrustEvent,
@@ -131,13 +135,15 @@ describe("what a review judges and keeps", () => {
         ...change,
     })
     const laptop = checked("laptop", 1, { approvals: [{ by: "passphrase", generation: 1, verifies: true }] })
-    const judge = (devices: CheckedDevice[], trust = emptyDeviceTrust(), ownRootKey: Uint8Array | null = root(1)) =>
+    // Its baseline taken under generation 1: what it lists after that arrives.
+    const baselined = withTrust(emptyDeviceTrust(), { baselines: [1] })
+    const judge = (devices: CheckedDevice[], trust = baselined, ownRootKey: Uint8Array | null = root(1)) =>
         judgeDevices({ devices, generation: 1, trust, thisDevice: "laptop", ownRootKey })
 
     it("keeps only what is new, and is the very same record when nothing is", () => {
         const trust = withTrust(emptyDeviceTrust(), { seen: [{ deviceId: "a", rootKey: root(1) }], revoked: ["b", "b"] })
 
-        expect(trust).toEqual({ seen: [{ deviceId: "a", rootKey: root(1) }], approved: [], revoked: ["b"], partners: [] })
+        expect(trust).toEqual({ seen: [{ deviceId: "a", rootKey: root(1) }], approved: [], revoked: ["b"], partners: [], baselines: [], before: [] })
         expect(withTrust(trust, { seen: [{ deviceId: "a", rootKey: root(1) }], revoked: ["b"] })).toBe(trust)
         expect(withTrust(trust, { seen: [{ deviceId: "a", rootKey: root(2) }] }).seen).toHaveLength(2)
 
@@ -145,6 +151,18 @@ describe("what a review judges and keeps", () => {
         const partnered = withTrust(trust, { partners: [partner] })
         expect(withTrust(partnered, { partners: [{ ...partner }] })).toBe(partnered)
         expect(withTrust(partnered, { partners: [{ ...partner, hpkeKey: root(5) }] }).partners).toHaveLength(2)
+
+        const entry = (generation: number, devices = [{ deviceId: "a", rootKey: root(1) }]): DevicesBefore => ({
+            generation,
+            cause: "start-over",
+            devices,
+            refused: [],
+        })
+        const based = withTrust(trust, { baselines: [2, 2], before: [entry(2)] })
+        expect(based.baselines).toEqual([2])
+        // The first list kept for a generation stays: a later one is the same start over's, read again.
+        expect(withTrust(based, { baselines: [2], before: [entry(2, [])] })).toBe(based)
+        expect(withTrust(based, { before: [entry(3, [])] }).before.map((b) => b.generation)).toEqual([2, 3])
     })
 
     it("counts itself approved, keeps what it saw and found approved, and keeps the unsettled apart", () => {
@@ -164,18 +182,125 @@ describe("what a review judges and keeps", () => {
     })
 
     it("holds every unapproved device, arriving only the first time it is seen under that root key", () => {
-        const seen = withTrust(emptyDeviceTrust(), { seen: [{ deviceId: "phone", rootKey: root(2) }] })
-        const unapproved = (devices: CheckedDevice[], trust = emptyDeviceTrust()) =>
+        const seen = withTrust(baselined, { seen: [{ deviceId: "phone", rootKey: root(2) }] })
+        const unapproved = (devices: CheckedDevice[], trust = baselined) =>
             judge(devices, trust).unapproved.map((d) => [d.deviceId, d.arrived])
 
         expect(unapproved([laptop, checked("phone", 2)])).toEqual([["phone", true]])
         expect(unapproved([laptop, checked("phone", 2)], seen)).toEqual([["phone", false]])
         expect(unapproved([laptop, checked("phone", 3)], seen)).toEqual([["phone", true]])
         expect(unapproved([checked("phone", 2, { revoked: true })])).toEqual([])
-        expect(unapproved([checked("phone", 2)], withTrust(emptyDeviceTrust(), { revoked: ["phone"] }))).toEqual([])
+        expect(unapproved([checked("phone", 2)], withTrust(baselined, { revoked: ["phone"] }))).toEqual([])
         expect(unapproved([checked("phone", 2, { chain: "unsettled" })])).toEqual([])
     })
 
+    it("takes its baseline at its first review under a generation that has none: nothing listed then arrives", () => {
+        const fresh = judge([laptop, checked("phone", 2), checked("tablet", 3, { chain: "unsettled" })], emptyDeviceTrust())
+
+        expect(fresh.unapproved.map((d) => [d.deviceId, d.arrived])).toEqual([["phone", false]])
+        expect(fresh.keep).toEqual({
+            seen: [
+                { deviceId: "laptop", rootKey: root(1) },
+                { deviceId: "phone", rootKey: root(2) },
+                { deviceId: "tablet", rootKey: root(3) },
+            ],
+            approved: [{ deviceId: "laptop", rootKey: root(1) }],
+            baselines: [1],
+        })
+        const after = withTrust(emptyDeviceTrust(), fresh.keep)
+        expect(judge([laptop, checked("phone", 2), checked("tablet", 3), checked("watch", 4)], after).unapproved.map((d) => [d.deviceId, d.arrived])).toEqual([
+            ["phone", false],
+            ["tablet", false],
+            ["watch", true],
+        ])
+        // A baseline is a generation's: the next one, acted under, takes its own.
+        const next = judgeDevices({ devices: [laptop, checked("watch", 4)], generation: 2, trust: after, thisDevice: "laptop", ownRootKey: root(1) })
+        expect(next.unapproved.map((d) => d.arrived)).toEqual([false])
+    })
+
+    it("carries, for the generation it judges under, what its own new generation left behind", () => {
+        const phone = { deviceId: "phone", rootKey: root(2) }
+        const first: DevicesBefore = { generation: 1, cause: "start-over", devices: [phone], refused: [] }
+        const trust = withTrust(baselined, { before: [first, { ...first, generation: 3, devices: [] }] })
+
+        expect(judge([laptop, checked("phone", 2)], trust).before).toEqual(first)
+        expect(judge([laptop, checked("phone", 2)]).before).toBeNull()
+        expect(undecided("laptop").before).toBeNull()
+    })
+})
+
+describe("the baseline a device takes as it starts acting", () => {
+    const row = (device_id: string, n: number | null, change: Partial<DeviceListEntry> = {}) =>
+        ({ device_id, drk_public_key: n === null ? null : root(n), revoked_at: null, ...change }) as DeviceListEntry
+    const listed = [row("laptop", 1), row("phone", 2), row("tablet", 3), row("old", 4, { revoked_at: "2026-11-01T00:00:00Z" }), row("bare", null)]
+    const startOver = (refused: string | null = null): BaselineIntent => ({ cause: "start-over", refused })
+    const baseline = (trust = emptyDeviceTrust(), intent: BaselineIntent | null = null, generation = 2, devices = listed) =>
+        deviceBaseline({ trust, generation, devices, thisDevice: "laptop", intent })
+
+    it("keeps every device listed with a root key, unrevoked, as seen, once per generation", () => {
+        const change = baseline()
+
+        expect(change).toEqual({
+            seen: [
+                { deviceId: "laptop", rootKey: root(1) },
+                { deviceId: "phone", rootKey: root(2) },
+                { deviceId: "tablet", rootKey: root(3) },
+            ],
+            baselines: [2],
+        })
+        expect(baseline(withTrust(emptyDeviceTrust(), change))).toEqual({})
+        expect(baseline(withTrust(emptyDeviceTrust(), { revoked: ["phone"] })).seen?.map((d) => d.deviceId)).toEqual(["laptop", "tablet"])
+    })
+
+    it("after a new generation of its own, keeps the others listed then as from before, but its handshake partners", () => {
+        const partner = { deviceId: "tablet", rootKey: root(3), hpkeKey: root(9) }
+        const change = baseline(withTrust(emptyDeviceTrust(), { partners: [partner] }), startOver())
+
+        expect(change.before).toEqual([{ generation: 2, cause: "start-over", devices: [{ deviceId: "phone", rootKey: root(2) }], refused: [] }])
+        // A partner under another root key is another device: from before like any other.
+        const rotated = baseline(withTrust(emptyDeviceTrust(), { partners: [{ ...partner, rootKey: root(8) }] }), startOver())
+        expect(rotated.before?.[0].devices.map((d) => d.deviceId)).toEqual(["phone", "tablet"])
+        // A replacement leaves behind only the devices it had found approved: a newcomer still waits.
+        const replaced = baseline(withTrust(emptyDeviceTrust(), { approved: [{ deviceId: "tablet", rootKey: root(3) }] }), {
+            cause: "replacement",
+            refused: null,
+        })
+        expect(replaced.before).toEqual([{ generation: 2, cause: "replacement", devices: [{ deviceId: "tablet", rootKey: root(3) }], refused: [] }])
+    })
+
+    it("keeps the device the user refused apart: never one of theirs from before", () => {
+        const change = baseline(emptyDeviceTrust(), startOver("tablet"))
+
+        expect(change.before).toEqual([
+            { generation: 2, cause: "start-over", devices: [{ deviceId: "phone", rootKey: root(2) }], refused: [{ deviceId: "tablet", rootKey: root(3) }] },
+        ])
+        expect(baseline(emptyDeviceTrust(), startOver("gone")).before?.[0].refused).toEqual([])
+    })
+
+    it("keeps from before once per generation, even when a review took the baseline first", () => {
+        const reviewed = withTrust(emptyDeviceTrust(), { baselines: [2] })
+        const change = baseline(reviewed, startOver())
+
+        expect(change.before?.[0].devices.map((d) => d.deviceId)).toEqual(["phone", "tablet"])
+        expect(change.seen).toBeUndefined()
+        expect(baseline(withTrust(reviewed, change), startOver())).toEqual({})
+    })
+
+    it("keeps nothing from a list naming a device twice", () => {
+        expect(baseline(emptyDeviceTrust(), startOver(), 2, [...listed, row("phone", 7)])).toEqual({})
+    })
+
+    it("reads what one generation left behind, and only that one", () => {
+        const entry: DevicesBefore = { generation: 2, cause: "replacement", devices: [{ deviceId: "phone", rootKey: root(2) }], refused: [] }
+        const trust = withTrust(emptyDeviceTrust(), { before: [entry] })
+
+        expect(devicesBefore(trust, 2)).toEqual(entry)
+        expect(devicesBefore(trust, 3)).toBeNull()
+        expect(devicesBefore(trust, null)).toBeNull()
+    })
+})
+
+describe("what a device warns of", () => {
     it("tells a reset from a device it found approved over the root key listed now from any other", () => {
         const trust = withTrust(emptyDeviceTrust(), { approved: [{ deviceId: "phone", rootKey: root(2) }], revoked: ["old"] })
         const listed = [
@@ -259,6 +384,7 @@ describe("what a verdict lets a device do", () => {
         ],
         approvedBy: [],
         unsettled: [{ deviceId: "watch", rootKey: root(5) }],
+        before: null,
     }
     const verified = (deviceId: string, n: number, actorUri = ACTOR): LeafVerdict => ({ ok: true, actorUri, deviceId, rootKey: root(n) })
     const BOB = asActorUri("https://idp.test/users/bob_k2m9x")
@@ -534,6 +660,7 @@ describe("reviewing the device list", () => {
         const fakeLaptop = testDevice(issuers, ACTOR, self.deviceId)
         const evil = testDevice(issuers, ACTOR)
         const { stood, withdrawn } = heard(laptop)
+        const kept = structuredClone(laptop.storage.trust)
 
         const verdict = await review(laptop, [
             listedDevice(fakeLaptop, [], { attestation_signature: new Uint8Array(64) }),
@@ -543,7 +670,7 @@ describe("reviewing the device list", () => {
 
         expect(verdict).toEqual(undecided(self.deviceId))
         expect(stood).toEqual([{ kind: "device-list-refused", duplicates: [self.deviceId] }])
-        expect(laptop.storage.trust).toEqual(emptyDeviceTrust())
+        expect(laptop.storage.trust).toEqual(kept)
         await review(laptop, [laptopRow])
         expect(withdrawn).toEqual(stood)
     })

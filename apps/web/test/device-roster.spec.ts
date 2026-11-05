@@ -10,6 +10,8 @@ import type { DeviceListEntry } from "@pinai/domain/models/device"
 import {
     approvedByWording,
     approverOf,
+    fromBeforeDevices,
+    refusedDevice,
     historyHolders,
     holdsCurrentWords,
     holdsHistory,
@@ -21,6 +23,7 @@ import {
     type CheckedApproval,
     type CheckedDevice,
     type DeviceTrustVerdict,
+    type KnownDevice,
     type TrustEvent,
 } from "@pinai/domain/models/device-trust"
 
@@ -66,6 +69,7 @@ function verdict(change: Partial<DeviceTrustVerdict> = {}): DeviceTrustVerdict {
         approved: [{ deviceId: "laptop", rootKey: root(1) }],
         approvedBy: [],
         unsettled: [],
+        before: null,
         ...change,
     }
 }
@@ -234,6 +238,61 @@ describe("who waits for the user", () => {
             "phone",
         ])
         expect(waitingDevices({ devices: rows, events: [unapproved("phone", 9)], verdict: acting, requests: [] })).toEqual([])
+    })
+})
+
+describe("the devices from before this device started over", () => {
+    const rows = [
+        row("laptop", 1),
+        row("desktop", 2, { display_name: "Desktop app on Linux", paired_at: "2026-10-02T00:00:00Z" }),
+        row("tablet", 3, { display_name: "  ", paired_at: "2026-10-04T00:00:00Z" }),
+        row("watch", 4, { paired_at: "2026-11-04T00:00:00Z" }),
+        row("gone", 5, { revoked_at: "2026-11-03T00:00:00Z" }),
+    ]
+    const before = [
+        { deviceId: "desktop", rootKey: root(2) },
+        { deviceId: "tablet", rootKey: root(3) },
+        { deviceId: "gone", rootKey: root(5) },
+    ]
+    const events = [unapproved("desktop", 2), unapproved("tablet", 3), unapproved("watch", 4), unapproved("gone", 5)]
+    const left = (devices = before, refused: KnownDevice[] = []): Partial<DeviceTrustVerdict> => ({
+        before: { generation: 2, cause: "start-over", devices, refused },
+    })
+
+    it("seats them apart, newest first, and out of who waits — the device that appeared after still waits", () => {
+        const acting = verdict(left())
+
+        expect(fromBeforeDevices({ devices: rows, events, verdict: acting }).map((d) => d.device_id)).toEqual(["tablet", "desktop"])
+        expect(waitingDevices({ devices: rows, events, verdict: acting, requests: [request("desktop", "r1")] }).map((d) => d.device_id)).toEqual([
+            "watch",
+        ])
+    })
+
+    it("seats one only while its review leaves it unapproved, under the root key kept, on a device that acts", () => {
+        expect(fromBeforeDevices({ devices: rows, events: [unapproved("tablet", 3)], verdict: verdict(left()) }).map((d) => d.device_id)).toEqual([
+            "tablet",
+        ])
+        const rotated = rows.map((d) => (d.device_id === "desktop" ? { ...d, drk_public_key: root(9) } : d))
+        expect(fromBeforeDevices({ devices: rotated, events: [unapproved("desktop", 9)], verdict: verdict(left()) })).toEqual([])
+        // Under another root key it is another device: it waits like any.
+        expect(
+            waitingDevices({ devices: rotated, events: [unapproved("desktop", 9)], verdict: verdict(left()), requests: [] }).map(
+                (d) => d.device_id,
+            ),
+        ).toEqual(["desktop"])
+        expect(fromBeforeDevices({ devices: rows, events, verdict: undecided("laptop") })).toEqual([])
+        expect(fromBeforeDevices({ devices: rows, events, verdict: null })).toEqual([])
+    })
+
+    it("seats the device the user refused with who waits, apart from the user's from before", () => {
+        const watch = { deviceId: "watch", rootKey: root(4) }
+        const acting = verdict(left(before, [watch]))
+
+        expect(waitingDevices({ devices: rows, events, verdict: acting, requests: [] }).map((d) => d.device_id)).toEqual(["watch"])
+        expect(refusedDevice(acting, rows[3])).toBe(true)
+        expect(refusedDevice(acting, { ...rows[3], drk_public_key: root(9) })).toBe(false)
+        expect(refusedDevice(verdict({ ...left(before, [watch]), acting: false }), rows[3])).toBe(false)
+        expect(fromBeforeDevices({ devices: rows, events, verdict: acting }).map((d) => d.device_id)).not.toContain("watch")
     })
 })
 

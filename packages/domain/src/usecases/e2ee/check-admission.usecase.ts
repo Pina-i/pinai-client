@@ -1,4 +1,4 @@
-import { deviceAdmission, needsPartners, type Admission, type PartnerFacts } from "../../models/admission"
+import { deviceAdmission, needsPartners, resetCause, type Admission, type PartnerFacts } from "../../models/admission"
 import type { ActorUri } from "../../models/e2ee"
 import type { HistoryKeyStanding } from "../../models/history-key"
 import type { IDeviceDirectoryPort } from "../../ports/device-directory.port"
@@ -9,7 +9,11 @@ export interface CheckAdmissionDeps {
     deviceDirectoryPort: IDeviceDirectoryPort
 }
 
-/** One read of the key per check: the standing carries its generation, and the list is read only when partners count. */
+/**
+ * One read of the key per check: the standing carries its generation, and the list is read only
+ * when partners count — after a newer generation, with whether this device found its setter
+ * approved.
+ */
 export function checkAdmissionUseCase(deps: CheckAdmissionDeps) {
     return async (
         idpUrl: string,
@@ -21,7 +25,8 @@ export function checkAdmissionUseCase(deps: CheckAdmissionDeps) {
         if (needsPartners(standing)) {
             const { devices } = await deps.deviceDirectoryPort.listDevices(idpUrl, accessToken)
             const checked = await deps.e2eePort.checkHandshakePartners(actorUri, devices)
-            partners = checked && { devices, ...checked }
+            const setter = resetCause(standing) === "newer-generation" ? await deps.e2eePort.resetSetter(devices) : null
+            partners = checked && { devices, ...checked, setter }
         }
         const admission = deviceAdmission(standing, partners)
         await deps.e2eePort.recordAdmission(admission)

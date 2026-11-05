@@ -4,10 +4,11 @@ import { RecentSignInModal } from "@/presentation/molecules/RecentSignInModal/Re
 import { useStartOverPanelViewModel, type StartOverPanelInput } from "./StartOverPanel.viewmodel"
 
 /**
- * Why this device starts over: everything lost (the new-device page), a reset the user didn't make
- * (the reset page's "It wasn't me"), or a change no device of theirs made.
+ * Why this device starts over: everything lost (a new device), a reset the user didn't make ("It
+ * wasn't me" on the reset page; `password-changed`, the banner's step after the password), or a
+ * change no device of theirs made.
  */
-export type StartOverReason = "lost-everything" | "not-me" | "unknown-change"
+export type StartOverReason = "lost-everything" | "not-me" | "password-changed" | "unknown-change"
 
 const STAYS =
     "Your saved history is erased, and this device won't see your existing conversations unless a device you still have comes back: it will warn you, and can come back with a code typed here. Your account, your friends and new conversations stay."
@@ -22,6 +23,11 @@ const COPY: Record<StartOverReason, { eyebrow: string; heading: string; body: st
         eyebrow: "Start over from here",
         heading: "It wasn't me",
         body: `Then the device that reset your history isn't yours, and it won't be approved. This device gets a new passphrase and becomes your reference instead. ${STAYS}`,
+    },
+    "password-changed": {
+        eyebrow: "Then, start over",
+        heading: "Make this device your reference",
+        body: `The device that reset your history isn't yours: it won't be approved. This device gets a new passphrase and becomes your reference instead. ${STAYS}`,
     },
     "unknown-change": {
         eyebrow: "Start over from here",

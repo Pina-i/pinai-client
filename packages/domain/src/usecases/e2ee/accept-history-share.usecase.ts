@@ -8,6 +8,7 @@ import type { IKeySharePort } from "../../ports/key-share.port"
 import { approveByPassphraseUseCase } from "./approve-by-passphrase.usecase"
 import { registerIdentityUseCase } from "./register-identity.usecase"
 import { shareOnceHeld, type ShareOnceHeldDeps } from "./share-history-key.usecase"
+import { takeDeviceBaseline } from "./take-device-baseline.usecase"
 
 export interface AcceptHistoryShareDeps extends ShareOnceHeldDeps {
     historyArchivePort: IHistoryArchivePort
@@ -31,7 +32,8 @@ export type ShareAcceptance =
 /**
  * The recipient's side of `identity-provider/specs/e2ee.md § 3.11`, for a device that doesn't hold
  * the current passphrase: its share read, the four checks run in order against the key in force,
- * and only then the words kept (18f's flow), the device approved by them, its generation reported —
+ * and only then the words kept (18f's flow) — the devices listed then taken as seen —, the device
+ * approved by them, its generation reported —
  * which deletes the share —, its KeyPackages published, and the generation shared with its own
  * partners. The restore is marked due before the words are kept, so a page that closes first
  * leaves it for the next start.
@@ -52,6 +54,7 @@ export function acceptHistoryShareUseCase(deps: AcceptHistoryShareDeps) {
         if (!opened.ok) return { kind: "refused", reason: opened.reason }
         await deps.e2eePort.markHistoryRestoreDue(key.generation)
         await deps.e2eePort.keepPassphrase(opened.words, key)
+        await takeDeviceBaseline(deps, idpUrl, accessToken, key.generation, null)
         const approved = await approveByPassphraseUseCase(deps)(idpUrl, accessToken, actorUri)
         if (approved.kind !== "holds") return { kind: "key-changed" }
         await registerIdentityUseCase(deps)({ idpUrl, accessToken, actorUri, admission: deviceAdmission(approved, null) })

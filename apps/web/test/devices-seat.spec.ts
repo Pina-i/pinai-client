@@ -430,7 +430,10 @@ describe("the waiting seats on screen", () => {
 
     /** The laptop signed in, its review of the list standing: the phone and the tablet wait. */
     async function signedIn() {
-        const accounts = await account()
+        return signedInAs(await account())
+    }
+
+    async function signedInAs(accounts: Awaited<ReturnType<typeof account>>) {
         const { idp, laptop, net } = accounts
         wired.e2ee = laptop.e2ee
         wired.relay = net.relay
@@ -474,6 +477,53 @@ describe("the waiting seats on screen", () => {
         expect(seatOf(tablet.storage.deviceId)?.textContent).toContain("reads nothing of yours until you approve it")
         expect(seatOf(tablet.storage.deviceId)?.textContent).toMatch(/paired \S+/)
         expect(codeField(tablet)).toBeNull()
+    })
+
+    it("seats a device from before this device started over apart — counted nowhere —, its code inline when it asks, through the same run", async () => {
+        const accounts = await account()
+        const { laptop, phone, tablet, net } = accounts
+        laptop.storage.trust = {
+            ...laptop.storage.trust,
+            before: [{ generation: 1, cause: "start-over", devices: [{ deviceId: phone.storage.deviceId, rootKey: phone.storage.rootKey.publicKey }], refused: [] }],
+        }
+        await signedInAs(accounts)
+        const asker = await asking(net, phone)
+        await render()
+        await until(() => codeField(phone) !== null)
+
+        expect(container.textContent).toContain("From before you started over")
+        expect(container.textContent).toContain("1 waiting")
+        const seat = seatOf(phone.storage.deviceId)
+        expect(seat?.textContent).toContain("Type the code Chrome on Android shows")
+        expect(seat?.textContent).not.toContain("waiting for you")
+        expect(buttonIn(seat, "Sign out")?.getAttribute("aria-label")).toBe("Sign out Chrome on Android")
+        expect(buttonIn(seat, "Not mine")).toBeUndefined()
+        expect(seatOf(tablet.storage.deviceId)?.textContent).toContain("waiting for you")
+
+        await approveIn(phone, codeOf(asker.state))
+        for (let i = 0; i < 8 && runtime?.seats().seat?.stage !== "approved"; i++) {
+            await act(async () => asker.tick())
+            await advance(3_000)
+        }
+        await until(() => seatOf(phone.storage.deviceId)?.textContent?.includes("Chrome on Android is one of your devices now.") === true)
+        expect(net.approvals).toContainEqual({ approver: laptop.storage.deviceId, approved: phone.storage.deviceId })
+    })
+
+    it("titles them for a replacement: “From before you replaced your words”, still counted nowhere", async () => {
+        const accounts = await account()
+        const { laptop, phone } = accounts
+        laptop.storage.trust = {
+            ...laptop.storage.trust,
+            before: [{ generation: 1, cause: "replacement", devices: [{ deviceId: phone.storage.deviceId, rootKey: phone.storage.rootKey.publicKey }], refused: [] }],
+        }
+        await signedInAs(accounts)
+        await render()
+        await until(() => seatOf(phone.storage.deviceId) !== null)
+
+        expect(container.textContent).toContain("From before you replaced your words")
+        expect(container.textContent).not.toContain("From before you started over")
+        expect(container.textContent).toContain("1 waiting")
+        expect(seatOf(phone.storage.deviceId)?.textContent).not.toContain("waiting for you")
     })
 
     it("approves inline through the Door's run, the focus on Cancel then on the outcome, Settings not closing on Escape meanwhile", async () => {

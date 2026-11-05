@@ -52,7 +52,8 @@ export interface HandshakeDeps {
         | "rememberHandshakePartner"
         | "checkHistoryKey"
         | "getDeviceId"
-    >
+    > &
+        Partial<Pick<IE2eePort, "verdictSnapshot">>
     relay: IApprovalRelayPort
     directory: Pick<IDeviceDirectoryPort, "listDevices" | "approveByDevice">
     /** Wired, the answerer shares the passphrase with the device it just approved (§ 3.11). */
@@ -909,7 +910,9 @@ export class ApprovalAnswering {
         const thisDevice = this.thisDevice
         if (!thisDevice) return []
         const dismissed = place === "door" ? new Set([...this.dismissed, ...this.settled]) : this.settled
-        return answerableRequests(this.requests, { thisDevice, acting: place === "door" ? this.acting : this.holds, dismissed })
+        // "It wasn't me": never offered a code, at the Door or in a seat.
+        const refused = new Set(this.deps.e2ee.verdictSnapshot?.()?.before?.refused.map((d) => d.deviceId) ?? [])
+        return answerableRequests(this.requests, { thisDevice, acting: place === "door" ? this.acting : this.holds, dismissed, refused })
     }
 
     private seatBusy(): boolean {

@@ -6,14 +6,7 @@
 
 import type { ApprovalRequest } from "./approval-handshake"
 import type { DeviceListEntry } from "./device"
-import {
-    sameDevice,
-    unapprovedListed,
-    type Approver,
-    type DeviceTrustVerdict,
-    type KnownDevice,
-    type TrustEvent,
-} from "./device-trust"
+import { sameDevice, unapprovedListed, type Approver, type DeviceTrustVerdict, type KnownDevice, type TrustEvent } from "./device-trust"
 import type { DeviceId } from "./e2ee"
 import type { HistoryKeyStanding } from "./history-key"
 
@@ -69,13 +62,16 @@ export function approvedByWording(
     return devices.find((d) => d.device_id === approver.deviceId)?.display_name ?? null
 }
 
+type Seated = Listed & Pick<DeviceListEntry, "revoked_at" | "paired_at">
+
 /**
  * Who waits for the user, newest first, on an acting verdict only: each device its review left
  * unapproved (`unapproved-device`), and one asking (`requests`, those a seat may answer) that no
  * review has judged yet. A device judged otherwise — approved, unsettled, its chain failing, seen
- * revoked — never sits there.
+ * revoked — never sits there, nor one from before (`fromBeforeDevices`); the one the user refused
+ * does (`refusedDevice`).
  */
-export function waitingDevices<T extends Listed & Pick<DeviceListEntry, "revoked_at" | "paired_at">>(input: {
+export function waitingDevices<T extends Seated>(input: {
     devices: readonly T[]
     events: readonly TrustEvent[]
     verdict: DeviceTrustVerdict | null
@@ -85,8 +81,39 @@ export function waitingDevices<T extends Listed & Pick<DeviceListEntry, "revoked
     if (!verdict?.acting) return []
     const unapproved = unapprovedListed(input.events, devices)
     const asking = new Set(input.requests.map((r) => r.deviceId))
-    return devices
-        .filter((d) => d.revoked_at === null && d.drk_public_key !== null && d.device_id !== verdict.thisDevice)
-        .filter((d) => unapproved.has(d.device_id) || (asking.has(d.device_id) && !inList(verdict.listed, d)))
-        .sort((a, b) => Date.parse(b.paired_at) - Date.parse(a.paired_at))
+    return newestFirst(
+        devices
+            .filter((d) => d.revoked_at === null && d.drk_public_key !== null && d.device_id !== verdict.thisDevice)
+            .filter((d) => !inList(verdict.before?.devices ?? [], d))
+            .filter((d) => unapproved.has(d.device_id) || (asking.has(d.device_id) && !inList(verdict.listed, d))),
+    )
+}
+
+/**
+ * "From before you started over" — or "you replaced your words" —, newest first, on an acting
+ * verdict only: a device its review left unapproved — judged, its chain verified, no revocation —
+ * that was listed, under that root key, as this device set the generation it acts under. The user's
+ * own: no "waiting for you", no toast, no count. The new words' screen names the same devices.
+ */
+export function fromBeforeDevices<T extends Seated>(input: {
+    devices: readonly T[]
+    events: readonly TrustEvent[]
+    verdict: DeviceTrustVerdict | null
+}): T[] {
+    const { devices, verdict } = input
+    if (!verdict?.acting || !verdict.before) return []
+    const unapproved = unapprovedListed(input.events, devices)
+    const before = verdict.before.devices
+    return newestFirst(
+        devices.filter((d) => d.revoked_at === null && d.device_id !== verdict.thisDevice && unapproved.has(d.device_id) && inList(before, d)),
+    )
+}
+
+/** The device the user refused when this device started over — "Reset your history — not yours" —, under the root key kept. */
+export function refusedDevice(verdict: DeviceTrustVerdict | null, device: Listed): boolean {
+    return !!verdict?.acting && inList(verdict.before?.refused ?? [], device)
+}
+
+function newestFirst<T extends Seated>(devices: T[]): T[] {
+    return devices.sort((a, b) => Date.parse(b.paired_at) - Date.parse(a.paired_at))
 }

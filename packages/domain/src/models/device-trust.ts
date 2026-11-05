@@ -34,9 +34,27 @@ export function samePartner(a: HandshakePartner, b: HandshakePartner): boolean {
     return sameDevice(a, b) && sameBytes(a.hpkeKey, b.hpkeKey)
 }
 
+/** What left the account's other devices behind: a start over, or a replacement of the words. */
+export type BeforeCause = "start-over" | "replacement"
+
+/** A new generation of this device's own, and the device the user refused ("It wasn't me"), if any. */
+export interface BaselineIntent {
+    cause: BeforeCause
+    refused: DeviceId | null
+}
+
+/** The devices listed as this device set `generation`, but itself and its partners: the user's from before. */
+export interface DevicesBefore {
+    generation: number
+    cause: BeforeCause
+    devices: KnownDevice[]
+    /** The device the user said reset the history in their place: never one of theirs. */
+    refused: KnownDevice[]
+}
+
 /** What this device keeps of the account's devices. Each part only grows. */
 export interface DeviceTrust {
-    /** Seen while this device acted on approval: one is told as arriving once. */
+    /** Seen while this device acted on approval, or listed as it started acting: one is told as arriving once. */
     seen: KnownDevice[]
     /** Found approved, over the root key they were approved over. */
     approved: KnownDevice[]
@@ -44,14 +62,18 @@ export interface DeviceTrust {
     revoked: DeviceId[]
     /** Approved both ways in a code handshake. */
     partners: HandshakePartner[]
+    /** The generations this device took its baseline under (`deviceBaseline`). */
+    baselines: number[]
+    /** One entry per generation this device set over others, the first recorded for it kept. */
+    before: DevicesBefore[]
 }
 
 export type DeviceTrustRow = keyof DeviceTrust
 
-export const DEVICE_TRUST_ROWS: readonly DeviceTrustRow[] = ["seen", "approved", "revoked", "partners"]
+export const DEVICE_TRUST_ROWS: readonly DeviceTrustRow[] = ["seen", "approved", "revoked", "partners", "baselines", "before"]
 
 export function emptyDeviceTrust(): DeviceTrust {
-    return { seen: [], approved: [], revoked: [], partners: [] }
+    return { seen: [], approved: [], revoked: [], partners: [], baselines: [], before: [] }
 }
 
 /** `trust` with what `change` adds; the very same object when it adds nothing. */
@@ -60,7 +82,16 @@ export function withTrust(trust: DeviceTrust, change: Partial<DeviceTrust>): Dev
     const approved = withDevices(trust.approved, change.approved ?? [], sameDevice)
     const partners = withDevices(trust.partners, change.partners ?? [], samePartner)
     const newlyRevoked = [...new Set(change.revoked ?? [])].filter((id) => !trust.revoked.includes(id))
-    if (seen === trust.seen && approved === trust.approved && partners === trust.partners && newlyRevoked.length === 0) {
+    const newBaselines = [...new Set(change.baselines ?? [])].filter((g) => !trust.baselines.includes(g))
+    const before = withDevices(trust.before, change.before ?? [], (a, b) => a.generation === b.generation)
+    if (
+        seen === trust.seen &&
+        approved === trust.approved &&
+        partners === trust.partners &&
+        newlyRevoked.length === 0 &&
+        newBaselines.length === 0 &&
+        before === trust.before
+    ) {
         return trust
     }
     return {
@@ -68,6 +99,8 @@ export function withTrust(trust: DeviceTrust, change: Partial<DeviceTrust>): Dev
         approved,
         revoked: newlyRevoked.length === 0 ? trust.revoked : [...trust.revoked, ...newlyRevoked],
         partners,
+        baselines: newBaselines.length === 0 ? trust.baselines : [...trust.baselines, ...newBaselines],
+        before,
     }
 }
 
@@ -77,6 +110,55 @@ function withDevices<T>(held: T[], more: readonly T[], same: (a: T, b: T) => boo
         if (!held.some((d) => same(d, device)) && !added.some((d) => same(d, device))) added.push(device)
     }
     return added.length === 0 ? held : [...held, ...added]
+}
+
+type BaselineRow = Pick<DeviceListEntry, "device_id" | "drk_public_key" | "revoked_at">
+
+/**
+ * What a device keeps as it starts acting under `generation` — its first generation, typed words,
+ * an accepted share, a start over, a replacement (`identity-provider/specs/e2ee.md § 3.9`): every
+ * device listed then as seen, so only one appearing later is told as arriving. After a new
+ * generation of its own (`intent`), the others listed then as from before — after a replacement,
+ * those it had found approved — but its handshake partners, still approved through it, and the
+ * device the user refused, kept apart. Each once per
+ * generation, a review taking the baseline itself when no flow did; nothing from a list naming an
+ * id twice.
+ */
+export function deviceBaseline(input: {
+    trust: DeviceTrust
+    generation: number
+    devices: readonly BaselineRow[]
+    thisDevice: DeviceId
+    intent: BaselineIntent | null
+}): Partial<DeviceTrust> {
+    const { trust, generation, thisDevice } = input
+    if (duplicateDeviceIds(input.devices.map((d) => d.device_id)).length > 0) return {}
+    const listed = input.devices.flatMap((d) =>
+        d.drk_public_key && d.revoked_at === null && !trust.revoked.includes(d.device_id)
+            ? [{ deviceId: d.device_id, rootKey: d.drk_public_key }]
+            : [],
+    )
+    const change: Partial<DeviceTrust> = {}
+    if (!trust.baselines.includes(generation)) Object.assign(change, { seen: listed, baselines: [generation] })
+    const { intent } = input
+    if (intent && !trust.before.some((b) => b.generation === generation)) {
+        // A replacement knows the user's devices: one it never found approved still waits as any newcomer.
+        const others = listed.filter(
+            (d) =>
+                d.deviceId !== thisDevice &&
+                !trust.partners.some((p) => sameDevice(p, d)) &&
+                (intent.cause === "start-over" || trust.approved.some((a) => sameDevice(a, d))),
+        )
+        const refused = others.filter((d) => d.deviceId === intent.refused)
+        const devices = others.filter((d) => d.deviceId !== intent.refused)
+        change.before = [{ generation, cause: intent.cause, devices, refused }]
+    }
+    return change
+}
+
+/** What this device's own generation `generation` left behind; `null` when it set none over others. */
+export function devicesBefore(trust: DeviceTrust, generation: number | null): DevicesBefore | null {
+    return trust.before.find((b) => b.generation === generation) ?? null
 }
 
 /**
@@ -188,13 +270,15 @@ export interface DeviceTrustVerdict {
     approvedBy: ApprovedDevice[]
     /** Listed, their chain unsettled: neither added nor committed out. */
     unsettled: KnownDevice[]
+    /** What the generation it acts under, when this device set it over others, left behind; `null` when it doesn't act. */
+    before: DevicesBefore | null
 }
 
 export function undecided(thisDevice: DeviceId, listed: KnownDevice[] = [], unsettled: KnownDevice[] = []): DeviceTrustVerdict {
-    return { acting: false, generation: null, thisDevice, listed, approved: [], approvedBy: [], unsettled }
+    return { acting: false, generation: null, thisDevice, listed, approved: [], approvedBy: [], unsettled, before: null }
 }
 
-/** A listed device, its chain verifying, unrevoked and unapproved; `arrived` the first time this device sees it under that root key. */
+/** A listed device, its chain verifying, unrevoked and unapproved; `arrived` only once it appeared after this device's baseline. */
 export interface UnapprovedDevice extends KnownDevice {
     displayName: string
     arrived: boolean
@@ -202,8 +286,8 @@ export interface UnapprovedDevice extends KnownDevice {
 
 /**
  * What a review by a device acting on approval finds and keeps: the approved devices, itself
- * among them; the unsettled; every device still unapproved, told as arriving only the first time;
- * the devices seen and found approved, to keep.
+ * among them; the unsettled; every device still unapproved, told as arriving only when it appeared
+ * after the baseline (`deviceBaseline`); the devices seen and found approved, to keep.
  */
 export function judgeDevices(input: {
     devices: readonly CheckedDevice[]
@@ -216,9 +300,11 @@ export function judgeDevices(input: {
     approvedBy: ApprovedDevice[]
     unsettled: KnownDevice[]
     unapproved: UnapprovedDevice[]
+    before: DevicesBefore | null
     keep: Partial<DeviceTrust>
 } {
     const { devices, trust, thisDevice } = input
+    const baseline = trust.baselines.includes(input.generation)
     const approvedBy = approvedDevicesBy(devices, input.generation, trust.revoked)
     const found = approvedBy.map(({ deviceId, rootKey }) => ({ deviceId, rootKey }))
     const self = input.ownRootKey ? { deviceId: thisDevice, rootKey: input.ownRootKey } : null
@@ -233,14 +319,19 @@ export function judgeDevices(input: {
             deviceId,
             rootKey,
             displayName: d.displayName,
-            arrived: !trust.seen.some((s) => sameDevice(s, { deviceId, rootKey })),
+            arrived: baseline && !trust.seen.some((s) => sameDevice(s, { deviceId, rootKey })),
         }))
+    const unsettled = known("unsettled").map(({ deviceId, rootKey }) => ({ deviceId, rootKey }))
+    const seen = settled.map(({ deviceId, rootKey }) => ({ deviceId, rootKey }))
     return {
         approved,
         approvedBy,
-        unsettled: known("unsettled").map(({ deviceId, rootKey }) => ({ deviceId, rootKey })),
+        unsettled,
         unapproved,
-        keep: { seen: settled.map(({ deviceId, rootKey }) => ({ deviceId, rootKey })), approved: found },
+        before: devicesBefore(trust, input.generation),
+        keep: baseline
+            ? { seen, approved: found }
+            : { seen: [...seen, ...unsettled], approved: found, baselines: [input.generation] },
     }
 }
 

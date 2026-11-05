@@ -6,14 +6,15 @@
  * The gate checks as it mounts, then in the background: at a route change, at most once in 30 s and
  * never while a check runs, and at once when the device hears its key changed. The newest check
  * decides; one that fails, or one finishing after an unmount or a sign-out, changes nothing. A device
- * let in isn't stopped where it stands. The new-device page, drawn as Pass, has three tabs — another
+ * let in isn't stopped where it stands; one in by its kept words gets the banner's cause. The new-device page, drawn as Pass, has three tabs — another
  * device's code, the 24 words, a start over — and signing out; a device already in gets no start
  * over, and "Back". Starting over asks a password typed too long ago again before anything is
  * minted, and shows the new words only once the IdP took them — again after a reload, until the user
- * goes past them. The reset page offers that device, its 24 words and a start over from here after a
- * start over elsewhere — naming the device when it is one this device found approved, whose words
- * were replaced there —; after a change no start over explains, "Check again", a start over from
- * here and signing out — and for a key gone back, only "Check again" and signing out.
+ * goes past them. The reset page offers that device, its 24 words and a start over from here after
+ * a device this device found approved replaced the words, naming it; a device holding words of the
+ * account over any other reset goes on to the app at its check. For a device that never held words,
+ * a change no start over explains offers "Check again", a start over from here and signing out —
+ * and for a key gone back, only "Check again" and signing out.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
@@ -222,15 +223,28 @@ describe("the onboarding gate", () => {
         expect(gate.status).toBe("redirecting")
     })
 
-    it("doesn't stop a device let in where it stands, and sends it to the reset page at the next route once it turned out", async () => {
+    it("keeps a device in where it stands when a device it never approved starts over: its banner comes at the next check", async () => {
         const { idp, checks } = await inThenWatched()
         await startOverElsewhere(idp)
 
         await advance(31_000)
         expect(checks).not.toHaveBeenCalled()
-        expect(at()).toBe("/home")
-        expect(gate.status).toBe("ready")
+        expect(gate.reset).toBeNull()
 
+        await go("kai@idp.test")
+        await until(() => gate.reset?.cause === "reset-by-unapproved")
+        expect(gate.reset?.setter).toBe(idp.key?.setByDevice)
+        expect(checks).toHaveBeenCalledOnce()
+        expect(at()).toBe("/dm/kai%40idp.test")
+        expect(gate.status).toBe("ready")
+    })
+
+    it("sends a device to the reset page at the next route once a device it found approved replaced its words", async () => {
+        const { idp, laptop, phone, checks } = await inThenWatched()
+        laptop.storage.trust = { ...laptop.storage.trust, approved: [{ deviceId: phone.storage.deviceId, rootKey: phone.storage.rootKey.publicKey }] }
+        await newWordsOn(phone, idp)
+
+        await advance(31_000)
         await go("kai@idp.test")
         await until(() => at() === "/onboarding/history-reset")
         expect(checks).toHaveBeenCalledOnce()
@@ -260,17 +274,30 @@ describe("the onboarding gate", () => {
         expect(gate.status).toBe("ready")
     })
 
-    it("checks at once when the device hears its key changed, route change or not", async () => {
+    it("checks at once when the device hears its key changed, and once more when it stops hearing it: the reason comes and goes, the device in", async () => {
         const { idp, laptop, checks } = await inThenWatched()
-        idp.key = { ...idp.key!, approvalPublicKey: ed25519.keygen().publicKey }
+        const held = idp.key!
+        idp.key = { ...held, approvalPublicKey: ed25519.keygen().publicKey }
 
         // As an upload's stale_history_key would: the key read again, the change heard.
         await act(async () => {
             await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
         })
 
-        await until(() => at() === "/onboarding/history-reset")
-        expect(checks.mock.calls.length).toBeGreaterThanOrEqual(2)
+        await until(() => gate.reset?.cause === "unknown-change")
+        // The test's own read, then the gate's one check on hearing it.
+        expect(checks).toHaveBeenCalledTimes(2)
+        expect(at()).toBe("/home")
+
+        idp.key = held
+        await act(async () => {
+            await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
+        })
+        await until(() => gate.reset === null)
+        await advance(1_000)
+        // The test's second read, then the gate's one check on the warning withdrawn, and no other.
+        expect(checks).toHaveBeenCalledTimes(4)
+        expect(gate.status).toBe("ready")
     })
 
     it("lets the newest of two overlapping checks decide", async () => {
@@ -695,7 +722,7 @@ describe("“Start over” on the new-device page", () => {
         expect(text()).not.toContain("Another of your devices set a new passphrase")
     })
 
-    it("another generation landing right after its own: says so, shows no words, and the gate sends it to the reset page", async () => {
+    it("another generation landing right after its own: says so, shows no words, and the gate sends it on, its kept words letting it in", async () => {
         const { idp, phone, net } = await account()
         signedInAgo(phone, idp, net)
         vi.spyOn(net.directory, "approveByPassphrase").mockImplementationOnce(async () => {
@@ -707,7 +734,8 @@ describe("“Start over” on the new-device page", () => {
 
         await press(button("Erase and start over"))
         await until(() => text().includes("This device started over, then another of your devices set a newer passphrase"))
-        await until(() => at() === "/onboarding/history-reset")
+        // The rival is no device it found approved: no reset page, the app under its banner.
+        await until(() => at() === "/home")
         expect(text()).not.toContain("Your new 24 words")
     })
 })
@@ -715,30 +743,24 @@ describe("“Start over” on the new-device page", () => {
 describe("the reset page", () => {
     const page = () => createElement(RecoveryRestorePage, { variant: "reset" })
 
-    it("after a start over elsewhere: that device, its 24 words, and a start over from here", async () => {
-        const { idp, laptop, net } = await account()
-        await startOverElsewhere(idp)
+    it("sends a device holding words of the account on to the app at its check, after a start over by a device it never found approved, or a change no device made", async () => {
+        const { idp, laptop, phone, net } = await account()
+        await newWordsOn(phone, idp)
         await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
         signIn(laptop, idp, net)
         await render(page, "/onboarding/history-reset")
-        await until(() => text().includes("Your history was reset from another device") && shownCode().length === 6)
+        await until(() => at() === "/home")
+        expect(laptop.storage.admission).toEqual({ kind: "in", by: "kept-words", cause: "reset-by-unapproved" })
+        expect(net.requests.size).toBe(0)
+        await unmount()
 
-        expect(tabs()).toEqual(["That device", "Its 24 words", "Start over"])
-        expect(openTab()).toBe("That device")
-        expect(text()).toContain("Open Pīna'i on the device that reset your history and type it when it asks.")
-        expect(button("Sign out")).toBeDefined()
-        expect(button("Check again")).toBeUndefined()
-
-        await press(tab("Its 24 words"))
-        expect(container.querySelectorAll("input").length).toBe(24)
-        expect(text()).toContain("The new words, from the device that reset your history")
-
-        await press(tab("Start over"))
-        expect(text()).toContain("Start over from here")
-        expect(text()).toContain("It wasn't me")
-        expect(text()).toContain("the device that reset your history isn't yours, and it won't be approved")
-        expect(text()).toContain("becomes your reference")
-        expect(button("Erase and start over")).toBeDefined()
+        const changed = await account()
+        changed.idp.key = { ...changed.idp.key!, approvalPublicKey: ed25519.keygen().publicKey }
+        await changed.laptop.e2ee.checkHistoryKey(IDP, changed.laptop.token)
+        signIn(changed.laptop, changed.idp, changed.net)
+        await render(page, "/onboarding/history-reset")
+        await until(() => at() === "/home")
+        expect(changed.laptop.storage.admission).toEqual({ kind: "in", by: "kept-words", cause: "unknown-change" })
     })
 
     it("after a device it found approved replaced the words: names that device — its code, its new words, a start over from here", async () => {
@@ -792,25 +814,10 @@ describe("the reset page", () => {
         expect(seen.some((shown) => shown.includes("Open Pīna'i on the device that reset your history"))).toBe(false)
     })
 
-    it("after new words set by a listed device it never found approved: “reset from another device”, naming none", async () => {
-        const { idp, laptop, phone, net } = await account()
-        await newWordsOn(phone, idp)
-        await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
-        signIn(laptop, idp, net)
-        const listed = vi.spyOn(net.directory, "listDevices")
-        await render(page, "/onboarding/history-reset")
-        await until(() => text().includes("Your history was reset from another device") && tabs().length === 3)
-        await until(() => listed.mock.calls.length > 0)
-        await advance(1_000)
-
-        expect(text()).toContain("Your history was reset from another device")
-        expect(text()).not.toContain("replaced on")
-        expect(text()).toContain("Open Pīna'i on the device that reset your history and type it when it asks.")
-    })
-
     it("“It wasn't me”: this device starts over from here, the next generation its own", async () => {
-        const { idp, laptop, net } = await account()
-        await startOverElsewhere(idp)
+        const { idp, laptop, phone, net } = await account()
+        laptop.storage.trust = { ...laptop.storage.trust, approved: [{ deviceId: phone.storage.deviceId, rootKey: phone.storage.rootKey.publicKey }] }
+        await newWordsOn(phone, idp)
         await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
         signedInAgo(laptop, idp, net)
         await render(page, "/onboarding/history-reset?tab=start-over")
@@ -825,11 +832,11 @@ describe("the reset page", () => {
         expect(await laptop.e2ee.historyKeyStanding()).toEqual({ kind: "holds", generation: 3, settled: true })
     })
 
-    it("for a change no device made: no code, no words — “Check again”, a start over from here, signing out", async () => {
-        const { idp, laptop, net } = await account()
-        idp.key = { ...idp.key!, approvalPublicKey: ed25519.keygen().publicKey }
-        await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
-        signedInAgo(laptop, idp, net)
+    it("for a change no device made, on a device that never held words: no code, no words — “Check again”, a start over from here, signing out", async () => {
+        const { idp, phone, net } = await account()
+        phone.storage.newest = 2
+        await phone.e2ee.checkHistoryKey(IDP, phone.token)
+        signedInAgo(phone, idp, net)
         await render(page, "/onboarding/history-reset")
         await until(() => text().includes("Your instance changed your history key") && button("Sign out")?.disabled === false)
         await advance(10_000)
@@ -849,24 +856,11 @@ describe("the reset page", () => {
         await until(() => at() === "/home")
     })
 
-    it("for a change no device made, starting over from here — `?tab=start-over` opens on the warning", async () => {
-        const { idp, laptop, net } = await account()
-        idp.key = { ...idp.key!, approvalPublicKey: ed25519.keygen().publicKey }
-        await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
-        signedInAgo(laptop, idp, net)
-        await render(page, "/onboarding/history-reset?tab=start-over")
-        await until(() => button("Erase and start over")?.disabled === false)
-        expect(text()).toContain("Make this device your reference")
-        await press(button("Erase and start over"))
-        await until(() => text().includes("Your new 24 words"))
-        expect(idp.key).toMatchObject({ generation: 2, setByDevice: laptop.storage.deviceId })
-    })
-
     it("for a key gone back under one this device saw: only the instance can put it back — no start over, “Check again”, signing out", async () => {
-        const { idp, laptop, net } = await account()
-        laptop.storage.newest = 2
-        await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
-        signedInAgo(laptop, idp, net)
+        const { idp, phone, net } = await account()
+        phone.storage.newest = 2
+        await phone.e2ee.checkHistoryKey(IDP, phone.token)
+        signedInAgo(phone, idp, net)
         await render(page, "/onboarding/history-reset?tab=start-over")
         await until(() => button("Erase and start over")?.disabled === false)
 
@@ -876,7 +870,7 @@ describe("the reset page", () => {
         expect(button("Erase and start over")).toBeUndefined()
         expect(button("Sign out")).toBeDefined()
         expect(idp.key?.generation).toBe(1)
-        expect(laptop.storage.pending).toBeNull()
+        expect(phone.storage.pending).toBeNull()
 
         await press(button("Check again"))
         await until(() => at() === "/home")

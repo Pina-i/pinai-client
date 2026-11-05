@@ -17,6 +17,7 @@ import { useLoadDmConversations } from "@/presentation/hooks/useLoadDmConversati
 import { useHeartbeat } from "@/presentation/hooks/useHeartbeat"
 import { useTypingPruner } from "@/presentation/hooks/useTypingPruner"
 import { useHoldSplashScreen } from "@/presentation/hooks/use-hold-splash-screen"
+import { HistoryResetContext } from "@/presentation/providers/HistoryResetProvider/HistoryReset.context"
 import { useReplenishKeyPackages } from "@/presentation/hooks/use-replenish-key-packages"
 import { useUnapprovedDeviceNotice } from "@/presentation/hooks/use-unapproved-device-notice"
 import { useLoadPresence } from "@/presentation/hooks/useLoadPresence"
@@ -64,6 +65,7 @@ function AuthenticatedLayout() {
         ),
         [],
     )
+    const reset = useMemo(() => ({ reset: gate.reset, recheck: gate.recheck }), [gate.reset, gate.recheck])
 
     return (
         <>
@@ -81,7 +83,7 @@ function AuthenticatedLayout() {
                 )}
             </AnimatePresence>
             {gate.status === "ready" && <AppRuntime />}
-            {gate.status === "ready" && shell}
+            {gate.status === "ready" && <HistoryResetContext.Provider value={reset}>{shell}</HistoryResetContext.Provider>}
             {gate.status === "ready" && <ApprovalDoor />}
         </>
     )

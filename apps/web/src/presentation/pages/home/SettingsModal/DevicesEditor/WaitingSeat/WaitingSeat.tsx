@@ -1,4 +1,4 @@
-import { Check, Compass } from "lucide-react"
+import { Check, Compass, History, ShieldAlert } from "lucide-react"
 import { useEffect, useRef } from "react"
 
 import type { SeatsView } from "@pinai/domain/models/approval-handshake"
@@ -8,7 +8,7 @@ import type { DeviceRow } from "@/presentation/hooks/useDevices"
 import { cn } from "@/presentation/_libs/utils"
 
 import { pill } from "../../editor-styles"
-import { useWaitingSeatViewModel } from "./WaitingSeat.viewmodel"
+import { useWaitingSeatViewModel, type SeatKind } from "./WaitingSeat.viewmodel"
 
 interface WaitingSeatProps {
     device: DeviceRow
@@ -17,13 +17,16 @@ interface WaitingSeatProps {
     /** Revokes it, through the revoke flow and its recent-password step. */
     onNotMine: () => void
     isRevoking: boolean
+    kind?: SeatKind
 }
 
 const line = "m-0 text-[12px] leading-[1.5] outline-none"
 
-/** A device nobody approved, as a dashed seat at the top of the list: the code its request asks for, when it asks. */
-export function WaitingSeat({ device, answering, seats, onNotMine, isRevoking }: WaitingSeatProps) {
-    const vm = useWaitingSeatViewModel({ device, answering, seats })
+/** A device nobody approved, as a dashed seat: its code inline when it asks, "Not mine" or "Sign out"; see the view model. */
+export function WaitingSeat({ device, answering, seats, onNotMine, isRevoking, kind: seatKind = "waiting" }: WaitingSeatProps) {
+    const vm = useWaitingSeatViewModel({ device, answering, seats, kind: seatKind })
+    const fromBefore = seatKind === "from-before"
+    const refused = seatKind === "refused"
     const { answer, label } = vm
     const cancel = useRef<HTMLButtonElement>(null)
     const settled = useRef<HTMLParagraphElement>(null)
@@ -41,43 +44,69 @@ export function WaitingSeat({ device, answering, seats, onNotMine, isRevoking }:
 
     return (
         <div
-            className="rounded-[14px] border-[1.5px] border-dashed border-[color-mix(in_oklab,var(--idle)_55%,transparent)] bg-[color-mix(in_oklab,var(--idle)_5%,transparent)] px-3.5 py-3"
+            className={cn(
+                "rounded-[14px] border-[1.5px] border-dashed px-3.5 py-3",
+                fromBefore
+                    ? "border-line2 bg-[color-mix(in_oklab,var(--surf)_60%,transparent)]"
+                    : "border-[color-mix(in_oklab,var(--idle)_55%,transparent)] bg-[color-mix(in_oklab,var(--idle)_5%,transparent)]",
+            )}
             data-seat={device.device_id}
         >
             <div className="flex items-center gap-[11px]">
-                <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[color-mix(in_oklab,var(--idle)_14%,transparent)] text-idle">
-                    <Compass className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
-                    <span
-                        aria-hidden
-                        className="absolute -right-[3px] -top-[3px] h-[9px] w-[9px] rounded-full bg-idle shadow-[0_0_0_2px_var(--background)] motion-safe:animate-[pn-wait-ring_1.6s_ease-in-out_infinite]"
-                    />
-                </span>
+                {fromBefore ? (
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-surf3 text-muted-foreground">
+                        <History className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
+                    </span>
+                ) : refused ? (
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[color-mix(in_oklab,var(--dnd)_14%,transparent)] text-dnd-ink">
+                        <ShieldAlert className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
+                    </span>
+                ) : (
+                    <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[color-mix(in_oklab,var(--idle)_14%,transparent)] text-idle">
+                        <Compass className="h-3.5 w-3.5" strokeWidth={1.9} aria-hidden />
+                        <span
+                            aria-hidden
+                            className="absolute -right-[3px] -top-[3px] h-[9px] w-[9px] rounded-full bg-idle shadow-[0_0_0_2px_var(--background)] motion-safe:animate-[pn-wait-ring_1.6s_ease-in-out_infinite]"
+                        />
+                    </span>
+                )}
                 <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-[7px]">
                         <span className="title text-[13.5px] font-medium text-foreground [overflow-wrap:anywhere]">{label}</span>
-                        <span className="rounded-full bg-[color-mix(in_oklab,var(--idle)_16%,transparent)] px-[7px] py-px font-mono text-[9px] uppercase tracking-[0.08em] text-idle-ink">
-                            waiting for you
-                        </span>
+                        {seatKind === "waiting" && (
+                            <span className="rounded-full bg-[color-mix(in_oklab,var(--idle)_16%,transparent)] px-[7px] py-px font-mono text-[9px] uppercase tracking-[0.08em] text-idle-ink">
+                                waiting for you
+                            </span>
+                        )}
                     </div>
                     <div className="mt-[3px] flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                        <span className="font-mono text-[10.5px] text-muted-foreground">{vm.since}</span>
-                        <span className="flex items-center gap-2">
-                            <span className="text-line2" aria-hidden>
-                                ·
+                        {vm.since && <span className="font-mono text-[10.5px] text-muted-foreground">{vm.since}</span>}
+                        {seatKind === "waiting" && (
+                            <span className="flex items-center gap-2">
+                                <span className="text-line2" aria-hidden>
+                                    ·
+                                </span>
+                                <span className="font-mono text-[10.5px] text-muted-foreground">reads nothing of yours until you approve it</span>
                             </span>
-                            <span className="font-mono text-[10.5px] text-muted-foreground">reads nothing of yours until you approve it</span>
-                        </span>
+                        )}
                     </div>
+                    {fromBefore && answer.kind === "asks-nothing" && (
+                        <p className="m-0 mt-1.5 text-[12px] leading-[1.5] text-muted-foreground">
+                            Still have it? Open Pīna'i on it — choose "It was me" if it shows a banner — then type the code
+                            it shows here. A device you've lost still shows your conversations until you sign it out.
+                        </p>
+                    )}
+                    {refused && <p className="m-0 mt-1.5 text-[12px] leading-[1.5] text-dnd-ink">Reset your history — not yours</p>}
                 </div>
                 {vm.offersNotMine && (
                     <button
                         type="button"
                         onClick={onNotMine}
                         disabled={isRevoking}
-                        aria-label={isRevoking ? undefined : `Not mine: sign out ${label}`}
+                        aria-label={isRevoking ? undefined : seatKind === "waiting" ? `Not mine: sign out ${label}` : `Sign out ${label}`}
                         className="shrink-0 cursor-pointer self-start rounded-md px-1 py-1.5 text-[12.5px] text-dnd-ink outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                        {isRevoking ? "Signing out…" : "Not mine"}
+                        {isRevoking ? "Signing out…" : seatKind === "waiting" ? "Not mine" : "Sign out"}
                     </button>
                 )}
             </div>

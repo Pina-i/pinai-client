@@ -12,6 +12,7 @@ import { checkHistoryKeyUseCase } from "./check-history-key.usecase"
 import { registerIdentityUseCase } from "./register-identity.usecase"
 import { setUpThisDeviceUseCase } from "./set-up-this-device.usecase"
 import { pendingKeyTurn, type PendingKeyLock } from "./settle-pending-history-key.usecase"
+import { takeDeviceBaseline } from "./take-device-baseline.usecase"
 
 export interface BootstrapFirstDeviceDeps {
     e2eePort: IE2eePort
@@ -19,6 +20,7 @@ export interface BootstrapFirstDeviceDeps {
     historyArchivePort: IHistoryArchivePort
     deviceDirectoryPort: IDeviceDirectoryPort
     pendingKeyLock?: PendingKeyLock
+    report?: (what: string, error: unknown) => void
 }
 
 export interface BootstrapFirstDeviceInput {
@@ -36,7 +38,7 @@ export type FirstDeviceOutcome =
 /**
  * The account's first device (`identity-provider/specs/e2ee.md § 6.1`): set up, a pending key
  * settled, then — no key in force — generation 1 minted and sealed as pending, set, and only once
- * the IdP took it kept, approved, reported and shown. Its KeyPackages go out once it holds the key,
+ * the IdP took it kept, its baseline taken, approved, reported and shown. Its KeyPackages go out once it holds the key,
  * never before. Another device's key erases it.
  */
 export const bootstrapFirstDeviceUseCase =
@@ -58,6 +60,7 @@ export const bootstrapFirstDeviceUseCase =
                 return true
             })
             if (!set) return { kind: "has-key" }
+            await takeDeviceBaseline(deps, idpUrl, accessToken, FIRST_HISTORY_GENERATION, null)
             standing = await approveByPassphraseUseCase(deps)(idpUrl, accessToken, actorUri)
         }
         if (standing.kind !== "holds") return { kind: "has-key" }

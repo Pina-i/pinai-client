@@ -2,7 +2,7 @@ import { Button } from "@/presentation/atoms/Button/Button"
 import { RecoveryPassphraseInput } from "@/presentation/molecules/RecoveryPassphraseInput/RecoveryPassphraseInput"
 
 interface WordsPanelProps {
-    /** On the reset page they are the new words, from the device that reset the history. */
+    /** The new words, from the device that reset the history: the reset page's, the banner's. */
     reset: boolean
     /** The device of the user's that replaced the words, by its label, when it is known. */
     replacedOn?: string | null

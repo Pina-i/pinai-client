@@ -6,6 +6,7 @@ import { findConversation } from "@pinai/domain/models/dm"
 import { ServerStrip } from "@/presentation/organisms/ServerStrip/ServerStrip"
 import { ChannelSidebar } from "@/presentation/organisms/ChannelSidebar/ChannelSidebar"
 import { AppHeader } from "@/presentation/organisms/AppHeader/AppHeader"
+import { HistoryResetBanner } from "@/presentation/organisms/HistoryResetBanner/HistoryResetBanner"
 import { MembersSidebar } from "@/presentation/organisms/MembersSidebar/MembersSidebar"
 import { UserProfileModal } from "@/presentation/pages/home/UserProfileModal/UserProfileModal"
 import { SettingsModal } from "@/presentation/pages/home/SettingsModal/SettingsModal"
@@ -43,18 +44,22 @@ export function HomeLayout({ children }: HomeLayoutProps) {
     if (!user) return null
 
     return (
-        <div className="relative flex h-app w-full overflow-hidden bg-background">
+        <div className="relative flex h-app w-full flex-col overflow-hidden bg-background">
             <Backdrop />
-            <ServerStrip />
-            <ChannelSidebar />
+            {/* Above the row, the full width: the main area alone is too narrow on a phone. */}
+            <HistoryResetBanner />
+            <div className="flex min-h-0 w-full flex-1">
+                <ServerStrip />
+                <ChannelSidebar />
 
-            <main className="relative z-[2] m-3 flex min-w-0 flex-1 flex-col">
-                <AppHeader />
-                <div className="flex min-h-0 min-w-0 flex-1">{children}</div>
-            </main>
+                <main id="app-main" tabIndex={-1} className="relative z-[2] m-3 flex min-w-0 flex-1 flex-col outline-none">
+                    <AppHeader />
+                    <div className="flex min-h-0 min-w-0 flex-1">{children}</div>
+                </main>
 
-            {view === "server" && showMembers && <MembersSidebar />}
-            {activeGroupId && <GroupMembersPanel conversationId={activeGroupId} />}
+                {view === "server" && showMembers && <MembersSidebar />}
+                {activeGroupId && <GroupMembersPanel conversationId={activeGroupId} />}
+            </div>
 
             <GroupComposer />
 

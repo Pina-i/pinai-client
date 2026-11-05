@@ -24,11 +24,13 @@ interface ApproveFromAnotherDeviceProps {
     onApproved?: () => void
     /** Approved, its words kept and its history restored — or let in with no share yet: on to the app. */
     onIn?: () => void
+    /** Another device took part in the exchange: what holds it must stay until it ends. */
+    onWorking?: (working: boolean) => void
 }
 
 /**
- * The code to type on an approved device: "Pass"'s "Another device" tab
- * (`identity-provider/docs/plans/2026-11-02-history-key-sharing-design.md § 5.2`).
+ * The code to type on an approved device: Pass's "Another device" and "That device" tabs, and the
+ * banner's "It was me" (`identity-provider/docs/plans/2026-11-02-history-key-sharing-design.md § 5.2`).
  */
 export function ApproveFromAnotherDevice({
     ready,
@@ -38,8 +40,9 @@ export function ApproveFromAnotherDevice({
     share,
     onApproved,
     onIn,
+    onWorking,
 }: ApproveFromAnotherDeviceProps) {
-    const vm = useApproveFromAnotherDeviceViewModel({ ready, active, fallbackLabel, share, onApproved, onIn })
+    const vm = useApproveFromAnotherDeviceViewModel({ ready, active, fallbackLabel, share, onApproved, onIn, onWorking })
     const approved = vm.state.kind === "approved"
 
     return (

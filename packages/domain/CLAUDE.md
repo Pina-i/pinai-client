@@ -179,9 +179,15 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   only while it still acts (a check landing mid-review included), turned non-acting once the
   device no longer holds that generation.
 - `judgeDevices` — what an acting review finds and keeps: the approved (itself
-  included), the unsettled, every device still unapproved (`arrived` only the
-  first time it is seen under that root key — a notice's business, never the
-  state's), the devices seen and found approved.
+  included), the unsettled, every device still unapproved (`arrived` only when it
+  appeared after this device's baseline under that generation — a notice's business,
+  never the state's), the devices seen and found approved, `before` for the verdict.
+  A review under a generation with no baseline takes it: nothing listed then arrives.
+- **The baseline** (`deviceBaseline`, the `baselines` and `before` rows; explained once, in
+  the model): every device listed as this device starts acting is seen; after a new
+  generation of its own (`BaselineIntent`: `start-over` or `replacement`, and the device the
+  user refused), the others are kept as from before (`DevicesBefore`) — a replacement's only
+  those it had found approved; partners and the refused device apart. `devicesBefore`.
 - `judgeLeaf` / `firstToCommitOut` — which leaf goes: a forgery whoever the
   device; an attestation that only expired is warned of and stays; an own leaf
   an acting verdict doesn't approve (`ownLeafStanding`); the unsettled are left.
@@ -205,36 +211,55 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - Settings → Devices' rules, each from this device's own verdict. `waitingDevices` — on an
   acting verdict only, newest first: the rows an `unapproved-device` event stands for, and
   one asking (a request a seat may answer) that no review judged yet; once judged, an event
-  or nothing — never one approved, unsettled, failing its chain or seen revoked.
+  or nothing — never one approved, unsettled, failing its chain, seen revoked, or from before.
+  `fromBeforeDevices` — the unapproved rows the verdict's `before` names by id and root key:
+  "From before you started over" / "…replaced your words", no "waiting for you", no count, no
+  toast; the new words' screen names the same (`devices-from-before.usecase.ts`).
+  `refusedDevice` — the device the user refused: it waits, counted, "not yours", no code (the
+  Door's `answerableRequests` leaves it out too).
   `holdsCurrentWords` (the words shown, else "Restore history"); `holdsHistory` /
   `historyHolders` — on an acting verdict, a device it approves that says it holds its
   generation. `approverOf` — over the root key listed now; `approvedByWording` — "this
   device", a label, "your 24 words".
 
 ### models/admission.ts + check-admission, gate-this-device, register-identity
-- **No way in without approval** (`identity-provider/specs/e2ee.md § 3.6`).
-  `deviceAdmission(standing, partners)` — in by the passphrase (`holds`), or by a
+- **No way in without approval** (`identity-provider/specs/e2ee.md § 3.6`), **and no lockout
+  over a reset the user didn't make**: `keptWordsCause` — a device whose words gave an older
+  key of the account (`held`), its standing a mismatch, is in (`by: "kept-words"`, with its
+  cause: `reset-by-unapproved`, or `unknown-change` for a key replaced, gone back or
+  relabelled, an approval key swapped, a generation said to be its own — `ResetSetter.self`)
+  unless a device it found approved replaced the words (`replacedOn`'s rule,
+  `PartnerFacts.setter` from `IE2eePort.resetSetter`); a setter it can't tell counts as
+  unapproved. In, it acts on nothing — only `holds` acts —, saves nothing (the mismatch stops
+  uploads) and refills KeyPackages; `keptWordsReset` — its cause and the setter to refuse.
+  An attacker with the password can't push the user's devices out again and again.
+  `deviceAdmission(standing, partners)` — in by the passphrase (`holds`), by a partner (first:
+  approved by code, no reason comes back while its share is late), by its kept words, or by a
   handshake partner (`CheckedPartner`) listed unrevoked (nor seen revoked) under the
   root key the exchange gave, at the generation this device's own check stood on
   (`no-passphrase` carries it, never below the newest seen), one of its `by: device`
   approvals verifying over this device's current root key under that exchanged key
   (`IE2eePort.checkHandshakePartners`). A mismatch other than a start over elsewhere
   (`resetCause` `unknown-change`: rollback, relabel, a key changed under its generation)
-  is a lie this device caught: no partner overrides it. Out too from a list naming an id
+  is a lie this device caught: no partner decides it. Out too from a list naming an id
   twice. A non-holding device's best judgement: the acting devices verify chains
   themselves before adding or sharing. `needsPartners` — the list is read only then.
 - `replacedOn(standing, setter, devices)` — the reset page after a newer generation: the setter's
   label when this device found it approved (`IE2eePort.resetSetter`), else `null` ("another device").
 - `decideGateRoute` — a pending key or `no-key` → `setup` (`pendingKeyRoute`, the first rule alone,
   for a page outside the gate); in → `app`; out with a
-  `mismatch` → `reset`, else `new-device`. `routeRechecks` — a route change re-checks
+  `mismatch` → `reset` (a replacement by a device found approved, or a device that never
+  held words seeing the key go back), else `new-device`. `routeRechecks` — a route change re-checks
   at most once in 30 s, never while a check runs; `forcesRecheck` — `reset-by-unapproved`,
-  `key-replaced`, `approval-key-differs` re-check at once.
+  `key-replaced`, `approval-key-differs` re-check at once; `withdrawalRechecks` — one of them
+  withdrawn too, unless a pending key written in the last `PENDING_KEY_FRESH_MS` waits.
 - `checkAdmissionUseCase` — one key read (the standing's), the list only when partners
-  count; the admission recorded (`IE2eePort.recordAdmission`). `gateThisDeviceUseCase` —
+  count, the setter read after a newer generation; the admission recorded
+  (`IE2eePort.recordAdmission`). `gateDecisionUseCase` — the route, `reset` and `offline`
+  (`GateDecision`); `gateThisDeviceUseCase`, its route alone —
   a pending key goes to setup unchecked; an IdP out of reach (`isUnreachable`) decides
-  on the recorded standing and admission, so a device let in, by its words or a partner,
-  reloads offline; any other failure, or nothing recorded, is thrown.
+  on the recorded standing and admission, so a device let in, by its words, a partner or its
+  kept words, reloads offline; any other failure, or nothing recorded, is thrown.
 - `registerIdentityUseCase` publishes KeyPackages (`IE2eePort.register`) only once in,
   and answers the admission; a flow that has just decided it (`bootstrap-first-device`,
   `restore-history-from-passphrase`) passes it in, recorded, not read again. Paths: the
@@ -646,10 +671,16 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   best effort — reported, never thrown; the page-load check, the tick and the fanout redo them —, and
   `started-over` with the words. `key-changed` when another generation lands before the approval
   (the words no longer to show).
+- `take-device-baseline.usecase.ts` — `takeDeviceBaseline`, best effort: bootstrap after
+  generation 1 is set, typed words and an accepted share once kept, `finishNewGeneration`
+  (with its intent), the settle of a lost answer's pending key (the intent minted with it).
+- `devices-from-before.usecase.ts` — the new words' screen: the list read and reviewed,
+  `fromBeforeDevices` over it, with the cause.
 - `start-over.usecase.ts` exports its pieces for the replacement: `unseenNewWords`, `setNewGeneration`
   (`rearchive` mints the words for a re-archive and promotes them so; `over`, the generation they
   replace — another in force by then, read in the pending key's turn, is a `conflict`, the pending key
-  erased), `finishNewGeneration`.
+  erased; `intent`, minted with the pending key), `finishNewGeneration` — both given the
+  `BaselineIntent`; `StartOverInput.refused`, "It wasn't me"'s device.
 - `replace-words.usecase.ts` — "Replace my words" (Settings → Devices), `WordsReplacement`:
   - new words not gone past answered again;
   - a pending key a replacement minted, in force (its answer was lost): kept and shown, no password,

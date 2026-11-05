@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react"
 
+import type { DeviceId } from "@pinai/domain/models/e2ee"
 import { startOverUseCase } from "@pinai/domain/usecases/e2ee/start-over.usecase"
 import { getE2eePort, getHistoryArchivePort, getKeySharePort, getSessionPort } from "@/ioc"
 import { admissionDeps } from "@/presentation/_libs/admission-deps"
@@ -11,17 +12,25 @@ import { type RecentSignIn, useRecentSignIn } from "@/presentation/hooks/use-rec
 import { useAppStore } from "@/store/store"
 
 export interface StartOverPanelInput {
-    /** Where a sign-in asked for the password comes back to: this page, this tab. */
+    /** Where a sign-in asked for the password comes back to: where the panel is shown. */
     returnTo: () => string
+    /** "It wasn't me": the device the key names, kept apart from the devices from before. */
+    refused?: DeviceId | null
     /** The device holds the new generation: its words to show. */
     onStartedOver: (words: string[]) => void
     /** Another device's generation landed first (`conflict`), or right after this one's (`key-changed`). */
     onWentOtherwise: (how: "conflict" | "key-changed") => void
     /** The instance went back on the account's key: no start over can move forward from it. */
     onRolledBack: () => void
-    /** The flow runs: the page holds still meanwhile. */
+    /** The flow runs: what holds the panel holds still meanwhile. */
     onBusy: (busy: boolean) => void
 }
+
+/** What a holder says when the start over went otherwise. */
+export const START_OVER_NOTICES = {
+    conflict: "Another of your devices set a new passphrase at the same moment, so this one didn't start over.",
+    "key-changed": "This device started over, then another of your devices set a newer passphrase: its words are the ones now.",
+} as const
 
 export interface StartOverPanelViewModel {
     starting: boolean
@@ -38,6 +47,7 @@ export interface StartOverPanelViewModel {
  */
 export function useStartOverPanelViewModel({
     returnTo,
+    refused = null,
     onStartedOver,
     onWentOtherwise,
     onRolledBack,
@@ -67,7 +77,7 @@ export function useStartOverPanelViewModel({
                     keySharePort: getKeySharePort(),
                     report: warnE2ee,
                     pendingKeyLock: pendingKeyLock(actorUri),
-                })({ idpUrl, accessToken, actorUri, tokenArrivedAt: accessTokenArrivedAt(accessToken) })
+                })({ idpUrl, accessToken, actorUri, tokenArrivedAt: accessTokenArrivedAt(accessToken), refused })
                 switch (outcome.kind) {
                     case "started-over":
                         onStartedOver(outcome.words)
@@ -97,7 +107,7 @@ export function useStartOverPanelViewModel({
                 onBusy(false)
             }
         })()
-    }, [idpUrl, actorUri, onStartedOver, onWentOtherwise, onRolledBack, onBusy, ask])
+    }, [idpUrl, actorUri, refused, onStartedOver, onWentOtherwise, onRolledBack, onBusy, ask])
 
     return { starting, error, recentSignIn, onStartOver }
 }

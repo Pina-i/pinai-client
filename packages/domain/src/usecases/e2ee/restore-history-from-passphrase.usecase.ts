@@ -8,6 +8,7 @@ import { approveByPassphraseUseCase } from "./approve-by-passphrase.usecase"
 import { registerIdentityUseCase } from "./register-identity.usecase"
 import { setUpThisDeviceUseCase } from "./set-up-this-device.usecase"
 import { shareOnceHeld, type ShareOnceHeldDeps } from "./share-history-key.usecase"
+import { takeDeviceBaseline } from "./take-device-baseline.usecase"
 
 export interface RestoreHistoryDeps extends ShareOnceHeldDeps {
     sessionPort: ISessionPort
@@ -38,7 +39,8 @@ export type PassphraseRestore =
 /**
  * The 24 words typed on this device (`identity-provider/specs/e2ee.md § 6.4`): checked against
  * the key in force before anything is read, an empty archive or not. Right, the restore is marked
- * due, the words are kept, the device approves itself with them and reports the generation — it is
+ * due, the words are kept — the devices listed then taken as seen —, the device approves itself
+ * with them and reports the generation — it is
  * in: its KeyPackages go out —, then shares them with its partners waiting for them. The restore
  * itself is `HistoryRestore`'s, so one cut short runs again.
  */
@@ -56,6 +58,7 @@ export const restoreHistoryFromPassphraseUseCase =
 
         await deps.e2eePort.markHistoryRestoreDue(key.generation)
         await deps.e2eePort.keepPassphrase(passphrase, key)
+        await takeDeviceBaseline(deps, idpUrl, accessToken, key.generation, null)
         const standing = await approveByPassphraseUseCase(deps)(idpUrl, accessToken, actorUri)
         if (standing.kind !== "holds") return { kind: "key-changed" }
         await registerIdentityUseCase(deps)({ idpUrl, accessToken, actorUri, admission: deviceAdmission(standing, null) })

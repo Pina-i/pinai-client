@@ -51,8 +51,8 @@ Three collaborators could not come, and the shape of each is the mobile work:
   words, the one generation they give, the root key the device approved
   itself over with them, and their salt and HAK, so a check runs no Argon2id;
   `pending`: words minted whose `PUT` is unanswered, with their key, HAK and when the row was
-  written (`minted_at`, `null` in a row from before it), and `rearchive` when they replace words
-  the device holds; `new_words`: the generation whose words a start over set and the user hasn't
+  written (`minted_at`, `null` in a row from before it), `rearchive` when they replace words
+  the device holds, and `intent` — what the baseline keeps when a settle promotes them; `new_words`: the generation whose words a start over set and the user hasn't
   gone past; `rearchive_due`: the generation a re-archive is due under and its cursor, the last
   entry the IdP took (`parseRearchiveDue`);
   `standing`: where the words stood when last checked; `admission`: whether the
@@ -66,11 +66,14 @@ Three collaborators could not come, and the shape of each is the mobile work:
   `device_attestation` (the root key, its attestation and the device's HPKE
   key — `hpke` null in a row from before it, which registers again — and,
   beside it, `device_trust`'s rows `trust:seen`, `trust:approved` (device ids
-  with root keys), `trust:revoked` (device ids) and `trust:partners` (device ids
-  with the root and HPKE keys a code handshake gave): a store of their own would
-  take an IndexedDB upgrade. Read as the passphrase's are, an unreadable row set
-  aside and named (`unreadable`); `addToDeviceTrust` reads each row again just
-  before writing it, so another tab's additions stay). All at-rest blobs are
+  with root keys), `trust:revoked` (device ids), `trust:partners` (device ids
+  with the root and HPKE keys a code handshake gave), `trust:baselines` (the
+  generations a baseline was taken under) and `trust:before` (per generation this
+  device set over others: its cause, the devices from before, the one refused).
+  A store of their own would take an IndexedDB upgrade; a new row takes none.
+  Read as the passphrase's are, an unreadable row set aside and named
+  (`unreadable`); `addToDeviceTrust` reads each row again just before writing
+  it, so another tab's additions stay). All at-rest blobs are
   encrypted under the same per-device key; the key is also re-used
   by the Zustand `persist` middleware so the message-plaintext cache
   lives behind the same key material.
@@ -182,10 +185,12 @@ Three collaborators could not come, and the shape of each is the mobile work:
     revocations kept for good — unless the kept ones can't be read, and then
     nothing is decided; then, unless a pending key waits, the key read again:
     only `holds` acts (`judgeDevices`), the devices found approved and those
-    seen kept; every review that decides nothing — a list naming an id twice,
-    revocations that can't be read, a device not acting — withdraws the unapproved
-    devices it announced, and so does a check of the key that finds the device no
-    longer holding (`setHolding`): only an acting device announces. Any device warns of a reset by
+    seen kept, the baseline taken when none was under that generation, the
+    verdict's `before` read from `trust:before`; every review that decides
+    nothing — a list naming an id twice, revocations that can't be read, a device
+    not acting — withdraws the unapproved devices it announced, and so does a check
+    of the key that finds the device no longer holding (`setHolding`): only an
+    acting device announces. Any device warns of a reset by
     a device it never found approved, or attributed to itself while it sets
     none, and of a key changed under the generation it holds. Events stand until
     what they are about changes (`onTrustWithdrawn`), are replayed to late
@@ -258,9 +263,15 @@ Three collaborators could not come, and the shape of each is the mobile work:
     sealed batch. `advanceHistoryRearchive` / `historyRearchived`, like the restore rows' writes,
     run in the passphrase rows' turn and only for the generation due: an older run never writes over
     a newer replacement's row.
-  - **`resetSetter`** — the reset page's: the last check's setter of a newer generation, approved
-    when `resetByUnapproved` says it isn't over the list's unrevoked devices, read in the trust rows'
-    turn; nothing from a list naming an id twice or revocations kept that can't be read.
+  - **The baseline** — `takeDeviceBaseline(generation, devices, intent)` keeps
+    `deviceBaseline`'s change in the trust rows' turn (nothing when the revocations
+    can't be read), then gives the kept verdict of that generation its `before`
+    when a review landed first. `mintHistoryKey`'s `intent` rides with the pending row.
+  - **`resetSetter`** — the gate's and the reset page's: the last check's setter of a
+    newer generation, approved when `resetByUnapproved` says it isn't over the list's
+    unrevoked devices, read in the trust rows' turn; `self` when it names this device
+    with no pending key of that generation. Nothing, another device named, from a list
+    naming an id twice or revocations kept that can't be read.
   - **The history key** (`identity-provider/specs/e2ee.md § 3.6–3.9`): the flows
     are the domain's; here the crypto and the standing (`standingAgainst`).
     `mintHistoryKey` seals the words as pending before answering them, the same
@@ -646,8 +657,8 @@ vitest setup, so a package's specs sit there until it needs its own.
   and an acting device's adds and commits out. Its directory attests as the IdP would
   (`test/setup/issuers.ts`, which also writes list rows and approvals).
 - `apps/web/test/device-trust.spec.ts` — the approval rules, real signatures checked
-  (the IdP's canonical bytes among them), and the review: who acts, the events, the
-  trust rows.
+  (the IdP's canonical bytes among them), the baseline and from before, and the review: who
+  acts, the events, the trust rows.
 - `apps/web/test/message-status.spec.ts` — fade-window math behind the
   `MessageStatus` molecule.
 - `apps/web/test/history-key.spec.ts` — the history key's flows with the real
@@ -657,25 +668,41 @@ vitest setup, so a package's specs sit there until it needs its own.
   `history-key-api.spec.ts`, its routes; `history-key-vectors.spec.ts`,
   known answers computed with OpenSSL and Python's `cryptography`.
 - `apps/web/test/gate-routing.spec.ts` — the gate's table (`decideGateRoute`, `resetCause`),
-  `isUnreachable`, and the gate on real engines: setup, the new-device and reset pages, the
-  offline rule on what was recorded.
-- `apps/web/test/admission.spec.ts` — when a device is in: the rule, then real keys (a
-  partner's approval over the current root key and the exchanged key, an old partner, a
-  list-swapped key, a rollback and a swapped approval key no partner overrides, revocations
-  kept); KeyPackages on each path only once in, through the real `register` and refills
-  (`publishingDevice`): the refill's rule, a failed renewal, a device turned out.
+  `isUnreachable`, and the gate on real engines: setup, the new-device and reset pages, the app
+  under a banner over a reset the device didn't make, the offline rule on what was recorded.
+- `apps/web/test/history-reset-banner.spec.ts` — the user's test end to end (the desktop app
+  holding the words, the web app starting over): no toast for the devices there, the new words
+  and Settings → Devices naming them from before, the desktop app in under its banner, "It was
+  me" with a code; a device under the banner acting on nothing; the accepted share's baseline;
+  a later device announced; the banner's causes, "Check again" checked or not, the live region,
+  StrictMode, the return after the password, fields cleared, no dismissal mid-exchange, the
+  words typed, "It wasn't me" — the refused device's seat, never offered a code — and a start
+  over after an unknown change, the device never leaving the app; no "Restore history" under it.
+- `apps/web/test/admission.spec.ts` — when a device is in: the rule and its table (a partner
+  first, kept words over a reset by a device never found approved, a self-named setter or an
+  unknown change, out after a replacement by one found approved, out never having held words),
+  the withdrawal rule, then real keys (a partner's approval over the current root key and the
+  exchanged key, an old partner, a list-swapped key, a swapped approval key, the setter read
+  from the list, revocations kept); KeyPackages on each path only once in, through the real
+  `register` and refills (`publishingDevice`): the refill's rule, a failed renewal, a device
+  turned out.
 - `apps/web/test/onboarding-pages.spec.ts` — the gate hook's re-checks (throttle, trust
   events, the newest deciding, a failure, an unmount or a sign-out mid-check), the tick
   gated on it, the new-device and reset pages as Pass: the tabs, a request ended by leaving
   its tab, the words tab, start over from each (the password asked again first, the words
-  only after the IdP's `204`, a `401`, a conflict), the unknown change, the words replaced on a
-  device found approved.
+  only after the IdP's `204`, a `401`, a conflict), the unknown change on a device that never
+  held words, the words replaced on a device found approved, a device holding words sent on to
+  the app at the page's check.
 - `apps/web/test/start-over.spec.ts` — `signedInRecently` (on the IdP's clock, a device clock 15
   minutes fast), `settlePending` (fresh rows left), `startOverGeneration`; the start over on real
   engines: its order, nothing minted without a recent password, a `401` or `409` whose key landed,
   two devices at once, a failure after the IdP took the key, pressed again before the words were
   seen, `key-changed`, a page load's check waiting for its `PUT`, two tabs under one lock, a
-  pending generation past 1 at the next start (left fresh, then erased, or kept), sharing after.
+  pending generation past 1 at the next start (left fresh, then erased, or kept), sharing after;
+  the devices listed as a device starts acting (a start over keeping from before, the refused
+  device apart; a replacement keeping those it had found approved; a lost answer's settle
+  keeping them too; typed words only as seen; a first review taking the baseline itself; a
+  review landing first refreshed).
 - `apps/web/test/replace-words.spec.ts` — replacing the words on real engines: only a device that
   acts, the refusals before any password (cache unread, a restore due), the password asked first,
   the archive brought first (or nothing minted), a `401`, a conflict (an earlier re-archive left

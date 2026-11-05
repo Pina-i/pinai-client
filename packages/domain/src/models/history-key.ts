@@ -4,6 +4,7 @@
  */
 
 import { sameBytes } from "./bytes"
+import type { BaselineIntent } from "./device-trust"
 
 export const FIRST_HISTORY_GENERATION = 1
 
@@ -114,6 +115,8 @@ export interface PendingHistoryKey extends HistoryKey {
     mintedAt: number | null
     /** Minted to replace the words this device holds. */
     rearchive?: true
+    /** What its baseline keeps once the IdP took it, though the answer was lost: from before, the refused device apart. */
+    intent?: BaselineIntent
 }
 
 /** A pending key written this recently may have a `PUT` on its way, from this tab or another. */

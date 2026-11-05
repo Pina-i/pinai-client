@@ -1,4 +1,5 @@
 import { signedInRecently } from "../../models/auth"
+import type { BaselineIntent } from "../../models/device-trust"
 import { restoredMessages, type RestoredMessage } from "../../models/history-archive"
 import { sameHistoryKey, type HistoryKey } from "../../models/history-key"
 
@@ -25,6 +26,8 @@ export type WordsReplacement =
     /** The archive couldn't be brought onto this device first: nothing minted. */
     | { kind: "restore-failed"; error: unknown }
 
+const REPLACED: BaselineIntent = { cause: "replacement", refused: null }
+
 export interface ReplaceWordsDeps extends StartOverDeps {
     /** Whether this page load's cache was read back. */
     cacheRead: () => boolean
@@ -37,7 +40,7 @@ export const replaceWordsUseCase =
     (deps: ReplaceWordsDeps) =>
     async (input: StartOverInput): Promise<WordsReplacement> => {
         const { idpUrl, accessToken, tokenArrivedAt = null } = input
-        const unseen = await unseenNewWords(deps, input)
+        const unseen = await unseenNewWords(deps, input, REPLACED)
         if (unseen) return replaced(unseen)
         const pending = await deps.e2eePort.pendingHistoryKey()
         if (pending && !pending.rearchive) return { kind: "not-acting" }
@@ -66,9 +69,9 @@ function sameKey(pending: HistoryKey, current: HistoryKey | null): boolean {
 
 async function newWords(deps: ReplaceWordsDeps, input: StartOverInput, over: number): Promise<WordsReplacement> {
     await setUpThisDeviceUseCase(deps)(input.idpUrl, input.accessToken, input.actorUri)
-    const set = await setNewGeneration(deps, input.idpUrl, input.accessToken, { rearchive: true, over })
+    const set = await setNewGeneration(deps, input.idpUrl, input.accessToken, { rearchive: true, over, intent: REPLACED })
     if (set.kind !== "set") return set
-    return replaced(await finishNewGeneration(deps, input, set.generation))
+    return replaced(await finishNewGeneration(deps, input, set.generation, REPLACED))
 }
 
 function replaced(outcome: StartOver): WordsReplacement {

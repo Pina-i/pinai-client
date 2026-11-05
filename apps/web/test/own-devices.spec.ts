@@ -35,6 +35,7 @@ const trusting: DeviceTrustVerdict = {
     ],
     approvedBy: [],
     unsettled: [],
+    before: null,
 }
 
 describe("devicesToAdd", () => {

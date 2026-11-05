@@ -110,7 +110,7 @@ export function useApprovalDoorViewModel(): ApprovalDoorViewModel {
 
     return {
         view,
-        device: view?.request.displayName || "A new device",
+        device: view?.request.displayName.trim() || "A device",
         asked: `asked ${since ?? "just now"}${host ? ` · ${host}` : ""}`,
         title: doorTitle(view),
         code,

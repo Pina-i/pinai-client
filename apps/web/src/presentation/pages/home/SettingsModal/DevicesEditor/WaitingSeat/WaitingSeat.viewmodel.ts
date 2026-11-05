@@ -5,14 +5,21 @@ import { formatLastSeen } from "@pinai/domain/models/relative-time"
 import type { ApprovalAnswering } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
 import { failureWording, refusalWording } from "@/presentation/_libs/approval-wording"
 import { dayLabel } from "@/presentation/_libs/day-label"
+import { activityLabel } from "@/presentation/_libs/device-activity"
 import { warnOf as warn } from "@/presentation/_libs/key-share-deps"
 import type { DeviceRow } from "@/presentation/hooks/useDevices"
+
+/**
+ * `waiting`: a device that appeared unapproved; `from-before`: one listed as this device set its
+ * generation over others, waiting for nobody; `refused`: the one the user said reset the history.
+ */
+export type SeatKind = "waiting" | "from-before" | "refused"
 
 export interface WaitingSeatViewModel {
     answer: SeatAnswer
     label: string
-    /** "asked 4 minutes ago" while it asks, else "paired 14 Mar 2026". */
-    since: string
+    /** "asked 4 minutes ago" while it asks, else "paired 14 Mar 2026" — or, from before, its last activity. */
+    since: string | null
     code: string
     setCode: (text: string) => void
     canApprove: boolean
@@ -25,7 +32,7 @@ export interface WaitingSeatViewModel {
     /** Why no code is taken yet. */
     hold: string | null
     failure: string | null
-    /** "Not mine" stays until the exchange is under way. */
+    /** "Not mine" — "Sign out" from before — stays until the exchange is under way. */
     offersNotMine: boolean
 }
 
@@ -33,9 +40,11 @@ export function useWaitingSeatViewModel(input: {
     device: DeviceRow
     answering: ApprovalAnswering | null
     seats: SeatsView
+    kind?: SeatKind
 }): WaitingSeatViewModel {
-    const { device, answering, seats } = input
-    const answer = seatAnswer(device.device_id, seats)
+    const { device, answering, seats, kind = "waiting" } = input
+    // The refused device is offered no code: approving it would hand it the account.
+    const answer: SeatAnswer = kind === "refused" ? { kind: "asks-nothing" } : seatAnswer(device.device_id, seats)
     const request = answer.kind === "asks-nothing" ? null : answer.request
     const requestId = request?.id ?? null
     // Typed for one request: a new request starts empty.
@@ -62,12 +71,13 @@ export function useWaitingSeatViewModel(input: {
         })
     }
 
-    const label = device.display_name || "A new device"
+    const label = device.display_name.trim() || "A device"
     const takesCode = answer.kind === "code"
+    const idle = kind === "waiting" ? `paired ${dayLabel(device.paired_at)}` : activityLabel(device, new Date(now))
     return {
         answer,
         label,
-        since: request ? `asked ${formatLastSeen(request.createdAt, new Date(now)) ?? "just now"}` : `paired ${dayLabel(device.paired_at)}`,
+        since: request ? `asked ${formatLastSeen(request.createdAt, new Date(now)) ?? "just now"}` : idle,
         code,
         setCode: (text: string) => setTyped({ requestId, code: codeDigits(text), error: null }),
         canApprove: takesCode && isWholeCode(code) && !seats.busy && !seats.unsettled,

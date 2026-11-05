@@ -116,12 +116,12 @@ export function arrivalStatus({ entering, share, restore }: Arrival): string {
 }
 
 /**
- * The "Another device" tab of the restore page: being open is the user asking. A request opens once
- * the device is set up (`ready`) and the tab is open (`active`); it ends when the section goes or
- * another tab opens, and opens again at once when the tab does. A code that went any way but
- * unanswered waits for "New code".
+ * The asking section — a restore page's code tab, the banner's "It was me": being open is the user
+ * asking. A request opens once the device is set up (`ready`) and the section is shown (`active`); it
+ * ends when the section goes or is hidden, and opens again at once when it shows. A code that went
+ * any way but unanswered waits for "New code".
  * Approved, the device publishes its KeyPackages once it is in (`registerIdentityUseCase`) while
- * the page reads its key share (`share`); the words kept, the restore runs and the page goes on
+ * its holder reads its key share (`share`); the words kept, the restore runs and the holder goes on
  * (`onIn`) once it settles, `RESTORE_WAIT_MS` at most. Let in with no share after
  * `SHARE_WAIT_AFTER_IN_MS`, it goes on without; a share it couldn't use stops it there.
  */
@@ -129,10 +129,11 @@ export function useApproveFromAnotherDeviceViewModel(input: {
     ready: boolean
     active: boolean
     fallbackLabel: string
-    /** The page's wait for this device's key share. */
+    /** The holder's wait for this device's key share. */
     share?: AwaitedShareState | null
     onApproved?: () => void
     onIn?: () => void
+    onWorking?: (working: boolean) => void
 }): ApproveFromAnotherDeviceViewModel {
     const idpUrl = useAppStore((s) => s.idpUrl)
     const signedIn = useAppStore((s) => s.accessToken !== null)
@@ -193,10 +194,17 @@ export function useApproveFromAnotherDeviceViewModel(input: {
 
     const onIn = useRef(input.onIn)
     const onApproved = useRef(input.onApproved)
+    const onWorking = useRef(input.onWorking)
     useEffect(() => {
         onIn.current = input.onIn
         onApproved.current = input.onApproved
+        onWorking.current = input.onWorking
     })
+    const working = state.kind === "showing" && state.answered
+    useEffect(() => {
+        onWorking.current?.(working)
+    }, [working])
+    useEffect(() => () => onWorking.current?.(false), [])
     const approved = state.kind === "approved"
     useEffect(() => {
         if (approved) onApproved.current?.()
@@ -297,7 +305,7 @@ export function useApproveFromAnotherDeviceViewModel(input: {
     const own = devices?.find((d) => d.device_id === thisDeviceId)
     const approvers = (devices ?? [])
         .filter((d) => d.device_id !== thisDeviceId && d.revoked_at === null)
-        .map((d) => ({ deviceId: d.device_id, label: d.display_name || "Unnamed device", kind: d.kind }))
+        .map((d) => ({ deviceId: d.device_id, label: d.display_name.trim() || "A device", kind: d.kind }))
     const shown = state.kind === "showing" ? state : null
 
     return {

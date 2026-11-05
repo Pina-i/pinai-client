@@ -5,7 +5,14 @@ import { toast } from "sonner"
 
 import type { SeatsView } from "@pinai/domain/models/approval-handshake"
 import { deviceListKey } from "@pinai/domain/models/device"
-import { approvedByWording, approverOf, historyHolders, holdsCurrentWords, holdsHistory } from "@pinai/domain/models/device-roster"
+import {
+    approvedByWording,
+    approverOf,
+    historyHolders,
+    holdsCurrentWords,
+    holdsHistory,
+    refusedDevice,
+} from "@pinai/domain/models/device-roster"
 import type { HistoryKeyStanding, PendingHistoryKey } from "@pinai/domain/models/history-key"
 import type { ApprovalAnswering } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
 import { clearHistoryBackupUseCase } from "@pinai/domain/usecases/e2ee/clear-history-backup.usecase"
@@ -13,6 +20,7 @@ import { revokeDeviceUseCase } from "@pinai/domain/usecases/e2ee/revoke-device.u
 import { getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getSessionPort } from "@/ioc"
 import { warnE2ee, warnOf } from "@/presentation/_libs/key-share-deps"
 import { useDeviceRoster } from "@/presentation/hooks/use-device-roster"
+import { useHistoryReset } from "@/presentation/providers/HistoryResetProvider/HistoryReset.context"
 import { devicesQueryKey, type DeviceRow } from "@/presentation/hooks/useDevices"
 import { type RecentSignIn, useRecentSignIn } from "@/presentation/hooks/use-recent-sign-in"
 import { useAppStore } from "@/store/store"
@@ -33,6 +41,12 @@ export interface DevicesEditorViewModel {
     error: unknown
     /** Each unapproved device, newest first: none on a device that doesn't act. */
     waiting: DeviceRow[]
+    /** Unapproved, listed as this device set its generation over others: seated apart, counted nowhere. */
+    fromBefore: DeviceRow[]
+    /** "From before you started over" or "…you replaced your words"; `null` with none. */
+    fromBeforeHeading: string | null
+    /** The device the user refused, among those waiting: "Reset your history — not yours", no code. */
+    isRefused: (device: DeviceRow) => boolean
     /** What a screen reader hears as seats come and go. */
     waitingAnnouncement: string
     rows: DeviceRowView[] | undefined
@@ -76,7 +90,8 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
     const recentSignIn = useRecentSignIn(useCallback(() => settingsHref(location, "devices"), [location]))
     const { refused } = recentSignIn
 
-    const { rows, isLoading, error, events, verdict, answering, seats, waiting } = useDeviceRoster()
+    const { rows, isLoading, error, events, verdict, answering, seats, waiting, fromBefore } = useDeviceRoster()
+    const { reset } = useHistoryReset()
     const listRefused = events.some((e) => e.kind === "device-list-refused")
 
     // While the pane is up, requests wait in their seats; once it goes, an exchange under way goes on at the Door.
@@ -126,7 +141,7 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
 
     const holds = held ? holdsCurrentWords(held.standing) : null
     const thisDevice = rows?.find((d) => d.is_current)?.device_id ?? verdict?.thisDevice ?? null
-    const seated = new Set(waiting.map((d) => d.device_id))
+    const seated = new Set([...waiting, ...fromBefore].map((d) => d.device_id))
     const listed = rows
         ?.filter((d) => !seated.has(d.device_id))
         .map((device) => ({
@@ -195,15 +210,20 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
         isLoading,
         error,
         waiting,
+        fromBefore,
+        fromBeforeHeading:
+            fromBefore.length === 0 ? null : verdict?.before?.cause === "replacement" ? "From before you replaced your words" : "From before you started over",
+        isRefused: (device) => refusedDevice(verdict, device),
         waitingAnnouncement:
-            waiting.length === 0 ? "" : `${waiting.length} waiting for you: ${waiting.map((d) => d.display_name || "a device").join(", ")}`,
+            waiting.length === 0 ? "" : `${waiting.length} waiting for you: ${waiting.map((d) => d.display_name.trim() || "a device").join(", ")}`,
         rows: listed,
         listRefused,
         answering,
         seats,
         passphraseWords: holds && held?.words ? held.words : null,
         heldBy: rows ? historyHolders(rows, verdict) : null,
-        offersRestore: holds === null ? null : !holds,
+        // Under the banner, the way back is its "It was me", never the new-device page.
+        offersRestore: holds === null ? null : !holds && !reset,
         // A replacement whose answer was lost is pressed again: its key is sent again, or kept.
         offersReplace: holds === true && !!held?.words && (!held.pending || held.pending.rearchive === true),
         replaceWords,

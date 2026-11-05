@@ -6,7 +6,9 @@
  * `401` or `409` reads the key again, keeping one that landed; otherwise the pending key is erased
  * and nothing shown. A pending generation past 1 is never set again by itself: kept when it is the
  * key in force, erased otherwise — but never within two minutes of its writing, and one tab at a
- * time under the account's lock. Real E2EE engines over fakes keeping the IdP's rules.
+ * time under the account's lock. A device starting to act — a start over, a replacement, typed words —
+ * takes the devices listed then as seen, and after a start over as from before. Real E2EE engines
+ * over fakes keeping the IdP's rules.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -24,7 +26,11 @@ import { acceptHistoryShareUseCase } from "@pinai/domain/usecases/e2ee/accept-hi
 import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstrap-first-device.usecase"
 import { checkHistoryKeyUseCase } from "@pinai/domain/usecases/e2ee/check-history-key.usecase"
 import { type PendingKeyLock } from "@pinai/domain/usecases/e2ee/settle-pending-history-key.usecase"
+import { replaceWordsUseCase } from "@pinai/domain/usecases/e2ee/replace-words.usecase"
+import { restoreHistoryFromPassphraseUseCase } from "@pinai/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
 import { startOverUseCase } from "@pinai/domain/usecases/e2ee/start-over.usecase"
+import { devicesFromBeforeUseCase } from "@pinai/domain/usecases/e2ee/devices-from-before.usecase"
+import { waitingDevices } from "@pinai/domain/models/device-roster"
 
 import { accessToken } from "./setup/access-token"
 import { ACTOR, FakeHistoryIdp, IDP, historyDevice } from "./setup/history-idp"
@@ -495,5 +501,133 @@ describe("afterwards", () => {
 
         expect(await startOver(a.laptop)).toMatchObject({ kind: "started-over", generation: 2 })
         expect(a.phone.storage.kept?.generation).toBe(1)
+    })
+})
+
+describe("the devices listed as a device starts acting", () => {
+    async function threeDevices() {
+        const a = await sharingAccount(hpke, issuers)
+        await a.handshake(a.phone, a.laptop)
+        const tablet = await a.enrolled("tablet", "Safari on iPadOS")
+        return { a, tablet }
+    }
+    const listed = (a: Awaited<ReturnType<typeof threeDevices>>["a"]) => [...a.net.rows.values()]
+
+    it("a start over takes them as seen, and as from before but its handshake partners; its new words' screen names those", async () => {
+        const { a, tablet } = await threeDevices()
+
+        expect(await startOver(a.laptop)).toMatchObject({ kind: "started-over", generation: 2 })
+
+        const trust = a.laptop.storage.trust
+        expect(trust.baselines).toContain(2)
+        expect(trust.seen.map((d) => d.deviceId)).toEqual(expect.arrayContaining([a.phone.storage.deviceId, tablet.storage.deviceId]))
+        expect(trust.before.map((b) => [b.generation, b.cause, b.devices.map((d) => [d.deviceId, [...d.rootKey]]), b.refused])).toEqual([
+            [2, "start-over", [[tablet.storage.deviceId, [...tablet.storage.rootKey.publicKey]]], []],
+        ])
+        expect(await devicesFromBeforeUseCase(a.laptop.deps)(IDP, a.laptop.token, ACTOR)).toEqual({ cause: "start-over", labels: ["Safari on iPadOS"] })
+
+        const verdict = await a.laptop.e2ee.reviewDevices(IDP, a.laptop.token, ACTOR, listed(a))
+        expect(verdict.before?.devices.map((d) => d.deviceId)).toEqual([tablet.storage.deviceId])
+        expect(a.laptop.e2ee.trustSnapshot()).toContainEqual(expect.objectContaining({ deviceId: tablet.storage.deviceId, arrived: false }))
+    })
+
+    it("a start over keeps the device the user refused apart: never named on the words' screen", async () => {
+        const { a, tablet } = await threeDevices()
+
+        expect(await startOverUseCase(a.laptop.deps)({ idpUrl: IDP, accessToken: a.laptop.token, actorUri: ACTOR, refused: tablet.storage.deviceId })).toMatchObject({
+            kind: "started-over",
+        })
+
+        expect(a.laptop.storage.trust.before[0].devices).toEqual([])
+        expect(a.laptop.storage.trust.before[0].refused.map((d) => d.deviceId)).toEqual([tablet.storage.deviceId])
+        expect(await devicesFromBeforeUseCase(a.laptop.deps)(IDP, a.laptop.token, ACTOR)).toBeNull()
+    })
+
+    it("a replacement takes them as seen, and as from before those it had found approved — a newcomer still waits", async () => {
+        const { a, tablet } = await threeDevices()
+        await restoreHistoryFromPassphraseUseCase(tablet.deps)({ idpUrl: IDP, accessToken: tablet.token, actorUri: ACTOR, passphrase: a.words })
+        const newcomer = await a.enrolled("newcomer", "Chrome on Android")
+        await a.laptop.e2ee.reviewDevices(IDP, a.laptop.token, ACTOR, listed(a))
+        const replaced = await replaceWordsUseCase({ ...a.laptop.deps, cacheRead: () => true, applyRestored: async () => undefined })({
+            idpUrl: IDP,
+            accessToken: a.laptop.token,
+            actorUri: ACTOR,
+            tokenArrivedAt: Date.now(),
+        })
+
+        expect(replaced).toMatchObject({ kind: "replaced", generation: 2 })
+        expect(a.laptop.storage.trust.baselines).toContain(2)
+        expect(a.laptop.storage.trust.before.map((b) => [b.cause, b.devices.map((d) => d.deviceId)])).toEqual([["replacement", [tablet.storage.deviceId]]])
+        expect(await devicesFromBeforeUseCase(a.laptop.deps)(IDP, a.laptop.token, ACTOR)).toEqual({ cause: "replacement", labels: ["Safari on iPadOS"] })
+        const verdict = a.laptop.e2ee.verdictSnapshot()
+        expect(waitingDevices({ devices: listed(a), events: a.laptop.e2ee.trustSnapshot(), verdict, requests: [] }).map((d) => d.device_id)).toEqual([
+            newcomer.storage.deviceId,
+        ])
+    })
+
+    it("a start over whose answer was lost keeps them as from before when the next start settles it, the refused device apart", async () => {
+        const { a, tablet } = await threeDevices()
+        const watch = await a.enrolled("watch", "Wear OS")
+        const refused = tablet.storage.deviceId
+        vi.spyOn(a.idp, "setKey").mockImplementationOnce(async (...args) => {
+            await FakeHistoryIdp.prototype.setKey.apply(a.idp, args)
+            throw new TypeError("Failed to fetch")
+        })
+        await expect(startOverUseCase(a.laptop.deps)({ idpUrl: IDP, accessToken: a.laptop.token, actorUri: ACTOR, refused })).rejects.toThrow(
+            "Failed to fetch",
+        )
+        expect(a.laptop.storage.pending?.intent).toEqual({ cause: "start-over", refused })
+        expect(a.laptop.storage.trust.before).toEqual([])
+
+        const reloaded = a.device("laptop", a.laptop.storage)
+        reloaded.token = a.laptop.token
+        await checkHistoryKeyUseCase(reloaded.deps)(IDP, reloaded.token, ACTOR)
+
+        expect(a.laptop.storage.pending).toBeNull()
+        const [entry] = a.laptop.storage.trust.before
+        expect([entry.generation, entry.cause, entry.devices.map((d) => d.deviceId), entry.refused.map((d) => d.deviceId)]).toEqual([
+            2,
+            "start-over",
+            [watch.storage.deviceId],
+            [tablet.storage.deviceId],
+        ])
+    })
+
+    it("a review that landed before the from-before row is refreshed once the row is written: nobody from before left waiting", async () => {
+        const { a, tablet } = await threeDevices()
+        const set = await startOver(a.laptop)
+        expect(set).toMatchObject({ kind: "started-over", generation: 2 })
+        a.laptop.storage.trust = { ...a.laptop.storage.trust, before: [] }
+        const early = await a.laptop.e2ee.reviewDevices(IDP, a.laptop.token, ACTOR, listed(a))
+        expect(early.before).toBeNull()
+
+        await a.laptop.e2ee.takeDeviceBaseline(2, listed(a), { cause: "start-over", refused: null })
+
+        const verdict = a.laptop.e2ee.verdictSnapshot()
+        expect(verdict?.before?.devices.map((d) => d.deviceId)).toEqual([tablet.storage.deviceId])
+        expect(waitingDevices({ devices: listed(a), events: a.laptop.e2ee.trustSnapshot(), verdict, requests: [] })).toEqual([])
+    })
+
+    it("typed words take them as seen: a device listed before announces nothing, one listed after arrives", async () => {
+        const { a, tablet } = await threeDevices()
+        const typing = await a.enrolled("typing", "Chrome on Linux")
+        await restoreHistoryFromPassphraseUseCase(typing.deps)({ idpUrl: IDP, accessToken: typing.token, actorUri: ACTOR, passphrase: a.words })
+        const later = await a.enrolled("later", "Firefox on Android")
+
+        await typing.e2ee.reviewDevices(IDP, typing.token, ACTOR, listed(a))
+
+        const told = typing.e2ee.trustSnapshot().flatMap((e) => (e.kind === "unapproved-device" ? [[e.deviceId, e.arrived]] : []))
+        expect(told).toEqual(expect.arrayContaining([[tablet.storage.deviceId, false], [later.storage.deviceId, true]]))
+        expect(typing.storage.trust.before).toEqual([])
+    })
+
+    it("a first review under a generation no flow took the baseline for takes it: nothing listed then arrives", async () => {
+        const { a, tablet } = await threeDevices()
+        a.laptop.storage.trust = { ...a.laptop.storage.trust, baselines: [] }
+
+        await a.laptop.e2ee.reviewDevices(IDP, a.laptop.token, ACTOR, listed(a))
+
+        expect(a.laptop.e2ee.trustSnapshot()).toContainEqual(expect.objectContaining({ deviceId: tablet.storage.deviceId, arrived: false }))
+        expect(a.laptop.storage.trust.baselines).toEqual([1])
     })
 })

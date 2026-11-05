@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate, useRouterState } from "@tanstack/react-router"
 
-import { forcesRecheck, routeRechecks, type GateRoute } from "@pinai/domain/models/admission"
+import { forcesRecheck, routeRechecks, withdrawalRechecks, type KeptWordsReset } from "@pinai/domain/models/admission"
 import type { ActorUri } from "@pinai/domain/models/e2ee"
-import { gateThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/gate-this-device.usecase"
+import { gateDecisionUseCase, type GateDecision } from "@pinai/domain/usecases/e2ee/gate-this-device.usecase"
 import { getE2eePort } from "@/ioc"
 import { admissionDeps } from "@/presentation/_libs/admission-deps"
 import { GATE_PAGES } from "@/presentation/_libs/gate-pages"
+import { warnOf } from "@/presentation/_libs/key-share-deps"
+import type { RecheckOutcome } from "@/presentation/providers/HistoryResetProvider/HistoryReset.context"
 import { useAppStore } from "@/store/store"
 
 export type GateStatus = "loading" | "ready" | "redirecting" | "error"
@@ -15,18 +17,22 @@ export interface GateResult {
     status: GateStatus
     /** Only non-null when status === "error". Allows the layout to surface a retry. */
     retry: (() => void) | null
+    /** In by the words it kept over a reset it didn't make: why, for the app's banner. */
+    reset: KeptWordsReset | null
+    /** Checks again at once, as after a step the banner's user took; answers how that check went. */
+    recheck: () => Promise<RecheckOutcome>
 }
 
-function checkThisDevice(idpUrl: string, accessToken: string, actorUri: ActorUri): Promise<GateRoute> {
-    return gateThisDeviceUseCase(admissionDeps())(idpUrl, accessToken, actorUri)
+function checkThisDevice(idpUrl: string, accessToken: string, actorUri: ActorUri): Promise<GateDecision> {
+    return gateDecisionUseCase(admissionDeps())(idpUrl, accessToken, actorUri)
 }
 
 /**
- * Onboarding gate: only a device that is in reaches the app (`gateThisDeviceUseCase`); any other
+ * Onboarding gate: only a device that is in reaches the app (`gateDecisionUseCase`); any other
  * goes to setup, the new-device page or the reset page. It checks as the layout mounts — a reload,
- * a sign-in —, then in the background: at a route change (`routeRechecks`), and at once when the
- * device hears its key changed (`forcesRecheck`). The newest check decides; one that fails changes
- * nothing.
+ * a sign-in —, then in the background: at a route change (`routeRechecks`), at once when the device
+ * hears its key changed (`forcesRecheck`) or stops hearing it (`withdrawalRechecks`), and when asked
+ * (`recheck`). The newest check decides, `reset` with it; one that fails changes nothing.
  */
 export function useIdentityOnboardingGate(): GateResult {
     const signedIn = useAppStore((s) => s.accessToken !== null)
@@ -40,16 +46,17 @@ export function useIdentityOnboardingGate(): GateResult {
     // match: a result probed for one account is never shown to the next one to sign in here.
     const probeKey =
         signedIn && idpUrl && ownActorUri ? `${idpUrl}|${ownActorUri}|${retryNonce}` : null
-    const [probed, setProbed] = useState<{ key: string; status: GateStatus } | null>(null)
-    const status: GateStatus = probeKey !== null && probed?.key === probeKey ? probed.status : "loading"
+    const [probed, setProbed] = useState<{ key: string; status: GateStatus; reset: KeptWordsReset | null } | null>(null)
+    const current = probeKey !== null && probed?.key === probeKey ? probed : null
+    const status: GateStatus = current?.status ?? "loading"
     const lastCheckAt = useRef<number | null>(null)
-    const recheck = useRef<((force: boolean) => void) | null>(null)
+    const recheck = useRef<((force: boolean) => Promise<RecheckOutcome>) | null>(null)
     const routeSeen = useRef<string | null>(null)
 
     useEffect(() => {
         const accessToken = useAppStore.getState().accessToken
         if (probeKey === null || !accessToken || !idpUrl || !ownActorUri) return
-        const setStatus = (next: GateStatus) => setProbed({ key: probeKey, status: next })
+        const setStatus = (next: GateStatus, reset: KeptWordsReset | null = null) => setProbed({ key: probeKey, status: next, reset })
         let cancelled = false
         ;(async () => {
             try {
@@ -71,11 +78,11 @@ export function useIdentityOnboardingGate(): GateResult {
                         return
                     }
                 }
-                const route = await checkThisDevice(idpUrl, accessToken, ownActorUri)
+                const { route, reset } = await checkThisDevice(idpUrl, accessToken, ownActorUri)
                 if (cancelled) return
                 lastCheckAt.current = Date.now()
                 if (route === "app") {
-                    setStatus("ready")
+                    setStatus("ready", reset)
                     return
                 }
                 setStatus("redirecting")
@@ -99,47 +106,62 @@ export function useIdentityOnboardingGate(): GateResult {
         let live = true
         let running = 0
         let newest = 0
-        const check = (force: boolean) => {
+        const check = async (force: boolean): Promise<RecheckOutcome> => {
             const accessToken = useAppStore.getState().accessToken
-            if (!live || !accessToken) return
+            if (!live || !accessToken) return "failed"
             const now = Date.now()
-            if (!force && !routeRechecks({ running: running > 0, lastAt: lastCheckAt.current, now })) return
+            if (!force && !routeRechecks({ running: running > 0, lastAt: lastCheckAt.current, now })) return "failed"
             lastCheckAt.current = now
             running += 1
             const seq = ++newest
-            checkThisDevice(idpUrl, accessToken, ownActorUri)
-                .then((route) => {
-                    if (!live || seq !== newest || route === "app" || !useAppStore.getState().accessToken) return
-                    setProbed({ key: probeKey, status: "redirecting" })
-                    void navigate({ to: GATE_PAGES[route] })
-                })
-                .catch((e: unknown) => {
-                    // eslint-disable-next-line no-console
-                    console.warn("Identity onboarding gate check failed; the last one stands:", e)
-                })
-                .finally(() => {
-                    running -= 1
-                })
+            try {
+                const { route, reset, offline } = await checkThisDevice(idpUrl, accessToken, ownActorUri)
+                if (live && seq === newest && useAppStore.getState().accessToken) {
+                    if (route === "app") {
+                        setProbed({ key: probeKey, status: "ready", reset })
+                    } else {
+                        setProbed({ key: probeKey, status: "redirecting", reset: null })
+                        void navigate({ to: GATE_PAGES[route] })
+                    }
+                }
+                return offline ? "offline" : "checked"
+            } catch (e) {
+                // eslint-disable-next-line no-console
+                console.warn("Identity onboarding gate check failed; the last one stands:", e)
+                return "failed"
+            } finally {
+                running -= 1
+            }
         }
         recheck.current = check
         // The events already standing are replayed as it subscribes: the probe has just weighed them.
         let replaying = true
-        const stop = getE2eePort().onTrustEvent((event) => {
-            if (!replaying && forcesRecheck(event)) check(true)
+        const port = getE2eePort()
+        const stopTold = port.onTrustEvent((event) => {
+            if (!replaying && forcesRecheck(event)) void check(true)
+        })
+        const stopWithdrawn = port.onTrustWithdrawn((event) => {
+            if (!forcesRecheck(event)) return
+            port.pendingHistoryKey().then((pending) => {
+                if (withdrawalRechecks(event, pending, Date.now())) void check(true)
+            }, warnOf("reading the pending history key"))
         })
         replaying = false
         return () => {
             live = false
             recheck.current = null
-            stop()
+            stopTold()
+            stopWithdrawn()
         }
     }, [status, probeKey, idpUrl, ownActorUri, navigate])
 
     useEffect(() => {
         const previous = routeSeen.current
         routeSeen.current = pathname
-        if (previous !== null && previous !== pathname) recheck.current?.(false)
+        if (previous !== null && previous !== pathname) void recheck.current?.(false)
     }, [pathname])
+
+    const recheckNow = useCallback(async (): Promise<RecheckOutcome> => (await recheck.current?.(true)) ?? "failed", [])
 
     return {
         status,
@@ -147,5 +169,7 @@ export function useIdentityOnboardingGate(): GateResult {
             status === "error"
                 ? () => setRetryNonce((n) => n + 1)
                 : null,
+        reset: status === "ready" ? (current?.reset ?? null) : null,
+        recheck: recheckNow,
     }
 }

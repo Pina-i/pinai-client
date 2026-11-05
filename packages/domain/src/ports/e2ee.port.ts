@@ -6,10 +6,10 @@ import type {
     Fingerprint,
     KeyPackageStatusResponse,
 } from "../models/e2ee"
-import type { Admission, CheckedPartner } from "../models/admission"
+import type { Admission, CheckedPartner, ResetSetter } from "../models/admission"
 import type { ExchangedKeys, HandshakeRole } from "../models/approval-handshake"
 import type { DeviceListEntry } from "../models/device"
-import type { DeviceTrustVerdict, HandshakeKeysRefusal, HandshakePartner, TrustEvent } from "../models/device-trust"
+import type { BaselineIntent, DeviceTrustVerdict, HandshakeKeysRefusal, HandshakePartner, TrustEvent } from "../models/device-trust"
 import type { ArchiveEnvelope, ArchivedEntry } from "../models/history-archive"
 import type { DerivedHistoryKey, HistoryKey, HistoryKeyStanding, PendingHistoryKey } from "../models/history-key"
 import type { RearchiveDue, RearchiveEntry, RearchivePosition } from "../models/history-rearchive"
@@ -235,6 +235,9 @@ export interface IE2eePort {
         devices: readonly DeviceListEntry[],
     ): Promise<DeviceTrustVerdict>
 
+    /** `deviceBaseline` kept from `devices`, read just before; the kept verdict refreshed with what it left behind. */
+    takeDeviceBaseline(generation: number, devices: readonly DeviceListEntry[], intent: BaselineIntent | null): Promise<void>
+
     /**
      * Commits out of a group this device holds, one a commit, each judged against the tree as it
      * stands just before (an index changes hands), every non-own leaf verified: a forgery
@@ -352,8 +355,12 @@ export interface IE2eePort {
      * generation already sealed gives its words again, written anew, until
      * {@link IE2eePort.dropPendingHistoryKey}. `rearchive`: they replace words this device holds,
      * and whoever promotes them — this flow, or the next start's settle — marks the re-archive due.
+     * `intent`: kept with them, for the settle's baseline.
      */
-    mintHistoryKey(generation: number, options?: { rearchive?: boolean }): Promise<{ words: string[]; key: HistoryKey }>
+    mintHistoryKey(
+        generation: number,
+        options?: { rearchive?: boolean; intent?: BaselineIntent },
+    ): Promise<{ words: string[]; key: HistoryKey }>
 
     /** The pending key, its words left out, with when it was written; `null` when none waits. */
     pendingHistoryKey(): Promise<PendingHistoryKey | null>
@@ -545,11 +552,12 @@ export interface IE2eePort {
     /**
      * The device that set the generation in force past the one this device holds, as the last check
      * of the key found it, and whether this device found it approved over the root key `devices` —
-     * `GET /api/keys/devices` read just before — lists for it now (`resetByUnapproved`). `null` when
-     * no such generation stands, or names no device, the list names an id twice, or the revocations
+     * `GET /api/keys/devices` read just before — lists for it now (`resetByUnapproved`); `self` when
+     * it names this very device, which set no such generation. `null` when no such generation stands,
+     * or names no device, or — another device named — the list names an id twice, or the revocations
      * kept can't be read.
      */
-    resetSetter(devices: readonly DeviceListEntry[]): Promise<{ deviceId: DeviceId; approved: boolean } | null>
+    resetSetter(devices: readonly DeviceListEntry[]): Promise<ResetSetter | null>
 }
 
 /** A re-archive's batch, sealed: what `uploadRearchive` sends, as many times as it takes. */

@@ -2,10 +2,12 @@
  * When a device is in (`identity-provider/specs/e2ee.md § 3.6`, § 3.9): holding the current
  * passphrase, or approved by one of its handshake partners — listed unrevoked under the root key
  * the exchange gave, at the generation this device's own check stood on, its approval verifying
- * over this device's root key as it is now. A lie this device caught — a rollback, a relabel, a key
- * changed under its generation — no partner overrides. Anything else is out, and a device out
- * publishes no KeyPackage: not on the first device's path, the typed words', the code's, nor the
- * tick's, which refills only at the threshold or for a device the IdP doesn't list. The rule is the
+ * over this device's root key as it is now; or holding words of an older key of the account, over a
+ * reset by a device it never found approved, or a change none of its devices made — in, acting on
+ * nothing, under a banner. Only a replacement by a device it found approved keeps such a device
+ * out. Anything else is out, and a device out publishes no KeyPackage: not on the first device's
+ * path, the typed words', the code's, nor the tick's, which refills only at the threshold or for a
+ * device the IdP doesn't list. The rule is the
  * domain's, the signatures real, each device the real E2EE engine against an IdP answering as the
  * spec says.
  */
@@ -13,9 +15,19 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { ed25519 } from "@noble/curves/ed25519.js"
 
 import { approvalBytes } from "@pinai/crypto/canonical-bytes"
-import { deviceAdmission, needsPartners, type CheckedPartner, type PartnerFacts } from "@pinai/domain/models/admission"
+import {
+    decideGateRoute,
+    deviceAdmission,
+    keptWordsReset,
+    withdrawalRechecks,
+    needsPartners,
+    parseAdmission,
+    type CheckedPartner,
+    type PartnerFacts,
+} from "@pinai/domain/models/admission"
 import type { DeviceApproval, DeviceListEntry } from "@pinai/domain/models/device"
-import type { HistoryKeyStanding } from "@pinai/domain/models/history-key"
+import { withTrust, type TrustEvent } from "@pinai/domain/models/device-trust"
+import { PENDING_KEY_FRESH_MS, type HistoryKeyStanding } from "@pinai/domain/models/history-key"
 import { IdpError } from "@pinai/domain/models/idp-error"
 import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstrap-first-device.usecase"
 import { checkAdmissionUseCase } from "@pinai/domain/usecases/e2ee/check-admission.usecase"
@@ -31,6 +43,7 @@ afterEach(() => {
 })
 
 const root = (n: number) => new Uint8Array(32).fill(n)
+const key = (generation: number) => ({ generation, salt: new Uint8Array(16), checkValue: root(3), approvalPublicKey: root(4) })
 const NO_WORDS: HistoryKeyStanding = { kind: "no-passphrase", generation: 2 }
 const mismatch = (reason: "check-value" | "approval-key" | "rollback" | "relabelled", generation: number, held: number | null) =>
     ({ kind: "mismatch", generation, setByDevice: "laptop", reason, held }) as const
@@ -69,6 +82,7 @@ describe("the rule", () => {
         devices: [row("laptop", laptop), row("phone", { drk_public_key: root(5), history_generation: null })],
         partners: [partner()],
         revokedSeen: [],
+        setter: null,
         ...change,
     })
 
@@ -106,23 +120,88 @@ describe("the rule", () => {
         expect(deviceAdmission(NO_WORDS, null)).toEqual({ kind: "out" })
     })
 
-    it("lets an old device back in after a start over through the new device it approved and was approved by", () => {
+    it("after its words were replaced on a device it found approved: back in only through the new device it approved and was approved by", () => {
         const after = mismatch("check-value", 2, 1)
-        expect(deviceAdmission(after, facts())).toEqual({ kind: "in", by: "partner", partner: "laptop" })
-        expect(deviceAdmission(after, facts({ partners: [] }))).toEqual({ kind: "out" })
+        const replacedOnLaptop = { setter: { deviceId: "laptop", approved: true, self: false } }
+        expect(needsPartners(after)).toBe(true)
+        expect(deviceAdmission(after, facts(replacedOnLaptop))).toEqual({ kind: "in", by: "partner", partner: "laptop" })
+        expect(deviceAdmission(after, facts({ ...replacedOnLaptop, partners: [] }))).toEqual({ kind: "out" })
     })
 
-    it("lets no partner override a lie this device caught: a rollback, a relabel, a key changed under its generation", () => {
-        for (const caught of [
-            mismatch("rollback", 1, 2),
-            mismatch("rollback", 0, null),
-            mismatch("relabelled", 2, 1),
-            mismatch("approval-key", 2, 2),
-            mismatch("check-value", 2, 2),
-        ]) {
+    it("keeps in a device that held words of the account over a reset by a device it never found approved, or can't tell", () => {
+        const after = mismatch("check-value", 2, 1)
+        const kept = { kind: "in", by: "kept-words", cause: "reset-by-unapproved" }
+        expect(deviceAdmission(after, facts({ partners: [] }))).toEqual(kept)
+        expect(deviceAdmission(after, facts({ partners: [], setter: { deviceId: "laptop", approved: false, self: false } }))).toEqual(kept)
+        // Approved, but not the device the key names: the instance's word against this device's.
+        expect(deviceAdmission(after, facts({ partners: [], setter: { deviceId: "tablet", approved: true, self: false } }))).toEqual(kept)
+        expect(deviceAdmission(after, null)).toEqual(kept)
+    })
+
+    it("lets in by its partner, before its kept words, a device the code approved: a share coming late brings no banner back", () => {
+        const after = mismatch("check-value", 2, 1)
+        const admission = deviceAdmission(after, facts({ setter: { deviceId: "tablet", approved: false, self: false } }))
+
+        expect(admission).toEqual({ kind: "in", by: "partner", partner: "laptop" })
+        expect(keptWordsReset(admission, after)).toBeNull()
+    })
+
+    it("takes a newer generation said to be its own, while it set none, for a change none of its devices made", () => {
+        const named = { ...mismatch("check-value", 2, 1), setByDevice: "phone" }
+        const self = { setter: { deviceId: "phone", approved: false, self: true }, partners: [] }
+
+        expect(deviceAdmission(named, facts(self))).toEqual({ kind: "in", by: "kept-words", cause: "unknown-change" })
+        expect(keptWordsReset(deviceAdmission(named, facts(self)), named)).toEqual({ cause: "unknown-change", setter: null })
+    })
+
+    it("keeps in a device that held words of the account over a change none of its devices made, no partner deciding it", () => {
+        for (const caught of [mismatch("rollback", 1, 2), mismatch("relabelled", 2, 1), mismatch("approval-key", 2, 2), mismatch("check-value", 2, 2)]) {
             expect(needsPartners(caught)).toBe(false)
-            expect(deviceAdmission(caught, facts({}, { history_generation: caught.generation }))).toEqual({ kind: "out" })
+            expect(deviceAdmission(caught, facts({}, { history_generation: caught.generation }))).toEqual({
+                kind: "in",
+                by: "kept-words",
+                cause: "unknown-change",
+            })
+            expect(deviceAdmission(caught, null)).toMatchObject({ by: "kept-words" })
         }
+    })
+
+    it("lets in no device that never held words of the account, whatever changed", () => {
+        expect(deviceAdmission(mismatch("rollback", 0, null), facts())).toEqual({ kind: "out" })
+        expect(deviceAdmission(NO_WORDS, facts({ partners: [] }))).toEqual({ kind: "out" })
+    })
+
+    it("sends each to its page: kept words to the app under a banner, a replacement to the reset page, a new device to its own", () => {
+        const route = (standing: HistoryKeyStanding, partnerFacts: PartnerFacts | null) => {
+            const admission = deviceAdmission(standing, partnerFacts)
+            return [decideGateRoute({ pending: false, standing, admission }), keptWordsReset(admission, standing)]
+        }
+        const replaced = facts({ partners: [], setter: { deviceId: "laptop", approved: true, self: false } })
+
+        expect(route(mismatch("check-value", 2, 1), facts({ partners: [] }))).toEqual(["app", { cause: "reset-by-unapproved", setter: "laptop" }])
+        expect(route(mismatch("approval-key", 2, 2), null)).toEqual(["app", { cause: "unknown-change", setter: null }])
+        expect(route(mismatch("check-value", 2, 1), replaced)).toEqual(["reset", null])
+        expect(route(NO_WORDS, facts({ partners: [] }))).toEqual(["new-device", null])
+        expect(route({ kind: "holds", generation: 2, settled: true }, null)).toEqual(["app", null])
+    })
+
+    it("reads back what it recorded, the kept words' cause included", () => {
+        expect(parseAdmission({ kind: "in", by: "kept-words", cause: "unknown-change" })).toEqual({ kind: "in", by: "kept-words", cause: "unknown-change" })
+        expect(parseAdmission({ kind: "in", by: "kept-words", cause: "other" })).toBeNull()
+        expect(parseAdmission({ kind: "in", by: "kept-words" })).toBeNull()
+    })
+
+    it("checks again when a warning is withdrawn, unless a pending key written moments ago waits: its own new generation", () => {
+        const withdrawn: TrustEvent = { kind: "reset-by-unapproved", generation: 2, setByDevice: "tablet" }
+        const pending = (mintedAt: number | null) => ({ ...key(3), mintedAt })
+        const now = 1_000_000
+
+        expect(withdrawalRechecks(withdrawn, null, now)).toBe(true)
+        expect(withdrawalRechecks(withdrawn, pending(now - 1_000), now)).toBe(false)
+        // A start over that failed leaves it: it holds the check back no longer than the fresh window.
+        expect(withdrawalRechecks(withdrawn, pending(now - PENDING_KEY_FRESH_MS), now)).toBe(true)
+        expect(withdrawalRechecks(withdrawn, pending(null), now)).toBe(true)
+        expect(withdrawalRechecks({ kind: "device-list-refused", duplicates: [] }, null, now)).toBe(false)
     })
 })
 
@@ -239,13 +318,32 @@ describe("a partner's approval, with real keys", () => {
         expect(await phone.e2ee.historyKeyStanding()).toMatchObject({ kind: "mismatch", reason: "rollback" })
     })
 
-    it("keeps out a device holding the words under an approval key the instance swapped, its partner listed at that generation", async () => {
+    it("keeps in, acting on nothing, a device holding the words under an approval key the instance swapped, whatever its partner", async () => {
         const { idp, laptop, phone, words } = await account()
         await restoreHistoryFromPassphraseUseCase(phone.deps)({ idpUrl: IDP, accessToken: phone.token, actorUri: ACTOR, passphrase: words })
         idp.key = { ...idp.key!, approvalPublicKey: ed25519.keygen().publicKey }
 
-        expect(await admit(phone, listing(laptop, phone, [laptopApproves(laptop, phone)], {}, 1))).toEqual({ kind: "out" })
+        expect(await admit(phone, listing(laptop, phone, [laptopApproves(laptop, phone)], {}, 1))).toEqual({
+            kind: "in",
+            by: "kept-words",
+            cause: "unknown-change",
+        })
         expect(await phone.e2ee.historyKeyStanding()).toMatchObject({ kind: "mismatch", reason: "approval-key" })
+    })
+
+    it("tells a reset by a device it found approved over the root key listed now from any other, reading the list once", async () => {
+        const { idp, laptop } = await account()
+        await startOverElsewhere(idp)
+        const setter = idp.key!.setByDevice!
+        const rootKey = idp.rootKeys.get(setter)!
+        const listed = [row(setter, { drk_public_key: rootKey, history_generation: 2 })]
+        idp.log.length = 0
+
+        expect(await admit(laptop, listed)).toEqual({ kind: "in", by: "kept-words", cause: "reset-by-unapproved" })
+        expect(idp.log.filter((line) => line === "read key")).toHaveLength(1)
+        laptop.storage.trust = withTrust(laptop.storage.trust, { approved: [{ deviceId: setter, rootKey }] })
+        expect(await admit(laptop, listed)).toEqual({ kind: "out" })
+        expect(await admit(laptop, [row(setter, { drk_public_key: root(9), history_generation: 2 })])).toMatchObject({ by: "kept-words" })
     })
 })
 
@@ -352,15 +450,24 @@ describe("KeyPackages, only once in", () => {
         expect(uploads(idp)).toEqual([`upload ${idp.keyPackages.cap - idp.keyPackages.threshold}`])
     })
 
-    it("the tick stops refilling once the device turns out", async () => {
+    it("the tick refills a device kept in by its words over a reset it didn't make, and stops once one it found approved replaced them", async () => {
         const idp = new FakeHistoryIdp()
         const laptop = await publishingDevice(idp, "laptop", new MemoryHistoryStorage())
         await bootstrapFirstDeviceUseCase(laptop.deps)(input(laptop))
         idp.keyPackages.take(laptop.storage.deviceId, idp.keyPackages.cap)
         await startOverElsewhere(idp)
+        const setter = idp.key!.setByDevice!
+        const rootKey = idp.rootKeys.get(setter)!
+        const deps = seeing(laptop, () => [row(setter, { drk_public_key: rootKey, history_generation: 2 })])
         idp.log.length = 0
 
-        expect(await replenishKeyPackagesUseCase(laptop.deps)(input(laptop))).toEqual({ admission: { kind: "out" }, status: null })
+        expect(await replenishKeyPackagesUseCase(deps)(input(laptop))).toMatchObject({ admission: { kind: "in", by: "kept-words" } })
+        expect(uploads(idp)).toHaveLength(1)
+
+        idp.keyPackages.take(laptop.storage.deviceId, idp.keyPackages.cap)
+        laptop.storage.trust = withTrust(laptop.storage.trust, { approved: [{ deviceId: setter, rootKey }] })
+        idp.log.length = 0
+        expect(await replenishKeyPackagesUseCase(deps)(input(laptop))).toEqual({ admission: { kind: "out" }, status: null })
         expect(uploads(idp)).toEqual([])
     })
 })

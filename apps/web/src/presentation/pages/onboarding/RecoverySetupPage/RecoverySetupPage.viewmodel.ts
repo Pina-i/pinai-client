@@ -10,6 +10,7 @@ import { copyPassphrase } from "@/presentation/_libs/copy-passphrase"
 import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
 import { GATE_PAGES } from "@/presentation/_libs/gate-pages"
 import { instanceHost } from "@/presentation/_libs/instance-host"
+import { warnE2ee } from "@/presentation/_libs/key-share-deps"
 import { pendingKeyLock } from "@/presentation/_libs/pending-key-lock"
 import { useAppStore } from "@/store/store"
 
@@ -73,6 +74,7 @@ export function useRecoverySetupPageViewModel(): RecoverySetupViewModel {
                     historyArchivePort: getHistoryArchivePort(),
                     deviceDirectoryPort: getDeviceDirectoryPort(),
                     pendingKeyLock: pendingKeyLock(ownActorUri),
+                    report: warnE2ee,
                 })({
                     idpUrl,
                     accessToken,

@@ -38,7 +38,7 @@ import {
     askingStatus,
     useApproveFromAnotherDeviceViewModel,
     type ApproveFromAnotherDeviceViewModel,
-} from "@/presentation/pages/onboarding/RecoveryRestorePage/ApproveFromAnotherDevice/ApproveFromAnotherDevice.viewmodel"
+} from "@/presentation/organisms/ApproveFromAnotherDevice/ApproveFromAnotherDevice.viewmodel"
 import { useAppStore } from "@/store/store"
 
 import { FakeAccount, type Clock } from "./setup/approval-relay"
