@@ -175,6 +175,55 @@ export function answerableRequests(
         .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
 }
 
+/** What the Door shows of the request it answers, and a seat of its own. `entry`: the code to type; `working`: the exchange under way. */
+export interface AnsweringView {
+    request: ApprovalRequest
+    stage: "entry" | "working" | "approved" | "failed"
+    failure: HandshakeFailure | null
+    /** The device's last request failed so: its new one is this. */
+    note: HandshakeFailure | null
+    /** A code refused before any exchange: one tried already, or another tab answering this request. */
+    refused: "used-code" | "other-tab" | null
+}
+
+/** What Settings → Devices' waiting seats read of the answering side the Door shares with them. */
+export interface SeatsView {
+    /** Another device's, open, nobody's answer yet — the Door's set aside included; none unless this device holds the words. */
+    open: ApprovalRequest[]
+    /** The request the Door holds, until it failed: answered there. */
+    atDoor: ApprovalRequest | null
+    /** The exchange a seat started, settled or not. */
+    seat: AnsweringView | null
+    /** No code is taken now: an answer is on its way, an exchange works, or the Door holds a request. */
+    busy: boolean
+    /** This device holds the words but hasn't yet approved itself with them and said so: it takes no code until then. */
+    unsettled: boolean
+}
+
+export type SeatAnswer =
+    | { kind: "asks-nothing" }
+    | { kind: "at-door"; request: ApprovalRequest }
+    | { kind: "code"; request: ApprovalRequest; note: HandshakeFailure | null; refused: AnsweringView["refused"] }
+    | { kind: "working"; request: ApprovalRequest }
+    | { kind: "approved"; request: ApprovalRequest }
+    | { kind: "failed"; request: ApprovalRequest; failure: HandshakeFailure }
+
+/** Its own exchange first, then the Door's, then its newest open request. */
+export function seatAnswer(deviceId: DeviceId, seats: SeatsView): SeatAnswer {
+    const own = seats.seat
+    if (own && own.request.deviceId === deviceId) {
+        const { request } = own
+        if (own.stage === "entry") return { kind: "code", request, note: own.note, refused: own.refused }
+        if (own.stage === "failed") return { kind: "failed", request, failure: own.failure ?? "error" }
+        return { kind: own.stage, request }
+    }
+    if (seats.atDoor?.deviceId === deviceId) return { kind: "at-door", request: seats.atDoor }
+    const asked = seats.open
+        .filter((r) => r.deviceId === deviceId)
+        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0]
+    return asked ? { kind: "code", request: asked, note: null, refused: null } : { kind: "asks-nothing" }
+}
+
 /** A failure the Door says; the others close it: another device answered, or the request went before an answer. */
 export function failureShown(reason: HandshakeFailure, phase: HandshakePhase): boolean {
     if (reason === "taken" || reason === "cancelled") return false

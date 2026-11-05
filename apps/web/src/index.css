@@ -66,6 +66,8 @@
     --grain-blend:                overlay;
     /* Above ~8% a motif stroke behind an 11px subline drops under 4.5:1. */
     --motif-opacity:              0.02;
+    /* Pass's motif fades out before its centred text: it can stand out more (the user's choice). */
+    --pass-motif-opacity:         0.09;
 
     color-scheme: dark;
 }
@@ -319,6 +321,7 @@
 .light {
     /* A pattern needs more presence on paper than on a dark ground. */
     --motif-opacity:              0.10;
+    --pass-motif-opacity:         0.20;
 
     color-scheme: light;
 }
@@ -836,6 +839,11 @@
 @keyframes pn-pulse-ring {
     0%, 100% { transform: scale(1); opacity: 0.9; }
     50%      { transform: scale(1.06); opacity: 0.4; }
+}
+/* A waiting seat's dot: an amber ring widening out from it. */
+@keyframes pn-wait-ring {
+    0%, 100% { box-shadow: 0 0 0 2px var(--background), 0 0 0 2px color-mix(in oklab, var(--idle) 50%, transparent); }
+    50%      { box-shadow: 0 0 0 2px var(--background), 0 0 0 7px transparent; }
 }
 /* A theme change cross-fades the whole page (AppearanceProvider starts the
    view transition; with reduced motion it doesn't, and the change is instant). */

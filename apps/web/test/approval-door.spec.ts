@@ -402,16 +402,18 @@ describe("the Door's view model", () => {
         return null
     }
 
-    it("names the device asking and when it signed in, and takes six digits, pasted or typed", async () => {
+    it("names the device asking and when it asked, and takes six digits, pasted or typed", async () => {
         const { laptop, phone, net } = await account()
         await asking(net, phone)
         signIn(laptop, net.deps(laptop))
 
         await render(Door)
-        await until(() => vm?.view?.stage === "entry" && vm.signedIn.includes("minutes"))
+        await until(() => vm?.view?.stage === "entry")
+        expect(vm.asked).toBe("asked just now · idp.test")
+        await advance(120_000)
 
         expect(vm.device).toBe("Chrome on Android")
-        expect(vm.signedIn).toBe("signed in 2 minutes ago · idp.test")
+        expect(vm.asked).toBe("asked 2 minutes ago · idp.test")
         expect(vm.title).toBe("Is this you?")
         expect(vm.canApprove).toBe(false)
 

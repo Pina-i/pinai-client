@@ -33,6 +33,7 @@ const trusting: DeviceTrustVerdict = {
         { deviceId: "dan-2", rootKey: root(2) },
         { deviceId: "dan-3", rootKey: root(3) },
     ],
+    approvedBy: [],
     unsettled: [],
 }
 

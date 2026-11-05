@@ -13,6 +13,11 @@ export function warnE2ee(what: string, error: unknown): void {
     console.warn(`[e2ee] ${what}`, error instanceof Error ? error.message : error)
 }
 
+/** {@link warnE2ee} as a `catch` handler. */
+export function warnOf(what: string): (error: unknown) => void {
+    return (error) => warnE2ee(what, error)
+}
+
 /** What taking the share waiting for this device reads and calls; a share it can't pass on is warned of. */
 export function acceptShareDeps(): AcceptHistoryShareDeps {
     return { ...admissionDeps(), historyArchivePort: getHistoryArchivePort(), keySharePort: getKeySharePort(), report: warnE2ee }

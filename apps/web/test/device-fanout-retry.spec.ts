@@ -16,7 +16,7 @@ import { UNCLAIMED_RETRY_MS, unclaimedRetryDelay } from "@pinai/domain/models/gr
 import { useDeviceFanout } from "@/presentation/hooks/useDeviceFanout"
 import { useAppStore } from "@/store/store"
 
-const trusting: DeviceTrustVerdict = { acting: true, generation: 1, thisDevice: "laptop", listed: [], approved: [], unsettled: [] }
+const trusting: DeviceTrustVerdict = { acting: true, generation: 1, thisDevice: "laptop", listed: [], approved: [], approvedBy: [], unsettled: [] }
 const port = vi.hoisted(() => ({
     catchUp: async () => undefined,
     refreshOwnLeaf: async () => ({ refreshed: false }),

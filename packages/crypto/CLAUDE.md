@@ -128,8 +128,8 @@ Three collaborators could not come, and the shape of each is the mobile work:
   `unreachable` never kept) and each approval's signature over its listed root
   key (`verifyApproval`): by the passphrase under the approval key this device
   derived, never the listed one; by a device under that device's listed root
-  key, carried as `approverRootKey`. Who is approved is the domain's
-  `approvedDevices`.
+  key, carried as `approverRootKey`, with the listed `created_at`. Who is approved is the
+  domain's `approvedDevicesBy`.
 - **`e2ee.adapter.ts`** — `E2eeAdapter`. The `IE2eePort` impl. Wires
   every sub-adapter into `register`, `replenishKeyPackages`,
   `encryptOutbound`, `decryptInbound`, `addContactToGroup`,
@@ -186,7 +186,10 @@ Three collaborators could not come, and the shape of each is the mobile work:
     none, and of a key changed under the generation it holds. Events stand until
     what they are about changes (`onTrustWithdrawn`), are replayed to late
     listeners, read whole with `trustSnapshot`, logged; an unapproved device
-    stands again after a reload.
+    stands again after a reload. Each review's verdict is kept (`verdictSnapshot`,
+    `onVerdict`), its `approvedBy` included, as it acts now (`actingNow`: a check landing
+    mid-review counts), and made non-acting (`retireVerdict`) once the generation it acted
+    under isn't held — `setHolding`, and a stale upload's dropping the holding; a wipe drops it.
   - **A verdict acts** only while the device holds its generation
     (`actingNow`): one from before a new generation adds nobody and commits no
     own leaf out.
@@ -654,8 +657,12 @@ vitest setup, so a package's specs sit there until it needs its own.
   two devices at once, a failure after the IdP took the key, pressed again before the words were
   seen, `key-changed`, a page load's check waiting for its `PUT`, two tabs under one lock, a
   pending generation past 1 at the next start (left fresh, then erased, or kept), sharing after.
-- `apps/web/test/devices-warnings.spec.ts` — Settings → Devices' "not approved", "Not mine"
-  and the refused-list banner, from the engine's own reviews.
+- `apps/web/test/devices-warnings.spec.ts` — Settings → Devices' waiting seat, "Not mine"
+  and the refused-list banner, from the engine's own reviews; `devices-editor.spec.ts` — the
+  rows ("approved by" from the verdict), the passphrase card, "Restore history";
+  `devices-seat.spec.ts` — the seats answering inline through the Door's `ApprovalAnswering`;
+  `device-roster.spec.ts` — the pane's rules; `unapproved-notice.spec.ts` — the toast outside
+  the pane.
 - `apps/web/test/device-fanout-retry.spec.ts` — the fanout's backoff for unclaimed siblings;
   `e2ee-integration.spec.ts` has a sibling's stash landing late, mid-run included.
 - `apps/web/test/recovery-passphrase-input.spec.ts` — 6a `isPassphraseComplete`

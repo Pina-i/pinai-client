@@ -162,16 +162,22 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 ### models/device-trust.ts
 - Who each device trusts, decided by itself (`identity-provider/specs/e2ee.md § 3.9`).
   `KnownDevice` — a device by id and root key: another root key is another device.
-- `approvedDevices` — over the `CheckedDevice`s `@pinai/crypto` verified: a root
+- `approvedDevicesBy` — over the `CheckedDevice`s `@pinai/crypto` verified: a root
   chain that verifies, no revocation (listed, or seen before), an approval by the
   generation's approval key or by a device so approved, matched by its id and the
   root key the approval was checked under. Two links at most; none at all from a
   list naming an id twice (`duplicateDeviceIds`), as a lookup by id could pick
   either row. A chain `unsettled` (issuer out of reach, attestation expired)
-  decides nothing.
+  decides nothing. Each comes with its `Approver`: a handshake leaves approvals both
+  ways, so a counted device is named only when its approval is older than the one back
+  (by the listed `created_at`, `CheckedApproval.createdAt`), or there is none back; else
+  the approval key. The verdict carries them (`approvedBy`), never the trust rows.
 - `actsOnApproval(standing)` — only `holds` decides on approval grounds.
   `DeviceTrustVerdict` carries the generation it acted under (stale once the
-  device holds another) and the unsettled devices; `undecided` decides nothing.
+  device holds another), who approved whom and the unsettled devices; `undecided`
+  decides nothing. `IE2eePort.verdictSnapshot` / `onVerdict` — the last review's, kept
+  only while it still acts (a check landing mid-review included), turned non-acting once the
+  device no longer holds that generation.
 - `judgeDevices` — what an acting review finds and keeps: the approved (itself
   included), the unsettled, every device still unapproved (`arrived` only the
   first time it is seen under that root key — a notice's business, never the
@@ -194,6 +200,16 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   (`DEVICE_TRUST_ROWS`), which 18h shares by.
 - `unapprovedListed` — the listed rows an `unapproved-device` event stands for, by id
   and the root key listed now (Settings → Devices).
+
+### models/device-roster.ts
+- Settings → Devices' rules, each from this device's own verdict. `waitingDevices` — on an
+  acting verdict only, newest first: the rows an `unapproved-device` event stands for, and
+  one asking (a request a seat may answer) that no review judged yet; once judged, an event
+  or nothing — never one approved, unsettled, failing its chain or seen revoked.
+  `holdsCurrentWords` (the words shown, else "Restore history"); `holdsHistory` /
+  `historyHolders` — on an acting verdict, a device it approves that says it holds its
+  generation. `approverOf` — over the root key listed now; `approvedByWording` — "this
+  device", a label, "your 24 words".
 
 ### models/admission.ts + check-admission, gate-this-device, register-identity
 - **No way in without approval** (`identity-provider/specs/e2ee.md § 3.6`).
@@ -264,10 +280,21 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   `STILL_WAITING_AFTER_MS` (20 s: the approving device hasn't finished), `refused` only on
   `endsTheWait` — `device_mismatch` (the page's to sign in again) or a revoked device; any
   other refusal is waited out.
-- `ApprovalAnswering` — the Door's: unanswered requests, its own run kept
-  whatever the list says, an older read dropped, a code tried once never tried
-  again (`usedCodes`), one tab per request (`AnswerLock`), `not-acting` and
-  `taken` acted on. Errors the flows swallow go to `HandshakeContext.report`.
+- `ApprovalAnswering` — one run at a time, shared by the Door and Settings → Devices'
+  waiting seats: unanswered requests, its own run kept whatever the list says, an older
+  read dropped, a code tried once — its exchange begun — never tried again (`usedCodes`),
+  one tab per request (`AnswerLock`), a request this side took part in never offered again,
+  `not-acting` and `taken` acted on. `snapshot` is the Door's, `null` while a seat holds the
+  run; `seats` (`SeatsView`): what a seat may answer (the Door's set-aside included, shown
+  before this device settles), the request the Door holds, the seat's run, `busy` (an answer
+  on its way — an explicit flag, cleared whatever the answer did —, a run working, the Door
+  holding one) and `unsettled`. `showSeats` — the pane is up: the Door starts nothing, its
+  unanswered request moves to its seat; `answerAt` — a seat answers through the same run;
+  a wrong code's next request stays in the seat. `leaveSeat` — the pane went: a run under way
+  (or a code waited for, unless set aside) goes on at the Door, a settled one goes, and the
+  Door picks again. `seatAnswer` (`models/approval-handshake.ts`) — what a seat offers: its
+  run, the Door's, its newest open request, or nothing. Errors the flows swallow go to
+  `HandshakeContext.report`.
 
 ### models/bytes.ts
 - `sameBytes`, `hexOf` — the models' byte helpers: the lint boundary keeps models

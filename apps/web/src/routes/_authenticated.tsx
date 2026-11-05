@@ -17,6 +17,7 @@ import { useHeartbeat } from "@/presentation/hooks/useHeartbeat"
 import { useTypingPruner } from "@/presentation/hooks/useTypingPruner"
 import { useHoldSplashScreen } from "@/presentation/hooks/use-hold-splash-screen"
 import { useReplenishKeyPackages } from "@/presentation/hooks/use-replenish-key-packages"
+import { useUnapprovedDeviceNotice } from "@/presentation/hooks/use-unapproved-device-notice"
 import { useLoadPresence } from "@/presentation/hooks/useLoadPresence"
 import { ApprovalDoor } from "@/presentation/organisms/ApprovalDoor/ApprovalDoor"
 import { HomeLayout } from "@/presentation/templates/HomeLayout/HomeLayout"
@@ -34,6 +35,7 @@ function AppRuntime() {
     useConsumeMlsWelcomes()
     useHistoryArchiveFlusher()
     useHistoryShare()
+    useUnapprovedDeviceNotice()
     const { onDeviceListChanged } = useDeviceFanout()
     useEffect(() => registerDeviceFanoutHandler(onDeviceListChanged), [onDeviceListChanged])
     return null

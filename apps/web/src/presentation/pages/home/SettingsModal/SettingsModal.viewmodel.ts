@@ -6,6 +6,7 @@ import type { InstanceInfo } from "@pinai/domain/models/instance"
 import { managedInstanceUseCase } from "@pinai/domain/usecases/instance/managed-instance.usecase"
 import { getNodeInfoPort } from "@/ioc"
 import { dropSearchParam } from "@/presentation/_libs/search-param"
+import { useDeviceRoster } from "@/presentation/hooks/use-device-roster"
 import { useAppStore } from "@/store/store"
 
 const SECTIONS = [
@@ -49,15 +50,25 @@ export interface SettingsModalViewModel {
      * have, `null` while that is unknown — no panel, and no admin request, before NodeInfo answers.
      */
     shownSection: SettingsSection | null
+    /** A waiting seat's exchange is under way: Escape doesn't close Settings, as it doesn't close the Door. */
+    isAnswering: boolean
+    /** Devices waiting for the user, for the Devices tile. */
+    waitingCount: number
 }
 
 export function useSettingsModalViewModel(): SettingsModalViewModel {
-    // Read as the shell mounts, which a sign-in coming back to it always does.
+    // A sign-in coming back reads it as the shell mounts; a notice's link, while the shell is up.
     const asked = useLocation({ select: (l) => askedIn(l.searchStr) })
     const [activeSection, setActiveSection] = useState<SettingsSection>(asked ?? "profile")
+    const [taken, setTaken] = useState(asked)
+    if (asked && asked !== taken) {
+        setTaken(asked)
+        setActiveSection(asked)
+    }
     const setShowSettings = useAppStore((s) => s.setShowSettings)
     const router = useRouter()
     const instance = useInstancePanel()
+    const roster = useDeviceRoster()
 
     useEffect(() => {
         if (!asked) return
@@ -74,7 +85,13 @@ export function useSettingsModalViewModel(): SettingsModalViewModel {
                 ? "profile"
                 : null
 
-    return { selectSection: setActiveSection, instance, shownSection }
+    return {
+        selectSection: setActiveSection,
+        instance,
+        shownSection,
+        isAnswering: roster.seats.seat?.stage === "working",
+        waitingCount: roster.waiting.length,
+    }
 }
 
 function useInstancePanel(): InstancePanel {

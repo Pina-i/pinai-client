@@ -11,7 +11,7 @@ import { ed25519 } from "@noble/curves/ed25519.js"
 import { checkListedDevices, verifyApproval } from "@pinai/crypto/attestation-chain.adapter"
 import type { DeviceListEntry } from "@pinai/domain/models/device"
 import {
-    approvedDevices,
+    approvedDevicesBy,
     duplicateDeviceIds,
     emptyDeviceTrust,
     firstToCommitOut,
@@ -47,7 +47,13 @@ const root = (n: number) => new Uint8Array(32).fill(n)
 
 describe("the approval rule", () => {
     const byPassphrase = (generation = 2): CheckedApproval => ({ by: "passphrase", generation, verifies: true })
-    const byDevice = (approver: string, n: number): CheckedApproval => ({ by: "device", approver, approverRootKey: root(n), verifies: true })
+    const byDevice = (approver: string, n: number, createdAt = "2026-11-02T00:00:00Z"): CheckedApproval => ({
+        by: "device",
+        approver,
+        approverRootKey: root(n),
+        verifies: true,
+        createdAt,
+    })
     const device = (deviceId: string, n: number, approvals: CheckedApproval[], change: Partial<CheckedDevice> = {}): CheckedDevice => ({
         deviceId,
         displayName: deviceId,
@@ -58,7 +64,7 @@ describe("the approval rule", () => {
         ...change,
     })
     const ids = (devices: CheckedDevice[], revokedSeen: string[] = []) =>
-        approvedDevices(devices, 2, revokedSeen).map((d) => d.deviceId)
+        approvedDevicesBy(devices, 2, revokedSeen).map((d) => d.deviceId)
 
     it("approves by the generation's approval key, or by a device so approved: two links, never three", () => {
         const devices = [
@@ -68,7 +74,11 @@ describe("the approval rule", () => {
         ]
 
         expect(ids(devices)).toEqual(["laptop", "phone"])
-        expect(approvedDevices(devices, 2, [])[1]).toEqual({ deviceId: "phone", rootKey: root(2) })
+        expect(approvedDevicesBy(devices, 2, [])[1]).toEqual({
+            deviceId: "phone",
+            rootKey: root(2),
+            approver: { by: "device", deviceId: "laptop" },
+        })
     })
 
     it("matches an approving device by its id and the root key it was approved over, never its id alone", () => {
@@ -247,6 +257,7 @@ describe("what a verdict lets a device do", () => {
             { deviceId: "laptop", rootKey: root(1) },
             { deviceId: "phone", rootKey: root(2) },
         ],
+        approvedBy: [],
         unsettled: [{ deviceId: "watch", rootKey: root(5) }],
     }
     const verified = (deviceId: string, n: number, actorUri = ACTOR): LeafVerdict => ({ ok: true, actorUri, deviceId, rootKey: root(n) })
@@ -312,7 +323,7 @@ describe("approvals as a device checks them, with real keys", () => {
 
     async function approved(devices: DeviceListEntry[], key = approvalKey, revokedSeen: string[] = []) {
         const checked = await checkListedDevices(ACTOR, devices, key, issuers.jwks)
-        return approvedDevices(checked, 1, revokedSeen).map((d) => d.deviceId)
+        return approvedDevicesBy(checked, 1, revokedSeen).map((d) => d.deviceId)
     }
 
     it("verifies an approval over the IdP's own canonical bytes", () => {
@@ -351,9 +362,9 @@ describe("approvals as a device checks them, with real keys", () => {
         ]
         const checked = await checkListedDevices(ACTOR, devices, approvalKey, issuers.jwks)
 
-        expect(approvedDevices(checked, 1, [])).toEqual([])
+        expect(approvedDevicesBy(checked, 1, [])).toEqual([])
         // Were the list taken whole, the root key the approval was checked under would still not be the laptop's.
-        expect(approvedDevices(checked.slice(1), 1, []).map((d) => d.deviceId)).toEqual([laptop.deviceId])
+        expect(approvedDevicesBy(checked.slice(1), 1, []).map((d) => d.deviceId)).toEqual([laptop.deviceId])
     })
 
     it("refuses an approval over another root key than the one listed", async () => {
@@ -450,6 +461,31 @@ describe("reviewing the device list", () => {
         expect(verdict.approved.map((d) => d.deviceId)).toEqual([self.deviceId, phone.deviceId])
         expect(devicesToAdd([], ACTOR, verdict).map((d) => d.deviceId)).toEqual([phone.deviceId])
         expect(laptop.storage.trust.approved.map((d) => d.deviceId)).toEqual([self.deviceId, phone.deviceId])
+    })
+
+    it("keeps each review's verdict, who approved whom with it, until the device no longer holds its generation", async () => {
+        const { idp, laptop, self, laptopRow } = await account()
+        const phone = testDevice(issuers, ACTOR)
+        const told = vi.fn()
+        laptop.e2ee.onVerdict(told)
+        expect(laptop.e2ee.verdictSnapshot()).toBeNull()
+
+        const verdict = await review(laptop, [laptopRow, listedDevice(phone, [approvedBy(self, phone)])])
+
+        expect(laptop.e2ee.verdictSnapshot()).toBe(verdict)
+        expect(told).toHaveBeenCalledTimes(1)
+        expect(verdict.approvedBy.map((d) => [d.deviceId, d.approver])).toEqual([
+            [self.deviceId, { by: "passphrase" }],
+            [phone.deviceId, { by: "device", deviceId: self.deviceId }],
+        ])
+
+        const other = historyDevice(idp, "elsewhere")
+        await idp.session().linkDevice(IDP, other.token, other.storage.deviceId)
+        await idp.setKey(IDP, other.token, (await other.e2ee.mintHistoryKey(2)).key)
+        await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
+
+        expect(laptop.e2ee.verdictSnapshot()).toMatchObject({ acting: false, generation: 1 })
+        expect(told).toHaveBeenCalledTimes(2)
     })
 
     it("decides nothing on a device that doesn't hold the passphrase, and keeps the revocations it sees", async () => {

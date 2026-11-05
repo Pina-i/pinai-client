@@ -286,6 +286,15 @@ export interface IE2eePort {
     /** What stands now: rebuilt by each review after a reload, an unapproved device included. */
     trustSnapshot(): TrustEvent[]
 
+    /**
+     * The last review's verdict, `null` before any this page load; it stops acting once this device
+     * no longer holds the generation it acted under. The same object until it changes.
+     */
+    verdictSnapshot(): DeviceTrustVerdict | null
+
+    /** Calls `listener` each time {@link IE2eePort.verdictSnapshot} changes. Answers the unsubscribe. */
+    onVerdict(listener: () => void): () => void
+
     /** Drop a group's MLS state from this device, as a group the user was removed from is cleared. */
     forgetGroup(conversationId: ConversationId): Promise<void>
 

@@ -29,7 +29,7 @@ export function PassShell({ instance, title, titleFocusKey, children, footer }: 
         <div className="relative flex min-h-app flex-col items-center justify-center gap-[26px] overflow-hidden bg-background px-4 py-14 sm:px-6">
             <Backdrop />
             <div aria-hidden className="pointer-events-none absolute inset-0" style={FADE_STYLE}>
-                <Motif variant="field" className="absolute inset-0" style={{ opacity: "var(--motif-opacity)" }} />
+                <Motif variant="field" className="absolute inset-0" style={{ opacity: "var(--pass-motif-opacity)" }} />
             </div>
             <div
                 aria-hidden

@@ -22,6 +22,7 @@ import { getApprovalRelayPort, getDeviceDirectoryPort, getE2eePort } from "@/ioc
 import { admissionDeps } from "@/presentation/_libs/admission-deps"
 import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
 import { historyRestore, restoreDueHistory } from "@/presentation/_libs/history-restore"
+import { warnE2ee, warnOf as warn } from "@/presentation/_libs/key-share-deps"
 import { devicesQueryKey } from "@/presentation/hooks/useDevices"
 import { useAppStore } from "@/store/store"
 
@@ -50,13 +51,6 @@ const STARTING: AskingState = { kind: "starting" }
 
 // The requests this page load opened: its hourly budget outlives a remount (StrictMode, navigation).
 const openedThisPageLoad: number[] = []
-
-function warn(what: string) {
-    return (error: unknown) => {
-        // eslint-disable-next-line no-console
-        console.warn(`[e2ee] ${what}`, error instanceof Error ? error.message : error)
-    }
-}
 
 function wentWith(failure: HandshakeFailure): string {
     switch (failure) {
@@ -155,7 +149,7 @@ export function useApproveFromAnotherDeviceViewModel(input: {
         if (!ready || !signedIn || !idpUrl || !actorUri) return
         const made = new ApprovalAsking(
             { e2ee: getE2eePort(), relay: getApprovalRelayPort(), directory: getDeviceDirectoryPort() },
-            { idpUrl, actorUri, accessToken: () => useAppStore.getState().accessToken, report: (what, e) => warn(what)(e) },
+            { idpUrl, actorUri, accessToken: () => useAppStore.getState().accessToken, report: warnE2ee },
             openedThisPageLoad,
         )
         const unsubscribe = made.onChange(() => setState(made.state))
@@ -215,7 +209,7 @@ export function useApproveFromAnotherDeviceViewModel(input: {
             idpUrl,
             actorUri,
             accessToken: () => useAppStore.getState().accessToken,
-            report: (what, e) => warn(what)(e),
+            report: warnE2ee,
         })
         return ticking(entry, () => setEntering(entry.state), async () => {
             const settled = entry.state

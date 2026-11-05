@@ -586,7 +586,7 @@ describe("the sender", () => {
     it("shares after the sync's adds", async () => {
         const order: string[] = []
         const step = (what: string, answer: unknown = undefined) => vi.fn(async () => (order.push(what), answer))
-        const verdict = { acting: true, generation: 1, thisDevice: "laptop", listed: [], approved: [], unsettled: [] }
+        const verdict = { acting: true, generation: 1, thisDevice: "laptop", listed: [], approved: [], approvedBy: [], unsettled: [] }
         await syncOwnGroupsUseCase(IDP, "tok", ACTOR, ["g1"], {
             e2ee: {
                 catchUp: step("catch up"),

@@ -16,48 +16,21 @@ const actionClass = cn(
 )
 
 interface RecoveryPassphraseCardProps {
-    /** The 24-word mnemonic, or null when not stored on this device. */
-    words: string[] | null
-    /** Wipes the server blob + local copy. */
+    /** The 24 words this device holds. */
+    words: string[]
+    /** The listed devices, unrevoked, that say they hold the current generation; `null` while unknown. */
+    heldBy: number | null
+    /** Erases the saved history entries; the words stay. */
     onClear: () => void
     /** True while the clear request is in flight. */
     isClearing?: boolean
-    /** Defaults to "Your key to past conversations." */
-    title?: string
 }
 
-/**
- * Settings → Devices passphrase card. Blurred by default. The Show /
- * Hide toggle lifts the blur in place — words stay in the DOM either
- * way (no remount on toggle, less flicker, easier to copy from inspect
- * tools if the user really wants to). "Clear" erases the saved history
- * entries only: the words stay, here and on the account.
- *
- * Renders a "no passphrase on this device" empty state when `words`
- * is null (a paired-via-QR device that joined without seeing the
- * mnemonic).
- */
-export function RecoveryPassphraseCard({
-    words,
-    onClear,
-    isClearing,
-    title = "Your key to past conversations",
-}: RecoveryPassphraseCardProps) {
+/** Settings → Devices' card, on a device holding the current passphrase: blurred until shown; clearing erases the saved entries only. */
+export function RecoveryPassphraseCard({ words, heldBy, onClear, isClearing }: RecoveryPassphraseCardProps) {
     const [revealed, setRevealed] = useState(false)
     const [copied, setCopied] = useState(false)
     const [confirmClear, setConfirmClear] = useState(false)
-
-    if (!words) {
-        return (
-            <div className={cn(cardClass, "text-[12px] text-muted-foreground")}>
-                <span className="mono-eyebrow mb-1 block lowercase">recovery passphrase</span>
-                <p className="leading-[1.5]">
-                    No passphrase stored on this device. Reveal it from the device
-                    that generated it, or generate a new one to replace it.
-                </p>
-            </div>
-        )
-    }
 
     const handleCopy = async () => {
         try {
@@ -84,11 +57,21 @@ export function RecoveryPassphraseCard({
         <div className={cardClass}>
             <div className="mb-2.5 flex items-start justify-between gap-2.5">
                 <div className="min-w-0">
+                    {/* Each part whole on a phone: a line breaks only at a dot. */}
                     <span className="mono-eyebrow block lowercase">
-                        recovery passphrase · {words.length} words
+                        <span className="whitespace-nowrap">history passphrase</span>{" "}
+                        <span className="whitespace-nowrap">· {words.length} words</span>
+                        {heldBy !== null && (
+                            <>
+                                {" "}
+                                <span className="whitespace-nowrap">
+                                    · held by {heldBy} {heldBy === 1 ? "device" : "devices"}
+                                </span>
+                            </>
+                        )}
                     </span>
                     <span className="title text-[14.5px] font-medium tracking-[-0.005em] text-foreground">
-                        {title}
+                        Your key to past conversations
                         <em className="not-italic text-acc">.</em>
                     </span>
                 </div>
@@ -101,7 +84,7 @@ export function RecoveryPassphraseCard({
                     <span
                         className={cn(
                             "inline-block h-[5px] w-[5px] rounded-full",
-                            revealed ? "animate-[pn-pulse_1.6s_ease-in-out_infinite] bg-acc" : "bg-muted-foreground",
+                            revealed ? "bg-acc motion-safe:animate-[pn-pulse_1.6s_ease-in-out_infinite]" : "bg-muted-foreground",
                         )}
                     />
                     <span
@@ -175,11 +158,11 @@ export function RecoveryPassphraseCard({
                         actionClass,
                         confirmClear
                             ? "border-dnd bg-dnd text-background hover:opacity-90"
-                            : "border-line2 bg-transparent text-muted-foreground hover:text-dnd",
+                            : "border-line2 bg-transparent text-muted-foreground hover:text-dnd-ink",
                     )}
                 >
                     <Trash2 className="h-3 w-3" />
-                    {isClearing ? "Clearing…" : confirmClear ? "Confirm clear" : "Clear"}
+                    {isClearing ? "Clearing…" : confirmClear ? "Confirm clear" : "Clear history backup"}
                 </button>
             </div>
 
@@ -191,10 +174,7 @@ export function RecoveryPassphraseCard({
                 )}
             >
                 <AlertTriangle className="h-3 w-3 shrink-0 text-idle" />
-                <span>
-                    Anyone holding these words can sign in as you. Made here on
-                    your device — we never see them.
-                </span>
+                <span>With these words and your password, someone can read your history and approve a device as you.</span>
             </div>
         </div>
     )

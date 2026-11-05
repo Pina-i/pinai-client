@@ -20,15 +20,17 @@ import {
     pollDelay,
     relayRefusal,
     renewsByItself,
+    type AnsweringView,
     type ApprovalRequest,
     type HandshakeFailure,
     type HandshakeOutcome,
     type HandshakePhase,
     type HandshakeRole,
     type RelayMessage,
+    type SeatsView,
 } from "../../models/approval-handshake"
 import type { DeviceListEntry } from "../../models/device"
-import { duplicateDeviceIds, type HandshakePartner } from "../../models/device-trust"
+import { actsOnApproval, duplicateDeviceIds, type HandshakePartner } from "../../models/device-trust"
 import type { ActorUri, DeviceId } from "../../models/e2ee"
 import type { WsServerEvent } from "../../models/ws"
 import type { IApprovalRelayPort } from "../../ports/approval-relay.port"
@@ -712,17 +714,6 @@ export class ApprovedEntry {
     }
 }
 
-/** What the Door shows. `entry`: the code to type; `working`: the exchange under way. */
-export interface AnsweringView {
-    request: ApprovalRequest
-    stage: "entry" | "working" | "approved" | "failed"
-    failure: HandshakeFailure | null
-    /** The device's last request failed so: its new one is this. */
-    note: HandshakeFailure | null
-    /** A code refused before any exchange: one tried already, or another tab answering this request. */
-    refused: "used-code" | "other-tab" | null
-}
-
 export type ApprovalPush = Extract<WsServerEvent, { type: "approval_requested" | "approval_message" | "approval_closed" }>
 
 /** Held while this tab answers a request; `null` when another tab holds it. */
@@ -733,29 +724,38 @@ function stageOf(run: HandshakeRun): AnsweringView["stage"] {
     return run.outcome.kind === "approved" ? "approved" : "failed"
 }
 
-// Read through a call: the checker keeps a narrowing of `outcome` across an await.
-function notActing(run: HandshakeRun): boolean {
-    return run.outcome?.kind === "failed" && run.outcome.reason === "not-acting"
-}
-
 function shows(run: HandshakeRun): boolean {
     return run.outcome?.kind === "failed" && failureShown(run.outcome.reason, run.phase)
 }
 
+/** Where a run was started: the Door, or a waiting seat in Settings → Devices. */
+type Place = "door" | "seat"
+
 /**
- * The Door's side on a device acting on approval: one of another device's open, unanswered
- * requests at a time, read on `refresh` and kept current by the relay's pushes. Its own run stays
- * shown whatever the list says. A code tried once is never tried again (`usedCodes`), one tab
- * answers a request (`lock`), and closing the prompt before answering leaves the request alone.
+ * The answering side on a device acting on approval, one run at a time, which the Door and Settings →
+ * Devices' waiting seats share: another device's open, unanswered requests, read on `refresh` and kept
+ * current by the relay's pushes. The Door shows one at a time and its own run whatever the list says,
+ * but starts none while the seats are on screen: they answer inline (`answerAt`), the Door's set
+ * aside included. A code tried once is never tried again (`usedCodes`), one tab answers a request
+ * (`lock`), a request this device settled is never offered again, and closing the prompt before
+ * answering leaves the request alone.
  */
 export class ApprovalAnswering {
     private view: AnsweringView | null = null
+    private seatsView: SeatsView = { open: [], atDoor: null, seat: null, busy: false, unsettled: false }
     private requests: ApprovalRequest[] = []
+    /** Holds the current passphrase, settled: it answers. */
     private acting = false
+    /** Holds it, settled or not: the seats show what waits, and why no code is taken yet. */
+    private holds = false
     private thisDevice: DeviceId | null = null
     private refreshes = 0
+    private seatsShown = false
+    /** An answer between its press and its run moving on: no other is taken meanwhile. */
+    private answering = false
     private readonly dismissed = new Set<string>()
-    private shown: { request: ApprovalRequest; run: HandshakeRun; note: HandshakeFailure | null } | null = null
+    private readonly settled = new Set<string>()
+    private shown: { request: ApprovalRequest; run: HandshakeRun; note: HandshakeFailure | null; place: Place } | null = null
     private refused: AnsweringView["refused"] = null
     private release: (() => void) | null = null
     private readonly listeners = new Set<() => void>()
@@ -776,7 +776,11 @@ export class ApprovalAnswering {
         return () => this.listeners.delete(listener)
     }
 
+    /** The Door's: `null` while a seat holds the run. */
     snapshot = (): AnsweringView | null => this.view
+
+    /** The seats': the same object until something changes. */
+    seats = (): SeatsView => this.seatsView
 
     /** The open requests read again; whether this device acts asked when another device's waits. An older read's answer is dropped. */
     async refresh(): Promise<void> {
@@ -787,13 +791,16 @@ export class ApprovalAnswering {
             this.deps.relay.openRequests(this.context.idpUrl, token),
             this.deps.e2ee.getDeviceId(),
         ])
-        let acting = this.acting
+        let { acting, holds } = this
         if (requests.some((r) => r.deviceId !== thisDevice && r.approverDeviceId === null)) {
-            acting = mayAnswer(await this.deps.e2ee.checkHistoryKey(this.context.idpUrl, token))
+            const standing = await this.deps.e2ee.checkHistoryKey(this.context.idpUrl, token)
+            acting = mayAnswer(standing)
+            holds = actsOnApproval(standing)
         }
         if (seq !== this.refreshes) return
         this.thisDevice = thisDevice
         this.acting = acting
+        this.holds = holds
         this.requests = requests
         this.pick()
     }
@@ -804,28 +811,76 @@ export class ApprovalAnswering {
         if (push.type === "approval_requested") return this.refresh()
         if (push.type === "approval_message") return run?.advance() ?? Promise.resolve()
         this.requests = this.requests.filter((r) => r.id !== id)
-        if (run) return run.closed()
-        this.pick()
-        return Promise.resolve()
+        if (!run) {
+            this.pick()
+            return Promise.resolve()
+        }
+        this.show()
+        return run.closed()
     }
 
     async answer(code: string): Promise<void> {
         const run = this.shown?.run
-        if (!run || run.phase !== "ready" || run.outcome) return
+        if (!run || run.phase !== "ready" || run.outcome || this.answering) return
         if (this.usedCodes.has(code)) return this.refuse("used-code")
-        if (this.lock && !this.release) {
-            const release = await this.lock(run.request.id)
-            if (!release) return this.refuse("other-tab")
-            this.release = release
+        this.answering = true
+        this.show()
+        try {
+            if (this.lock && !this.release) {
+                const release = await this.lock(run.request.id)
+                if (!release) return this.refuse("other-tab")
+                this.release = release
+            }
+            this.refused = null
+            await run.answer(code)
+        } finally {
+            this.answering = false
+            // A code is spent once its exchange began; one that never reached it is tried again, the lock taken anew.
+            if (run.phase !== "ready") this.usedCodes.add(code)
+            else if (!run.outcome) this.freeLock()
+            this.show()
         }
-        this.refused = null
-        await run.answer(code)
-        if (!notActing(run)) this.usedCodes.add(code)
+    }
+
+    /** A seat answers through the Door's own run and rules; `SeatsView.busy` says when it can't. */
+    async answerAt(requestId: string, code: string): Promise<void> {
+        const shown = this.shown
+        if (this.seatBusy() || !this.acting) return
+        if (shown?.request.id !== requestId || shown.run.outcome) {
+            const request = this.answerable("seat").find((r) => r.id === requestId)
+            if (!request) return
+            this.start(request, null, "seat")
+        }
+        await this.answer(code)
+    }
+
+    /** Settings → Devices is on screen: the Door starts nothing, a request it holds unanswered waits in its seat. */
+    showSeats(): void {
+        this.seatsShown = true
+        const shown = this.shown
+        if (shown?.place === "door" && stageOf(shown.run) === "entry" && !this.answering) shown.place = "seat"
+        this.show()
+    }
+
+    /** It went: a seat's exchange under way, or a code it waits for, goes on at the Door, but one set aside or settled. */
+    leaveSeat(): void {
+        this.seatsShown = false
+        const shown = this.shown
+        if (shown?.place === "seat") {
+            const setAside = !this.answering && stageOf(shown.run) === "entry" && this.dismissed.has(shown.request.id)
+            if (!shown.run.outcome && !setAside) {
+                shown.place = "door"
+                return this.show()
+            }
+            this.shown = null
+            this.refused = null
+        }
+        this.pick()
     }
 
     poll(): Promise<void> {
         const run = this.shown?.run
-        return run && this.view?.stage === "working" ? run.poll() : Promise.resolve()
+        return run && stageOf(run) === "working" ? run.poll() : Promise.resolve()
     }
 
     /** The user gives the exchange up: the request ends. */
@@ -849,37 +904,51 @@ export class ApprovalAnswering {
         this.show()
     }
 
-    private pick(): void {
+    /** The Door's: unanswered, not set aside, settled here never; a seat's: the Door's set aside too, and shown before this device settles. */
+    private answerable(place: Place): ApprovalRequest[] {
         const thisDevice = this.thisDevice
-        if (!thisDevice) return this.show()
-        const open = answerableRequests(this.requests, { thisDevice, acting: this.acting, dismissed: this.dismissed })
+        if (!thisDevice) return []
+        const dismissed = place === "door" ? new Set([...this.dismissed, ...this.settled]) : this.settled
+        return answerableRequests(this.requests, { thisDevice, acting: place === "door" ? this.acting : this.holds, dismissed })
+    }
+
+    private seatBusy(): boolean {
+        const shown = this.shown
+        return this.answering || shown?.place === "door" || (shown !== null && stageOf(shown.run) === "working")
+    }
+
+    private pick(): void {
+        if (!this.thisDevice) return this.show()
         const shown = this.shown
         if (shown) {
-            const { run, request } = shown
+            const { run, request, place } = shown
+            const stillOpen = this.answerable(place)
             const stage = stageOf(run)
             if (stage === "working" || stage === "approved") return this.show()
-            if (stage === "entry" && open.some((r) => r.id === request.id)) return this.show()
+            if (stage === "entry" && stillOpen.some((r) => r.id === request.id)) return this.show()
             if (stage === "failed") {
-                const again = open.find((r) => r.deviceId === request.deviceId && r.id !== request.id)
+                const again = stillOpen.find((r) => r.deviceId === request.deviceId && r.id !== request.id)
                 const reason = run.outcome?.kind === "failed" ? run.outcome.reason : null
-                if (again) return this.start(again, reason ? noteForNext(reason) : null)
+                if (again) return this.start(again, reason ? noteForNext(reason) : null, this.seatsShown ? "seat" : place)
                 if (shows(run)) return this.show()
             }
         }
-        const next = open.find((r) => r.id !== shown?.request.id)
-        if (next) return this.start(next, null)
+        const next = this.seatsShown ? undefined : this.answerable("door").find((r) => r.id !== shown?.request.id)
+        if (next) return this.start(next, null, "door")
         this.shown = null
         this.show()
     }
 
-    private start(request: ApprovalRequest, note: HandshakeFailure | null): void {
+    private start(request: ApprovalRequest, note: HandshakeFailure | null, place: Place): void {
         const run = answeringRun(this.deps, this.context, request, this.thisDevice as DeviceId)
-        const shown = { request, run, note }
+        const shown = { request, run, note, place }
         this.shown = shown
         this.refused = null
         run.onChange(() => {
-            if (this.shown !== shown) return
             const outcome = run.outcome
+            // Once this side took part, a late `approval_closed` mustn't bring it back; one set aside unanswered still waits.
+            if (outcome && run.phase !== "ready") this.settled.add(request.id)
+            if (this.shown !== shown) return
             if (outcome) this.freeLock()
             if (outcome?.kind === "failed" && outcome.reason === "not-acting") this.acting = false
             if (outcome?.kind === "failed" && outcome.reason === "taken") this.requests = this.requests.filter((r) => r.id !== request.id)
@@ -896,7 +965,7 @@ export class ApprovalAnswering {
 
     private show(): void {
         const shown = this.shown
-        this.view = shown
+        const view: AnsweringView | null = shown
             ? {
                   request: shown.request,
                   stage: stageOf(shown.run),
@@ -905,6 +974,15 @@ export class ApprovalAnswering {
                   refused: this.refused,
               }
             : null
+        const atDoor = shown?.place === "door" && view?.stage !== "failed" ? shown.request : null
+        this.view = shown?.place === "door" ? view : null
+        this.seatsView = {
+            open: this.answerable("seat"),
+            atDoor,
+            seat: shown?.place === "seat" ? view : null,
+            busy: this.seatBusy(),
+            unsettled: this.holds && !this.acting,
+        }
         for (const listener of this.listeners) listener()
     }
 }

@@ -458,7 +458,49 @@ export class E2eeAdapter implements IE2eePort {
     /** Commit-outs the instance refused for good, by conversation and leaf fingerprint: not rebuilt this page load. */
     private readonly refusedCommitOuts = new Set<string>()
 
+    private verdict: DeviceTrustVerdict | null = null
+    private readonly verdictListeners = new Set<() => void>()
+
+    verdictSnapshot(): DeviceTrustVerdict | null {
+        return this.verdict
+    }
+
+    onVerdict(listener: () => void): () => void {
+        this.verdictListeners.add(listener)
+        return () => this.verdictListeners.delete(listener)
+    }
+
+    private keepVerdict<T extends DeviceTrustVerdict | null>(verdict: T): T {
+        this.verdict = verdict
+        for (const listener of this.verdictListeners) {
+            try {
+                listener()
+            } catch (e) {
+                // eslint-disable-next-line no-console
+                console.warn("onVerdict listener failed:", e)
+            }
+        }
+        return verdict
+    }
+
+    /** The verdict kept stops acting once the generation it acted under isn't the one held. */
+    private retireVerdict(): void {
+        const verdict = this.verdict
+        if (verdict?.acting && this.actingNow(verdict)?.acting === false) this.keepVerdict({ ...verdict, acting: false })
+    }
+
     async reviewDevices(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+        devices: readonly DeviceListEntry[],
+    ): Promise<DeviceTrustVerdict> {
+        // A check of the key landing during the review may have moved this device off the generation it judged under.
+        const verdict = await this.review(idpUrl, accessToken, actorUri, devices)
+        return this.keepVerdict(this.actingNow(verdict) ?? verdict)
+    }
+
+    private async review(
         idpUrl: string,
         accessToken: string,
         actorUri: ActorUri,
@@ -503,6 +545,7 @@ export class E2eeAdapter implements IE2eePort {
             thisDevice,
             listed,
             approved: judged.approved,
+            approvedBy: judged.approvedBy,
             unsettled: judged.unsettled,
         }
     }
@@ -904,6 +947,7 @@ export class E2eeAdapter implements IE2eePort {
         this.holding = { standing, key }
         this.checkedOnce = true
         if (!actsOnApproval(standing)) this.withdrawUnapproved()
+        this.retireVerdict()
         if (!buffersForArchive(standing)) this.archiveBuffer = []
         if (standing.kind === "holds") {
             this.reset = null
@@ -994,7 +1038,10 @@ export class E2eeAdapter implements IE2eePort {
                 if (isStaleHistoryKey(err)) {
                     this.archiveBuffer.unshift(...batch)
                     this.boundArchiveBuffer()
-                    if (this.holding === holding) this.holding = UNCHECKED
+                    if (this.holding === holding) {
+                        this.holding = UNCHECKED
+                        this.retireVerdict()
+                    }
                     if (staleOnce) return
                     staleOnce = true
                     continue
@@ -1231,6 +1278,7 @@ export class E2eeAdapter implements IE2eePort {
         this.registerPromise = null
         this.holding = UNCHECKED
         this.checkedOnce = false
+        if (this.verdict) this.keepVerdict(null)
         this.minted = null
         this.derivations.clear()
         this.archiveBuffer = []

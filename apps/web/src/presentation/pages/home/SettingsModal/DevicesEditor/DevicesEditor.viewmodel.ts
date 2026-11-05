@@ -1,30 +1,53 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { useLocation } from "@tanstack/react-router"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 
-import { unapprovedListed } from "@pinai/domain/models/device-trust"
+import type { SeatsView } from "@pinai/domain/models/approval-handshake"
+import { deviceListKey } from "@pinai/domain/models/device"
+import { approvedByWording, approverOf, historyHolders, holdsCurrentWords, holdsHistory } from "@pinai/domain/models/device-roster"
+import type { HistoryKeyStanding } from "@pinai/domain/models/history-key"
+import type { ApprovalAnswering } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
 import { clearHistoryBackupUseCase } from "@pinai/domain/usecases/e2ee/clear-history-backup.usecase"
 import { revokeDeviceUseCase } from "@pinai/domain/usecases/e2ee/revoke-device.usecase"
 import { getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getSessionPort } from "@/ioc"
-import { devicesQueryKey, useDevices, type DeviceRow } from "@/presentation/hooks/useDevices"
+import { warnE2ee, warnOf } from "@/presentation/_libs/key-share-deps"
+import { useDeviceRoster } from "@/presentation/hooks/use-device-roster"
+import { devicesQueryKey, type DeviceRow } from "@/presentation/hooks/useDevices"
 import { type RecentSignIn, useRecentSignIn } from "@/presentation/hooks/use-recent-sign-in"
-import { useTrustEvents } from "@/presentation/hooks/use-trust-events"
 import { useAppStore } from "@/store/store"
 
 import { settingsHref } from "../SettingsModal.viewmodel"
 
+/** A device of the list, as its row says it. */
+export interface DeviceRowView {
+    device: DeviceRow
+    holdsHistory: boolean
+    /** "this device", another's label, "your 24 words"; `null` on a device that doesn't act. */
+    approvedBy: string | null
+}
+
 export interface DevicesEditorViewModel {
-    rows: DeviceRow[] | undefined
     isLoading: boolean
     error: unknown
-    /** Rows this device, acting on approval, found unapproved: "Not mine" revokes them. */
-    unapproved: ReadonlySet<string>
+    /** Each unapproved device, newest first: none on a device that doesn't act. */
+    waiting: DeviceRow[]
+    /** What a screen reader hears as seats come and go. */
+    waitingAnnouncement: string
+    rows: DeviceRowView[] | undefined
     /** The instance sent a list naming a device twice: nothing new is trusted until it stops. */
     listRefused: boolean
 
+    /** The answering side the Door shares with the waiting seats; `null` until the Door made it. */
+    answering: ApprovalAnswering | null
+    seats: SeatsView
+
+    /** The words, on a device holding the current passphrase; `null` on any other. */
     passphraseWords: string[] | null
-    isPassphraseLoading: boolean
+    /** Listed devices, unrevoked, at the current generation; `null` before the list is read. */
+    heldBy: number | null
+    /** Only on a device that doesn't hold the current passphrase: `null` while that is unknown. */
+    offersRestore: boolean | null
     isClearingHistoryBackup: boolean
     onClearHistoryBackup: () => Promise<void>
 
@@ -38,24 +61,7 @@ export interface DevicesEditorViewModel {
     recentSignIn: RecentSignIn
 }
 
-/**
- * Orchestrates the Settings → Devices pane.
- *
- *  - device list via `useDevices` (TanStack Query)
- *  - local passphrase via `IE2eePort.loadStoredPassphrase`
- *  - per-device revoke = `revokeDeviceUseCase` (server flag, then MLS
- *    Remove commits), then invalidate the devices query so the list
- *    re-renders
- *  - "Clear history backup" = `clearHistoryBackupUseCase`: the saved entries
- *    only — the passphrase and its generation stay, saving goes on
- *  - a refusal for a password typed too long ago asks for it again, and
- *    comes back to this pane
- *  - the trust events standing: the devices an acting review left unapproved
- *    (only an acting device announces any), and a device list refused
- *
- * Revoke + clear both run sequentially to avoid two concurrent MLS
- * commits racing each other against the same conversation epoch.
- */
+/** Settings → Devices; the rules are `models/device-roster.ts`, the answering the Door's. */
 export function useDevicesEditorViewModel(): DevicesEditorViewModel {
     const idpUrl = useAppStore((s) => s.idpUrl)
     const accessToken = useAppStore((s) => s.accessToken)
@@ -66,33 +72,55 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
     const recentSignIn = useRecentSignIn(useCallback(() => settingsHref(location, "devices"), [location]))
     const { refused } = recentSignIn
 
-    const { rows, isLoading, error } = useDevices()
-    const events = useTrustEvents()
-    const unapproved = useMemo(() => unapprovedListed(events, rows ?? []), [events, rows])
+    const { rows, isLoading, error, events, verdict, answering, seats, waiting } = useDeviceRoster()
     const listRefused = events.some((e) => e.kind === "device-list-refused")
 
-    const [passphraseWords, setPassphraseWords] = useState<string[] | null>(null)
-    const [isPassphraseLoading, setIsPassphraseLoading] = useState(true)
+    // While the pane is up, requests wait in their seats; once it goes, an exchange under way goes on at the Door.
+    useEffect(() => {
+        answering?.showSeats()
+        return () => answering?.leaveSeat()
+    }, [answering])
+
+    // Each review may find this device settled since: it then takes a code.
+    useEffect(() => {
+        answering?.refresh().catch(warnOf("reading the approval requests"))
+    }, [answering, verdict])
+
+    const [held, setHeld] = useState<{ standing: HistoryKeyStanding; words: string[] | null } | null>(null)
     const [isClearingHistoryBackup, setIsClearingHistoryBackup] = useState(false)
     const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null)
     const [isSigningOutOthers, setIsSigningOutOthers] = useState(false)
 
+    // Read again with each review and each list: a share kept or a new generation changes both.
+    const listKey = rows ? deviceListKey(rows) : null
     useEffect(() => {
         let cancelled = false
-        void (async () => {
-            try {
-                const words = await getE2eePort().loadStoredPassphrase()
-                if (!cancelled) setPassphraseWords(words)
-            } catch {
-                if (!cancelled) setPassphraseWords(null)
-            } finally {
-                if (!cancelled) setIsPassphraseLoading(false)
-            }
-        })()
+        const port = getE2eePort()
+        const words = port.loadStoredPassphrase().catch((e: unknown) => {
+            warnE2ee("reading the history passphrase", e)
+            return null
+        })
+        void Promise.all([port.historyKeyStanding(), words]).then(
+            ([standing, kept]) => {
+                if (!cancelled) setHeld({ standing, words: kept })
+            },
+            warnOf("reading the history key's standing"),
+        )
         return () => {
             cancelled = true
         }
-    }, [])
+    }, [verdict, listKey])
+
+    const holds = held ? holdsCurrentWords(held.standing) : null
+    const thisDevice = rows?.find((d) => d.is_current)?.device_id ?? verdict?.thisDevice ?? null
+    const seated = new Set(waiting.map((d) => d.device_id))
+    const listed = rows
+        ?.filter((d) => !seated.has(d.device_id))
+        .map((device) => ({
+            device,
+            holdsHistory: holdsHistory(device, verdict),
+            approvedBy: approvedByWording(approverOf(verdict, device), rows, thisDevice),
+        }))
 
     const onClearHistoryBackup = useCallback(async () => {
         if (!idpUrl || !accessToken) return
@@ -121,6 +149,8 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
                     conversationIds: localDmConvos.map((c) => c.id),
                 })
                 await queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
+                // The revoke closed its requests: without the socket's push, the seat would still offer one.
+                answering?.refresh().catch(warnOf("reading the approval requests"))
                 toast.success("Device revoked")
             } catch (e) {
                 if (refused(e, "revoke a device")) return
@@ -129,7 +159,7 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
                 setRevokingDeviceId(null)
             }
         },
-        [idpUrl, accessToken, ownActorUri, localDmConvos, queryClient, refused],
+        [idpUrl, accessToken, ownActorUri, localDmConvos, queryClient, refused, answering],
     )
 
     // Their devices stay: each may sign in again, as the same device.
@@ -149,13 +179,18 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
     }, [idpUrl, accessToken, queryClient, refused])
 
     return {
-        rows,
         isLoading,
         error,
-        unapproved,
+        waiting,
+        waitingAnnouncement:
+            waiting.length === 0 ? "" : `${waiting.length} waiting for you: ${waiting.map((d) => d.display_name || "a device").join(", ")}`,
+        rows: listed,
         listRefused,
-        passphraseWords,
-        isPassphraseLoading,
+        answering,
+        seats,
+        passphraseWords: holds && held?.words ? held.words : null,
+        heldBy: rows ? historyHolders(rows, verdict) : null,
+        offersRestore: holds === null ? null : !holds,
         isClearingHistoryBackup,
         onClearHistoryBackup,
         revokingDeviceId,

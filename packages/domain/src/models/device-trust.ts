@@ -91,7 +91,7 @@ export type ChainCheck = "ok" | "failed" | "unsettled"
  */
 export type CheckedApproval =
     | { by: "passphrase"; generation: number; verifies: boolean }
-    | { by: "device"; approver: DeviceId; approverRootKey: Uint8Array | null; verifies: boolean }
+    | { by: "device"; approver: DeviceId; approverRootKey: Uint8Array | null; verifies: boolean; createdAt: string }
 
 /** A listed device as this device checked it. */
 export interface CheckedDevice {
@@ -117,16 +117,24 @@ export function actsOnApproval(standing: HistoryKeyStanding): standing is Extrac
     return standing.kind === "holds"
 }
 
+/** Who brought an approved device in, as this device verified it. */
+export type Approver = { by: "device"; deviceId: DeviceId } | { by: "passphrase" }
+
+export interface ApprovedDevice extends KnownDevice {
+    approver: Approver
+}
+
 /**
  * The devices approved under `generation`, each over its listed root key: a chain that verifies,
  * no revocation, and an approval by the generation's approval key — or by such a device, by its id
  * and the root key it was approved over. Two links at most; none from a list naming an id twice.
+ * A handshake leaves approvals both ways: the device named approved first.
  */
-export function approvedDevices(
+export function approvedDevicesBy(
     devices: readonly CheckedDevice[],
     generation: number,
     revokedSeen: readonly DeviceId[],
-): KnownDevice[] {
+): ApprovedDevice[] {
     if (duplicateDeviceIds(devices.map((d) => d.deviceId)).length > 0) return []
     const standing = devices.flatMap((d) =>
         d.chain === "ok" && d.rootKey !== null && !d.revoked && !revokedSeen.includes(d.deviceId)
@@ -136,15 +144,33 @@ export function approvedDevices(
     const roots = standing.filter((d) =>
         d.approvals.some((a) => a.by === "passphrase" && a.verifies && a.generation === generation),
     )
-    const byRoot = (d: KnownDevice, a: CheckedApproval) =>
-        a.by === "device" &&
-        a.verifies &&
-        a.approver !== d.deviceId &&
-        a.approverRootKey !== null &&
-        roots.some((r) => r.deviceId === a.approver && sameBytes(r.rootKey, a.approverRootKey as Uint8Array))
-    return standing
-        .filter((d) => roots.includes(d) || d.approvals.some((a) => byRoot(d, a)))
-        .map((d) => ({ deviceId: d.deviceId, rootKey: d.rootKey }))
+    type ByDevice = Extract<CheckedApproval, { by: "device" }>
+    const counted = (d: (typeof standing)[number]) =>
+        d.approvals.flatMap((a): ByDevice[] =>
+            a.by === "device" &&
+            a.verifies &&
+            a.approver !== d.deviceId &&
+            a.approverRootKey !== null &&
+            roots.some((r) => r.deviceId === a.approver && sameBytes(r.rootKey, a.approverRootKey as Uint8Array))
+                ? [a]
+                : [],
+        )
+    // `created_at` is the instance's word: it only orders two devices that both verify as approved.
+    const approvedBack = (d: KnownDevice, approver: DeviceId) =>
+        standing
+            .find((x) => x.deviceId === approver)
+            ?.approvals.find((a) => a.by === "device" && a.verifies && a.approver === d.deviceId)
+    return standing.flatMap((d): ApprovedDevice[] => {
+        const byDevice = counted(d)
+        const first = byDevice.find((a) => {
+            const back = approvedBack(d, a.approver)
+            return !back || (back.by === "device" && Date.parse(a.createdAt) < Date.parse(back.createdAt))
+        })
+        const fallback = roots.includes(d) ? null : byDevice[0]
+        const named = first ?? fallback
+        if (named) return [{ deviceId: d.deviceId, rootKey: d.rootKey, approver: { by: "device", deviceId: named.approver } }]
+        return roots.includes(d) ? [{ deviceId: d.deviceId, rootKey: d.rootKey, approver: { by: "passphrase" } }] : []
+    })
 }
 
 /** What a review of the device list found. */
@@ -158,12 +184,14 @@ export interface DeviceTrustVerdict {
     listed: KnownDevice[]
     /** Approved over their listed root keys, this device among them; none when it doesn't act. */
     approved: KnownDevice[]
+    /** Who approved each, as verified here: this device, counted approved by itself, has none unless an approval of it counts. */
+    approvedBy: ApprovedDevice[]
     /** Listed, their chain unsettled: neither added nor committed out. */
     unsettled: KnownDevice[]
 }
 
 export function undecided(thisDevice: DeviceId, listed: KnownDevice[] = [], unsettled: KnownDevice[] = []): DeviceTrustVerdict {
-    return { acting: false, generation: null, thisDevice, listed, approved: [], unsettled }
+    return { acting: false, generation: null, thisDevice, listed, approved: [], approvedBy: [], unsettled }
 }
 
 /** A listed device, its chain verifying, unrevoked and unapproved; `arrived` the first time this device sees it under that root key. */
@@ -183,9 +211,16 @@ export function judgeDevices(input: {
     trust: DeviceTrust
     thisDevice: DeviceId
     ownRootKey: Uint8Array | null
-}): { approved: KnownDevice[]; unsettled: KnownDevice[]; unapproved: UnapprovedDevice[]; keep: Partial<DeviceTrust> } {
+}): {
+    approved: KnownDevice[]
+    approvedBy: ApprovedDevice[]
+    unsettled: KnownDevice[]
+    unapproved: UnapprovedDevice[]
+    keep: Partial<DeviceTrust>
+} {
     const { devices, trust, thisDevice } = input
-    const found = approvedDevices(devices, input.generation, trust.revoked)
+    const approvedBy = approvedDevicesBy(devices, input.generation, trust.revoked)
+    const found = approvedBy.map(({ deviceId, rootKey }) => ({ deviceId, rootKey }))
     const self = input.ownRootKey ? { deviceId: thisDevice, rootKey: input.ownRootKey } : null
     const approved = self && !found.some((d) => sameDevice(d, self)) ? [...found, self] : found
     const known = (chain: ChainCheck) =>
@@ -202,6 +237,7 @@ export function judgeDevices(input: {
         }))
     return {
         approved,
+        approvedBy,
         unsettled: known("unsettled").map(({ deviceId, rootKey }) => ({ deviceId, rootKey })),
         unapproved,
         keep: { seen: settled.map(({ deviceId, rootKey }) => ({ deviceId, rootKey })), approved: found },

@@ -520,7 +520,7 @@ async function known(ctx: AdapterCtx): Promise<KnownDevice> {
 /** What a review by `self`, holding generation 1's words, finds when it approves `siblings` over the root keys they hold. */
 async function trusting(self: AdapterCtx, ...siblings: AdapterCtx[]): Promise<DeviceTrustVerdict> {
     const devices = await Promise.all([self, ...siblings].map(known))
-    return { acting: true, generation: 1, thisDevice: devices[0].deviceId, listed: devices, approved: devices, unsettled: [] }
+    return { acting: true, generation: 1, thisDevice: devices[0].deviceId, listed: devices, approved: devices, approvedBy: [], unsettled: [] }
 }
 
 /** The untrusted leaves `ctx` tells of from now on, the records it holds first. */

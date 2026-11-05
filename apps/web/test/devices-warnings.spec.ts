@@ -1,9 +1,9 @@
 /**
  * The trust events of Settings → Devices (`identity-provider/specs/e2ee.md § 3.9`), as the real
- * E2EE engine's review of the device list stands and withdraws them: a device nobody approved shows
- * "not approved", its revoke reading "Not mine" — the revoke flow, its recent-password step
- * included —, only on a device acting on approval and until it is approved; a list naming a device
- * twice puts up a banner that goes with the next list that doesn't.
+ * E2EE engine's review of the device list stands and withdraws them: a device nobody approved waits
+ * in a seat with "Not mine" — the revoke flow, its recent-password step included —, only on a
+ * device acting on approval and until it is approved; a list naming a device twice puts up a banner
+ * that goes with the next list that doesn't.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { RouterProvider, createMemoryHistory, createRootRoute, createRouter } from "@tanstack/react-router"
@@ -127,7 +127,7 @@ afterEach(async () => {
 })
 
 describe("Settings → Devices", () => {
-    it("shows a device nobody approved as “not approved” with “Not mine”, until it is approved", async () => {
+    it("seats a device nobody approved, “waiting for you” with “Not mine”, until it is approved", async () => {
         const { laptop, self, laptopRow, phone, phoneRow } = await account()
         const rows = [laptopRow, phoneRow]
         await laptop.e2ee.reviewDevices(IDP, laptop.token, ACTOR, rows)
@@ -135,15 +135,16 @@ describe("Settings → Devices", () => {
         await render()
         await until(() => card("Chrome on Android") !== undefined)
 
-        expect(card("Chrome on Android")?.textContent).toContain("not approved")
+        expect(card("Chrome on Android")?.textContent).toContain("waiting for you")
         expect(buttonIn(card("Chrome on Android"), "Not mine")?.getAttribute("aria-label")).toBe("Not mine: sign out Chrome on Android")
-        expect(card("Firefox on Linux")?.textContent).not.toContain("not approved")
+        expect(card("Firefox on Linux")?.textContent).not.toContain("waiting for you")
 
         const approved = [laptopRow, { ...phoneRow, approvals: [approvedBy(self, phone)] }]
         await laptop.e2ee.reviewDevices(IDP, laptop.token, ACTOR, approved)
         await serve(approved)
         await until(() => buttonIn(card("Chrome on Android"), "Revoke") !== undefined)
-        expect(card("Chrome on Android")?.textContent).not.toContain("not approved")
+        expect(card("Chrome on Android")?.textContent).not.toContain("waiting for you")
+        expect(card("Chrome on Android")?.textContent).toContain("approved by this device")
         expect(buttonIn(card("Chrome on Android"), "Revoke")?.getAttribute("aria-label")).toBe("Revoke Chrome on Android")
     })
 
@@ -168,7 +169,7 @@ describe("Settings → Devices", () => {
         expect(vi.mocked(laptop.e2ee.revokeDevice).mock.calls[0][3]).toBe(phone.deviceId)
     })
 
-    it("shows nothing unapproved on a device that doesn't act: one that lost the current passphrase withdraws it", async () => {
+    it("seats nobody on a device that doesn't act: one that lost the current passphrase withdraws it", async () => {
         const { idp, laptop, laptopRow, phoneRow } = await account()
         const rows = [laptopRow, phoneRow]
         await laptop.e2ee.reviewDevices(IDP, laptop.token, ACTOR, rows)
@@ -184,7 +185,8 @@ describe("Settings → Devices", () => {
         })
 
         await until(() => buttonIn(card("Chrome on Android"), "Revoke") !== undefined)
-        expect(container.textContent).not.toContain("not approved")
+        expect(container.textContent).not.toContain("waiting for you")
+        expect(container.textContent).not.toContain("approved by")
     })
 
     it("puts up a banner for a list naming a device twice, gone with the next list that doesn't", async () => {
@@ -192,13 +194,13 @@ describe("Settings → Devices", () => {
         const twice = [laptopRow, phoneRow, { ...phoneRow, display_name: "Another" }]
         wired.rows = [laptopRow, phoneRow]
         await render()
-        const region = container.querySelector("[role=status]")
+        const region = container.querySelector("div[role=status]")
         expect(region?.textContent).toBe("")
         await act(async () => {
             await laptop.e2ee.reviewDevices(IDP, laptop.token, ACTOR, twice)
         })
         await until(() => container.textContent?.includes(BANNER) === true)
-        expect(container.querySelector("[role=status]")).toBe(region)
+        expect(container.querySelector("div[role=status]")).toBe(region)
         expect(region?.textContent).toContain("Nothing new is trusted on this device until it stops.")
 
         await act(async () => {

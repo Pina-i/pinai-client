@@ -159,7 +159,7 @@ async function verifyRootOnce(actorUri: string, device: DeviceListEntry, jwks: I
  * key's chain, and each approval over its listed root key — by the passphrase under `approvalKey`,
  * the key this device derived itself and never the one the server lists; by a device under the
  * root key listed for it, carried along so the rule matches it by id and root key. Who is approved
- * is the domain's rule (`approvedDevices`).
+ * is the domain's rule (`approvedDevicesBy`).
  */
 export async function checkListedDevices(
     actorUri: string,
@@ -180,7 +180,7 @@ export async function checkListedDevices(
             const signer = devices.find((d) => d.device_id === approval.device_id)?.drk_public_key ?? null
             const verifies =
                 rootKey !== null && signer !== null && verifyApproval(approval.signature, actorUri, device.device_id, rootKey, signer)
-            return { by: "device", approver: approval.device_id, approverRootKey: signer, verifies }
+            return { by: "device", approver: approval.device_id, approverRootKey: signer, verifies, createdAt: approval.created_at }
         })
         checked.push({
             deviceId: device.device_id,

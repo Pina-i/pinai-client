@@ -5,9 +5,10 @@ import { OtpInput } from "@/presentation/atoms/OtpInput/OtpInput"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { modalSurface } from "@/presentation/molecules/Modal/modal-surface"
 import { RecentSignInModal } from "@/presentation/molecules/RecentSignInModal/RecentSignInModal"
+import { failureWording } from "@/presentation/_libs/approval-wording"
 import { cn } from "@/presentation/_libs/utils"
 
-import { failureWording, useApprovalDoorViewModel } from "./ApprovalDoor.viewmodel"
+import { useApprovalDoorViewModel } from "./ApprovalDoor.viewmodel"
 
 /**
  * The approval prompt over the app while another device of the account asks: "Door"
@@ -42,7 +43,7 @@ export function ApprovalDoor() {
                         </span>
                         <span className="min-w-0">
                             <span className="title block truncate text-[18px] font-semibold text-foreground">{vm.device}</span>
-                            <span className="fact fact-plain mt-[3px] block">{vm.signedIn}</span>
+                            <span className="fact fact-plain mt-[3px] block">{vm.asked}</span>
                         </span>
                     </div>
 

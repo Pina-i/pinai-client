@@ -14,7 +14,9 @@ export interface OtpInputProps {
     className?: string
     /** A dash after every `groupSize` cells: 3 shows a code as 3 + 3. */
     groupSize?: number
-    size?: "md" | "lg"
+    size?: "sm" | "md" | "lg"
+    /** The label beside the cells, wrapping under it when the row runs out. */
+    inline?: boolean
 }
 
 /** Six single-digit mono cells; typing advances, paste fans out, backspace walks back. */
@@ -31,6 +33,7 @@ export function OtpInput({
     className,
     groupSize,
     size = "md",
+    inline = false,
 }: OtpInputProps) {
     const id = useId()
     const refs = useRef<Array<HTMLInputElement | null>>([])
@@ -148,7 +151,9 @@ export function OtpInput({
                     "rounded-[12px] border bg-surf2 text-center font-mono text-foreground outline-none",
                     size === "lg"
                         ? "h-14 w-[46px] text-[22px] max-[520px]:h-12 max-[520px]:w-10 max-[520px]:text-[19px]"
-                        : "h-[46px] w-10 text-[18px]",
+                        : size === "sm"
+                          ? "h-10 w-[34px] rounded-[10px] text-[16px]"
+                          : "h-[46px] w-10 text-[18px]",
                     "transition-[border-color,box-shadow] duration-150",
                     "focus:border-acc focus:shadow-[0_0_0_3px_var(--accsoft)]",
                     "disabled:cursor-not-allowed disabled:opacity-50",
@@ -162,17 +167,21 @@ export function OtpInput({
         )
     }
 
+    const gap = size === "sm" ? "gap-1.5" : "gap-2"
     return (
-        <div className={cn("w-full", className)}>
+        <div className={cn(inline ? "flex flex-wrap items-center gap-x-3.5 gap-y-2" : "w-full", className)}>
             {label && (
-                <label htmlFor={`${id}-0`} className="eye mb-1.5 block">
+                <label
+                    htmlFor={`${id}-0`}
+                    className={inline ? "text-[12px] text-muted-foreground" : "eye mb-1.5 block"}
+                >
                     {label}
                 </label>
             )}
-            <div className="flex items-center gap-2" role="group" aria-label={label ?? "One-time passcode"}>
+            <div className={cn("flex items-center", gap)} role="group" aria-label={label ?? "One-time passcode"}>
                 {cells.map((_, i) =>
                     groupSize && i > 0 && i % groupSize === 0 ? (
-                        <span key={`group-${i}`} className="flex items-center gap-2">
+                        <span key={`group-${i}`} className={cn("flex items-center", gap)}>
                             <span aria-hidden className="h-0.5 w-2 rounded-full bg-line2" />
                             {renderCell(i)}
                         </span>
