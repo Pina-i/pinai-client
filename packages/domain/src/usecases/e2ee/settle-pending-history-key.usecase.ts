@@ -1,27 +1,56 @@
-import { sameHistoryKey } from "../../models/history-key"
+import { FIRST_HISTORY_GENERATION, settlePending } from "../../models/history-key"
 import { isHistoryKeyConflict } from "../../models/idp-error"
 import type { IE2eePort } from "../../ports/e2ee.port"
 import type { IHistoryArchivePort } from "../../ports/history-archive.port"
 
 /**
- * A pending key — minted, sealed, its `PUT` unanswered — is settled before anything else: the key
- * in force is it, so its words are kept; no key is in force, so it is set again; another key is,
- * so it is erased. From a session that named its device.
+ * Held across the account's tabs for as long as `run` runs, the others waiting; where the platform
+ * has no such lock, the page's own turn is all there is.
  */
-export function settlePendingHistoryKeyUseCase(deps: { e2eePort: IE2eePort; historyArchivePort: IHistoryArchivePort }) {
-    return async (idpUrl: string, accessToken: string): Promise<void> => {
-        const pending = await deps.e2eePort.pendingHistoryKey()
-        if (!pending) return
-        const current = await deps.historyArchivePort.getKey(idpUrl, accessToken)
-        if (current && !sameHistoryKey(current, pending)) return deps.e2eePort.dropPendingHistoryKey()
-        if (!current) {
-            try {
-                await deps.historyArchivePort.setKey(idpUrl, accessToken, pending)
-            } catch (error) {
-                if (isHistoryKeyConflict(error)) return deps.e2eePort.dropPendingHistoryKey()
-                throw error
+export type PendingKeyLock = <T>(run: () => Promise<T>) => Promise<T>
+
+export interface PendingKeyDeps {
+    e2eePort: IE2eePort
+    pendingKeyLock?: PendingKeyLock
+}
+
+const lastTurn = new WeakMap<IE2eePort, Promise<unknown>>()
+
+/**
+ * One flow at a time writes, sends or settles a device's pending key — this page's in turn, then
+ * the account's tabs under `pendingKeyLock`: a start over's key is pending while its `PUT` is out,
+ * and a settle then would erase words the IdP may be taking.
+ */
+export function pendingKeyTurn<T>(deps: PendingKeyDeps, run: () => Promise<T>): Promise<T> {
+    const locked = () => (deps.pendingKeyLock ? deps.pendingKeyLock(run) : run())
+    const mine = (lastTurn.get(deps.e2eePort) ?? Promise.resolve()).then(locked, locked)
+    lastTurn.set(deps.e2eePort, mine.catch(() => undefined))
+    return mine
+}
+
+/**
+ * A pending key is settled before anything else (`settlePending`): the key in force is it, so its
+ * words are kept — a later generation's shown as new words, a start over's whose answer was lost —;
+ * a first generation with no key in force is set again; a row written moments ago is left for a
+ * later settle; anything else is erased. From a session that named its device.
+ */
+export function settlePendingHistoryKeyUseCase(deps: PendingKeyDeps & { historyArchivePort: IHistoryArchivePort }) {
+    return (idpUrl: string, accessToken: string): Promise<void> =>
+        pendingKeyTurn(deps, async () => {
+            const pending = await deps.e2eePort.pendingHistoryKey()
+            if (!pending) return
+            const current = await deps.historyArchivePort.getKey(idpUrl, accessToken)
+            const settlement = settlePending(pending, current)
+            if (settlement === "leave") return
+            if (settlement === "erase") return deps.e2eePort.dropPendingHistoryKey()
+            if (settlement === "send-again") {
+                try {
+                    await deps.historyArchivePort.setKey(idpUrl, accessToken, pending)
+                } catch (error) {
+                    if (isHistoryKeyConflict(error)) return deps.e2eePort.dropPendingHistoryKey()
+                    throw error
+                }
             }
-        }
-        await deps.e2eePort.promotePendingHistoryKey()
-    }
+            await deps.e2eePort.promotePendingHistoryKey({ show: pending.generation > FIRST_HISTORY_GENERATION })
+        })
 }

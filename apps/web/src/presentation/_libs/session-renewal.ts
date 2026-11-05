@@ -10,6 +10,7 @@ const RETRY_MS = 15_000
 
 let started = false
 let scheduledFor: string | null = null
+let arrivedAt = 0
 let dueAt = Number.POSITIVE_INFINITY
 let ending = false
 
@@ -58,8 +59,14 @@ export async function renewAccessToken(): Promise<string | null> {
     }
 }
 
+/** When `token` reached this page, on its clock; `null` for a token it never scheduled. */
+export function accessTokenArrivedAt(token: string | null): number | null {
+    return token !== null && token === scheduledFor ? arrivedAt : null
+}
+
 function schedule(token: string, delay: number | null): void {
     scheduledFor = token
+    arrivedAt = Date.now()
     dueAt = delay === null ? Number.POSITIVE_INFINITY : Date.now() + delay
 }
 

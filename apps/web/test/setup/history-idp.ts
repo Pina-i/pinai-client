@@ -28,6 +28,7 @@ import type { IKeyDirectoryPort, RegisterDeviceResponse } from "@pinai/domain/po
 import type { IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
 import type { ISessionPort } from "@pinai/domain/ports/session.port"
 
+import { accessToken } from "./access-token"
 import { FakeIssuers } from "./issuers"
 import { loadWasmModule } from "./wasm"
 
@@ -50,6 +51,15 @@ export class FastSealer extends HistoryArchiveAdapter {
 
 const stale = () => new IdpError(409, "stale_history_key", "Not the account's current history key")
 
+function authTimeOf(token: string): number | null {
+    try {
+        const claims = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))) as { auth_time?: unknown }
+        return typeof claims.auth_time === "number" ? claims.auth_time : null
+    } catch {
+        return null
+    }
+}
+
 /**
  * The history key's routes as the IdP answers them (`identity-provider/specs/e2ee.md § 5`): the
  * compare-and-set of a generation, uploads checked by generation, approvals by the passphrase
@@ -69,6 +79,11 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
     readonly named = new Map<string, string>()
     /** Runs as an approval arrives, before it is checked. */
     onApprove: (() => void) | null = null
+    /** Whether a session typed its password recently enough to set a generation past the first: its `auth_time` within 10 minutes, on this IdP's clock. */
+    recentSignIn: (accessToken: string) => boolean = (token) => {
+        const authTime = authTimeOf(token)
+        return authTime !== null && Date.now() - authTime * 1000 < 10 * 60_000
+    }
 
     async getKey(): Promise<CurrentHistoryKey | null> {
         this.log.push("read key")
@@ -77,6 +92,9 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
 
     async setKey(_idpUrl: string, accessToken: string, key: HistoryKey): Promise<void> {
         const device = this.namedDevice(accessToken)
+        if (key.generation > 1 && !this.recentSignIn(accessToken)) {
+            throw new IdpError(401, "insufficient_user_authentication", "Sign in again to do this")
+        }
         if (this.key && sameHistoryKey(this.key, key)) return
         if (key.generation !== (this.key?.generation ?? 0) + 1) {
             throw new IdpError(409, "history_key_conflict", "The history key is at another generation")
@@ -174,6 +192,7 @@ export class MemoryHistoryStorage {
     admission: Admission | null = null
     newest: number | null = null
     restoreDue: RestoreDue | null = null
+    newWords: number | null = null
     trust: DeviceTrust = emptyDeviceTrust()
     /** Trust rows the next read finds unreadable, as a sealed row that won't open. */
     unreadable: DeviceTrustRow[] = []
@@ -241,6 +260,13 @@ export class MemoryHistoryStorage {
             clearRestoreDue: async () => {
                 this.restoreDue = null
             },
+            saveNewWordsGeneration: async (generation: number) => {
+                this.newWords = generation
+            },
+            loadNewWordsGeneration: async () => this.newWords,
+            clearNewWordsGeneration: async () => {
+                this.newWords = null
+            },
             loadDeviceTrust: async () => {
                 const unreadable = this.unreadable
                 this.unreadable = []
@@ -306,7 +332,7 @@ export function historyDevice(
         historyArchivePort: idp,
         deviceDirectoryPort: idp.directory(),
     }
-    return { name, e2ee, storage, sealer, token: `tok-${name}`, deps }
+    return { name, e2ee, storage, sealer, token: accessToken(Date.now(), name), deps }
 }
 
 /**

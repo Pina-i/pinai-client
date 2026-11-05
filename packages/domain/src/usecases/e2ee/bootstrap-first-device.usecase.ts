@@ -11,12 +11,14 @@ import { approveByPassphraseUseCase } from "./approve-by-passphrase.usecase"
 import { checkHistoryKeyUseCase } from "./check-history-key.usecase"
 import { registerIdentityUseCase } from "./register-identity.usecase"
 import { setUpThisDeviceUseCase } from "./set-up-this-device.usecase"
+import { pendingKeyTurn, type PendingKeyLock } from "./settle-pending-history-key.usecase"
 
 export interface BootstrapFirstDeviceDeps {
     e2eePort: IE2eePort
     sessionPort: ISessionPort
     historyArchivePort: IHistoryArchivePort
     deviceDirectoryPort: IDeviceDirectoryPort
+    pendingKeyLock?: PendingKeyLock
 }
 
 export interface BootstrapFirstDeviceInput {
@@ -43,15 +45,19 @@ export const bootstrapFirstDeviceUseCase =
         await setUpThisDeviceUseCase(deps)(idpUrl, accessToken, actorUri)
         let standing = await checkHistoryKeyUseCase(deps)(idpUrl, accessToken, actorUri)
         if (standing.kind === "no-key") {
-            const { key } = await deps.e2eePort.mintHistoryKey(FIRST_HISTORY_GENERATION)
-            try {
-                await deps.historyArchivePort.setKey(idpUrl, accessToken, key)
-            } catch (error) {
-                if (!isHistoryKeyConflict(error)) throw error
-                await deps.e2eePort.dropPendingHistoryKey()
-                return { kind: "has-key" }
-            }
-            await deps.e2eePort.promotePendingHistoryKey()
+            const set = await pendingKeyTurn(deps, async () => {
+                const { key } = await deps.e2eePort.mintHistoryKey(FIRST_HISTORY_GENERATION)
+                try {
+                    await deps.historyArchivePort.setKey(idpUrl, accessToken, key)
+                } catch (error) {
+                    if (!isHistoryKeyConflict(error)) throw error
+                    await deps.e2eePort.dropPendingHistoryKey()
+                    return false
+                }
+                await deps.e2eePort.promotePendingHistoryKey()
+                return true
+            })
+            if (!set) return { kind: "has-key" }
             standing = await approveByPassphraseUseCase(deps)(idpUrl, accessToken, actorUri)
         }
         if (standing.kind !== "holds") return { kind: "has-key" }

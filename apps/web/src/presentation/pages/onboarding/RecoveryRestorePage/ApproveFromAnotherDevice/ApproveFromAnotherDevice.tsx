@@ -12,8 +12,8 @@ const RING = 2 * Math.PI * 15
 interface ApproveFromAnotherDeviceProps {
     /** The device is registered and named on its session: a request can open. */
     ready: boolean
-    /** The 24 words are being typed: the request ends, until "Show a code". */
-    wordsStarted: boolean
+    /** Its tab is open: leaving it ends the request, coming back opens one. */
+    active: boolean
     /** This device's label until the instance's list names it. */
     fallbackLabel: string
     /** Where to type the code. */
@@ -32,22 +32,19 @@ interface ApproveFromAnotherDeviceProps {
  */
 export function ApproveFromAnotherDevice({
     ready,
-    wordsStarted,
+    active,
     fallbackLabel,
     instruction = "Open Pīna'i on one of your devices and type it when it asks.",
     share,
     onApproved,
     onIn,
 }: ApproveFromAnotherDeviceProps) {
-    const vm = useApproveFromAnotherDeviceViewModel({ ready, wordsStarted, fallbackLabel, share, onApproved, onIn })
+    const vm = useApproveFromAnotherDeviceViewModel({ ready, active, fallbackLabel, share, onApproved, onIn })
     const approved = vm.state.kind === "approved"
 
     return (
-        <section
-            aria-label="Approve from another device"
-            className="w-full max-w-[540px] overflow-hidden rounded-[26px] border border-line2 bg-popover shadow-[0_24px_60px_-16px_rgba(0,0,0,0.45)]"
-        >
-            <div className="px-[30px] pb-[22px] pt-[26px]">
+        <section aria-label="Approve from another device">
+            <div className="px-[30px] pb-[22px] pt-[26px] max-[440px]:px-5">
                 <div className="flex items-center justify-between gap-3">
                     <p className="fact text-acc">Approval code</p>
                     {vm.nextCode && vm.ringFraction !== null && (
@@ -72,7 +69,7 @@ export function ApproveFromAnotherDevice({
                 </div>
 
                 {approved ? (
-                    <p className="title m-0 mt-[22px] flex items-center justify-center gap-3 text-[30px] leading-[1.1] text-foreground">
+                    <p className="title m-0 mt-[22px] flex items-center justify-center gap-3 text-[30px] leading-[1.1] text-foreground max-[440px]:text-[24px]">
                         <Check className="h-7 w-7 text-on" strokeWidth={2.2} aria-hidden />
                         This device is approved.
                     </p>
@@ -92,19 +89,19 @@ export function ApproveFromAnotherDevice({
                 {vm.action && (
                     <div className="mt-3 flex justify-center">
                         <Button size="inline" variant="secondary" onPress={vm.onAction}>
-                            {vm.action === "new-code" ? "New code" : vm.action === "go-on" ? "Go on without it" : "Show a code"}
+                            {vm.action === "new-code" ? "New code" : "Go on without it"}
                         </Button>
                     </div>
                 )}
             </div>
 
-            <div className="mx-[30px] grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3.5 border-t border-line py-[18px]">
+            <div className="mx-[30px] grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3.5 border-t border-line py-[18px] max-[440px]:mx-5 max-[440px]:gap-2.5">
                 <div className="min-w-0">
-                    <p className="eye mb-2">Letting in</p>
+                    <p className="m-0 mb-2 text-[11px] font-medium text-muted-foreground">Letting in</p>
                     <div className="flex items-center gap-2.5">
-                        <DeviceIcon kind="laptop" />
+                        <DeviceIcon kind={vm.thisDeviceKind} />
                         <span className="min-w-0">
-                            <span className="block truncate text-[13px] text-foreground">{vm.thisDevice}</span>
+                            <span className="block break-words text-[13px] text-foreground">{vm.thisDevice}</span>
                             <span className="fact fact-plain">this device</span>
                         </span>
                     </div>
@@ -114,23 +111,23 @@ export function ApproveFromAnotherDevice({
                     <ChevronsRight className="h-[15px] w-[15px]" strokeWidth={1.9} />
                 </span>
                 <div className="min-w-0">
-                    <p className="eye mb-2">Approve from</p>
+                    <p className="m-0 mb-2 text-[11px] font-medium text-muted-foreground">Approve from</p>
                     <div className="flex flex-col gap-2">
                         {vm.approvers.length === 0 && <span className="text-[13px] text-muted-foreground">Another of your devices</span>}
                         {vm.approvers.map((d) => (
                             <div key={d.deviceId} className="flex items-center gap-2.5">
                                 <DeviceIcon kind={d.kind} />
-                                <span className="truncate text-[13px] text-foreground">{d.label}</span>
+                                <span className="min-w-0 break-words text-[13px] text-foreground">{d.label}</span>
                             </div>
                         ))}
                     </div>
                 </div>
             </div>
 
-            <div className="flex items-center gap-3 border-t border-acc-line bg-acc-soft px-[30px] py-3.5">
+            <div className="flex items-center gap-3 border-t border-acc-line bg-acc-soft px-[30px] py-3.5 max-[440px]:px-5">
                 <History className="h-4 w-4 shrink-0 text-acc" strokeWidth={1.9} aria-hidden />
                 <span className="text-[13px] text-foreground">
-                    <span className="eye mr-2 inline">Then</span>your conversations and history arrive here
+                    <span className="mr-2 text-[11px] font-medium text-muted-foreground">Then</span>your conversations and history arrive here
                 </span>
             </div>
         </section>
@@ -145,20 +142,21 @@ function CodeDigits({ halves }: { halves: [string, string] | null }) {
             className={cn(
                 "title relative flex h-[76px] w-14 items-center justify-center rounded-[14px] border border-line2 bg-surf2",
                 "text-[50px] leading-none text-foreground max-[520px]:h-16 max-[520px]:w-11 max-[520px]:text-[40px]",
+                "max-[440px]:h-14 max-[440px]:w-[38px] max-[440px]:rounded-[11px] max-[440px]:text-[32px]",
             )}
         >
             {digit ?? ""}
-            <i className="absolute bottom-2.5 left-3.5 right-3.5 h-0.5 rounded-sm bg-action" />
+            <i className="absolute bottom-2.5 left-3.5 right-3.5 h-0.5 rounded-sm bg-action max-[440px]:bottom-2 max-[440px]:left-2.5 max-[440px]:right-2.5" />
         </span>
     )
     return (
         <div
             role="img"
             aria-label={halves ? `Approval code ${spelled(first)}, ${spelled(second)}` : "Approval code coming"}
-            className="mt-[22px] flex items-center justify-center gap-2"
+            className="mt-[22px] flex items-center justify-center gap-2 max-[440px]:gap-1.5"
         >
             {[0, 1, 2].map((i) => tile(first[i], `a${i}`))}
-            <span aria-hidden className="mx-2 h-2 w-2 rounded-full bg-line2" />
+            <span aria-hidden className="mx-2 h-2 w-2 shrink-0 rounded-full bg-line2 max-[440px]:mx-1.5" />
             {[0, 1, 2].map((i) => tile(second[i], `b${i}`))}
         </div>
     )

@@ -421,6 +421,16 @@ class InMemoryE2eeStorage implements E2eeStorage {
     async clearRestoreDue(): Promise<void> {
         this.restoreDue = null
     }
+    private newWords: number | null = null
+    async saveNewWordsGeneration(generation: number): Promise<void> {
+        this.newWords = generation
+    }
+    async loadNewWordsGeneration(): Promise<number | null> {
+        return this.newWords
+    }
+    async clearNewWordsGeneration(): Promise<void> {
+        this.newWords = null
+    }
     async saveHistoryKeyStanding(standing: HistoryKeyStanding): Promise<void> {
         this.standing = standing
     }

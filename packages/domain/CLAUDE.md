@@ -37,6 +37,12 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `renewAfter(token)` — when to renew: 80 % of the lifetime (`exp - iat`),
   counted from the token's arrival rather than its `iat`, so a device whose
   clock disagrees with the IdP's still renews on time
+- `signedInRecently(token, arrivedAt?, now?)` — the password typed within `RECENT_SIGN_IN_MS`
+  (9 minutes: the IdP's 10, a minute kept in hand), timed on the IdP's clock: `iat − auth_time`
+  plus the time since the token arrived on this device's own clock, so a device clock set wrong
+  can't loop on the password. Without the arrival (`presentation/_libs/session-renewal.ts` records
+  it), either clock saying recent is taken and the IdP's `401` settles the rest. No `auth_time`,
+  not recent. Read before a start over, which mints nothing without it
 
 ### ports/auth.port.ts
 - `IAuthPort` — interface for OIDC operations
@@ -201,7 +207,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   is a lie this device caught: no partner overrides it. Out too from a list naming an id
   twice. A non-holding device's best judgement: the acting devices verify chains
   themselves before adding or sharing. `needsPartners` — the list is read only then.
-- `decideGateRoute` — a pending key or `no-key` → `setup`; in → `app`; out with a
+- `decideGateRoute` — a pending key or `no-key` → `setup` (`pendingKeyRoute`, the first rule alone,
+  for a page outside the gate); in → `app`; out with a
   `mismatch` → `reset`, else `new-device`. `routeRechecks` — a route change re-checks
   at most once in 30 s, never while a check runs; `forcesRecheck` — `reset-by-unapproved`,
   `key-replaced`, `approval-key-differs` re-check at once.
@@ -249,6 +256,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   next, `mayAsk` checked before each open, the hourly budget passed in so it
   outlives a remount; `stopped` (a code that went otherwise) and `paused` (the
   page set it aside) wait for `again`; `stop({ keepalive })` ends the request.
+  `pause` ends only a request nobody answered: an exchange another device took
+  part in goes on, approval included; an `again` made while a pause waits on a
+  tick wins (`asks`).
 - `ApprovedEntry` — the asking device once approved: `registerIdentityUseCase` until it
   is in, `nextDelay` 2 → 4 → 8 → 15 → 30 s (`enterDelay`), `waiting` past
   `STILL_WAITING_AFTER_MS` (20 s: the approving device hasn't finished), `refused` only on
@@ -557,6 +567,14 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   generation's key under another number; the words are kept, nothing uploaded), `no-key`,
   `no-passphrase` (with the key's generation). Generations only move forward; words give the one
   generation they were kept for. `newestGenerationSeen`, `approvalCarriedOver`, `buffersForArchive`.
+  `PendingHistoryKey` — a pending key with when it was written (`mintedAt`). `settlePending(pending,
+  current, now)` — `keep` (it is the key in force), `send-again` (generation 1, none in force: the
+  first device's), `leave` (a row written in the last `PENDING_KEY_FRESH_MS`, 2 minutes: its `PUT`,
+  this tab's or another's, may still land), `erase` (anything else — a later generation's `PUT` is
+  never sent by itself). `startOverGeneration(current, newestSeen)` — the one after the key in
+  force, `null` unless past every generation seen (a number another device may hold is never
+  reused; none after generation 1 was seen is refused too). `firstWordsShownOffline` — the setup
+  page shows kept words with the IdP out of reach only for generation 1, nothing pending.
 - `IHistoryArchivePort` — `getKey` (`null` before the first), `setKey` (compare-and-set:
   `history_key_conflict` for another device's), uploads naming their generation
   (`stale_history_key`), `wipeArchive` (entries only). `IDeviceDirectoryPort` —
@@ -565,7 +583,13 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   approving and reporting take the naming. It publishes no KeyPackage: that waits until the
   device is in (`registerIdentityUseCase`).
 - `settle-pending-history-key.usecase.ts` — a pending key (minted, sealed, its `PUT` unanswered)
-  settles before anything else: the key in force is it → kept; none → set again; another → erased.
+  settles before anything else, by `settlePending`; one kept past generation 1 is a start over whose
+  answer was lost, its words kept to show. `pendingKeyTurn(deps, run)` — what writes, sends or
+  settles the pending key runs in it: the settle, the start over's read-mint-`PUT`-promote (and its
+  re-read after a refusal), the first device's mint and `PUT`. One at a time per engine (so per
+  page), then across the account's tabs under `deps.pendingKeyLock` (`PendingKeyLock`, the web's
+  `navigator.locks` keyed `pinai-pending-key:<actor>`); without one, the page's turn and the fresh
+  rows' two minutes are what keep a settle off a `PUT` on its way.
 - `bootstrap-first-device.usecase.ts` — the first device: no key in force, generation 1 is minted
   and sealed as pending, set, then kept, approved, reported, its KeyPackages published, and shown;
   another device's key erases it (`has-key`, nothing published). A device without words on an
@@ -581,6 +605,18 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   generation, after its KeyPackages: typed words, an accepted share, the startup check settling
   (`check-history-key`); failures to an injected `report`. `dueRestore` (`models/history-key.ts`)
   — a restore due under a generation runs while it is held, is moot once a later one is in force.
+- `start-over.usecase.ts` — § 6.11. New words a start over set and nobody went past
+  (`IE2eePort.newWordsToShow`), still the generation in force, are answered again — never a second
+  start over. Else `signedInRecently` first (`recent-sign-in`, nothing minted); set up; in
+  `pendingKeyTurn`, generation n+1 (`startOverGeneration`, else `rolled-back`) minted as pending and
+  `PUT`. A `409 history_key_conflict` or `401 insufficient_user_authentication` reads the key again:
+  in force after all, kept; else the pending key erased (`conflict` / `recent-sign-in`). Any other
+  failure keeps it (trying again sends the same words, or finds them in force). Once the IdP took
+  it, the start over has happened: the words kept and marked to show (`promotePendingHistoryKey({
+  show })`, until `dismissNewWords`), then approving, reporting, the KeyPackages and `shareOnceHeld`
+  best effort — reported, never thrown; the page-load check, the tick and the fanout redo them —, and
+  `started-over` with the words. `key-changed` when another generation lands before the approval
+  (the words no longer to show).
 - `check-history-key.usecase.ts` — the pending key settled, then the standing; holding the key
   unsettled, the approval made. `start-this-device.usecase.ts` — what a page load runs: the naming,
   then that check.

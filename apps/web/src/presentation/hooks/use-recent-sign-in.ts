@@ -4,6 +4,7 @@ import { toast } from "sonner"
 import { needsRecentSignIn } from "@pinai/domain/models/idp-error"
 import { startLoginUseCase } from "@pinai/domain/usecases/auth/startLogin.usecase"
 import { getAuthPlatform, getAuthPort } from "@/ioc/index"
+import { instanceHost } from "@/presentation/_libs/instance-host"
 import { useAppStore } from "@/store/store"
 
 export interface RecentSignIn {
@@ -13,6 +14,8 @@ export interface RecentSignIn {
     host: string
     /** True when `error` is the IdP asking for the password again before `action`. */
     refused: (error: unknown, action: string) => boolean
+    /** The password asked again before `action`, without asking the IdP first: the token says it is too old. */
+    ask: (action: string) => void
     dismiss: () => void
     /** The IdP's login page; back to `returnTo` once signed in, or on a cancel, still signed in. */
     signInAgain: () => void
@@ -44,8 +47,9 @@ export function useRecentSignIn(returnTo: () => string): RecentSignIn {
 
     return {
         asking,
-        host: idpUrl ? new URL(idpUrl).host : "",
+        host: instanceHost(idpUrl),
         refused,
+        ask: setAsking,
         dismiss: useCallback(() => setAsking(null), []),
         signInAgain,
         isLeaving,

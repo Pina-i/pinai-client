@@ -50,7 +50,9 @@ Three collaborators could not come, and the shape of each is the mobile work:
   `knownGroupIds[]`), `recovery_passphrase` (`current`: the account's 24
   words, the one generation they give, the root key the device approved
   itself over with them, and their salt and HAK, so a check runs no Argon2id;
-  `pending`: words minted whose `PUT` is unanswered, with their key and HAK;
+  `pending`: words minted whose `PUT` is unanswered, with their key, HAK and when the row was
+  written (`minted_at`, `null` in a row from before it); `new_words`: the generation whose words a
+  start over set and the user hasn't gone past;
   `standing`: where the words stood when last checked; `admission`: whether the
   device was in at its last check, read when the IdP can't be reached;
   `newest_generation`: the newest generation seen; `restore_due`: the generation an archive
@@ -242,8 +244,12 @@ Three collaborators could not come, and the shape of each is the mobile work:
   - **The history key** (`identity-provider/specs/e2ee.md § 3.6–3.9`): the flows
     are the domain's; here the crypto and the standing (`standingAgainst`).
     `mintHistoryKey` seals the words as pending before answering them, the same
-    words for the page load until dropped; `promotePendingHistoryKey` keeps
-    them once the IdP took their key. `keepPassphrase` refuses words that don't
+    words for the page load until dropped — and a pending row of that generation
+    already sealed gives its words again, written anew; `promotePendingHistoryKey`
+    keeps them once the IdP took their key, marking them to show first when asked
+    (`show`); `newWordsToShow` answers them while they are the words kept and
+    nothing is pending, until `dismissNewWords`; dropping a pending key drops its
+    mark. `keepPassphrase` refuses words that don't
     give the key, a generation below the newest seen, and words another tab kept
     meanwhile (the row is read again just before the write). `checkHistoryKey`
     runs no Argon2id: it stands the kept HAK's values against the key in force;
@@ -639,7 +645,15 @@ vitest setup, so a package's specs sit there until it needs its own.
   (`publishingDevice`): the refill's rule, a failed renewal, a device turned out.
 - `apps/web/test/onboarding-pages.spec.ts` — the gate hook's re-checks (throttle, trust
   events, the newest deciding, a failure, an unmount or a sign-out mid-check), the tick
-  gated on it, the new-device and reset pages rendered.
+  gated on it, the new-device and reset pages as Pass: the tabs, a request ended by leaving
+  its tab, the words tab, start over from each (the password asked again first, the words
+  only after the IdP's `204`, a `401`, a conflict), the unknown change.
+- `apps/web/test/start-over.spec.ts` — `signedInRecently` (on the IdP's clock, a device clock 15
+  minutes fast), `settlePending` (fresh rows left), `startOverGeneration`; the start over on real
+  engines: its order, nothing minted without a recent password, a `401` or `409` whose key landed,
+  two devices at once, a failure after the IdP took the key, pressed again before the words were
+  seen, `key-changed`, a page load's check waiting for its `PUT`, two tabs under one lock, a
+  pending generation past 1 at the next start (left fresh, then erased, or kept), sharing after.
 - `apps/web/test/devices-warnings.spec.ts` — Settings → Devices' "not approved", "Not mine"
   and the refused-list banner, from the engine's own reviews.
 - `apps/web/test/device-fanout-retry.spec.ts` — the fanout's backoff for unclaimed siblings;

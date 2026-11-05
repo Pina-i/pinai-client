@@ -6,6 +6,8 @@ import { Button } from "@/presentation/atoms/Button/Button"
 import { PageTransition } from "@/presentation/atoms/page-transition/page-transition"
 import { RecoveryPassphraseDisplay } from "@/presentation/molecules/RecoveryPassphraseDisplay/RecoveryPassphraseDisplay"
 import { useMinimumLoadingDuration } from "@/presentation/hooks/useMinimumLoadingDuration"
+import { NewWords } from "@/presentation/organisms/NewWords/NewWords"
+import { PassCard, PassShell } from "@/presentation/templates/PassShell/PassShell"
 import { useRecoverySetupPageViewModel } from "./RecoverySetupPage.viewmodel"
 
 const SETUP_LOADER_MIN_MS = 600
@@ -20,6 +22,16 @@ export function RecoverySetupPage() {
     )
 
     const ctaDisabled = vm.status !== "done" || showSetupLoader
+
+    if (vm.status === "new-words") {
+        return (
+            <PassShell instance={vm.instance} title="Your new 24 words" titleFocusKey="new-words">
+                <PassCard>
+                    <NewWords words={vm.words} onContinue={vm.onContinue} />
+                </PassCard>
+            </PassShell>
+        )
+    }
 
     return (
         <div className="relative flex min-h-app items-center justify-center overflow-auto bg-background">

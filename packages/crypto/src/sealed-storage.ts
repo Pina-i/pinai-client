@@ -52,6 +52,8 @@ const STANDING = "standing"
 const ADMISSION = "admission"
 const NEWEST_GENERATION = "newest_generation"
 const RESTORE_DUE = "restore_due"
+/** The generation whose words a start over set and the user hasn't been shown past yet. */
+const NEW_WORDS = "new_words"
 /**
  * `device_trust`, beside the attestation: a store of its own would take an IndexedDB upgrade. One
  * row a part, so an unreadable one loses no other, and a new part is a new row.
@@ -150,6 +152,8 @@ export interface PendingPassphrase {
     words: string[]
     key: HistoryKey
     hak: Uint8Array
+    /** When the row was written (ms since the epoch), `null` in a row from before it was recorded. */
+    mintedAt: number | null
 }
 
 /** The archive's restore due under `generation`, and when it was last applied (`null` before). */
@@ -194,6 +198,9 @@ export interface E2eeStorage {
     saveRestoreDue(due: RestoreDue): Promise<void>
     loadRestoreDue(): Promise<RestoreDue | null>
     clearRestoreDue(): Promise<void>
+    saveNewWordsGeneration(generation: number): Promise<void>
+    loadNewWordsGeneration(): Promise<number | null>
+    clearNewWordsGeneration(): Promise<void>
     /**
      * What the device keeps of the account's devices (`identity-provider/specs/e2ee.md § 3.9`). Read
      * as the history key's rows are: a row that won't open or parse is set aside, reads as empty,
@@ -347,6 +354,18 @@ export class SealedStorage implements E2eeStorage {
         await this.kv.delete(RECOVERY_PASSPHRASE, RESTORE_DUE)
     }
 
+    async saveNewWordsGeneration(generation: number): Promise<void> {
+        await this.seal(RECOVERY_PASSPHRASE, { generation }, NEW_WORDS)
+    }
+
+    async loadNewWordsGeneration(): Promise<number | null> {
+        return this.openOrSetAside(RECOVERY_PASSPHRASE, NEW_WORDS, generationFromJson)
+    }
+
+    async clearNewWordsGeneration(): Promise<void> {
+        await this.kv.delete(RECOVERY_PASSPHRASE, NEW_WORDS)
+    }
+
     async loadDeviceTrust(): Promise<{ trust: DeviceTrust; unreadable: DeviceTrustRow[] }> {
         const trust = emptyDeviceTrust()
         const unreadable: DeviceTrustRow[] = []
@@ -472,6 +491,7 @@ function pendingToJson(pending: PendingPassphrase): object {
         check_value: Array.from(pending.key.checkValue),
         approval_public_key: Array.from(pending.key.approvalPublicKey),
         hak: Array.from(pending.hak),
+        minted_at: pending.mintedAt,
     }
 }
 
@@ -482,8 +502,10 @@ function pendingFromJson(value: unknown): PendingPassphrase | null {
     const checkValue = bytesOf(value.check_value, 32)
     const approvalPublicKey = bytesOf(value.approval_public_key, 32)
     const hak = bytesOf(value.hak, 32)
+    const mintedAt = value.minted_at ?? null
     if (!words || !isGeneration(value.generation) || !salt || !checkValue || !approvalPublicKey || !hak) return null
-    return { words, key: { generation: value.generation, salt, checkValue, approvalPublicKey }, hak }
+    if (mintedAt !== null && !Number.isFinite(mintedAt)) return null
+    return { words, key: { generation: value.generation, salt, checkValue, approvalPublicKey }, hak, mintedAt: mintedAt as number | null }
 }
 
 function knownDeviceToJson(device: KnownDevice): object {

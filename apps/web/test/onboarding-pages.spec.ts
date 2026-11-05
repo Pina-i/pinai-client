@@ -6,10 +6,13 @@
  * The gate checks as it mounts, then in the background: at a route change, at most once in 30 s and
  * never while a check runs, and at once when the device hears its key changed. The newest check
  * decides; one that fails, or one finishing after an unmount or a sign-out, changes nothing. A device
- * let in isn't stopped where it stands. The new-device page has no "Start fresh": the code, the 24
- * words, or signing out — and "Back" only for a device already in. The reset page offers that device
- * and its 24 words after a start over elsewhere; after a change no start over explains, neither — only
- * "Check again", signing out and a start over from here not yet offered.
+ * let in isn't stopped where it stands. The new-device page, drawn as Pass, has three tabs — another
+ * device's code, the 24 words, a start over — and signing out; a device already in gets no start
+ * over, and "Back". Starting over asks a password typed too long ago again before anything is
+ * minted, and shows the new words only once the IdP took them — again after a reload, until the user
+ * goes past them. The reset page offers that device, its 24 words and a start over from here after a
+ * start over elsewhere; after a change no start over explains, "Check again", a start over from here
+ * and signing out — and for a key gone back, only "Check again" and signing out.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
@@ -33,8 +36,13 @@ import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstr
 import { useIdentityOnboardingGate, type GateResult } from "@/presentation/hooks/useIdentityOnboardingGate"
 import { useReplenishKeyPackages } from "@/presentation/hooks/use-replenish-key-packages"
 import { RecoveryRestorePage } from "@/presentation/pages/onboarding/RecoveryRestorePage/RecoveryRestorePage"
+import { RecoverySetupPage } from "@/presentation/pages/onboarding/RecoverySetupPage/RecoverySetupPage"
+import { ApprovalAnswering } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
+import { startOverUseCase } from "@pinai/domain/usecases/e2ee/start-over.usecase"
 import { useAppStore } from "@/store/store"
+import { toast } from "sonner"
 
+import { accessToken } from "./setup/access-token"
 import { FakeAccount } from "./setup/approval-relay"
 import { ACTOR, FakeHistoryIdp, IDP, MemoryHistoryStorage, historyDevice } from "./setup/history-idp"
 import { FakeIssuers } from "./setup/issuers"
@@ -69,6 +77,8 @@ vi.mock("@/presentation/hooks/useIdpWebSocket", () => ({
     },
 }))
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }))
+const login = vi.hoisted(() => ({ start: vi.fn(async () => undefined) }))
+vi.mock("@pinai/domain/usecases/auth/startLogin.usecase", () => ({ startLoginUseCase: login.start }))
 
 const issuers = new FakeIssuers()
 type Device = ReturnType<typeof historyDevice>
@@ -349,33 +359,138 @@ describe("the KeyPackage tick", () => {
     })
 })
 
-describe("the new-device page", () => {
-    const page = () => createElement(RecoveryRestorePage)
-    const text = () => container.textContent ?? ""
-    const button = (label: string) =>
-        [...container.querySelectorAll("button")].find((b) => b.textContent?.trim() === label) as HTMLButtonElement | undefined
+const text = () => container.textContent ?? ""
+const button = (label: string, within: ParentNode = container) =>
+    [...within.querySelectorAll("button")].find((b) => b.textContent?.trim() === label) as HTMLButtonElement | undefined
+const tabs = () => [...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent)
+const tab = (label: string) => [...container.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent === label)
+const openTab = () => container.querySelector('[role="tab"][aria-selected="true"]')?.textContent
+const shownCode = () => (container.querySelector('[aria-label^="Approval code"]')?.getAttribute("aria-label") ?? "").replace(/\D/g, "")
+const press = (target: HTMLElement | undefined) => act(async () => target?.click())
 
-    it("has no “Start fresh”: the code, the 24 words, or signing out", async () => {
+/** The phone signed in with a token whose password was typed `ago` ms before now. */
+function signedInAgo(device: Device, idp: FakeHistoryIdp, net: FakeAccount, ago = 0) {
+    device.token = accessToken(Date.now() - ago)
+    net.alsoSignedIn(device.token, device)
+    signIn(device, idp, net)
+}
+
+describe("the new-device page, drawn as Pass", () => {
+    const page = () => createElement(RecoveryRestorePage)
+
+    it("names the instance, and opens on “Another device”, beside “My 24 words” and “Start over”; signing out stays", async () => {
         const { idp, phone, net } = await account()
         signIn(phone, idp, net)
         await render(page, "/onboarding/recovery-restore")
-        await until(() => text().includes("Approval code") && button("Paste passphrase")?.disabled === false)
+        await until(() => shownCode().length === 6)
 
+        expect(text()).toContain("— idp.test")
+        expect(text()).toContain("First connection to a new device")
+        expect(tabs()).toEqual(["Another device", "My 24 words", "Start over"])
+        expect(openTab()).toBe("Another device")
+        expect(text()).toContain("Open Pīna'i on one of your devices and type it when it asks.")
+        expect(text()).toContain("Letting in")
+        expect(text()).toContain("Approve from")
+        expect(text()).toContain("Firefox on Linux")
+        expect(text()).toContain("your conversations and history arrive here")
         expect(text()).not.toMatch(/start fresh/i)
-        expect(text()).toContain("Or with your 24 words")
-        expect(text()).toContain("No device and no words left?")
-        expect(container.querySelectorAll("input").length).toBe(24)
         expect(button("Sign out")).toBeDefined()
         expect(button("Back to Pīna'i")).toBeUndefined()
+    })
+
+    it("leaving “Another device” ends its request; coming back opens one at once", async () => {
+        const { idp, phone, net } = await account()
+        signIn(phone, idp, net)
+        await render(page, "/onboarding/recovery-restore")
+        await until(() => shownCode().length === 6)
+        const first = net.last()
+
+        await press(tab("My 24 words"))
+        await until(() => !net.isOpen(first))
+        expect(openTab()).toBe("My 24 words")
+        await advance(60_000)
+        expect(net.requests.size).toBe(1)
+
+        await press(tab("Another device"))
+        await until(() => net.requests.size === 2 && shownCode().length === 6)
+        expect(net.isOpen(net.last())).toBe(true)
+    })
+
+    it("switching tabs quickly ends on one request, open while its tab is", async () => {
+        const { idp, phone, net } = await account()
+        signIn(phone, idp, net)
+        await render(page, "/onboarding/recovery-restore?tab=words")
+        await until(() => button("Sign out") !== undefined && openTab() === "My 24 words")
+
+        await act(async () => {
+            tab("Another device")?.click()
+            tab("My 24 words")?.click()
+            tab("Another device")?.click()
+        })
+        await until(() => shownCode().length === 6)
+        expect(openTab()).toBe("Another device")
+        expect([...net.requests.keys()].filter((id) => net.isOpen(id))).toEqual([net.last()])
+    })
+
+    it("leaving “Another device” once another device answered its code doesn't end the exchange: the approval goes on", async () => {
+        const { idp, laptop, phone, net } = await account()
+        signIn(phone, idp, net)
+        await render(page, "/onboarding/recovery-restore")
+        await until(() => shownCode().length === 6)
+        const door = new ApprovalAnswering({ e2ee: laptop.e2ee, relay: net.relay, directory: net.directory }, net.context(laptop))
+        await act(async () => door.refresh())
+        await act(async () => door.answer(shownCode()))
+        await advance(3_000)
+
+        await press(tab("My 24 words"))
+        await advance(100)
+        expect(net.isOpen(net.last())).toBe(true)
+
+        for (let i = 0; i < 10 && !text().includes("This device is approved."); i++) {
+            await act(async () => door.poll())
+            await advance(3_000)
+        }
+        expect(text()).toContain("This device is approved.")
+    })
+
+    it("“My 24 words”: 24 fields, all pasted at once, “Bring my history →” — wrong words refused, the right ones let it in", async () => {
+        const { idp, laptop, phone, net } = await account()
+        signIn(phone, idp, net)
+        await render(page, "/onboarding/recovery-restore?tab=words")
+        await until(() => button("Sign out") !== undefined && openTab() === "My 24 words")
+
+        const inputs = () => container.querySelectorAll("input")
+        expect(inputs().length).toBe(24)
+        expect(text()).toContain("Pasting all of them at once works.")
+        expect(button("Bring my history →")?.disabled).toBe(true)
+
+        const paste = (words: string[]) =>
+            act(async () => {
+                const event = new Event("paste", { bubbles: true, cancelable: true }) as Event & { clipboardData: unknown }
+                event.clipboardData = { getData: () => words.join(" ") }
+                inputs()[0].dispatchEvent(event)
+            })
+        const wrong = [...laptop.storage.kept!.words].reverse()
+        await paste(wrong)
+        await until(() => button("Bring my history →")?.disabled === false)
+        await press(button("Bring my history →"))
+        await until(() => vi.mocked(toast.error).mock.calls.length === 1)
+        expect(toast.error).toHaveBeenCalledWith("Wrong passphrase — these aren't your account's 24 words")
+        expect(phone.storage.kept).toBeNull()
+
+        await paste(laptop.storage.kept!.words)
+        await press(button("Bring my history →"))
+        await until(() => at() === "/home")
+        expect(phone.storage.kept?.words).toEqual(laptop.storage.kept!.words)
     })
 
     it("signs out with “Sign out”", async () => {
         const { idp, phone, net } = await account()
         signIn(phone, idp, net)
-        await render(page, "/onboarding/recovery-restore")
+        await render(page, "/onboarding/recovery-restore?tab=words")
         await until(() => button("Sign out") !== undefined)
 
-        await act(async () => button("Sign out")?.click())
+        await press(button("Sign out"))
 
         const { navigation, tokens } = wired.platform as ReturnType<typeof platform>
         expect(navigation.navigateTo).toHaveBeenCalledWith("/")
@@ -383,67 +498,324 @@ describe("the new-device page", () => {
         expect(useAppStore.getState().accessToken).toBeNull()
     })
 
-    it("offers “Back” to a device already in, which came to type its words", async () => {
+    it("to a device already in, which came to bring its history: no start over, and “Back”", async () => {
         const { idp, laptop, net } = await account()
         signIn(laptop, idp, net)
-        await render(page, "/onboarding/recovery-restore")
+        await render(page, "/onboarding/recovery-restore?tab=start-over")
         await until(() => button("Back to Pīna'i") !== undefined)
 
-        await act(async () => button("Back to Pīna'i")?.click())
+        expect(text()).toContain("Bring your history to this device")
+        expect(tabs()).toEqual(["Another device", "My 24 words"])
+        expect(openTab()).toBe("Another device")
+        expect(button("Erase and start over")).toBeUndefined()
+
+        await press(button("Back to Pīna'i"))
         await until(() => at() === "/home")
+    })
+
+    it("after a reload, new words a start over set and nobody went past are shown again", async () => {
+        const { idp, phone, net } = await account()
+        phone.token = accessToken(Date.now(), "phone")
+        net.alsoSignedIn(phone.token, phone)
+        await startOverUseCase(phone.deps)({ idpUrl: IDP, accessToken: phone.token, actorUri: ACTOR, tokenArrivedAt: Date.now() })
+        signIn(phone, idp, net)
+        await render(page, "/onboarding/recovery-restore")
+        await until(() => text().includes("Your new 24 words"))
+        for (const word of phone.storage.kept!.words) expect(text()).toContain(word)
+        expect(document.activeElement?.textContent).toBe("Your new 24 words")
+
+        await press(button("Continue"))
+        await until(() => at() === "/home")
+        expect(phone.storage.newWords).toBeNull()
+    })
+
+    it("the setup page shows them as such too", async () => {
+        const { idp, phone, net } = await account()
+        phone.token = accessToken(Date.now(), "phone")
+        net.alsoSignedIn(phone.token, phone)
+        await startOverUseCase(phone.deps)({ idpUrl: IDP, accessToken: phone.token, actorUri: ACTOR, tokenArrivedAt: Date.now() })
+        signIn(phone, idp, net)
+        await render(() => createElement(RecoverySetupPage), "/onboarding/recovery-setup")
+        await until(() => text().includes("Your new 24 words"))
+        expect(text()).not.toContain("Bring your history with you.")
+    })
+
+    it("a pending key — a start over cut short by a reload — goes to the setup page that settles it", async () => {
+        const { idp, phone, net } = await account()
+        await phone.e2ee.mintHistoryKey(2)
+        signIn(phone, idp, net)
+        await render(page, "/onboarding/recovery-restore")
+        await until(() => at() === "/onboarding/recovery-setup")
+    })
+})
+
+describe("“Start over” on the new-device page", () => {
+    const page = () => createElement(RecoveryRestorePage)
+
+    beforeEach(() => {
+        // jsdom has no `CSS.escape`, which React Aria's modal reads.
+        if (!globalThis.CSS?.escape) vi.stubGlobal("CSS", { ...globalThis.CSS, escape: (text: string) => text })
+    })
+
+    afterEach(() => {
+        vi.unstubAllGlobals()
+    })
+
+    it("warns of what is erased, of the conversations this device won't see, and that a device still held warns and comes back with a code typed here", async () => {
+        const { idp, phone, net } = await account()
+        signedInAgo(phone, idp, net)
+        await render(page, "/onboarding/recovery-restore?tab=words")
+        await until(() => tab("Start over") !== undefined)
+        await press(tab("Start over"))
+
+        expect(text()).toContain("No device left, no words left?")
+        expect(text()).toContain("This device gets a new passphrase and becomes your reference.")
+        expect(text()).toContain("Your saved history is erased")
+        expect(text()).toContain("this device won't see your existing conversations unless a device you still have comes back")
+        expect(text()).toContain("it will warn you, and can come back with a code typed here")
+        expect(text()).toContain("Your account, your friends and new conversations stay.")
+        expect(text()).not.toContain("ask you to approve this one")
+        expect(button("Erase and start over")).toBeDefined()
+    })
+
+    it("with a recent password: the new words only once the IdP took them, then on to the app", async () => {
+        const { idp, phone, net } = await account()
+        signedInAgo(phone, idp, net, 60_000)
+        const answered = deferred<void>()
+        const setKey = vi.spyOn(idp, "setKey").mockImplementationOnce(async (...args) => {
+            await answered.promise
+            return FakeHistoryIdp.prototype.setKey.apply(idp, args)
+        })
+        await render(page, "/onboarding/recovery-restore?tab=start-over")
+        await until(() => button("Erase and start over")?.disabled === false)
+
+        await press(button("Erase and start over"))
+        await until(() => setKey.mock.calls.length === 1)
+        expect(button("Starting over…")?.disabled).toBe(true)
+        expect(text()).not.toContain("Your new 24 words")
+        expect(phone.storage.kept).toBeNull()
+
+        await act(async () => answered.resolve())
+        await until(() => text().includes("Your new 24 words"))
+        const words = phone.storage.kept!.words
+        expect(words).toHaveLength(24)
+        for (const word of words) expect(text()).toContain(word)
+        expect(idp.key).toMatchObject({ generation: 2, setByDevice: phone.storage.deviceId })
+        expect(idp.log).toContain("key packages")
+
+        const writeText = vi.fn(async () => undefined)
+        Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
+        await press(button("Copy passphrase"))
+        expect(writeText).toHaveBeenCalledWith(words.join(" "))
+        await until(() => vi.mocked(toast.success).mock.calls.some(([message]) => message === "Passphrase copied"))
+
+        await press(button("Continue"))
+        await until(() => at() === "/home")
+    })
+
+    it("with a password typed too long ago: asks it again before minting anything, comes back to the tab, and starts over once confirmed again", async () => {
+        const { idp, phone, net } = await account()
+        signedInAgo(phone, idp, net, 10 * 60_000)
+        await render(page, "/onboarding/recovery-restore?tab=start-over")
+        await until(() => button("Erase and start over")?.disabled === false)
+
+        await press(button("Erase and start over"))
+        await until(() => button("Continue", document.body) !== undefined)
+        expect(document.body.textContent).toContain("To start over, sign in again on idp.test")
+        expect(phone.storage.pending).toBeNull()
+        expect(phone.sealer.derivations).toBe(0)
+        expect(idp.key?.generation).toBe(1)
+
+        await press(button("Continue", document.body))
+        expect(login.start).toHaveBeenCalledWith(IDP, undefined, wired.platform, {
+            reauthenticate: true,
+            returnTo: "/onboarding/recovery-restore?tab=start-over",
+        })
+        await unmount()
+
+        // Back from the IdP's page: a fresh password, the page on its tab, nothing done by itself.
+        signedInAgo(phone, idp, net)
+        await render(page, "/onboarding/recovery-restore?tab=start-over")
+        await until(() => button("Erase and start over")?.disabled === false)
+        expect(openTab()).toBe("Start over")
+        await advance(5_000)
+        expect(router.state.location.searchStr).toBe("")
+        expect(idp.key?.generation).toBe(1)
+        expect(phone.storage.pending).toBeNull()
+
+        await press(button("Erase and start over"))
+        await until(() => text().includes("Your new 24 words"))
+        expect(idp.key?.generation).toBe(2)
+    })
+
+    it("a 401 asking for the password anyway takes the same way, its pending key erased", async () => {
+        const { idp, phone, net } = await account()
+        signedInAgo(phone, idp, net)
+        idp.recentSignIn = () => false
+        await render(page, "/onboarding/recovery-restore?tab=start-over")
+        await until(() => button("Erase and start over")?.disabled === false)
+
+        await press(button("Erase and start over"))
+        await until(() => button("Continue", document.body) !== undefined)
+        expect(phone.storage.pending).toBeNull()
+        expect(phone.storage.kept).toBeNull()
+        expect(text()).not.toContain("Your new 24 words")
+    })
+
+    it("two devices at once: the loser shows no words, says so, and goes back through the gate", async () => {
+        const { idp, phone, net } = await account()
+        signedInAgo(phone, idp, net)
+        vi.spyOn(idp, "setKey").mockImplementationOnce(async (...args) => {
+            await startOverElsewhere(idp)
+            return FakeHistoryIdp.prototype.setKey.apply(idp, args)
+        })
+        await render(page, "/onboarding/recovery-restore?tab=start-over")
+        await until(() => button("Erase and start over")?.disabled === false)
+
+        await press(button("Erase and start over"))
+        await until(() => text().includes("Another of your devices set a new passphrase at the same moment"))
+        expect(document.activeElement?.textContent).toContain("Another of your devices set a new passphrase")
+
+        // The gate keeps it on this page, read anew: the other device's generation, a code to let it in.
+        await until(() => openTab() === "Another device" && shownCode().length === 6)
+        expect(at()).toBe("/onboarding/recovery-restore")
+        expect(text()).not.toContain("Your new 24 words")
+        expect(phone.storage.pending).toBeNull()
+        expect(phone.storage.kept).toBeNull()
+        expect(idp.key?.setByDevice).not.toBe(phone.storage.deviceId)
+
+        await press(tab("My 24 words"))
+        expect(text()).not.toContain("Another of your devices set a new passphrase")
+    })
+
+    it("another generation landing right after its own: says so, shows no words, and the gate sends it to the reset page", async () => {
+        const { idp, phone, net } = await account()
+        signedInAgo(phone, idp, net)
+        vi.spyOn(net.directory, "approveByPassphrase").mockImplementationOnce(async () => {
+            idp.key = { ...idp.key!, generation: 3, salt: new Uint8Array(16).fill(7), setByDevice: "rival" }
+            throw new IdpError(409, "stale_history_key", "Not the account's current history key")
+        })
+        await render(page, "/onboarding/recovery-restore?tab=start-over")
+        await until(() => button("Erase and start over")?.disabled === false)
+
+        await press(button("Erase and start over"))
+        await until(() => text().includes("This device started over, then another of your devices set a newer passphrase"))
+        await until(() => at() === "/onboarding/history-reset")
+        expect(text()).not.toContain("Your new 24 words")
     })
 })
 
 describe("the reset page", () => {
     const page = () => createElement(RecoveryRestorePage, { variant: "reset" })
-    const text = () => container.textContent ?? ""
-    const button = (label: string) =>
-        [...container.querySelectorAll("button")].find((b) => b.textContent?.trim() === label) as HTMLButtonElement | undefined
 
-    it("after a start over elsewhere: that device, its 24 words, a start over from here not yet offered, signing out", async () => {
+    it("after a start over elsewhere: that device, its 24 words, and a start over from here", async () => {
         const { idp, laptop, net } = await account()
         await startOverElsewhere(idp)
         await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
         signIn(laptop, idp, net)
         await render(page, "/onboarding/history-reset")
-        await until(() => text().includes("Your history was reset from another device") && text().includes("Approval code"))
+        await until(() => text().includes("Your history was reset from another device") && shownCode().length === 6)
 
-        expect(text()).toContain("That device")
+        expect(tabs()).toEqual(["That device", "Its 24 words", "Start over"])
+        expect(openTab()).toBe("That device")
         expect(text()).toContain("Open Pīna'i on the device that reset your history and type it when it asks.")
-        expect(text()).toContain("Or its 24 words")
-        expect(container.querySelectorAll("input").length).toBe(24)
-        expect(button("Restore")).toBeDefined()
-        expect(button("It wasn't me — start over from here")?.disabled).toBe(true)
-        expect(text()).toContain("This comes with the start over, in a later release.")
         expect(button("Sign out")).toBeDefined()
         expect(button("Check again")).toBeUndefined()
-        expect(text()).not.toMatch(/start fresh/i)
+
+        await press(tab("Its 24 words"))
+        expect(container.querySelectorAll("input").length).toBe(24)
+        expect(text()).toContain("The new words, from the device that reset your history")
+
+        await press(tab("Start over"))
+        expect(text()).toContain("Start over from here")
+        expect(text()).toContain("It wasn't me")
+        expect(text()).toContain("the device that reset your history isn't yours, and it won't be approved")
+        expect(text()).toContain("becomes your reference")
+        expect(button("Erase and start over")).toBeDefined()
     })
 
-    it("for a key changed under the same generation: no code, no words — the instance putting it back, signing out, a start over", async () => {
+    it("“It wasn't me”: this device starts over from here, the next generation its own", async () => {
+        const { idp, laptop, net } = await account()
+        await startOverElsewhere(idp)
+        await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
+        signedInAgo(laptop, idp, net)
+        await render(page, "/onboarding/history-reset?tab=start-over")
+        await until(() => button("Erase and start over")?.disabled === false)
+        expect(openTab()).toBe("Start over")
+
+        await press(button("Erase and start over"))
+        await until(() => text().includes("Your new 24 words"))
+
+        expect(idp.key).toMatchObject({ generation: 3, setByDevice: laptop.storage.deviceId })
+        expect(laptop.storage.kept?.generation).toBe(3)
+        expect(await laptop.e2ee.historyKeyStanding()).toEqual({ kind: "holds", generation: 3, settled: true })
+    })
+
+    it("for a change no device made: no code, no words — “Check again”, a start over from here, signing out", async () => {
         const { idp, laptop, net } = await account()
         idp.key = { ...idp.key!, approvalPublicKey: ed25519.keygen().publicKey }
         await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
-        signIn(laptop, idp, net)
+        signedInAgo(laptop, idp, net)
         await render(page, "/onboarding/history-reset")
-        await until(() => text().includes("Your history was reset for an unknown change") && button("Sign out")?.disabled === false)
+        await until(() => text().includes("Your instance changed your history key") && button("Sign out")?.disabled === false)
         await advance(10_000)
 
-        expect(text()).toContain("none of your devices did this")
-        expect(text()).toContain("Your instance puts the key back")
+        expect(text()).toContain("None of your devices set a new passphrase")
+        expect(tabs()).toEqual([])
         expect(text()).not.toContain("Approval code")
-        expect(text()).not.toContain("Or its 24 words")
         expect(container.querySelectorAll("input").length).toBe(0)
-        expect(button("Restore")).toBeUndefined()
         expect(net.requests.size).toBe(0)
-        expect(button("It wasn't me — start over from here")?.disabled).toBe(true)
         expect(button("Sign out")).toBeDefined()
 
-        await act(async () => button("Check again")?.click())
+        await press(button("Start over from here"))
+        expect(text()).toContain("becomes your reference, whatever your instance changed")
+        await until(() => button("Erase and start over")?.disabled === false)
+        await press(button("← What happened"))
+        await press(button("Check again"))
         await until(() => at() === "/home")
     })
 
-    it("says only that the key changed until it knows how, offering no way in meanwhile", async () => {
+    it("for a change no device made, starting over from here — `?tab=start-over` opens on the warning", async () => {
+        const { idp, laptop, net } = await account()
+        idp.key = { ...idp.key!, approvalPublicKey: ed25519.keygen().publicKey }
+        await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
+        signedInAgo(laptop, idp, net)
+        await render(page, "/onboarding/history-reset?tab=start-over")
+        await until(() => button("Erase and start over")?.disabled === false)
+        expect(text()).toContain("Make this device your reference")
+        await press(button("Erase and start over"))
+        await until(() => text().includes("Your new 24 words"))
+        expect(idp.key).toMatchObject({ generation: 2, setByDevice: laptop.storage.deviceId })
+    })
+
+    it("for a key gone back under one this device saw: only the instance can put it back — no start over, “Check again”, signing out", async () => {
+        const { idp, laptop, net } = await account()
+        laptop.storage.newest = 2
+        await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
+        signedInAgo(laptop, idp, net)
+        await render(page, "/onboarding/history-reset?tab=start-over")
+        await until(() => button("Erase and start over")?.disabled === false)
+
+        await press(button("Erase and start over"))
+        await until(() => text().includes("Your instance went back on your account's history key"))
+        expect(text()).toContain("only your instance can put the key back")
+        expect(button("Erase and start over")).toBeUndefined()
+        expect(button("Sign out")).toBeDefined()
+        expect(idp.key?.generation).toBe(1)
+        expect(laptop.storage.pending).toBeNull()
+
+        await press(button("Check again"))
+        await until(() => at() === "/home")
+    })
+
+    it("a device that turns out in goes back to the app", async () => {
+        const { idp, laptop, net } = await account()
+        signIn(laptop, idp, net)
+        await render(page, "/onboarding/history-reset")
+        await until(() => at() === "/home")
+    })
+
+    it("says only that the key changed until it knows how, offering no way in meanwhile — “Check again” and signing out", async () => {
         const { idp, phone, net } = await account()
         signIn(phone, idp, net)
         vi.spyOn(phone.e2ee, "checkHistoryKey").mockReturnValue(new Promise(() => undefined))
@@ -452,6 +824,8 @@ describe("the reset page", () => {
 
         expect(text()).toContain("Your history key changed")
         expect(text()).not.toContain("Approval code")
+        expect(tabs()).toEqual([])
         expect(container.querySelectorAll("input").length).toBe(0)
+        expect(button("Check again")).toBeDefined()
     })
 })

@@ -81,11 +81,12 @@ export interface IssuedTokens {
  * crypto helpers move to a shared package this should switch to the same
  * base64url decoder they use.
  */
-function claimsOf(token: string): { iat?: number; exp?: number } | null {
+function claimsOf(token: string): { iat?: number; exp?: number; auth_time?: number } | null {
     try {
         return JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))) as {
             iat?: number
             exp?: number
+            auth_time?: number
         }
     } catch {
         return null
@@ -100,6 +101,28 @@ export function isTokenValid(token: string | null): boolean {
     if (!token) return false
     const exp = claimsOf(token)?.exp
     return typeof exp === "number" && Date.now() / 1000 < exp
+}
+
+/**
+ * A sensitive action takes a password typed in the IdP's last 10 minutes; the client asks it again
+ * from 9, so a request on its way doesn't arrive a moment too late.
+ */
+export const RECENT_SIGN_IN_MS = 9 * 60_000
+
+/**
+ * Whether the password was typed recently enough for a sensitive action, timed on the IdP's clock so
+ * a device clock set wrong can't make it look old: its age when the token was issued (`iat −
+ * auth_time`) plus the time since the token arrived, counted on this device's clock. Without that
+ * arrival, either clock saying recent is taken, and the IdP's `401` settles the rest. A token
+ * without `auth_time` isn't recent.
+ */
+export function signedInRecently(token: string | null, arrivedAt: number | null = null, now: number = Date.now()): boolean {
+    const claims = token ? claimsOf(token) : null
+    const authTime = claims?.auth_time
+    if (typeof authTime !== "number") return false
+    const ageAtIssue = typeof claims?.iat === "number" ? (claims.iat - authTime) * 1000 : null
+    if (ageAtIssue !== null && arrivedAt !== null) return ageAtIssue + Math.max(0, now - arrivedAt) < RECENT_SIGN_IN_MS
+    return now - authTime * 1000 < RECENT_SIGN_IN_MS || (ageAtIssue !== null && ageAtIssue < RECENT_SIGN_IN_MS)
 }
 
 /** An access token is renewed once this share of its lifetime has gone. */

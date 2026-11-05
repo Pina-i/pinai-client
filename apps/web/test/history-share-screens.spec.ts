@@ -303,7 +303,7 @@ describe("the asking section, once approved", () => {
 
         await until(() => sectionStatus().startsWith("Approved, but your history couldn't be received from that device."))
         expect(sectionStatus()).toContain("Type your 24 words to bring it back.")
-        expect(container.querySelectorAll("input").length).toBeGreaterThanOrEqual(24)
+        expect([...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toContain("My 24 words")
         await until(() => button("Go on without it") !== undefined)
         await advance(SHARE_WAIT_AFTER_IN_MS + 1_000)
         expect(at()).toBe("/onboarding/recovery-restore")

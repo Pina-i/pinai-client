@@ -3,6 +3,7 @@ import { startThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/start-this-d
 import { getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getKeySharePort, getSessionPort } from "@/ioc/index"
 import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
 import { warnE2ee } from "@/presentation/_libs/key-share-deps"
+import { pendingKeyLock } from "@/presentation/_libs/pending-key-lock"
 import { useAppStore } from "@/store/store"
 
 let settled = false
@@ -25,6 +26,7 @@ export function linkThisDevice(): void {
         deviceDirectoryPort: getDeviceDirectoryPort(),
         keySharePort: getKeySharePort(),
         report: warnE2ee,
+        pendingKeyLock: pendingKeyLock(user.actor_uri),
     })(idpUrl, accessToken, user.actor_uri)
         .then(({ linked, registrationFailure, historyKeyFailure }) => {
             settled = linked && historyKeyFailure === undefined

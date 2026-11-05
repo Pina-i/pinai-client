@@ -459,6 +459,8 @@ export class ApprovalAsking {
     private lastError: unknown = null
     private ticking: Promise<void> | null = null
     private stopped = false
+    // Bumped by each `again` and `pause`: a pause waiting on a tick yields to an `again` made meanwhile.
+    private asks = 0
     private readonly listeners = new Set<() => void>()
 
     /** `opened` — when this page load opened its requests: the budget outlives a remount. */
@@ -490,14 +492,20 @@ export class ApprovalAsking {
 
     /** The user asks for a code: after one went, or once the page set the section aside. */
     again(): Promise<void> {
+        this.asks += 1
         if (this.state.kind === "stopped" || this.state.kind === "paused") this.set({ kind: "starting" })
         return this.tick()
     }
 
-    /** The page sets the section aside: the request open ends. */
+    /**
+     * The page sets the section aside: a request nobody answered ends. One another device answered
+     * goes on — its exchange, or the approval it is making, isn't the user's to drop by looking away.
+     */
     async pause(): Promise<void> {
         if (this.state.kind === "approved" || this.state.kind === "holds") return
+        const asked = ++this.asks
         await this.ticking?.catch(() => undefined)
+        if (asked !== this.asks || this.run?.answered) return
         const run = this.run
         this.run = null
         this.code = null

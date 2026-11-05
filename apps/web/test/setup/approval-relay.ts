@@ -102,6 +102,11 @@ export class FakeAccount {
         this.rows.set(row.device_id, row)
     }
 
+    /** A token the device's session holds next, as after its password was typed again. */
+    alsoSignedIn(token: string, device: Device): void {
+        this.tokens.set(token, device.storage.deviceId)
+    }
+
     /** The device a session's token named. */
     deviceOf(token: string): string | null {
         return this.tokens.get(token) ?? null

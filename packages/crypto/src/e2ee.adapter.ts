@@ -77,6 +77,7 @@ import {
     type DerivedHistoryKey,
     type HistoryKey,
     type HistoryKeyStanding,
+    type PendingHistoryKey,
 } from "@pinai/domain/models/history-key"
 import { IdpError, isStaleHistoryKey } from "@pinai/domain/models/idp-error"
 import {
@@ -689,23 +690,32 @@ export class E2eeAdapter implements IE2eePort {
     }
 
     private async mint(generation: number): Promise<{ words: string[]; key: HistoryKey }> {
+        // Sealed already for this generation — a try whose answer was lost: the same words, written anew.
+        const sealed = await this.storage.loadPendingPassphrase()
+        if (sealed?.key.generation === generation) {
+            await this.inPassphraseTurn(() => this.storage.savePendingPassphrase({ ...sealed, mintedAt: Date.now() }))
+            return { words: sealed.words, key: sealed.key }
+        }
         const words = generateMnemonic(wordlist, 256).split(" ")
         const salt = crypto.getRandomValues(new Uint8Array(HISTORY_SALT_BYTES))
         const hak = await this.hakFor(words, salt)
         const key = { generation, salt, ...this.sealer().derive(hak) }
-        await this.inPassphraseTurn(() => this.storage.savePendingPassphrase({ words, key, hak }))
+        await this.inPassphraseTurn(() => this.storage.savePendingPassphrase({ words, key, hak, mintedAt: Date.now() }))
         return { words, key }
     }
 
-    async pendingHistoryKey(): Promise<HistoryKey | null> {
-        return (await this.storage.loadPendingPassphrase())?.key ?? null
+    async pendingHistoryKey(): Promise<PendingHistoryKey | null> {
+        const pending = await this.storage.loadPendingPassphrase()
+        return pending && { ...pending.key, mintedAt: pending.mintedAt }
     }
 
-    promotePendingHistoryKey(): Promise<void> {
+    promotePendingHistoryKey(options: { show?: boolean } = {}): Promise<void> {
         return this.inPassphraseTurn(async () => {
             const before = await this.storage.loadKeptPassphrase()
             const pending = await this.storage.loadPendingPassphrase()
             if (!pending) return
+            // Marked before keeping: words kept unmarked would never be shown again.
+            if (options.show) await this.storage.saveNewWordsGeneration(pending.key.generation)
             await this.keepUnderTurn(pending.words, pending.key, pending.hak, before)
             await this.storage.clearPendingPassphrase()
         })
@@ -719,8 +729,22 @@ export class E2eeAdapter implements IE2eePort {
         await this.inPassphraseTurn(async () => {
             const pending = await this.storage.loadPendingPassphrase()
             if (pending) this.derivations.delete(derivationId(pending.words, pending.key.salt))
+            if (pending && (await this.storage.loadNewWordsGeneration()) === pending.key.generation) {
+                await this.storage.clearNewWordsGeneration()
+            }
             await this.storage.clearPendingPassphrase()
         })
+    }
+
+    async newWordsToShow(): Promise<{ generation: number; words: string[] } | null> {
+        const generation = await this.storage.loadNewWordsGeneration()
+        if (generation === null || (await this.storage.loadPendingPassphrase())) return null
+        const kept = await this.storage.loadKeptPassphrase()
+        return kept?.generation === generation ? { generation, words: kept.words } : null
+    }
+
+    dismissNewWords(): Promise<void> {
+        return this.storage.clearNewWordsGeneration()
     }
 
     async deriveHistoryKey(words: string[], salt: Uint8Array): Promise<DerivedHistoryKey> {

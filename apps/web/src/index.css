@@ -405,6 +405,16 @@
     --tracking-normal:            0em;
 }
 
+/* Red and amber as text: on a light ground the raw hues fall under 4.5:1, so they lean toward the ink. */
+:root {
+    --dnd-ink:                    var(--dnd);
+    --idle-ink:                   var(--idle);
+}
+.light {
+    --dnd-ink:                    color-mix(in oklab, var(--dnd) 80%, var(--foreground));
+    --idle-ink:                   color-mix(in oklab, var(--idle) 60%, var(--foreground));
+}
+
 /* Tailwind v4 — expose tokens to utility classes (`bg-surf2`, `text-acc`, …) */
 @theme inline {
     --color-background:               var(--background);
@@ -450,6 +460,8 @@
     --color-online:                   var(--online);
     --color-idle:                     var(--idle);
     --color-dnd:                      var(--dnd);
+    --color-dnd-ink:                  var(--dnd-ink);
+    --color-idle-ink:                 var(--idle-ink);
     --color-offline:                  var(--offline);
 
     --color-border:                   var(--border);

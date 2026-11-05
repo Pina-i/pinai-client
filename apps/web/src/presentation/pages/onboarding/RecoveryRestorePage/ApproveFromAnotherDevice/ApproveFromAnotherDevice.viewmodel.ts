@@ -35,12 +35,14 @@ export interface ApproveFromAnotherDeviceViewModel {
     nextCode: string | null
     /** This device's label, as the instance names it. */
     thisDevice: string
+    /** Its kind as the instance lists it, a laptop until then. */
+    thisDeviceKind: DeviceKind
     /** The account's other unrevoked devices, by name. */
     approvers: Array<{ deviceId: string; label: string; kind: DeviceKind }>
     /** One line on what is happening, what happened to the last code, or how the history is coming back. */
     status: string | null
-    /** "New code" after one went, "Show a code" once set aside, "Go on without it" past a share it couldn't use; `null` when the page asks by itself. */
-    action: "new-code" | "show-code" | "go-on" | null
+    /** "New code" after one went, "Go on without it" past a share it couldn't use; `null` when the page asks by itself. */
+    action: "new-code" | "go-on" | null
     onAction: () => void
 }
 
@@ -88,8 +90,9 @@ export function askingStatus(state: AskingState): string | null {
             })}.`
         case "stopped":
             return wentWith(state.failure)
+        // Only while another tab is open: nothing shows it.
         case "paused":
-            return "Typing your 24 words instead."
+            return null
         case "approved":
             return "This device is approved."
         case "holds":
@@ -119,9 +122,10 @@ export function arrivalStatus({ entering, share, restore }: Arrival): string {
 }
 
 /**
- * The "Another device" section of the restore page: being on screen is the user asking. A request
- * opens once the device is set up (`ready`); it ends when the section goes or the 24 words are
- * being typed (`wordsStarted`), and a code that went any way but unanswered waits for "New code".
+ * The "Another device" tab of the restore page: being open is the user asking. A request opens once
+ * the device is set up (`ready`) and the tab is open (`active`); it ends when the section goes or
+ * another tab opens, and opens again at once when the tab does. A code that went any way but
+ * unanswered waits for "New code".
  * Approved, the device publishes its KeyPackages once it is in (`registerIdentityUseCase`) while
  * the page reads its key share (`share`); the words kept, the restore runs and the page goes on
  * (`onIn`) once it settles, `RESTORE_WAIT_MS` at most. Let in with no share after
@@ -129,7 +133,7 @@ export function arrivalStatus({ entering, share, restore }: Arrival): string {
  */
 export function useApproveFromAnotherDeviceViewModel(input: {
     ready: boolean
-    wordsStarted: boolean
+    active: boolean
     fallbackLabel: string
     /** The page's wait for this device's key share. */
     share?: AwaitedShareState | null
@@ -143,7 +147,9 @@ export function useApproveFromAnotherDeviceViewModel(input: {
     const [state, setState] = useState<AskingState>(STARTING)
     const [now, setNow] = useState(() => Date.now())
     const [thisDeviceId, setThisDeviceId] = useState<string | null>(null)
-    const { ready, wordsStarted } = input
+    const { ready, active } = input
+    const activeRef = useRef(active)
+    const resume = useRef<(() => void) | null>(null)
 
     useEffect(() => {
         if (!ready || !signedIn || !idpUrl || !actorUri) return
@@ -172,9 +178,16 @@ export function useApproveFromAnotherDeviceViewModel(input: {
         document.addEventListener("visibilitychange", onVisible)
         window.addEventListener("pagehide", onPageHide)
         asking.current = made
-        tick()
+        resume.current = () => {
+            void made.again().catch(warn("asking for a new code"))
+            tick()
+        }
+        // Set up while another tab is open: nothing is asked until this one opens.
+        if (activeRef.current) tick()
+        else void made.pause().catch(warn("ending the approval request"))
         return () => {
             live = false
+            resume.current = null
             clearTimeout(timer)
             unsubscribe()
             document.removeEventListener("visibilitychange", onVisible)
@@ -253,12 +266,13 @@ export function useApproveFromAnotherDeviceViewModel(input: {
         return () => clearTimeout(timer)
     }, [inWithoutWords])
 
-    // Typing the words is the user taking the other way: the request ends, "Show a code" brings one back.
-    const wasStarted = useRef(wordsStarted)
+    // Another tab is the user taking another way: the request ends. Opening this one again is asking again.
     useEffect(() => {
-        if (wordsStarted && !wasStarted.current) void asking.current?.pause().catch(warn("ending the approval request"))
-        wasStarted.current = wordsStarted
-    }, [wordsStarted])
+        if (active === activeRef.current) return
+        activeRef.current = active
+        if (active) resume.current?.()
+        else void asking.current?.pause().catch(warn("ending the approval request"))
+    }, [active])
 
     useEffect(() => {
         let live = true
@@ -298,19 +312,18 @@ export function useApproveFromAnotherDeviceViewModel(input: {
         ringFraction: shown && !shown.answered ? requestLifeLeft(shown.deadline, now) : null,
         nextCode: shown && !shown.answered ? nextCodeWording(shown.deadline, now) : null,
         thisDevice: own?.display_name || input.fallbackLabel,
+        thisDeviceKind: own?.kind ?? "laptop",
         approvers,
         status: approved ? arrivalStatus({ entering, share, restore }) : askingStatus(state),
         action:
             state.kind === "stopped"
                 ? "new-code"
-                : state.kind === "paused"
-                  ? "show-code"
-                  : approved && isIn && share?.kind === "unusable"
-                    ? "go-on"
-                    : null,
+                : approved && isIn && share?.kind === "unusable"
+                  ? "go-on"
+                  : null,
         onAction: () => {
             if (approved) onIn.current?.()
-            else void asking.current?.again().catch(warn("asking for a new code"))
+            else resume.current?.()
         },
     }
 }

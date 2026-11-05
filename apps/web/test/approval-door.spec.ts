@@ -535,12 +535,12 @@ describe("the Door's view model", () => {
 
 describe("the asking section's view model", () => {
     let vm!: ApproveFromAnotherDeviceViewModel
-    let wordsStarted = false
+    let active = true
 
     beforeEach(() => {
         ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] })
-        wordsStarted = false
+        active = true
     })
 
     afterEach(async () => {
@@ -550,7 +550,7 @@ describe("the asking section's view model", () => {
     })
 
     function Section() {
-        const rendered = useApproveFromAnotherDeviceViewModel({ ready: true, wordsStarted, fallbackLabel: "Web client" })
+        const rendered = useApproveFromAnotherDeviceViewModel({ ready: true, active, fallbackLabel: "Web client" })
         useEffect(() => {
             vm = rendered
         })
@@ -599,22 +599,32 @@ describe("the asking section's view model", () => {
         expect(net.isOpen(net.last())).toBe(false)
     })
 
-    it("ends its request once the 24 words are being typed, and offers a code again", async () => {
+    it("asks nothing while another tab is open; its tab opening opens a request, leaving it ends it, coming back opens another", async () => {
         const { phone, net } = await account()
         signIn(phone, net.deps(phone))
+        active = false
         await render(Section)
-        await until(() => vm?.halves !== null)
+        await advance(30_000)
+        expect(net.requests.size).toBe(0)
+
+        active = true
+        await act(async () => root?.render(providers(createElement(Section))))
+        await until(() => vm.halves !== null)
         const first = net.last()
 
-        wordsStarted = true
+        active = false
         await act(async () => root?.render(providers(createElement(Section))))
-        await until(() => vm.action === "show-code")
+        await until(() => vm.state.kind === "paused")
         expect(net.isOpen(first)).toBe(false)
-        expect(vm.status).toBe("Typing your 24 words instead.")
+        expect(vm.halves).toBeNull()
+        await advance(60_000)
+        expect(net.requests.size).toBe(1)
 
-        await act(async () => vm.onAction())
+        active = true
+        await act(async () => root?.render(providers(createElement(Section))))
         await until(() => vm.halves !== null)
         expect(net.last()).not.toBe(first)
+        expect(openOnes(net)).toEqual([net.last()])
     })
 
     it("waits for “New code” after a code someone answered, and reads nothing while the page is hidden", async () => {
@@ -648,7 +658,7 @@ describe("the asking section's view model", () => {
         signIn(phone, net.deps(phone))
         const entered = vi.fn()
         function Entering() {
-            const rendered = useApproveFromAnotherDeviceViewModel({ ready: true, wordsStarted: false, fallbackLabel: "Web client", onIn: entered })
+            const rendered = useApproveFromAnotherDeviceViewModel({ ready: true, active: true, fallbackLabel: "Web client", onIn: entered })
             useEffect(() => {
                 vm = rendered
             })

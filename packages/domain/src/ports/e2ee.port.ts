@@ -11,7 +11,7 @@ import type { ExchangedKeys, HandshakeRole } from "../models/approval-handshake"
 import type { DeviceListEntry } from "../models/device"
 import type { DeviceTrustVerdict, HandshakeKeysRefusal, HandshakePartner, TrustEvent } from "../models/device-trust"
 import type { ArchiveEnvelope, ArchivedEntry } from "../models/history-archive"
-import type { DerivedHistoryKey, HistoryKey, HistoryKeyStanding } from "../models/history-key"
+import type { DerivedHistoryKey, HistoryKey, HistoryKeyStanding, PendingHistoryKey } from "../models/history-key"
 import type { KeyShare, KeyShareRefusal, OutgoingKeyShare } from "../models/key-share"
 
 /**
@@ -337,19 +337,30 @@ export interface IE2eePort {
 
     /**
      * 24 new words for `generation` and the key they give, sealed as this device's pending key
-     * before they are answered: never shown, reported or used to seal. The same words come back
-     * for the page load, until {@link IE2eePort.dropPendingHistoryKey}.
+     * before they are answered: never shown, reported or used to seal. A pending key of that
+     * generation already sealed gives its words again, written anew, until
+     * {@link IE2eePort.dropPendingHistoryKey}.
      */
     mintHistoryKey(generation: number): Promise<{ words: string[]; key: HistoryKey }>
 
-    /** The pending key, its words left out; `null` when none waits. */
-    pendingHistoryKey(): Promise<HistoryKey | null>
+    /** The pending key, its words left out, with when it was written; `null` when none waits. */
+    pendingHistoryKey(): Promise<PendingHistoryKey | null>
 
-    /** The IdP took the pending key: its words become the ones this device keeps. A no-op without one. */
-    promotePendingHistoryKey(): Promise<void>
+    /**
+     * The IdP took the pending key: its words become the ones this device keeps. `show`: they are
+     * new words a start over set, kept to show ({@link IE2eePort.newWordsToShow}) until
+     * dismissed. A no-op without one.
+     */
+    promotePendingHistoryKey(options?: { show?: boolean }): Promise<void>
 
-    /** The pending key erased, with its words and their derivation. */
+    /** The pending key erased, with its words and their derivation, and the new words to show of its generation. */
     dropPendingHistoryKey(): Promise<void>
+
+    /** The words a start over set and the user hasn't gone past yet, while they are the ones kept and nothing is pending. */
+    newWordsToShow(): Promise<{ generation: number; words: string[] } | null>
+
+    /** The new words need no showing any more: seen, or no longer the key in force. */
+    dismissNewWords(): Promise<void>
 
     /** What `words` give under `salt`: Argon2id once per words and salt, then the check value and approval key. */
     deriveHistoryKey(words: string[], salt: Uint8Array): Promise<DerivedHistoryKey>

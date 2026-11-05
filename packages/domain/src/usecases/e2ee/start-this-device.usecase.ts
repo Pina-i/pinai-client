@@ -8,6 +8,7 @@ import type { ISessionPort } from "../../ports/session.port"
 
 import { linkSessionDeviceUseCase } from "../auth/link-session-device.usecase"
 import { checkHistoryKeyUseCase } from "./check-history-key.usecase"
+import type { PendingKeyLock } from "./settle-pending-history-key.usecase"
 
 /**
  * Once per page load: the session names its device, then the device's words are checked against
@@ -21,6 +22,7 @@ export function startThisDeviceUseCase(deps: {
     deviceDirectoryPort: IDeviceDirectoryPort
     keySharePort?: IKeySharePort
     report?: (what: string, error: unknown) => void
+    pendingKeyLock?: PendingKeyLock
 }) {
     return async (
         idpUrl: string,

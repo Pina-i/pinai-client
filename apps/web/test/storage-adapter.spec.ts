@@ -67,6 +67,7 @@ const PENDING: PendingPassphrase = {
     words: WORDS,
     key: { generation: 1, salt: bytes(19, 16), checkValue: bytes(20), approvalPublicKey: bytes(21) },
     hak: bytes(22),
+    mintedAt: 1_762_300_000_000,
 }
 
 /** A collection's row keys, raw: where an unreadable one is set aside. */
@@ -164,6 +165,25 @@ describe("sealed rows", () => {
         expect(await storage.loadNewestHistoryGeneration()).toBe(3)
         await storage.clearPendingPassphrase()
         expect(await storage.loadPendingPassphrase()).toBeNull()
+    })
+
+    it("reads a pending row written before its time was kept as minted at no known time, and keeps the new words' generation", async () => {
+        const { words, key, hak } = PENDING
+        const row = {
+            words,
+            generation: key.generation,
+            salt: Array.from(key.salt),
+            check_value: Array.from(key.checkValue),
+            approval_public_key: Array.from(key.approvalPublicKey),
+            hak: Array.from(hak),
+        }
+        await storage["seal"]("recovery_passphrase", row, "pending")
+        expect(await storage.loadPendingPassphrase()).toEqual({ ...PENDING, mintedAt: null })
+
+        await storage.saveNewWordsGeneration(3)
+        expect(await storage.loadNewWordsGeneration()).toBe(3)
+        await storage.clearNewWordsGeneration()
+        expect(await storage.loadNewWordsGeneration()).toBeNull()
     })
 
     it("sets aside, never deletes, a row it can't read: words alone, a short salt, 23 words", async () => {

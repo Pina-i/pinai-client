@@ -109,6 +109,52 @@ export function standingAgainst(
     return { kind: "holds", generation: key.generation, settled: isSettled(kept.approvedRootKey, rootKey) }
 }
 
+/** A pending key — minted, sealed, its `PUT` unanswered —, with when it was written; `null` from before that was kept. */
+export interface PendingHistoryKey extends HistoryKey {
+    mintedAt: number | null
+}
+
+/** A pending key written this recently may have a `PUT` on its way, from this tab or another. */
+export const PENDING_KEY_FRESH_MS = 2 * 60_000
+
+/**
+ * What becomes of a pending key once the key in force is read: kept when it is that key; sent again
+ * only as a first generation with no key in force, the first device's; erased otherwise — a later
+ * generation's `PUT` that never landed is never sent by itself: it erases the archive, and takes the
+ * user's own start over and a recent password. A row written in the last `PENDING_KEY_FRESH_MS` is
+ * left for a later settle instead: its `PUT` may still land.
+ */
+export type PendingSettlement = "keep" | "send-again" | "erase" | "leave"
+
+export function settlePending(
+    pending: HistoryKey & { mintedAt?: number | null },
+    current: HistoryKey | null,
+    now: number = Date.now(),
+): PendingSettlement {
+    if (current && sameHistoryKey(current, pending)) return "keep"
+    if (!current && pending.generation === FIRST_HISTORY_GENERATION) return "send-again"
+    const age = pending.mintedAt == null ? null : now - pending.mintedAt
+    return age !== null && age >= 0 && age < PENDING_KEY_FRESH_MS ? "leave" : "erase"
+}
+
+/**
+ * The generation a start over sets: the one after the key in force, 1 with none. `null` unless it
+ * is past every generation this device has seen: a number another device may hold is never reused.
+ */
+export function startOverGeneration(current: HistoryKey | null, newestSeen: number | null): number | null {
+    const next = (current?.generation ?? 0) + 1
+    return newestSeen !== null && next <= newestSeen ? null : next
+}
+
+/**
+ * Whether the setup page may show the words this device keeps when the IdP can't be reached: only
+ * the first device's generation 1 — never seen past —, and never with a key pending, whose words
+ * would be the new ones.
+ */
+export function firstWordsShownOffline(newestSeen: number | null, pending: boolean): boolean {
+    return !pending && newestSeen === FIRST_HISTORY_GENERATION
+}
+
 /** The newest generation this device has seen, a key read added. */
 export function newestGenerationSeen(seen: number | null, key: HistoryKey | null): number | null {
     const newest = Math.max(seen ?? 0, key?.generation ?? 0)
