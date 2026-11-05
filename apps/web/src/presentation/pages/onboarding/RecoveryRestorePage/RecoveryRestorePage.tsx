@@ -64,11 +64,14 @@ export function RecoveryRestorePage({ variant = "new-device" }: { variant?: Rest
             onWentOtherwise={vm.onStartOverWentOtherwise}
             onRolledBack={vm.onRolledBack}
             onBusy={vm.onStartOverBusy}
+            replacedOn={vm.replacedOn}
         />
     )
     const tabs = (reset ? RESET_TABS : NEW_DEVICE_TABS).filter((t) => t.id !== "start-over" || vm.offersStartOver)
     const title = reset
-        ? RESET_TITLES[vm.resetCause ?? "unknown"]
+        ? vm.replacedOn
+            ? `Your words were replaced on ${vm.replacedOn}`
+            : RESET_TITLES[vm.resetCause ?? "unknown"]
         : vm.isIn
           ? "Bring your history to this device"
           : "First connection to a new device"
@@ -96,7 +99,13 @@ export function RecoveryRestorePage({ variant = "new-device" }: { variant?: Rest
                                 ready={vm.deviceReady}
                                 active={vm.tab === "device"}
                                 fallbackLabel={vm.deviceLabel}
-                                instruction={reset ? "Open Pīna'i on the device that reset your history and type it when it asks." : undefined}
+                                instruction={
+                                    vm.replacedOn
+                                        ? `Open Pīna'i on ${vm.replacedOn} and type it when it asks.`
+                                        : reset
+                                          ? "Open Pīna'i on the device that reset your history and type it when it asks."
+                                          : undefined
+                                }
                                 share={vm.share}
                                 onApproved={vm.onApproved}
                                 onIn={vm.onIn}
@@ -105,6 +114,7 @@ export function RecoveryRestorePage({ variant = "new-device" }: { variant?: Rest
                         <SegmentedTabPanel id="words">
                             <WordsPanel
                                 reset={reset}
+                                replacedOn={vm.replacedOn}
                                 words={vm.words}
                                 setWords={vm.setWords}
                                 canRestore={vm.canRestore}

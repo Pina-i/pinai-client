@@ -11,8 +11,9 @@
  * over, and "Back". Starting over asks a password typed too long ago again before anything is
  * minted, and shows the new words only once the IdP took them — again after a reload, until the user
  * goes past them. The reset page offers that device, its 24 words and a start over from here after a
- * start over elsewhere; after a change no start over explains, "Check again", a start over from here
- * and signing out — and for a key gone back, only "Check again" and signing out.
+ * start over elsewhere — naming the device when it is one this device found approved, whose words
+ * were replaced there —; after a change no start over explains, "Check again", a start over from
+ * here and signing out — and for a key gone back, only "Check again" and signing out.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
@@ -99,6 +100,12 @@ async function startOverElsewhere(idp: FakeHistoryIdp) {
     const other = historyDevice(idp, "elsewhere")
     await idp.session().linkDevice(IDP, other.token, other.storage.deviceId)
     await idp.setKey(IDP, other.token, (await other.e2ee.mintHistoryKey(2)).key)
+}
+
+/** `device` sets generation 2 — its words replaced, or a start over: the IdP records it as the setter. */
+async function newWordsOn(device: Device, idp: FakeHistoryIdp) {
+    await idp.session().linkDevice(IDP, device.token, device.storage.deviceId)
+    await idp.setKey(IDP, device.token, (await device.e2ee.mintHistoryKey(2)).key)
 }
 
 const platform = () => ({ browserSession: false, tokens: { clear: vi.fn() }, navigation: { navigateTo: vi.fn() } })
@@ -732,6 +739,73 @@ describe("the reset page", () => {
         expect(text()).toContain("the device that reset your history isn't yours, and it won't be approved")
         expect(text()).toContain("becomes your reference")
         expect(button("Erase and start over")).toBeDefined()
+    })
+
+    it("after a device it found approved replaced the words: names that device — its code, its new words, a start over from here", async () => {
+        const { idp, laptop, phone, net } = await account()
+        laptop.storage.trust = { ...laptop.storage.trust, approved: [{ deviceId: phone.storage.deviceId, rootKey: phone.storage.rootKey.publicKey }] }
+        await newWordsOn(phone, idp)
+        await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
+        signIn(laptop, idp, net)
+        await render(page, "/onboarding/history-reset")
+        await until(() => text().includes("Your words were replaced on Chrome on Android"))
+
+        expect(text()).not.toContain("Your history was reset from another device")
+        expect(tabs()).toEqual(["That device", "Its 24 words", "Start over"])
+        expect(text()).toContain("Open Pīna'i on Chrome on Android and type it when it asks.")
+
+        await press(tab("Its 24 words"))
+        expect(text()).toContain("The new words, from Chrome on Android: your old ones no longer open your history.")
+
+        await press(tab("Start over"))
+        expect(text()).toContain(
+            "Then someone else replaced your words on Chrome on Android: it won't be approved, and you can revoke it from another device.",
+        )
+        expect(button("Erase and start over")).toBeDefined()
+    })
+
+    it("never says “reset from another device”, nor its instruction, before naming the device that replaced the words", async () => {
+        const { idp, laptop, phone, net } = await account()
+        laptop.storage.trust = { ...laptop.storage.trust, approved: [{ deviceId: phone.storage.deviceId, rootKey: phone.storage.rootKey.publicKey }] }
+        await newWordsOn(phone, idp)
+        await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
+        signIn(laptop, idp, net)
+        const listed = deferred<void>()
+        const list = net.directory.listDevices.bind(net.directory)
+        vi.spyOn(net.directory, "listDevices").mockImplementation(async (...args) => {
+            await listed.promise
+            return list(...args)
+        })
+        const seen: string[] = []
+        await render(page, "/onboarding/history-reset")
+        for (let i = 0; i < 20; i++) {
+            await advance(50)
+            seen.push(text())
+        }
+
+        listed.resolve()
+        await until(() => {
+            seen.push(text())
+            return text().includes("Your words were replaced on Chrome on Android")
+        })
+        expect(seen.some((shown) => shown.includes("reset from another device"))).toBe(false)
+        expect(seen.some((shown) => shown.includes("Open Pīna'i on the device that reset your history"))).toBe(false)
+    })
+
+    it("after new words set by a listed device it never found approved: “reset from another device”, naming none", async () => {
+        const { idp, laptop, phone, net } = await account()
+        await newWordsOn(phone, idp)
+        await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
+        signIn(laptop, idp, net)
+        const listed = vi.spyOn(net.directory, "listDevices")
+        await render(page, "/onboarding/history-reset")
+        await until(() => text().includes("Your history was reset from another device") && tabs().length === 3)
+        await until(() => listed.mock.calls.length > 0)
+        await advance(1_000)
+
+        expect(text()).toContain("Your history was reset from another device")
+        expect(text()).not.toContain("replaced on")
+        expect(text()).toContain("Open Pīna'i on the device that reset your history and type it when it asks.")
     })
 
     it("“It wasn't me”: this device starts over from here, the next generation its own", async () => {

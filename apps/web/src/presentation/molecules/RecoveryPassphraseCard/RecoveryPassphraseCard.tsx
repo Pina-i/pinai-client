@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { AlertTriangle, Check, Copy, Eye, EyeOff, Trash2 } from "lucide-react"
+import { useState, type Ref } from "react"
+import { AlertTriangle, Check, Copy, Eye, EyeOff, KeyRound, Trash2 } from "lucide-react"
 
 import { cn } from "@/presentation/_libs/utils"
 
@@ -24,10 +24,14 @@ interface RecoveryPassphraseCardProps {
     onClear: () => void
     /** True while the clear request is in flight. */
     isClearing?: boolean
+    /** New words in place of these, the history saved again from this device; the action shows only when given. */
+    onReplace?: () => void
+    /** Where the focus comes back once the new words are gone past. */
+    replaceRef?: Ref<HTMLButtonElement>
 }
 
 /** Settings → Devices' card, on a device holding the current passphrase: blurred until shown; clearing erases the saved entries only. */
-export function RecoveryPassphraseCard({ words, heldBy, onClear, isClearing }: RecoveryPassphraseCardProps) {
+export function RecoveryPassphraseCard({ words, heldBy, onClear, isClearing, onReplace, replaceRef }: RecoveryPassphraseCardProps) {
     const [revealed, setRevealed] = useState(false)
     const [copied, setCopied] = useState(false)
     const [confirmClear, setConfirmClear] = useState(false)
@@ -150,6 +154,21 @@ export function RecoveryPassphraseCard({ words, heldBy, onClear, isClearing }: R
                     {copied ? "Copied" : "Copy"}
                 </button>
                 <span className="flex-1" />
+                {onReplace && (
+                    <button
+                        ref={replaceRef}
+                        type="button"
+                        onClick={onReplace}
+                        className={cn(
+                            actionClass,
+                            "border-[color-mix(in_oklab,var(--dnd)_55%,transparent)] bg-transparent font-semibold text-dnd-ink",
+                            "hover:bg-[color-mix(in_oklab,var(--dnd)_8%,transparent)]",
+                        )}
+                    >
+                        <KeyRound className="h-3 w-3" />
+                        Replace my words
+                    </button>
+                )}
                 <button
                     type="button"
                     onClick={handleClear}

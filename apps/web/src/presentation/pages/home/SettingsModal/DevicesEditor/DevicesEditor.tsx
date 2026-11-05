@@ -8,6 +8,7 @@ import { cn } from "@/presentation/_libs/utils"
 
 import { DeviceCard } from "./DeviceCard/DeviceCard"
 import { useDevicesEditorViewModel } from "./DevicesEditor.viewmodel"
+import { ReplaceWords } from "./ReplaceWords/ReplaceWords"
 import { WaitingSeat } from "./WaitingSeat/WaitingSeat"
 
 const actionPill = cn(
@@ -83,6 +84,8 @@ export function DevicesEditor() {
                             heldBy={vm.heldBy}
                             onClear={() => void vm.onClearHistoryBackup()}
                             isClearing={vm.isClearingHistoryBackup}
+                            onReplace={vm.offersReplace ? vm.replaceWords.open : undefined}
+                            replaceRef={vm.replaceWords.replaceRef}
                         />
                     </div>
                 )}
@@ -143,6 +146,8 @@ export function DevicesEditor() {
                     Don't recognize a device? Sign it out — your passphrase still works everywhere else.
                 </p>
             </ScrollArea>
+
+            <ReplaceWords vm={vm.replaceWords} />
 
             <RecentSignInModal
                 action={vm.recentSignIn.asking}

@@ -51,8 +51,10 @@ Three collaborators could not come, and the shape of each is the mobile work:
   words, the one generation they give, the root key the device approved
   itself over with them, and their salt and HAK, so a check runs no Argon2id;
   `pending`: words minted whose `PUT` is unanswered, with their key, HAK and when the row was
-  written (`minted_at`, `null` in a row from before it); `new_words`: the generation whose words a
-  start over set and the user hasn't gone past;
+  written (`minted_at`, `null` in a row from before it), and `rearchive` when they replace words
+  the device holds; `new_words`: the generation whose words a start over set and the user hasn't
+  gone past; `rearchive_due`: the generation a re-archive is due under and its cursor, the last
+  entry the IdP took (`parseRearchiveDue`);
   `standing`: where the words stood when last checked; `admission`: whether the
   device was in at its last check, read when the IdP can't be reached;
   `newest_generation`: the newest generation seen; `restore_due`: the generation an archive
@@ -81,7 +83,9 @@ Three collaborators could not come, and the shape of each is the mobile work:
   trimmed, lowercased and joined by single spaces, as UTF-8, whoever calls it
   (m=64 MiB, t=3, p=4); `derive(hak)` the check value
   and approval public key; `signApproval`; AES-256-GCM entries with the
-  `PINAI-ARCHIVE-v1` ids as associated data.
+  `PINAI-ARCHIVE-v1` ids as associated data; `reactionSnapshotId` — a version-8 UUID of
+  `HMAC-SHA256(HKDF-SHA256(HAK, info "pinai/rearchive-entry-id/v1"), "<conversation>\n<message>\nreactions")`:
+  only the words' holders compute it, the same at every run under one key.
 - **`spake2-p256.ts`** — SPAKE2 as RFC 9382 specifies it, suite
   SPAKE2-P256-SHA256-HKDF-HMAC: the RFC's M and N, SEC1 uncompressed shares
   checked on the curve, TT, Ke/Ka, KcA/KcB with an AAD, the HMAC confirmations.
@@ -244,6 +248,19 @@ Three collaborators could not come, and the shape of each is the mobile work:
     dropped and zeroed when check 4 fails); a failure stands as `share-refused`, withdrawn once
     the device holds. `markHistoryRestoreDue` / `historyRestoreDue` / `historyRestoreApplied` /
     `historyRestored` — the `restore_due` row.
+  - **The re-archive** (a replacement of the words; the flow is the domain's `HistoryRearchive`,
+    which seals each batch once a run and sends the same sealed batch on a retry): the pending key
+    carries `rearchive` from its minting, and its promotion — the flow's or the next start's settle —
+    writes `rearchive_due` before keeping the words; dropping the pending key drops a row of its
+    generation. `sealForRearchive` seals under the generation only while holding it (`null`
+    otherwise), a reaction snapshot under `reactionSnapshotId` (`history-archive.adapter.ts`), and
+    drops the flusher's waiting copies of those ids, marking them queued; `uploadRearchive` sends a
+    sealed batch. `advanceHistoryRearchive` / `historyRearchived`, like the restore rows' writes,
+    run in the passphrase rows' turn and only for the generation due: an older run never writes over
+    a newer replacement's row.
+  - **`resetSetter`** — the reset page's: the last check's setter of a newer generation, approved
+    when `resetByUnapproved` says it isn't over the list's unrevoked devices, read in the trust rows'
+    turn; nothing from a list naming an id twice or revocations kept that can't be read.
   - **The history key** (`identity-provider/specs/e2ee.md § 3.6–3.9`): the flows
     are the domain's; here the crypto and the standing (`standingAgainst`).
     `mintHistoryKey` seals the words as pending before answering them, the same
@@ -266,7 +283,8 @@ Three collaborators could not come, and the shape of each is the mobile work:
     is a flow's, after the naming. `stale_history_key` reads the key again and
     sends the batch again once; a second stale in one flush waits for the next.
     `restoreHistory` opens each entry under the ids its row carries: one moved
-    is skipped.
+    is skipped. Each entry keeps its row's `created_at` (`archivedAt`), what a reaction snapshot is
+    dated by.
 
 ## Use cases
 
@@ -650,16 +668,31 @@ vitest setup, so a package's specs sit there until it needs its own.
   events, the newest deciding, a failure, an unmount or a sign-out mid-check), the tick
   gated on it, the new-device and reset pages as Pass: the tabs, a request ended by leaving
   its tab, the words tab, start over from each (the password asked again first, the words
-  only after the IdP's `204`, a `401`, a conflict), the unknown change.
+  only after the IdP's `204`, a `401`, a conflict), the unknown change, the words replaced on a
+  device found approved.
 - `apps/web/test/start-over.spec.ts` — `signedInRecently` (on the IdP's clock, a device clock 15
   minutes fast), `settlePending` (fresh rows left), `startOverGeneration`; the start over on real
   engines: its order, nothing minted without a recent password, a `401` or `409` whose key landed,
   two devices at once, a failure after the IdP took the key, pressed again before the words were
   seen, `key-changed`, a page load's check waiting for its `PUT`, two tabs under one lock, a
   pending generation past 1 at the next start (left fresh, then erased, or kept), sharing after.
+- `apps/web/test/replace-words.spec.ts` — replacing the words on real engines: only a device that
+  acts, the refusals before any password (cache unread, a restore due), the password asked first,
+  the archive brought first (or nothing minted), a `401`, a conflict (an earlier re-archive left
+  alone), another replacement between two reads, the words shown and marked, the re-archive marked
+  before they are kept, a lost answer pressed again and settled at the next start, shares to
+  partners, still acting and answering an old device's request, the old words refused;
+  `history-rearchive.spec.ts` — the entries from a cached conversation, the cursor, batches, the due
+  rule and refusals, the restore's snapshot merge (the flusher's copy counted once, a later remove,
+  a late decrypt), then real runs: sealed under n+1 with its associated data and restored by another
+  device through the real path, keyed snapshot ids, a resumed run after new reactions, resumed after
+  a cut, nothing tried before the cache, dropped for a later generation, `stale_history_key`,
+  back-off and pace on fake timers, a skipped batch, one seal per entry, signed out, two tabs;
+  `history-rearchive-toast.spec.ts` — the app's runner: the store read once read back, the toast and
+  its dismissals.
 - `apps/web/test/devices-warnings.spec.ts` — Settings → Devices' waiting seat, "Not mine"
   and the refused-list banner, from the engine's own reviews; `devices-editor.spec.ts` — the
-  rows ("approved by" from the verdict), the passphrase card, "Restore history";
+  rows ("approved by" from the verdict), the passphrase card, "Restore history", "Replace my words";
   `devices-seat.spec.ts` — the seats answering inline through the Door's `ApprovalAnswering`;
   `device-roster.spec.ts` — the pane's rules; `unapproved-notice.spec.ts` — the toast outside
   the pane.

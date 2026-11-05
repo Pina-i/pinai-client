@@ -12,6 +12,7 @@ import { hkdf } from "@noble/hashes/hkdf.js"
 import { hmac } from "@noble/hashes/hmac.js"
 import { sha256 } from "@noble/hashes/sha2.js"
 
+import { editEntryId } from "@pinai/domain/models/history-archive"
 import type { DerivedHistoryKey } from "@pinai/domain/models/history-key"
 
 const ARGON2_PARAMS = { t: 3, m: 64 * 1024, p: 4, dkLen: 32 }
@@ -21,6 +22,7 @@ export const HISTORY_SALT_BYTES = 16
 const encoder = new TextEncoder()
 const CHECK_MESSAGE = encoder.encode("pinai/history-archive/check-v1")
 const APPROVAL_INFO = encoder.encode("pinai/device-approval/v1")
+const REARCHIVE_ID_INFO = encoder.encode("pinai/rearchive-entry-id/v1")
 
 export interface EncryptedEntry {
     ciphertext: Uint8Array
@@ -49,6 +51,17 @@ export class HistoryArchiveAdapter {
     /** The generation's approval key over `bytes` — `PINAI-DEVICE-APPROVAL-v1`'s. */
     signApproval(hak: Uint8Array, bytes: Uint8Array): Uint8Array {
         return ed25519.sign(bytes, approvalSeed(hak))
+    }
+
+    /**
+     * A re-archive's reaction snapshot id: a version-8 UUID of `HMAC-SHA256(HKDF-SHA256(HAK, info
+     * "pinai/rearchive-entry-id/v1"), "<conversation>\n<message>\nreactions")`, the ids lowercased.
+     * Only the words' holders compute it, and it is the same at every run under one key.
+     */
+    reactionSnapshotId(hak: Uint8Array, conversationId: string, messageId: string): string {
+        const key = hkdf(sha256, hak, undefined, REARCHIVE_ID_INFO, 32)
+        const message = encoder.encode(`${conversationId.toLowerCase()}\n${messageId.toLowerCase()}\nreactions`)
+        return editEntryId(hmac(sha256, key, message))
     }
 
     async encrypt(key: Uint8Array, plaintext: Uint8Array, aad: Uint8Array): Promise<EncryptedEntry> {

@@ -112,6 +112,8 @@ export function standingAgainst(
 /** A pending key — minted, sealed, its `PUT` unanswered —, with when it was written; `null` from before that was kept. */
 export interface PendingHistoryKey extends HistoryKey {
     mintedAt: number | null
+    /** Minted to replace the words this device holds. */
+    rearchive?: true
 }
 
 /** A pending key written this recently may have a `PUT` on its way, from this tab or another. */

@@ -15,7 +15,7 @@ import type { WsConnectionStatus, WsServerEvent } from "@pinai/domain/models/ws"
 import type { Message } from "@/lib/types"
 import { actorUriToAddress } from "@pinai/domain/models/identity"
 import { isHeldHere } from "@pinai/domain/models/own-messages"
-import { applyFederationStatus } from "@pinai/domain/models/dm"
+import { UNDECRYPTABLE_TEXT, applyFederationStatus } from "@pinai/domain/models/dm"
 import { reconcileGroupKeysUseCase } from "@pinai/domain/usecases/e2ee/reconcile-group-keys.usecase"
 import { shouldPingForMessage } from "@pinai/domain/models/mute"
 import { countsAsUnread, isBlocked } from "@pinai/domain/models/block"
@@ -28,8 +28,6 @@ import { groupMembersQueryKey } from "@/presentation/pages/home/GroupMembersPane
 import { useAppearance } from "@/presentation/providers/AppearanceProvider/AppearanceProvider.context"
 import { useNotificationSettings } from "@/presentation/providers/AppearanceProvider/NotificationSettings.context"
 import { renewAccessToken } from "@/presentation/_libs/session-renewal"
-
-const UNDECRYPTABLE_PLACEHOLDER = "[encrypted]"
 
 /** Module-level slot — `useDeviceFanout` registers its callback here. */
 const deviceFanoutHandlerRef: { current: (() => void) | null } = {
@@ -288,7 +286,7 @@ export function useIdpWebSocket(): void {
                     }
 
                     // Default: text (or reply) — render as a Message.
-                    let plaintext = UNDECRYPTABLE_PLACEHOLDER
+                    let plaintext = UNDECRYPTABLE_TEXT
                     let inlineReplyMeta: { content: string; author: string } | null = null
                     let attachmentKeys: Record<string, AttachmentBlobKey> | undefined
                     if (app && app.kind === "text") {
@@ -337,7 +335,7 @@ export function useIdpWebSocket(): void {
                                 author: senderDisplayName,
                                 authorAddress: senderAddress,
                                 avatar: senderDisplayName.slice(0, 2).toUpperCase(),
-                                content: optimistic?.content ?? UNDECRYPTABLE_PLACEHOLDER,
+                                content: optimistic?.content ?? UNDECRYPTABLE_TEXT,
                                 timestamp: new Date(event.data.created_at).toLocaleTimeString([], {
                                     hour: "2-digit",
                                     minute: "2-digit",
@@ -530,7 +528,7 @@ export function useIdpWebSocket(): void {
                     // practice each ciphertext can only decrypt under
                     // its own group state.
                     const conversationKeys = Object.keys(useAppStore.getState().dmMessages)
-                    let newText = UNDECRYPTABLE_PLACEHOLDER
+                    let newText = UNDECRYPTABLE_TEXT
                     const catchUp =
                         idpUrl && accessToken ? { idpUrl, accessToken } : undefined
                     for (const convKey of conversationKeys) {
@@ -557,7 +555,7 @@ export function useIdpWebSocket(): void {
                             }
                         }
                     }
-                    if (newText === UNDECRYPTABLE_PLACEHOLDER) {
+                    if (newText === UNDECRYPTABLE_TEXT) {
                         // An edit of one of the user's messages that doesn't decrypt is this
                         // device's own, applied when it was made.
                         const me = actionsRef.current.user?.address

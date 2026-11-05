@@ -41,6 +41,15 @@ export type StartOver =
 type Setting = { kind: "set"; generation: number } | { kind: "recent-sign-in" } | { kind: "conflict" } | { kind: "rolled-back" }
 
 /**
+ * `rearchive`: the new words replace words this device holds, and its copy is archived again under
+ * them. `over`: the generation they replace — another in force by then is a `conflict`.
+ */
+export interface NewGenerationOptions {
+    rearchive?: boolean
+    over?: number
+}
+
+/**
  * Starting over (`identity-provider/specs/e2ee.md § 6.11`). New words a start over set and the user
  * hasn't gone past are answered again, never a second start over. Otherwise the password typed
  * recently is checked first — nothing is minted without it —, then generation n+1 is minted and
@@ -51,41 +60,71 @@ type Setting = { kind: "set"; generation: number } | { kind: "recent-sign-in" } 
  */
 export const startOverUseCase =
     (deps: StartOverDeps) =>
-    async ({ idpUrl, accessToken, actorUri, tokenArrivedAt = null }: StartOverInput): Promise<StartOver> => {
-        const unseen = await deps.e2eePort.newWordsToShow()
-        if (unseen) {
-            const current = await deps.historyArchivePort.getKey(idpUrl, accessToken)
-            if (current?.generation === unseen.generation) {
-                await setUpThisDeviceUseCase(deps)(idpUrl, accessToken, actorUri)
-                return finish(deps, { idpUrl, accessToken, actorUri }, unseen.generation)
-            }
-            await deps.e2eePort.dismissNewWords()
-        }
+    async (input: StartOverInput): Promise<StartOver> => {
+        const { idpUrl, accessToken, actorUri, tokenArrivedAt = null } = input
+        const unseen = await unseenNewWords(deps, input)
+        if (unseen) return unseen
         if (!signedInRecently(accessToken, tokenArrivedAt)) return { kind: "recent-sign-in" }
         await setUpThisDeviceUseCase(deps)(idpUrl, accessToken, actorUri)
-        const set = await pendingKeyTurn(deps, () => setNextGeneration(deps, idpUrl, accessToken))
+        const set = await setNewGeneration(deps, idpUrl, accessToken)
         if (set.kind !== "set") return set
-        return finish(deps, { idpUrl, accessToken, actorUri }, set.generation)
+        return finishNewGeneration(deps, input, set.generation)
     }
+
+/**
+ * New words this device set and the user hasn't gone past, still the generation in force: what
+ * follows them redone, and answered again. `null` otherwise, a mark no longer in force dropped.
+ */
+export async function unseenNewWords(deps: StartOverDeps, input: StartOverInput): Promise<StartOver | null> {
+    const unseen = await deps.e2eePort.newWordsToShow()
+    if (!unseen) return null
+    const current = await deps.historyArchivePort.getKey(input.idpUrl, input.accessToken)
+    if (current?.generation === unseen.generation) {
+        await setUpThisDeviceUseCase(deps)(input.idpUrl, input.accessToken, input.actorUri)
+        return finishNewGeneration(deps, input, unseen.generation)
+    }
+    await deps.e2eePort.dismissNewWords()
+    return null
+}
+
+/** Generation n+1 minted as pending, `PUT`, then kept and marked to show: in the pending key's turn. */
+export function setNewGeneration(
+    deps: StartOverDeps,
+    idpUrl: string,
+    accessToken: string,
+    options: NewGenerationOptions = {},
+): Promise<Setting> {
+    return pendingKeyTurn(deps, () => setNextGeneration(deps, idpUrl, accessToken, options))
+}
 
 /**
  * A failure other than the IdP's refusal leaves the pending key: the `PUT` may have landed. Trying
  * again sends the same words, or finds them in force and keeps them; the next start settles them
  * otherwise. A refusal reads the key again first: one that landed all the same is kept.
  */
-async function setNextGeneration(deps: StartOverDeps, idpUrl: string, accessToken: string): Promise<Setting> {
+async function setNextGeneration(
+    deps: StartOverDeps,
+    idpUrl: string,
+    accessToken: string,
+    { rearchive = false, over }: NewGenerationOptions,
+): Promise<Setting> {
     const e2ee = deps.e2eePort
     const current = await deps.historyArchivePort.getKey(idpUrl, accessToken)
     const pending = await e2ee.pendingHistoryKey()
     if (pending && current && sameHistoryKey(pending, current)) {
-        await e2ee.promotePendingHistoryKey({ show: true })
+        await e2ee.promotePendingHistoryKey({ show: true, rearchive })
         return { kind: "set", generation: current.generation }
+    }
+    // Read outside this turn, the generation replaced may have moved since: never replace one not held.
+    if (over !== undefined && (current?.generation ?? 0) !== over) {
+        if (pending) await e2ee.dropPendingHistoryKey()
+        return { kind: "conflict" }
     }
     const generation = startOverGeneration(current, await e2ee.newestHistoryGeneration())
     if (generation === null) return { kind: "rolled-back" }
     if (pending && pending.generation !== generation) await e2ee.dropPendingHistoryKey()
 
-    const { key } = await e2ee.mintHistoryKey(generation)
+    const { key } = await e2ee.mintHistoryKey(generation, { rearchive })
     try {
         await deps.historyArchivePort.setKey(idpUrl, accessToken, key)
     } catch (error) {
@@ -96,13 +135,14 @@ async function setNextGeneration(deps: StartOverDeps, idpUrl: string, accessToke
             return { kind: recentSignIn ? "recent-sign-in" : "conflict" }
         }
     }
-    await e2ee.promotePendingHistoryKey({ show: true })
+    await e2ee.promotePendingHistoryKey({ show: true, rearchive })
     return { kind: "set", generation }
 }
 
-async function finish(
+/** Once the IdP took a new generation: approved, reported, KeyPackages, shares — best effort —, then its words. */
+export async function finishNewGeneration(
     deps: StartOverDeps,
-    { idpUrl, accessToken, actorUri }: Omit<StartOverInput, "tokenArrivedAt">,
+    { idpUrl, accessToken, actorUri }: StartOverInput,
     generation: number,
 ): Promise<StartOver> {
     const bestEffort = async (what: string, run: () => Promise<unknown>) => {

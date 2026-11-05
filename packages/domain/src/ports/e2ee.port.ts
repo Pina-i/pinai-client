@@ -12,7 +12,9 @@ import type { DeviceListEntry } from "../models/device"
 import type { DeviceTrustVerdict, HandshakeKeysRefusal, HandshakePartner, TrustEvent } from "../models/device-trust"
 import type { ArchiveEnvelope, ArchivedEntry } from "../models/history-archive"
 import type { DerivedHistoryKey, HistoryKey, HistoryKeyStanding, PendingHistoryKey } from "../models/history-key"
+import type { RearchiveDue, RearchiveEntry, RearchivePosition } from "../models/history-rearchive"
 import type { KeyShare, KeyShareRefusal, OutgoingKeyShare } from "../models/key-share"
+import type { ArchiveEntry } from "./history-archive.port"
 
 /**
  * High-level, transport-agnostic E2EE operations the rest of the app
@@ -348,9 +350,10 @@ export interface IE2eePort {
      * 24 new words for `generation` and the key they give, sealed as this device's pending key
      * before they are answered: never shown, reported or used to seal. A pending key of that
      * generation already sealed gives its words again, written anew, until
-     * {@link IE2eePort.dropPendingHistoryKey}.
+     * {@link IE2eePort.dropPendingHistoryKey}. `rearchive`: they replace words this device holds,
+     * and whoever promotes them — this flow, or the next start's settle — marks the re-archive due.
      */
-    mintHistoryKey(generation: number): Promise<{ words: string[]; key: HistoryKey }>
+    mintHistoryKey(generation: number, options?: { rearchive?: boolean }): Promise<{ words: string[]; key: HistoryKey }>
 
     /** The pending key, its words left out, with when it was written; `null` when none waits. */
     pendingHistoryKey(): Promise<PendingHistoryKey | null>
@@ -358,9 +361,11 @@ export interface IE2eePort {
     /**
      * The IdP took the pending key: its words become the ones this device keeps. `show`: they are
      * new words a start over set, kept to show ({@link IE2eePort.newWordsToShow}) until
-     * dismissed. A no-op without one.
+     * dismissed. `rearchive`, or a pending key minted so: the archive is re-made from this device's
+     * copy under its generation ({@link IE2eePort.historyRearchiveDue}), marked before the words
+     * are kept. A no-op without one.
      */
-    promotePendingHistoryKey(options?: { show?: boolean }): Promise<void>
+    promotePendingHistoryKey(options?: { show?: boolean; rearchive?: boolean }): Promise<void>
 
     /** The pending key erased, with its words and their derivation, and the new words to show of its generation. */
     dropPendingHistoryKey(): Promise<void>
@@ -515,6 +520,42 @@ export interface IE2eePort {
 
     /** The restore due under `generation` is confirmed, or moot. A no-op when another is due. */
     historyRestored(generation: number): Promise<void>
+
+    // ─── The re-archive after a replacement of the words ─────
+
+    /** The re-archive due, with how far it got; `null` when none is. Kept through reloads. */
+    historyRearchiveDue(): Promise<RearchiveDue | null>
+
+    /** The IdP took every entry up to `cursor`. A no-op when another is due. */
+    advanceHistoryRearchive(generation: number, cursor: RearchivePosition): Promise<void>
+
+    /** Done, or moot. A no-op when another is due. */
+    historyRearchived(generation: number): Promise<void>
+
+    /**
+     * `entries` sealed under `generation` — `null` unless this device holds it —, each under its ids
+     * as associated data, a reaction snapshot under the id the history key gives it. The archive
+     * flusher's copies of them, waiting, are dropped, and it queues none of them again this page load.
+     */
+    sealForRearchive(generation: number, entries: readonly RearchiveEntry[]): Promise<SealedRearchive | null>
+
+    /** One sealed batch to the archive; sending it again is harmless. Refused as `IHistoryArchivePort.uploadBatch` is. */
+    uploadRearchive(idpUrl: string, accessToken: string, sealed: SealedRearchive): Promise<void>
+
+    /**
+     * The device that set the generation in force past the one this device holds, as the last check
+     * of the key found it, and whether this device found it approved over the root key `devices` —
+     * `GET /api/keys/devices` read just before — lists for it now (`resetByUnapproved`). `null` when
+     * no such generation stands, or names no device, the list names an id twice, or the revocations
+     * kept can't be read.
+     */
+    resetSetter(devices: readonly DeviceListEntry[]): Promise<{ deviceId: DeviceId; approved: boolean } | null>
+}
+
+/** A re-archive's batch, sealed: what `uploadRearchive` sends, as many times as it takes. */
+export interface SealedRearchive {
+    generation: number
+    entries: ArchiveEntry[]
 }
 
 /**

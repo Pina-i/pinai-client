@@ -107,6 +107,21 @@ export function resetCause(standing: HistoryKeyStanding): ResetCause | null {
     return newer ? "newer-generation" : "unknown-change"
 }
 
+/**
+ * After a newer generation: the label of the device that set it, when this device found it approved
+ * (`IE2eePort.resetSetter`) — the user's own device replaced the words, and the page names it. `null`
+ * for any other setter, or a label the list doesn't give: the page says "another device".
+ */
+export function replacedOn(
+    standing: HistoryKeyStanding,
+    setter: { deviceId: DeviceId; approved: boolean } | null,
+    devices: readonly DeviceListEntry[],
+): string | null {
+    if (resetCause(standing) !== "newer-generation" || standing.kind !== "mismatch") return null
+    if (!setter?.approved || setter.deviceId !== standing.setByDevice) return null
+    return devices.find((d) => d.device_id === setter.deviceId)?.display_name.trim() || null
+}
+
 /** A route change re-checks no sooner than this after the last check: one key read per half minute at most. */
 export const GATE_RECHECK_SPACING_MS = 30_000
 

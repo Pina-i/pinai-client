@@ -1,9 +1,11 @@
 /**
  * Settings → Devices as the real E2EE engine's review leaves it (`identity-provider/specs/e2ee.md
  * § 3.9`): the passphrase card on a device holding the current passphrase — held by how many, its
- * line, Show / Copy, "Clear history backup" (entries only, confirmed, a recent password) —, "Restore
- * history" only on a device that doesn't hold it; each row's tags and facts, "approved by" from this
- * device's own verdict; no "Pair new"; the footer.
+ * line, Show / Copy, "Clear history backup" (entries only, confirmed, a recent password), "Replace my
+ * words" (confirmed in plain words, a recent password asked before anything is minted, the new words
+ * shown over Settings until Continue, the re-archive started) —, "Restore history" only on a device
+ * that doesn't hold it; each row's tags and facts, "approved by" from this device's own verdict; no
+ * "Pair new"; the footer.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { RouterProvider, createMemoryHistory, createRootRoute, createRouter } from "@tanstack/react-router"
@@ -15,22 +17,39 @@ import type { UserProfile } from "@pinai/domain/models/auth"
 import type { DeviceListEntry } from "@pinai/domain/models/device"
 import { IdpError } from "@pinai/domain/models/idp-error"
 import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstrap-first-device.usecase"
+import { replaceWordsUseCase } from "@pinai/domain/usecases/e2ee/replace-words.usecase"
 import { deviceFingerprint } from "@/presentation/_libs/device-fingerprint"
 import { DevicesEditor } from "@/presentation/pages/home/SettingsModal/DevicesEditor/DevicesEditor"
 import { useAppStore } from "@/store/store"
 
+import { accessToken } from "./setup/access-token"
 import { ACTOR, FakeHistoryIdp, FastSealer, IDP, MemoryHistoryStorage, historyDevice } from "./setup/history-idp"
 import { FakeIssuers, approvedBy, approvedByPassphrase, listedDevice, testDevice, type TestDevice } from "./setup/issuers"
 
-const wired = vi.hoisted(() => ({ e2ee: null as unknown, rows: [] as unknown[], history: null as unknown }))
+const wired = vi.hoisted(() => ({
+    e2ee: null as unknown,
+    rows: [] as unknown[],
+    history: null as unknown,
+    session: null as unknown,
+    /** The IdP's approval and report routes, for a flow that ends in them. */
+    directory: {} as object,
+}))
 vi.mock("@/ioc", () => ({
     getE2eePort: () => wired.e2ee,
-    getDeviceDirectoryPort: () => ({ listDevices: async () => ({ devices: wired.rows }), markRevoked: async () => undefined }),
+    getDeviceDirectoryPort: () => ({
+        ...wired.directory,
+        listDevices: async () => ({ devices: wired.rows }),
+        markRevoked: async () => undefined,
+    }),
     getHistoryArchivePort: () => wired.history,
-    getSessionPort: vi.fn(),
+    getSessionPort: () => wired.session,
+    getKeySharePort: () => undefined,
     getAuthPort: vi.fn(),
     getAuthPlatform: vi.fn(),
+    getSessionRenewal: vi.fn(),
 }))
+const rearchive = vi.hoisted(() => ({ run: vi.fn(async () => ({ kind: "idle" })) }))
+vi.mock("@/presentation/_libs/history-rearchive", () => ({ rearchiveDueHistory: rearchive.run }))
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }))
 vi.mock("@/presentation/molecules/RecentSignInModal/RecentSignInModal", () => ({
     RecentSignInModal: ({ action }: { action: string | null }) => (action ? `To ${action}, sign in again` : null),
@@ -105,7 +124,9 @@ async function until(check: () => boolean) {
 
 const card = (name: string) =>
     [...container.querySelectorAll("div.rounded-\\[14px\\]")].find((d) => d.querySelector(".title")?.textContent === name)
-const button = (label: string) => [...container.querySelectorAll("button")].find((b) => b.textContent?.trim() === label)
+const button = (label: string, within: ParentNode = container) =>
+    [...within.querySelectorAll("button")].find((b) => b.textContent?.trim() === label)
+const dialog = (name: string) => document.body.querySelector<HTMLElement>(`[role="dialog"][aria-label="${name}"]`)
 const restoreLink = () => [...container.querySelectorAll("a")].find((a) => a.textContent?.includes("Restore history"))
 
 beforeEach(() => {
@@ -221,5 +242,157 @@ describe("Settings → Devices", () => {
         expect(container.textContent).not.toContain("history passphrase")
         expect(container.textContent).not.toContain("approved by")
         expect(container.textContent).not.toContain("holds history")
+    })
+})
+
+describe("Settings → Devices: replacing the words", () => {
+    beforeEach(() => {
+        // jsdom has no `CSS.escape`, which React Aria's modal reads.
+        if (!globalThis.CSS?.escape) vi.stubGlobal("CSS", { ...globalThis.CSS, escape: (text: string) => text })
+        vi.spyOn(useAppStore.persist, "hasHydrated").mockReturnValue(true)
+    })
+
+    const press = (label: string, within?: ParentNode) => act(async () => button(label, within)?.click())
+    const confirmIt = async () => {
+        await press("Replace my words")
+        await press("Replace my words", dialog("Replace your 24 words?")!)
+    }
+
+    /** The laptop wired as the device the pane runs on, its IdP's routes behind every port. */
+    function wire(device: ReturnType<typeof historyDevice>, idp: FakeHistoryIdp, rows: DeviceListEntry[]) {
+        wired.e2ee = device.e2ee
+        wired.rows = rows
+        wired.history = idp
+        wired.session = idp.session()
+        wired.directory = idp.directory()
+        rearchive.run.mockClear()
+    }
+
+    it("on a device holding the words: “Replace my words” confirms in plain words first, and Cancel mints nothing", async () => {
+        const { idp, laptop, rows } = await account()
+        wire(laptop, idp, rows)
+        await render()
+        await until(() => button("Replace my words") !== undefined)
+
+        await act(async () => button("Replace my words")?.click())
+        const confirmation = dialog("Replace your 24 words?")
+        expect(confirmation?.textContent).toContain("24 new words replace yours.")
+        expect(confirmation?.textContent).toContain(
+            "Your history backup is first brought onto this device, then erased and saved again from it under the new words, in the background — keep Pīna'i open until it's done; it carries on at the next start.",
+        )
+        expect(confirmation?.textContent).toContain(
+            "Your devices this one approved with a code get the new words by themselves; the others ask with a code or type the new words.",
+        )
+        expect(confirmation?.textContent).toContain("A device you revoked can't use the old words any more.")
+
+        await act(async () => button("Cancel", confirmation!)?.click())
+        await until(() => dialog("Replace your 24 words?") === null)
+        expect(idp.key?.generation).toBe(1)
+        expect(laptop.storage.pending).toBeNull()
+    })
+
+    it("a password typed too long ago is asked again before anything is minted; back and confirmed again, the new words show over Settings until Continue", async () => {
+        const { idp, laptop, rows } = await account()
+        wire(laptop, idp, rows)
+        useAppStore.setState({ accessToken: accessToken(Date.now() - 30 * 60_000, "laptop", Date.now()) })
+        await render()
+        await until(() => button("Replace my words") !== undefined)
+
+        await act(async () => button("Replace my words")?.click())
+        await act(async () => button("Replace my words", dialog("Replace your 24 words?")!)?.click())
+        await until(() => container.textContent?.includes("To replace your words, sign in again") === true)
+        expect(dialog("Replace your 24 words?")).toBeNull()
+        expect(laptop.storage.pending).toBeNull()
+        expect(idp.key?.generation).toBe(1)
+
+        // Back from the IdP's page with the password just typed: pressed and confirmed again.
+        useAppStore.setState({ accessToken: laptop.token })
+        await act(async () => button("Replace my words")?.click())
+        await act(async () => button("Replace my words", dialog("Replace your 24 words?")!)?.click())
+        await until(() => dialog("Your new 24 words") !== null)
+
+        expect(idp.key).toMatchObject({ generation: 2, setByDevice: laptop.storage.deviceId })
+        const shown = dialog("Your new 24 words")!
+        expect(shown.textContent).toContain("Your new passphrase")
+        for (const word of laptop.storage.kept!.words) expect(shown.textContent).toContain(word)
+        expect(rearchive.run).toHaveBeenCalledOnce()
+        expect(laptop.storage.newWords).toBe(2)
+
+        await act(async () => button("Continue", shown)?.click())
+        await until(() => dialog("Your new 24 words") === null && laptop.storage.newWords === null)
+        await until(() => document.activeElement === button("Replace my words"))
+    })
+
+    it("an answer lost on the way leaves “Try again”: pressed again, the words the IdP took show", async () => {
+        const { idp, laptop, rows } = await account()
+        wire(laptop, idp, rows)
+        vi.spyOn(idp, "setKey").mockImplementationOnce(async (...args) => {
+            await FakeHistoryIdp.prototype.setKey.apply(idp, args)
+            throw new TypeError("Failed to fetch")
+        })
+        await render()
+        await until(() => button("Replace my words") !== undefined)
+
+        await confirmIt()
+        await until(() => dialog("Replace your 24 words?")?.textContent?.includes("your instance didn't answer. Try again.") === true)
+        await press("Cancel", dialog("Replace your 24 words?")!)
+        await until(() => dialog("Replace your 24 words?") === null)
+        expect(button("Replace my words")).toBeDefined()
+
+        await confirmIt()
+        await until(() => dialog("Your new 24 words") !== null)
+        expect(dialog("Your new 24 words")?.textContent).toContain(laptop.storage.kept!.words[0])
+        expect(idp.key?.generation).toBe(2)
+        expect(laptop.storage.rearchiveDue).toEqual({ generation: 2, cursor: null })
+    })
+
+    it("says so, and mints nothing, while a restore under the words held is still to apply", async () => {
+        const { idp, laptop, rows } = await account()
+        laptop.storage.restoreDue = { generation: 1, appliedAt: null }
+        wire(laptop, idp, rows)
+        await render()
+        await until(() => button("Replace my words") !== undefined)
+
+        await confirmIt()
+        await until(() => dialog("Replace your 24 words?")?.textContent?.includes("Your history is still being brought to this device.") === true)
+        expect(laptop.storage.pending).toBeNull()
+        expect(idp.key?.generation).toBe(1)
+    })
+
+    it("new words nobody went past — a reload before Continue — show again as the pane opens", async () => {
+        const { idp, laptop, rows } = await account()
+        await replaceWordsUseCase({ ...laptop.deps, cacheRead: () => true, applyRestored: async () => undefined })({
+            idpUrl: IDP,
+            accessToken: laptop.token,
+            actorUri: ACTOR,
+            tokenArrivedAt: Date.now(),
+        })
+        wire(laptop, idp, rows)
+        await render()
+
+        await until(() => dialog("Your new 24 words") !== null)
+        expect(dialog("Your new 24 words")?.textContent).toContain(laptop.storage.kept!.words[0])
+    })
+
+    it("no “Replace my words” on a device without the current words, nor with a key of its own waiting", async () => {
+        const { idp, laptop, rows } = await account()
+        const fresh = historyDevice(idp, "fresh", new MemoryHistoryStorage(), issuers.jwks)
+        await idp.session().linkDevice(IDP, fresh.token, fresh.storage.deviceId)
+        await fresh.e2ee.checkHistoryKey(IDP, fresh.token)
+        wire(fresh, idp, rows)
+        useAppStore.setState({ accessToken: fresh.token })
+        await render()
+        await until(() => restoreLink() !== undefined)
+        expect(button("Replace my words")).toBeUndefined()
+        await act(async () => root?.unmount())
+        root = null
+        container.remove()
+
+        await laptop.e2ee.mintHistoryKey(2)
+        wire(laptop, idp, rows)
+        useAppStore.setState({ accessToken: laptop.token })
+        await render()
+        await until(() => button("Clear history backup") !== undefined)
+        expect(button("Replace my words")).toBeUndefined()
     })
 })

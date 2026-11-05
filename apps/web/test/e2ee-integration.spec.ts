@@ -64,6 +64,7 @@ import type {
     RestoreDue,
 } from "@pinai/crypto/sealed-storage"
 import type { HistoryKeyStanding } from "@pinai/domain/models/history-key"
+import type { RearchiveDue } from "@pinai/domain/models/history-rearchive"
 import type { DeviceListEntry } from "@pinai/domain/models/device"
 import type { Admission } from "@pinai/domain/models/admission"
 import { oneAtATime } from "@pinai/domain/lib/one-at-a-time"
@@ -420,6 +421,16 @@ class InMemoryE2eeStorage implements E2eeStorage {
     }
     async clearRestoreDue(): Promise<void> {
         this.restoreDue = null
+    }
+    private rearchiveDue: RearchiveDue | null = null
+    async saveRearchiveDue(due: RearchiveDue): Promise<void> {
+        this.rearchiveDue = structuredClone(due)
+    }
+    async loadRearchiveDue(): Promise<RearchiveDue | null> {
+        return structuredClone(this.rearchiveDue)
+    }
+    async clearRearchiveDue(): Promise<void> {
+        this.rearchiveDue = null
     }
     private newWords: number | null = null
     async saveNewWordsGeneration(generation: number): Promise<void> {

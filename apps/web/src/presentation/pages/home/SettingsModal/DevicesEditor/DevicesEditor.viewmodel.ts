@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import type { SeatsView } from "@pinai/domain/models/approval-handshake"
 import { deviceListKey } from "@pinai/domain/models/device"
 import { approvedByWording, approverOf, historyHolders, holdsCurrentWords, holdsHistory } from "@pinai/domain/models/device-roster"
-import type { HistoryKeyStanding } from "@pinai/domain/models/history-key"
+import type { HistoryKeyStanding, PendingHistoryKey } from "@pinai/domain/models/history-key"
 import type { ApprovalAnswering } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
 import { clearHistoryBackupUseCase } from "@pinai/domain/usecases/e2ee/clear-history-backup.usecase"
 import { revokeDeviceUseCase } from "@pinai/domain/usecases/e2ee/revoke-device.usecase"
@@ -18,6 +18,7 @@ import { type RecentSignIn, useRecentSignIn } from "@/presentation/hooks/use-rec
 import { useAppStore } from "@/store/store"
 
 import { settingsHref } from "../SettingsModal.viewmodel"
+import { type ReplaceWordsViewModel, useReplaceWordsViewModel } from "./ReplaceWords/ReplaceWords.viewmodel"
 
 /** A device of the list, as its row says it. */
 export interface DeviceRowView {
@@ -50,6 +51,9 @@ export interface DevicesEditorViewModel {
     offersRestore: boolean | null
     isClearingHistoryBackup: boolean
     onClearHistoryBackup: () => Promise<void>
+    /** Only on a device holding the current words, no key of its own pending but a replacement's. */
+    offersReplace: boolean
+    replaceWords: ReplaceWordsViewModel
 
     revokingDeviceId: string | null
     onRevokeDevice: (deviceId: string) => Promise<void>
@@ -57,7 +61,7 @@ export interface DevicesEditorViewModel {
     isSigningOutOthers: boolean
     onSignOutOthers: () => Promise<void>
 
-    /** Revoking, signing the others out and clearing the backup take a recent password. */
+    /** Revoking, signing the others out, clearing the backup and replacing the words take a recent password. */
     recentSignIn: RecentSignIn
 }
 
@@ -86,7 +90,10 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
         answering?.refresh().catch(warnOf("reading the approval requests"))
     }, [answering, verdict])
 
-    const [held, setHeld] = useState<{ standing: HistoryKeyStanding; words: string[] | null } | null>(null)
+    const [held, setHeld] = useState<{ standing: HistoryKeyStanding; words: string[] | null; pending: PendingHistoryKey | null } | null>(
+        null,
+    )
+    const [heldRevision, setHeldRevision] = useState(0)
     const [isClearingHistoryBackup, setIsClearingHistoryBackup] = useState(false)
     const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null)
     const [isSigningOutOthers, setIsSigningOutOthers] = useState(false)
@@ -100,16 +107,22 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
             warnE2ee("reading the history passphrase", e)
             return null
         })
-        void Promise.all([port.historyKeyStanding(), words]).then(
-            ([standing, kept]) => {
-                if (!cancelled) setHeld({ standing, words: kept })
+        void Promise.all([port.historyKeyStanding(), words, port.pendingHistoryKey()]).then(
+            ([standing, kept, pending]) => {
+                if (!cancelled) setHeld({ standing, words: kept, pending })
             },
             warnOf("reading the history key's standing"),
         )
         return () => {
             cancelled = true
         }
-    }, [verdict, listKey])
+    }, [verdict, listKey, heldRevision])
+
+    const onReplaceSettled = useCallback(() => {
+        setHeldRevision((n) => n + 1)
+        if (idpUrl) void queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
+    }, [idpUrl, queryClient])
+    const replaceWords = useReplaceWordsViewModel(recentSignIn, onReplaceSettled)
 
     const holds = held ? holdsCurrentWords(held.standing) : null
     const thisDevice = rows?.find((d) => d.is_current)?.device_id ?? verdict?.thisDevice ?? null
@@ -191,6 +204,9 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
         passphraseWords: holds && held?.words ? held.words : null,
         heldBy: rows ? historyHolders(rows, verdict) : null,
         offersRestore: holds === null ? null : !holds,
+        // A replacement whose answer was lost is pressed again: its key is sent again, or kept.
+        offersReplace: holds === true && !!held?.words && (!held.pending || held.pending.rearchive === true),
+        replaceWords,
         isClearingHistoryBackup,
         onClearHistoryBackup,
         revokingDeviceId,

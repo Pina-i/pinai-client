@@ -79,6 +79,7 @@ import {
     type HistoryKeyStanding,
     type PendingHistoryKey,
 } from "@pinai/domain/models/history-key"
+import type { RearchiveDue, RearchiveEntry, RearchivePosition } from "@pinai/domain/models/history-rearchive"
 import { IdpError, isStaleHistoryKey } from "@pinai/domain/models/idp-error"
 import {
     shareCandidates,
@@ -87,8 +88,8 @@ import {
     type OutgoingKeyShare,
     type ShareRecipientRefusal,
 } from "@pinai/domain/models/key-share"
-import type { ApprovalHandshakeSession, IE2eePort } from "@pinai/domain/ports/e2ee.port"
-import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
+import type { ApprovalHandshakeSession, IE2eePort, SealedRearchive } from "@pinai/domain/ports/e2ee.port"
+import type { ArchiveEntry, IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
 import type { HpkeKeyPair, IHpkePort } from "@pinai/domain/ports/hpke.port"
 import type { IJwksCachePort } from "@pinai/domain/ports/jwks-cache.port"
 
@@ -591,6 +592,21 @@ export class E2eeAdapter implements IE2eePort {
         if (reset) this.stand({ kind: "reset-by-unapproved", generation: reset.generation, setByDevice: reset.setByDevice })
     }
 
+    async resetSetter(devices: readonly DeviceListEntry[]): Promise<{ deviceId: DeviceId; approved: boolean } | null> {
+        const reset = this.reset
+        if (!reset?.setByDevice || duplicateDeviceIds(devices.map((d) => d.device_id)).length > 0) return null
+        const listed = devices.flatMap((d) =>
+            d.drk_public_key && d.revoked_at === null ? [{ deviceId: d.device_id, rootKey: d.drk_public_key }] : [],
+        )
+        const thisDevice = await this.storage.getOrCreateDeviceId()
+        const pending = (await this.storage.loadPendingPassphrase())?.key.generation ?? null
+        const read = this.trustTurn.then(() => this.storage.loadDeviceTrust())
+        this.trustTurn = read.catch(() => undefined)
+        const { trust, unreadable } = await read
+        if (unreadable.includes("revoked")) return null
+        return { deviceId: reset.setByDevice, approved: !resetByUnapproved(reset, listed, trust, thisDevice, pending) }
+    }
+
     /** `trust` as it can still be acted on: not once this device holds another generation, or none. */
     private actingNow(trust: DeviceTrustVerdict | null): DeviceTrustVerdict | null {
         if (!trust?.acting) return trust
@@ -722,9 +738,9 @@ export class E2eeAdapter implements IE2eePort {
         this.flushAccessToken = null
     }
 
-    mintHistoryKey(generation: number): Promise<{ words: string[]; key: HistoryKey }> {
+    mintHistoryKey(generation: number, options: { rearchive?: boolean } = {}): Promise<{ words: string[]; key: HistoryKey }> {
         if (this.minted?.generation === generation) return this.minted.minting
-        const minted = { generation, minting: this.mint(generation) }
+        const minted = { generation, minting: this.mint(generation, options.rearchive === true) }
         this.minted = minted
         minted.minting.catch(() => {
             if (this.minted === minted) this.minted = null
@@ -732,33 +748,38 @@ export class E2eeAdapter implements IE2eePort {
         return minted.minting
     }
 
-    private async mint(generation: number): Promise<{ words: string[]; key: HistoryKey }> {
+    private async mint(generation: number, rearchive: boolean): Promise<{ words: string[]; key: HistoryKey }> {
+        const flag = rearchive ? { rearchive: true as const } : {}
         // Sealed already for this generation — a try whose answer was lost: the same words, written anew.
         const sealed = await this.storage.loadPendingPassphrase()
         if (sealed?.key.generation === generation) {
-            await this.inPassphraseTurn(() => this.storage.savePendingPassphrase({ ...sealed, mintedAt: Date.now() }))
+            const { words, key, hak } = sealed
+            await this.inPassphraseTurn(() => this.storage.savePendingPassphrase({ words, key, hak, mintedAt: Date.now(), ...flag }))
             return { words: sealed.words, key: sealed.key }
         }
         const words = generateMnemonic(wordlist, 256).split(" ")
         const salt = crypto.getRandomValues(new Uint8Array(HISTORY_SALT_BYTES))
         const hak = await this.hakFor(words, salt)
         const key = { generation, salt, ...this.sealer().derive(hak) }
-        await this.inPassphraseTurn(() => this.storage.savePendingPassphrase({ words, key, hak, mintedAt: Date.now() }))
+        await this.inPassphraseTurn(() => this.storage.savePendingPassphrase({ words, key, hak, mintedAt: Date.now(), ...flag }))
         return { words, key }
     }
 
     async pendingHistoryKey(): Promise<PendingHistoryKey | null> {
         const pending = await this.storage.loadPendingPassphrase()
-        return pending && { ...pending.key, mintedAt: pending.mintedAt }
+        return pending && { ...pending.key, mintedAt: pending.mintedAt, ...(pending.rearchive ? { rearchive: true as const } : {}) }
     }
 
-    promotePendingHistoryKey(options: { show?: boolean } = {}): Promise<void> {
+    promotePendingHistoryKey(options: { show?: boolean; rearchive?: boolean } = {}): Promise<void> {
         return this.inPassphraseTurn(async () => {
             const before = await this.storage.loadKeptPassphrase()
             const pending = await this.storage.loadPendingPassphrase()
             if (!pending) return
-            // Marked before keeping: words kept unmarked would never be shown again.
+            // Marked before keeping: words kept unmarked would never be shown again, nor archived under.
             if (options.show) await this.storage.saveNewWordsGeneration(pending.key.generation)
+            if (options.rearchive || pending.rearchive) {
+                await this.storage.saveRearchiveDue({ generation: pending.key.generation, cursor: null })
+            }
             await this.keepUnderTurn(pending.words, pending.key, pending.hak, before)
             await this.storage.clearPendingPassphrase()
         })
@@ -774,6 +795,9 @@ export class E2eeAdapter implements IE2eePort {
             if (pending) this.derivations.delete(derivationId(pending.words, pending.key.salt))
             if (pending && (await this.storage.loadNewWordsGeneration()) === pending.key.generation) {
                 await this.storage.clearNewWordsGeneration()
+            }
+            if (pending && (await this.storage.loadRearchiveDue())?.generation === pending.key.generation) {
+                await this.storage.clearRearchiveDue()
             }
             await this.storage.clearPendingPassphrase()
         })
@@ -935,7 +959,7 @@ export class E2eeAdapter implements IE2eePort {
                 }
                 const envelope = decodeArchiveEnvelope(new TextDecoder().decode(plain))
                 if (envelope) {
-                    entries.push({ conversationId: entry.conversation_id, id: entry.id, envelope })
+                    entries.push({ conversationId: entry.conversation_id, id: entry.id, envelope, archivedAt: entry.created_at })
                 }
             }
             cursor = page.next_cursor
@@ -1077,15 +1101,60 @@ export class E2eeAdapter implements IE2eePort {
         held: HeldKey,
         batch: Array<{ conversationId: ConversationId; entryId: string; plaintext: Uint8Array }>,
     ): Promise<void> {
+        await this.archive().uploadBatch(idpUrl, accessToken, held.generation, await this.sealEntries(held, batch))
+    }
+
+    private sealEntries(
+        held: HeldKey,
+        batch: Array<{ conversationId: ConversationId; entryId: string; plaintext: Uint8Array }>,
+    ): Promise<ArchiveEntry[]> {
         const sealer = this.sealer()
-        const entries = await Promise.all(
+        return Promise.all(
             batch.map(async (e) => {
                 const aad = archiveEntryAad(e.conversationId, e.entryId)
                 const { ciphertext, nonce } = await sealer.encrypt(held.hak, e.plaintext, aad)
                 return { id: e.entryId, conversation_id: e.conversationId, ciphertext, nonce }
             }),
         )
-        await this.archive().uploadBatch(idpUrl, accessToken, held.generation, entries)
+    }
+
+    // ─── The re-archive after a replacement of the words ──────────────
+
+    historyRearchiveDue(): Promise<RearchiveDue | null> {
+        return this.storage.loadRearchiveDue()
+    }
+
+    // In the passphrase rows' turn: a replacement's new row is never written over by an older run.
+    advanceHistoryRearchive(generation: number, cursor: RearchivePosition): Promise<void> {
+        return this.inPassphraseTurn(async () => {
+            if ((await this.storage.loadRearchiveDue())?.generation === generation) await this.storage.saveRearchiveDue({ generation, cursor })
+        })
+    }
+
+    historyRearchived(generation: number): Promise<void> {
+        return this.inPassphraseTurn(async () => {
+            if ((await this.storage.loadRearchiveDue())?.generation === generation) await this.storage.clearRearchiveDue()
+        })
+    }
+
+    async sealForRearchive(generation: number, entries: readonly RearchiveEntry[]): Promise<SealedRearchive | null> {
+        const held = this.holding.key
+        if (this.holding.standing.kind !== "holds" || !held || held.generation !== generation) return null
+        const sealer = this.sealer()
+        const batch = entries.map((e) => ({
+            conversationId: e.conversationId,
+            entryId: typeof e.id === "string" ? e.id : sealer.reactionSnapshotId(held.hak, e.conversationId, e.id.reactionsOf),
+            plaintext: new TextEncoder().encode(encodeArchiveEnvelope(e.envelope)),
+        }))
+        const ids = new Set(batch.map((e) => e.entryId))
+        // The flusher would seal its copies under this very key: this batch stands for them.
+        this.archiveBuffer = this.archiveBuffer.filter((e) => !ids.has(e.entryId))
+        for (const id of ids) this.archivedIds.add(id)
+        return { generation, entries: await this.sealEntries(held, batch) }
+    }
+
+    async uploadRearchive(idpUrl: string, accessToken: string, sealed: SealedRearchive): Promise<void> {
+        await this.archive().uploadBatch(idpUrl, accessToken, sealed.generation, sealed.entries)
     }
 
     /**
@@ -1878,21 +1947,25 @@ export class E2eeAdapter implements IE2eePort {
         return opened
     }
 
-    async markHistoryRestoreDue(generation: number): Promise<void> {
-        await this.storage.saveRestoreDue({ generation, appliedAt: null })
+    markHistoryRestoreDue(generation: number): Promise<void> {
+        return this.inPassphraseTurn(() => this.storage.saveRestoreDue({ generation, appliedAt: null }))
     }
 
     historyRestoreDue(): Promise<RestoreDue | null> {
         return this.storage.loadRestoreDue()
     }
 
-    async historyRestoreApplied(generation: number): Promise<void> {
-        if ((await this.storage.loadRestoreDue())?.generation !== generation) return
-        await this.storage.saveRestoreDue({ generation, appliedAt: new Date().toISOString() })
+    historyRestoreApplied(generation: number): Promise<void> {
+        return this.inPassphraseTurn(async () => {
+            if ((await this.storage.loadRestoreDue())?.generation !== generation) return
+            await this.storage.saveRestoreDue({ generation, appliedAt: new Date().toISOString() })
+        })
     }
 
-    async historyRestored(generation: number): Promise<void> {
-        if ((await this.storage.loadRestoreDue())?.generation === generation) await this.storage.clearRestoreDue()
+    historyRestored(generation: number): Promise<void> {
+        return this.inPassphraseTurn(async () => {
+            if ((await this.storage.loadRestoreDue())?.generation === generation) await this.storage.clearRestoreDue()
+        })
     }
 
     async pruneGroup(

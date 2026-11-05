@@ -223,6 +223,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   is a lie this device caught: no partner overrides it. Out too from a list naming an id
   twice. A non-holding device's best judgement: the acting devices verify chains
   themselves before adding or sharing. `needsPartners` — the list is read only then.
+- `replacedOn(standing, setter, devices)` — the reset page after a newer generation: the setter's
+  label when this device found it approved (`IE2eePort.resetSetter`), else `null` ("another device").
 - `decideGateRoute` — a pending key or `no-key` → `setup` (`pendingKeyRoute`, the first rule alone,
   for a page outside the gate); in → `app`; out with a
   `mismatch` → `reset`, else `new-device`. `routeRechecks` — a route change re-checks
@@ -644,6 +646,21 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   best effort — reported, never thrown; the page-load check, the tick and the fanout redo them —, and
   `started-over` with the words. `key-changed` when another generation lands before the approval
   (the words no longer to show).
+- `start-over.usecase.ts` exports its pieces for the replacement: `unseenNewWords`, `setNewGeneration`
+  (`rearchive` mints the words for a re-archive and promotes them so; `over`, the generation they
+  replace — another in force by then, read in the pending key's turn, is a `conflict`, the pending key
+  erased), `finishNewGeneration`.
+- `replace-words.usecase.ts` — "Replace my words" (Settings → Devices), `WordsReplacement`:
+  - new words not gone past answered again;
+  - a pending key a replacement minted, in force (its answer was lost): kept and shown, no password,
+    nothing brought; any other pending key, or a standing not `holds` (checked fresh): `not-acting`;
+  - `restore-due` (a restore under the generation held not applied yet), `cache-unread`
+    (`cacheRead`), then `recent-sign-in`, all before anything is minted;
+  - the archive brought onto this device first (`restoreHistory`, `restoredMessages`, the injected
+    `applyRestored` — the restore's own apply): failing, `restore-failed`, nothing minted;
+  - then the start over's flow with `{ rearchive: true, over }`: the archive erased by the `PUT`, the
+    words kept, shown, approved, reported, shared — `replaced`. A conflict or `401` erases the pending
+    key, its mark with it; a re-archive still due from before stays.
 - `check-history-key.usecase.ts` — the pending key settled, then the standing; holding the key
   unsettled, the approval made. `start-this-device.usecase.ts` — what a page load runs: the naming,
   then that check.
@@ -708,6 +725,39 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   included.
 - `ARCHIVE_UPLOAD_LIMIT` — the IdP takes 50 entries per upload;
   `ARCHIVE_BUFFER_LIMIT` — at most 1000 wait on a device, the oldest dropped.
+- `edited` on an envelope — a text archived as last edited, no edit entry beside it (a
+  re-archive's); `archivedText(…, edited)`, `restoredMessages` keeps the mark.
+- A reaction snapshot (`reaction-snapshot`, `archivedReactionSnapshot`): a re-archive's count of one
+  message's reactions, `{ target_message_id, as_of, reactions: [{ emoji, count, reacted }] }`,
+  `reacted` the user's own; `as_of`, the sealing device's clock, is for information only.
+  `restoredMessages` dates a snapshot by its archive row's `created_at` (`ArchivedEntry.archivedAt`,
+  the IdP's clock, as the named reactions' dates are; the latest row wins) and gives its message a
+  `reactionSnapshot`: the counts as the base, the named reactions dated after the row (`since`,
+  oldest first) applied on top, those at or before it `counted` (their ids recorded only). A snapshot
+  without a row date is left out. `snapshotsToReplay` — on the held-copy rule. A reaction made before
+  the row but not counted in the snapshot (it reached the cache late, or after the run read it) is missed.
+
+### models/history-rearchive.ts + usecases/e2ee/rearchive-history.usecase.ts
+- The archive re-made from this device's cache after a replacement of the words, one conversation
+  at a time, never the whole plan. `rearchiveConversations` — by id; `conversationEntries(id,
+  messages, me, asOf)` — `CachedMessage` (the web `Message`'s shape), messages by instant then id,
+  each a text entry (its latest text, `edited`, attachments' keys, reply) then, with reactions, one
+  snapshot under `{ reactionsOf }`: its id keyed by the history key, the engine's. Left out:
+  `undecrypted`, `UNDECRYPTABLE_TEXT` (`models/dm.ts`), `failed` / `sending`, no `authorAddress`, a
+  message id met twice in a conversation.
+- `RearchivePosition` / the cursor — the last entry the IdP took (part 0 the text, 1 the snapshot);
+  `remainingAfter`, `rearchiveProgress` (messages, counted without building an entry),
+  `rearchiveBatches` (one conversation, 50 at most: a `403` refuses a batch whole). `dueRearchive` —
+  the restore's rule. `rearchiveRefusal` — `retry` (no answer, `5xx`, `429`, `408`;
+  `REARCHIVE_RETRY_DELAYS_MS`), `stale`, `skip` (another `4xx`), `stop` (a `401`, the rest).
+  `REARCHIVE_PACE_MS` between batches. `parseRearchiveDue` — the row.
+- `HistoryRearchive` — one run at a time, under the injected `lock` across tabs (the cursor never
+  goes back), once per page load and generation: marked tried only once the cache was read back,
+  and a run that ran out of tries on no answer left untried for a later call (a reconnect). Each
+  batch sealed once (`sealForRearchive`) and sent until taken (`uploadRearchive`; the IdP keeps the
+  first upload of an id), the cursor kept after each; a skipped batch counted; `stale` or a key not
+  held reads the key again — still held, the batch once more; a later generation `abandoned`, the
+  row dropped; signed out, `signed-out`, untried; anything else `failed`, the row kept.
 
 ### models/idp-error.ts
 - `IdpError` — a refusal as the IdP sent it: status, `error` code, the

@@ -15,6 +15,7 @@ import {
     type HistoryKey,
     type HistoryKeyStanding,
 } from "@pinai/domain/models/history-key"
+import { parseRearchiveDue, type RearchiveDue } from "@pinai/domain/models/history-rearchive"
 import type { IDeviceKeyPort, SealedBytes } from "@pinai/domain/ports/device-key.port"
 import type { IKeyValueStore } from "@pinai/domain/ports/key-value-store.port"
 
@@ -45,13 +46,15 @@ const DEVICE_ATTESTATION = "device_attestation"
 const CURRENT = "current"
 /**
  * Beside the kept words: the words minted but not yet taken by the IdP, the last standing and
- * admission, the newest generation seen, the generation an archive restore is due under.
+ * admission, the newest generation seen, the generation an archive restore is due under, and the
+ * re-archive after a replacement of the words with how far it got.
  */
 const PENDING = "pending"
 const STANDING = "standing"
 const ADMISSION = "admission"
 const NEWEST_GENERATION = "newest_generation"
 const RESTORE_DUE = "restore_due"
+const REARCHIVE_DUE = "rearchive_due"
 /** The generation whose words a start over set and the user hasn't been shown past yet. */
 const NEW_WORDS = "new_words"
 /**
@@ -154,6 +157,8 @@ export interface PendingPassphrase {
     hak: Uint8Array
     /** When the row was written (ms since the epoch), `null` in a row from before it was recorded. */
     mintedAt: number | null
+    /** Minted to replace words this device holds: its promotion marks the re-archive due. */
+    rearchive?: true
 }
 
 /** The archive's restore due under `generation`, and when it was last applied (`null` before). */
@@ -198,6 +203,9 @@ export interface E2eeStorage {
     saveRestoreDue(due: RestoreDue): Promise<void>
     loadRestoreDue(): Promise<RestoreDue | null>
     clearRestoreDue(): Promise<void>
+    saveRearchiveDue(due: RearchiveDue): Promise<void>
+    loadRearchiveDue(): Promise<RearchiveDue | null>
+    clearRearchiveDue(): Promise<void>
     saveNewWordsGeneration(generation: number): Promise<void>
     loadNewWordsGeneration(): Promise<number | null>
     clearNewWordsGeneration(): Promise<void>
@@ -354,6 +362,18 @@ export class SealedStorage implements E2eeStorage {
         await this.kv.delete(RECOVERY_PASSPHRASE, RESTORE_DUE)
     }
 
+    async saveRearchiveDue(due: RearchiveDue): Promise<void> {
+        await this.seal(RECOVERY_PASSPHRASE, due, REARCHIVE_DUE)
+    }
+
+    async loadRearchiveDue(): Promise<RearchiveDue | null> {
+        return this.openOrSetAside(RECOVERY_PASSPHRASE, REARCHIVE_DUE, parseRearchiveDue)
+    }
+
+    async clearRearchiveDue(): Promise<void> {
+        await this.kv.delete(RECOVERY_PASSPHRASE, REARCHIVE_DUE)
+    }
+
     async saveNewWordsGeneration(generation: number): Promise<void> {
         await this.seal(RECOVERY_PASSPHRASE, { generation }, NEW_WORDS)
     }
@@ -492,6 +512,7 @@ function pendingToJson(pending: PendingPassphrase): object {
         approval_public_key: Array.from(pending.key.approvalPublicKey),
         hak: Array.from(pending.hak),
         minted_at: pending.mintedAt,
+        ...(pending.rearchive ? { rearchive: true } : {}),
     }
 }
 
@@ -505,7 +526,8 @@ function pendingFromJson(value: unknown): PendingPassphrase | null {
     const mintedAt = value.minted_at ?? null
     if (!words || !isGeneration(value.generation) || !salt || !checkValue || !approvalPublicKey || !hak) return null
     if (mintedAt !== null && !Number.isFinite(mintedAt)) return null
-    return { words, key: { generation: value.generation, salt, checkValue, approvalPublicKey }, hak, mintedAt: mintedAt as number | null }
+    const key = { generation: value.generation, salt, checkValue, approvalPublicKey }
+    return { words, key, hak, mintedAt: mintedAt as number | null, ...(value.rearchive === true ? { rearchive: true as const } : {}) }
 }
 
 function knownDeviceToJson(device: KnownDevice): object {

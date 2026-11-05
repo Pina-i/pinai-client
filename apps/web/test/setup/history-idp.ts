@@ -10,6 +10,7 @@ import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
 import type { DeviceAttestation, E2eeStorage, KeptPassphrase, MlsSnapshot, PendingPassphrase, RestoreDue } from "@pinai/crypto/sealed-storage"
 import { MlsAdapter } from "@pinai/mls/wasm.adapter"
 import type { Admission } from "@pinai/domain/models/admission"
+import type { RearchiveDue } from "@pinai/domain/models/history-rearchive"
 import { emptyDeviceTrust, withTrust, type DeviceTrust, type DeviceTrustRow } from "@pinai/domain/models/device-trust"
 import type { ActorUri, DeviceId, IdentityKeypair, KeyPackageStatusResponse } from "@pinai/domain/models/e2ee"
 import {
@@ -192,6 +193,7 @@ export class MemoryHistoryStorage {
     admission: Admission | null = null
     newest: number | null = null
     restoreDue: RestoreDue | null = null
+    rearchiveDue: RearchiveDue | null = null
     newWords: number | null = null
     trust: DeviceTrust = emptyDeviceTrust()
     /** Trust rows the next read finds unreadable, as a sealed row that won't open. */
@@ -259,6 +261,13 @@ export class MemoryHistoryStorage {
             loadRestoreDue: async () => this.restoreDue && { ...this.restoreDue },
             clearRestoreDue: async () => {
                 this.restoreDue = null
+            },
+            saveRearchiveDue: async (due: RearchiveDue) => {
+                this.rearchiveDue = structuredClone(due)
+            },
+            loadRearchiveDue: async () => structuredClone(this.rearchiveDue),
+            clearRearchiveDue: async () => {
+                this.rearchiveDue = null
             },
             saveNewWordsGeneration: async (generation: number) => {
                 this.newWords = generation

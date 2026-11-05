@@ -34,12 +34,20 @@ interface StartOverPanelProps extends StartOverPanelInput {
     reason: StartOverReason
     /** The device is set up and not approved by a code meanwhile: the flow can run. */
     ready: boolean
+    /** "It wasn't me" after a device of the user's replaced the words: that device, by its label. */
+    replacedOn?: string | null
 }
 
 /** The warning, then "Erase and start over" (`identity-provider/specs/e2ee.md § 6.11`). */
-export function StartOverPanel({ reason, ready, ...input }: StartOverPanelProps) {
+export function StartOverPanel({ reason, ready, replacedOn = null, ...input }: StartOverPanelProps) {
     const vm = useStartOverPanelViewModel(input)
-    const copy = COPY[reason]
+    const copy =
+        reason === "not-me" && replacedOn
+            ? {
+                  ...COPY["not-me"],
+                  body: `Then someone else replaced your words on ${replacedOn}: it won't be approved, and you can revoke it from another device. This device gets a new passphrase and becomes your reference instead. ${STAYS}`,
+              }
+            : COPY[reason]
 
     return (
         <section aria-label="Start over" className="px-[34px] py-[30px] max-[440px]:px-5">

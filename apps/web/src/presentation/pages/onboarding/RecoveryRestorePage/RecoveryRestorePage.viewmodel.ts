@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useNavigate, useRouter } from "@tanstack/react-router"
 import { toast } from "sonner"
 
-import { resetCause, type ResetCause } from "@pinai/domain/models/admission"
+import { replacedOn, resetCause, type ResetCause } from "@pinai/domain/models/admission"
 import { logoutUseCase } from "@pinai/domain/usecases/auth/logout.usecase"
 import { AwaitedShare, type AwaitedShareState } from "@pinai/domain/usecases/e2ee/accept-history-share.usecase"
 import { checkAdmissionUseCase } from "@pinai/domain/usecases/e2ee/check-admission.usecase"
 import { gateThisDeviceUseCase, pendingKeyRoute } from "@pinai/domain/usecases/e2ee/gate-this-device.usecase"
 import { restoreHistoryFromPassphraseUseCase } from "@pinai/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
 import { setUpThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/set-up-this-device.usecase"
-import { getAuthPlatform, getE2eePort, getHistoryArchivePort, getKeySharePort, getSessionPort } from "@/ioc"
+import { getAuthPlatform, getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getKeySharePort, getSessionPort } from "@/ioc"
 import { acceptWaitingShare } from "@/presentation/_libs/accept-share"
 import { admissionDeps } from "@/presentation/_libs/admission-deps"
 import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
@@ -44,6 +44,8 @@ export interface RecoveryRestoreViewModel {
     isIn: boolean
     /** What the reset page says happened; `null` until known. */
     resetCause: ResetCause | null
+    /** On the reset page: the device this one found approved that replaced the words, by its label; `null` for any other. */
+    replacedOn: string | null
     /**
      * Another device's code and the 24 words can let this device in: never on a reset no start over
      * explains — no device holds the key the instance put in, and the old words are refused.
@@ -122,7 +124,8 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
     const [status, setStatus] = useState<RestoreStatus>("initializing")
     const [deviceReady, setDeviceReady] = useState(false)
     const [isIn, setIsIn] = useState(false)
-    const [cause, setCause] = useState<ResetCause | null>(null)
+    // Set together: a newer generation's title waits for its setter, so it never changes under the user's eyes.
+    const [reset, setReset] = useState<{ cause: ResetCause | null; replacedOn: string | null }>({ cause: null, replacedOn: null })
     const [tab, setTab] = useState<RestoreTab>(askedTab ?? "device")
     const [startOverShown, showStartOver] = useState(askedTab === "start-over")
     const [startingOver, setStartingOver] = useState(false)
@@ -152,10 +155,11 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
         if (!idpUrl || !accessToken || !ownActorUri) return
         const e2eePort = getE2eePort()
         let cancelled = false
-        // The gate recorded the standing it sent the device here on: the page says why at once.
+        // The gate recorded the standing it sent the device here on: an unknown change is said at once.
         void e2eePort.historyKeyStanding().then(
             (standing) => {
-                if (!cancelled) setCause((known) => known ?? resetCause(standing))
+                if (cancelled || resetCause(standing) !== "unknown-change") return
+                setReset((known) => (known.cause ? known : { cause: "unknown-change", replacedOn: null }))
             },
             () => undefined,
         )
@@ -182,8 +186,18 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
                     return
                 }
                 setIsIn(admission.kind === "in")
-                setCause(resetCause(standing))
                 setLacksWords(standing.kind !== "holds")
+                const cause = resetCause(standing)
+                let setterLabel: string | null = null
+                if (variant === "reset" && cause === "newer-generation") {
+                    try {
+                        const { devices } = await getDeviceDirectoryPort().listDevices(idpUrl, accessToken)
+                        setterLabel = replacedOn(standing, await e2eePort.resetSetter(devices), devices)
+                    } catch (e) {
+                        warnE2ee("reading who replaced the words", e)
+                    }
+                }
+                if (!cancelled) setReset({ cause, replacedOn: setterLabel })
             } catch (e) {
                 // eslint-disable-next-line no-console
                 console.warn("Reading whether this device is in failed:", e)
@@ -350,8 +364,9 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
         status,
         deviceReady,
         isIn,
-        resetCause: variant === "reset" ? cause : null,
-        offersWayIn: variant === "new-device" || cause === "newer-generation",
+        resetCause: variant === "reset" ? reset.cause : null,
+        replacedOn: variant === "reset" ? reset.replacedOn : null,
+        offersWayIn: variant === "new-device" || reset.cause === "newer-generation",
         instance: instanceHost(idpUrl),
         offersStartOver,
         deviceLabel,

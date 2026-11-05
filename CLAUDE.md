@@ -325,10 +325,11 @@ for a known IdP.
    hook doesn't renew for it): `useRecentSignIn` tells the user, then `startLoginUseCase` with
    `{ reauthenticate: true, returnTo }` sends `prompt=login`, and the callback comes back where
    they were — Settings reopens on its section through `?settings=<section>`. They do it again;
-   nothing is replayed. "← Another home" comes back there too, still signed in. Every start over
-   asks it before anything is minted: the password's age is read on the IdP's clock first
-   (`signedInRecently`: `iat − auth_time` plus the time since the token arrived, 9 minutes), and
-   the page comes back on its tab (`?tab=start-over`)
+   nothing is replayed. "← Another home" comes back there too, still signed in. Every start over,
+   and every "Replace my words", asks it before anything is minted: the password's age is read on
+   the IdP's clock first (`signedInRecently`: `iat − auth_time` plus the time since the token
+   arrived, 9 minutes), and the page comes back on its tab (`?tab=start-over`) or pane
+   (`?settings=devices`)
 13. **Arriving with `/?instance=<domain>`** — where the IdP sends people after an invitation's
    sign-up (its browser session open, the web app already consented to) and from a reset link's
    last page. The landing's `beforeLoad` decides, at every location (`instanceArrival` in
