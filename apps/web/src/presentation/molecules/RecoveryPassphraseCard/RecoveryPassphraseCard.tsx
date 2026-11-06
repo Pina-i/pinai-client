@@ -2,6 +2,7 @@ import { useState, type Ref } from "react"
 import { AlertTriangle, Check, Copy, Eye, EyeOff, KeyRound, Trash2 } from "lucide-react"
 
 import { cn } from "@/presentation/_libs/utils"
+import { WithheldNote } from "@/presentation/molecules/WithheldNote/WithheldNote"
 
 const cardClass = cn(
     "rounded-[14px] border px-3.5 pb-3 pt-3.5",
@@ -24,6 +25,8 @@ interface RecoveryPassphraseCardProps {
     onClear: () => void
     /** True while the clear request is in flight. */
     isClearing?: boolean
+    /** Why "Clear history backup" isn't offered, in its place. */
+    clearWithheld?: string | null
     /** New words in place of these, the history saved again from this device; the action shows only when given. */
     onReplace?: () => void
     /** Where the focus comes back once the new words are gone past. */
@@ -31,7 +34,15 @@ interface RecoveryPassphraseCardProps {
 }
 
 /** Settings → Devices' card, on a device holding the current passphrase: blurred until shown; clearing erases the saved entries only. */
-export function RecoveryPassphraseCard({ words, heldBy, onClear, isClearing, onReplace, replaceRef }: RecoveryPassphraseCardProps) {
+export function RecoveryPassphraseCard({
+    words,
+    heldBy,
+    onClear,
+    isClearing,
+    clearWithheld = null,
+    onReplace,
+    replaceRef,
+}: RecoveryPassphraseCardProps) {
     const [revealed, setRevealed] = useState(false)
     const [copied, setCopied] = useState(false)
     const [confirmClear, setConfirmClear] = useState(false)
@@ -169,21 +180,24 @@ export function RecoveryPassphraseCard({ words, heldBy, onClear, isClearing, onR
                         Replace my words
                     </button>
                 )}
-                <button
-                    type="button"
-                    onClick={handleClear}
-                    disabled={isClearing}
-                    className={cn(
-                        actionClass,
-                        confirmClear
-                            ? "border-dnd bg-dnd text-background hover:opacity-90"
-                            : "border-line2 bg-transparent text-muted-foreground hover:text-dnd-ink",
-                    )}
-                >
-                    <Trash2 className="h-3 w-3" />
-                    {isClearing ? "Clearing…" : confirmClear ? "Confirm clear" : "Clear history backup"}
-                </button>
+                {!clearWithheld && (
+                    <button
+                        type="button"
+                        onClick={handleClear}
+                        disabled={isClearing}
+                        className={cn(
+                            actionClass,
+                            confirmClear
+                                ? "border-dnd bg-dnd text-background hover:opacity-90"
+                                : "border-line2 bg-transparent text-muted-foreground hover:text-dnd-ink",
+                        )}
+                    >
+                        <Trash2 className="h-3 w-3" />
+                        {isClearing ? "Clearing…" : confirmClear ? "Confirm clear" : "Clear history backup"}
+                    </button>
+                )}
             </div>
+            {clearWithheld && <WithheldNote className="mt-2">{clearWithheld}</WithheldNote>}
 
             <div
                 className={cn(

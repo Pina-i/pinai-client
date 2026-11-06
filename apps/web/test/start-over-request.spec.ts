@@ -12,7 +12,7 @@ import { HistoryArchiveApiAdapter } from "@pinai/api/e2ee/history-archive-api.ad
 import { StartOverApiAdapter } from "@pinai/api/e2ee/start-over-api.adapter"
 import { bytesToBase64 } from "@pinai/domain/lib/bytes"
 import { approvedHere, mayTurnOnSecondFactor, type Admission } from "@pinai/domain/models/admission"
-import { revokeWithheld } from "@pinai/domain/models/device-roster"
+import { notCountedApproved, revokeWithheld } from "@pinai/domain/models/device-roster"
 import { IdpError, isApprovalRequired, isDeviceProofInvalid } from "@pinai/domain/models/idp-error"
 import { passwordChange } from "@pinai/domain/models/instance-admin"
 import { clockLeadOf } from "@pinai/domain/models/auth"
@@ -128,6 +128,15 @@ describe("the prompt on an approved device", () => {
         expect(revokeWithheld(new Set([THEM, ME]), ME, { device_id: THEM })).toBe(false)
         expect(revokeWithheld(null, ME, { device_id: THEM })).toBe(false)
         expect(revokeWithheld(new Set([THEM]), null, { device_id: THEM })).toBe(false)
+    })
+
+    it("withholds clearing the backup and signing the others out on a device the instance doesn't count approved, only under a key", () => {
+        expect(notCountedApproved(new Set([THEM]), ME)).toBe(true)
+        expect(notCountedApproved(new Set(), ME)).toBe(true)
+        expect(notCountedApproved(new Set([THEM, ME]), ME)).toBe(false)
+        // No key in force or the count not read yet (a `null` count), or this device not known: nothing withheld.
+        expect(notCountedApproved(null, ME)).toBe(false)
+        expect(notCountedApproved(new Set([THEM]), null)).toBe(false)
     })
 
     it("words the password change by the instance's mode", () => {
@@ -301,6 +310,17 @@ describe("the routes", () => {
         const key = { generation: 2, salt: new Uint8Array(16), checkValue: new Uint8Array(32), approvalPublicKey: new Uint8Array(32) }
         const refused = await new HistoryArchiveApiAdapter().setKey(IDP, "tok", key).catch((e: unknown) => e)
         expect([(refused as IdpError).code, (refused as IdpError).readyAt]).toEqual(["start_over_not_ready", Date.UTC(2026, 10, 16, 10)])
+    })
+
+    it("tells clearing the backup and signing the others out refused for approval by its code", async () => {
+        let fetch = answering(403, refusal("approval_required"))
+        expect(isApprovalRequired(await new HistoryArchiveApiAdapter().wipeArchive(IDP, "tok").catch((e: unknown) => e))).toBe(true)
+        expect(requested(fetch)).toEqual(["DELETE", "/api/history/messages", "Bearer tok"])
+
+        fetch = answering(403, refusal("approval_required"))
+        expect(isApprovalRequired(await new SessionApiAdapter().signOutOtherDevices(IDP, "tok").catch((e: unknown) => e))).toBe(true)
+        expect(requested(fetch)).toEqual(["DELETE", "/api/sessions", "Bearer tok"])
+        expect(new URL((fetch.mock.calls[0][0] as Request).url).search).toBe("?keep=current")
     })
 })
 

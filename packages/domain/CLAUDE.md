@@ -226,10 +226,11 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   toast; the new words' screen names the same (`devices-from-before.usecase.ts`).
   `refusedDevice` — the device the user refused: it waits, counted, "not yours", no code (the
   Door's `answerableRequests` leaves it out too).
-  `revokeWithheld` — "Revoke" withheld on a device the instance counts approved while it doesn't
-  count this one (`IE2eePort.approvedAsTheInstanceCounts`: the approval rule over approvals
-  verified under the stored approval key — what the instance refuses, never trust); unknown,
-  nothing.
+  `notCountedApproved` — the instance doesn't count this device approved under its key in force
+  (`IE2eePort.approvedAsTheInstanceCounts`: the approval rule over approvals verified under the
+  stored approval key — what the instance refuses, never trust): "Clear history backup" and "Sign
+  out other devices" withheld; no key, or unknown, nothing. `revokeWithheld` — the same, and
+  "Revoke" withheld only on a device the instance counts approved.
   `holdsCurrentWords` (the words shown, else "Restore history"); `holdsHistory` /
   `historyHolders` — on an acting verdict, a device it approves that says it holds its
   generation. `approverOf` — over the root key listed now; `approvedByWording` — "this
@@ -847,8 +848,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   device's generation set first.
 - `isDeviceProofInvalid` — a naming proof refused; `isApprovalRequired` — only an approved device
   does that (revoke an approved device, turn the second factor on, read or end another device's
-  start over request); `START_OVER_REQUIRED` / `START_OVER_NOT_READY`, the latter's date in
-  `IdpError.readyAt` (`@pinai/api` reads the body's `ready_at`).
+  start over request, clear the history backup or sign the other devices out once there is a
+  key); `START_OVER_REQUIRED` / `START_OVER_NOT_READY`, the latter's date in `IdpError.readyAt`
+  (`@pinai/api` reads the body's `ready_at`).
 - `isUnreachable` — no answer (a failed fetch is a `TypeError`, a `TimeoutError`) or a `5xx`;
   a refusal or a nonsensical answer is not. Only it falls back to what was recorded.
 

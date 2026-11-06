@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router"
 
 import { RecentSignInModal } from "@/presentation/molecules/RecentSignInModal/RecentSignInModal"
 import { RecoveryPassphraseCard } from "@/presentation/molecules/RecoveryPassphraseCard/RecoveryPassphraseCard"
+import { WithheldNote } from "@/presentation/molecules/WithheldNote/WithheldNote"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { cn } from "@/presentation/_libs/utils"
 
@@ -48,21 +49,24 @@ export function DevicesEditor() {
                             These are the places you're signed in to Pīna'i. Only approved devices read your conversations
                             and hold your history; sign out anything that isn't you.
                         </p>
+                        {vm.signOutOthersWithheld && <WithheldNote className="mt-1.5 max-w-[380px]">{vm.signOutOthersWithheld}</WithheldNote>}
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={() => void vm.onSignOutOthers()}
-                            disabled={vm.isSigningOutOthers}
-                            className={cn(
-                                actionPill,
-                                "cursor-pointer border-line2 bg-transparent text-foreground hover:bg-surf2",
-                                "disabled:cursor-not-allowed disabled:opacity-50",
-                            )}
-                        >
-                            <LogOut className="h-3 w-3" strokeWidth={2} />
-                            {vm.isSigningOutOthers ? "Signing out…" : "Sign out other devices"}
-                        </button>
+                        {!vm.signOutOthersWithheld && (
+                            <button
+                                type="button"
+                                onClick={() => void vm.onSignOutOthers()}
+                                disabled={vm.isSigningOutOthers}
+                                className={cn(
+                                    actionPill,
+                                    "cursor-pointer border-line2 bg-transparent text-foreground hover:bg-surf2",
+                                    "disabled:cursor-not-allowed disabled:opacity-50",
+                                )}
+                            >
+                                <LogOut className="h-3 w-3" strokeWidth={2} />
+                                {vm.isSigningOutOthers ? "Signing out…" : "Sign out other devices"}
+                            </button>
+                        )}
                         {vm.offersRestore && (
                             <Link
                                 to="/onboarding/recovery-restore"
@@ -84,6 +88,7 @@ export function DevicesEditor() {
                             heldBy={vm.heldBy}
                             onClear={() => void vm.onClearHistoryBackup()}
                             isClearing={vm.isClearingHistoryBackup}
+                            clearWithheld={vm.clearWithheld}
                             onReplace={vm.offersReplace ? vm.replaceWords.open : undefined}
                             replaceRef={vm.replaceWords.replaceRef}
                         />

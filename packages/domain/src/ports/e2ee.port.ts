@@ -572,15 +572,16 @@ export interface IE2eePort {
      * The devices of `devices` the instance counts approved under its key in force: the approval
      * rule (`approvedDevicesBy`) over the approvals as verified under the approval key it stores —
      * its word, never this device's derivation —, the revocations kept counted. It decides no trust:
-     * only what the instance refuses a device it doesn't count approved — revoking one of these.
-     * None without a key in force.
+     * only what the instance refuses a device it doesn't count approved — revoking one of these,
+     * clearing the history backup, signing the other devices out. `null` without a key in force:
+     * the instance then refuses none of these for approval.
      */
     approvedAsTheInstanceCounts(
         idpUrl: string,
         accessToken: string,
         actorUri: ActorUri,
         devices: readonly DeviceListEntry[],
-    ): Promise<DeviceId[]>
+    ): Promise<DeviceId[] | null>
 }
 
 /** A re-archive's batch, sealed: what `uploadRearchive` sends, as many times as it takes. */

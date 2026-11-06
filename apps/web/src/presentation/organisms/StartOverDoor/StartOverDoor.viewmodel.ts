@@ -1,20 +1,19 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import { passwordChange, type PasswordChange } from "@pinai/domain/models/instance-admin"
-import { instanceAddress } from "@pinai/domain/models/instance"
+import type { PasswordChange } from "@pinai/domain/models/instance-admin"
 import { promptShown, type StartOverRequest } from "@pinai/domain/models/start-over"
-import { resolveInstanceUseCase } from "@pinai/domain/usecases/instance/resolve-instance.usecase"
 import {
     endStartOverUseCase,
     startOverToPromptUseCase,
     type StartOverPrompt,
 } from "@pinai/domain/usecases/e2ee/start-over-request.usecase"
-import { getE2eePort, getNodeInfoPort, getStartOverPort } from "@/ioc"
+import { getE2eePort, getStartOverPort } from "@/ioc"
 import { instanceHost } from "@/presentation/_libs/instance-host"
 import { warnE2ee } from "@/presentation/_libs/key-share-deps"
 import { startOverRefusalLine } from "@/presentation/_libs/start-over-wording"
 import { useAskedLine } from "@/presentation/hooks/use-asked-line"
+import { usePasswordChange } from "@/presentation/hooks/use-password-change"
 import { startOverQueryKey } from "@/presentation/hooks/use-own-start-over"
 import { registerStartOverHandler } from "@/presentation/hooks/useIdpWebSocket"
 import { useAppStore } from "@/store/store"
@@ -55,7 +54,6 @@ export interface StartOverDoorViewModel {
 export function useStartOverDoorViewModel(): StartOverDoorViewModel {
     const idpUrl = useAppStore((s) => s.idpUrl)
     const signedIn = useAppStore((s) => s.accessToken !== null)
-    const admin = useAppStore((s) => s.user?.admin === true)
     const socketUp = useAppStore((s) => s.wsStatus === "connected")
     const queryClient = useQueryClient()
     const [, setPutOffCount] = useState(putOff.size)
@@ -103,15 +101,7 @@ export function useStartOverDoorViewModel(): StartOverDoorViewModel {
     const stage: Stage = held?.stage ?? "asked"
     const asked = useAskedLine(request?.createdAt ?? null)
 
-    const instance = useQuery({
-        queryKey: ["instance-info", idpUrl],
-        queryFn: () => {
-            const address = idpUrl ? instanceAddress(idpUrl) : null
-            return address ? resolveInstanceUseCase(address, getNodeInfoPort()) : null
-        },
-        enabled: !!idpUrl && stage === "cancelled",
-        staleTime: 60_000,
-    })
+    const howToChangePassword = usePasswordChange(stage === "cancelled")
 
     const putOffNow = useCallback((id: string) => {
         putOff.add(id)
@@ -158,7 +148,7 @@ export function useStartOverDoorViewModel(): StartOverDoorViewModel {
         device: request?.displayName.trim() || "A device",
         asked,
         host: instanceHost(idpUrl),
-        passwordChange: passwordChange(instance.data ?? null, admin),
+        passwordChange: howToChangePassword,
         cancelling,
         error,
         onCancel,

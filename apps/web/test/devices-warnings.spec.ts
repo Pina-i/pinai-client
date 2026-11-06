@@ -34,6 +34,8 @@ vi.mock("@/ioc", () => ({
     }),
     getHistoryArchivePort: vi.fn(),
     getSessionPort: vi.fn(),
+    // No NodeInfo to link to: the pane's password advice stays the one for a mode it doesn't know.
+    getNodeInfoPort: () => ({ links: async () => ({ links: [] }), document: async () => null }),
     getAuthPort: vi.fn(),
     getAuthPlatform: vi.fn(),
 }))

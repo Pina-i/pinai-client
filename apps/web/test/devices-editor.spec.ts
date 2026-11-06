@@ -5,7 +5,8 @@
  * words" (confirmed in plain words, a recent password asked before anything is minted, the new words
  * shown over Settings until Continue, the re-archive started) —, "Restore history" only on a device
  * that doesn't hold it; each row's tags and facts, "approved by" from this device's own verdict; no
- * "Pair new"; the footer.
+ * "Pair new"; the footer. On a device the instance doesn't count approved, Revoke on approved devices,
+ * "Clear history backup" and "Sign out other devices" withheld, each saying why, and their refusals.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { RouterProvider, createMemoryHistory, createRootRoute, createRouter } from "@tanstack/react-router"
@@ -35,6 +36,9 @@ const wired = vi.hoisted(() => ({
     session: null as unknown,
     /** The IdP's approval and report routes, for a flow that ends in them. */
     directory: {} as object,
+    /** NodeInfo's `openRegistrations`; `null`, the instance's NodeInfo out of reach. */
+    open: true as boolean | null,
+    nodeInfoReads: 0,
 }))
 vi.mock("@/ioc", () => ({
     getE2eePort: () => wired.e2ee,
@@ -45,6 +49,14 @@ vi.mock("@/ioc", () => ({
     }),
     getHistoryArchivePort: () => wired.history,
     getSessionPort: () => wired.session,
+    getNodeInfoPort: () => ({
+        links: async (origin: string) => {
+            wired.nodeInfoReads += 1
+            if (wired.open === null) throw new TypeError("Failed to fetch")
+            return { links: [{ rel: "http://nodeinfo.diaspora.software/ns/schema/2.1", href: `${origin}/nodeinfo/2.1` }] }
+        },
+        document: async () => ({ software: { name: "pinai" }, openRegistrations: wired.open, usage: { users: { total: 3 } }, metadata: { nodeName: "Test" } }),
+    }),
     getKeySharePort: () => undefined,
     getAuthPort: vi.fn(),
     getAuthPlatform: vi.fn(),
@@ -59,6 +71,15 @@ vi.mock("@/presentation/molecules/RecentSignInModal/RecentSignInModal", () => ({
 }))
 
 const issuers = new FakeIssuers()
+
+const ONLY_APPROVED_SIGNS_OUT = "Only an approved device can sign out your other devices: change your password instead."
+/** What a device the instance doesn't count approved is told instead of "Sign out other devices", by the instance's mode. */
+const SIGN_OUT_WITHHELD = {
+    open: `${ONLY_APPROVED_SIGNS_OUT} Sign out, then choose "Forgot password?" on idp.test's sign-in page: the reset link signs every device out, this one included.`,
+    member: `${ONLY_APPROVED_SIGNS_OUT} Ask an admin of idp.test for a password reset link: it signs every device out, this one included.`,
+    admin: `${ONLY_APPROVED_SIGNS_OUT} As an admin of idp.test, you get no reset link: change your password where the instance is run.`,
+    unknown: `${ONLY_APPROVED_SIGNS_OUT} Change it with a reset link — "Forgot password?" on idp.test's sign-in page, or ask its admin for one: it signs every device out, this one included.`,
+}
 
 /**
  * A laptop holding generation 1 by its words; a phone it approved with a code, which approved it back
@@ -138,6 +159,9 @@ const restoreLink = () => [...container.querySelectorAll("a")].find((a) => a.tex
 beforeEach(() => {
     ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
     wired.directory = {}
+    wired.open = true
+    wired.nodeInfoReads = 0
+    for (const toast of Object.values(toasts)) toast.mockClear()
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] })
     vi.spyOn(console, "warn").mockImplementation(() => undefined)
 })
@@ -189,16 +213,113 @@ describe("Settings → Devices", () => {
         await until(() => toasts.error.mock.calls.some(([message]) => message === "Only an approved device can remove an approved device."))
     })
 
-    it("withholds nothing on a device the instance counts approved", async () => {
+    it("withholds nothing on a device the instance counts approved: Revoke, “Clear history backup” and “Sign out other devices” all offered", async () => {
         const { idp, laptop, rows } = await account()
         wired.e2ee = laptop.e2ee
         wired.history = idp
         wired.rows = rows
         const counted = vi.spyOn(laptop.e2ee, "approvedAsTheInstanceCounts")
         await render()
-        await until(() => counted.mock.calls.length > 0 && button("Revoke") !== undefined)
+        await until(() => counted.mock.calls.length > 0 && button("Revoke") !== undefined && button("Clear history backup") !== undefined)
         await expect(counted.mock.results[0].value).resolves.toContain(laptop.storage.deviceId)
+        expect(button("Sign out other devices")).toBeDefined()
         expect(container.textContent).not.toContain("Only an approved device")
+    })
+
+    it("on a device holding the words that the instance doesn't count approved, withholds “Clear history backup” and “Sign out other devices”, saying why", async () => {
+        const { idp, laptop, rows } = await account()
+        wired.e2ee = laptop.e2ee
+        wired.history = idp
+        // The instance lists no approval of this device: its count leaves it out, whatever this device holds.
+        wired.rows = [{ ...rows[0], approvals: [] }, ...rows.slice(1)]
+        await render()
+        await until(() => container.textContent?.includes(`the reset link signs every device out, this one included.`) === true)
+
+        expect(button("Clear history backup")).toBeUndefined()
+        expect(button("Show")).toBeDefined()
+        expect(container.textContent).toContain("Only an approved device can clear the history backup")
+        expect(button("Sign out other devices")).toBeUndefined()
+        expect(container.textContent).toContain(SIGN_OUT_WITHHELD.open)
+        expect(card("Pixel 8")?.textContent).toContain("Only an approved device can remove an approved device")
+    })
+
+    it("withholds nothing on an account with no history key in force: the instance refuses neither then", async () => {
+        const { idp, rows } = await account()
+        idp.key = null
+        const fresh = historyDevice(idp, "fresh", new MemoryHistoryStorage(), issuers.jwks)
+        await nameSession(fresh)
+        const self: TestDevice = {
+            actorUri: ACTOR,
+            deviceId: fresh.storage.deviceId,
+            rootKey: fresh.storage.rootKey,
+            attestation: issuers.attest(ACTOR, fresh.storage.deviceId, fresh.storage.rootKey.publicKey),
+        }
+        wired.e2ee = fresh.e2ee
+        wired.history = idp
+        wired.rows = [...rows, listedDevice(self, [], { display_name: "Chrome on Windows" })]
+        useAppStore.setState({ accessToken: fresh.token })
+        const counted = vi.spyOn(fresh.e2ee, "approvedAsTheInstanceCounts")
+        await render()
+        await until(() => counted.mock.calls.length > 0 && button("Revoke") !== undefined)
+        await expect(counted.mock.results[0].value).resolves.toBeNull()
+
+        expect(button("Sign out other devices")).toBeDefined()
+        expect(container.querySelector('button[aria-label="Revoke Pixel 8"]')).not.toBeNull()
+        expect(container.textContent).not.toContain("Only an approved device")
+        expect(wired.nodeInfoReads).toBe(0)
+    })
+
+    it.each([
+        ["an open instance", true, false, SIGN_OUT_WITHHELD.open],
+        ["an invite-only instance", false, false, SIGN_OUT_WITHHELD.member],
+        ["an invite-only instance, to its admin", false, true, SIGN_OUT_WITHHELD.admin],
+        ["an instance whose mode isn't known", null, false, SIGN_OUT_WITHHELD.unknown],
+    ] as const)("on %s, says how to change the password instead of signing out the others, refused or withheld", async (_, open, admin, line) => {
+        const { idp, laptop, rows } = await account()
+        wired.open = open
+        useAppStore.setState({ user: { actor_uri: ACTOR, admin } as UserProfile })
+        wired.e2ee = laptop.e2ee
+        wired.history = idp
+        wired.session = idp.session()
+        wired.rows = rows
+        await render()
+        await until(() => button("Sign out other devices") !== undefined && wired.nodeInfoReads > 0)
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(5)
+        })
+
+        // The instance's word changed meanwhile, its list with it: it no longer counts this device approved.
+        idp.approvalRule = true
+        idp.approvals.splice(0)
+        wired.rows = [{ ...rows[0], approvals: [] }, ...rows.slice(1)]
+
+        await act(async () => button("Sign out other devices")?.click())
+        await until(() => toasts.error.mock.calls.some(([message]) => message === line))
+        // The list and the count read again: the button doesn't stay to be refused again.
+        await until(() => button("Sign out other devices") === undefined)
+        expect(container.textContent).toContain(line)
+        expect(toasts.success).not.toHaveBeenCalled()
+    })
+
+    it("says a refusal of “Clear history backup” for approval in the withheld words, then withholds it", async () => {
+        const { idp, laptop, rows } = await account()
+        wired.e2ee = laptop.e2ee
+        wired.history = idp
+        wired.rows = rows
+        await render()
+        await until(() => button("Clear history backup") !== undefined)
+
+        idp.approvalRule = true
+        idp.approvals.splice(0)
+        wired.rows = [{ ...rows[0], approvals: [] }, ...rows.slice(1)]
+
+        await act(async () => button("Clear history backup")?.click())
+        await act(async () => button("Confirm clear")?.click())
+        await until(() => toasts.error.mock.calls.some(([message]) => message === "Only an approved device can clear the history backup."))
+        await until(() => button("Clear history backup") === undefined)
+        expect(container.textContent).toContain("Only an approved device can clear the history backup")
+        expect(toasts.success).not.toHaveBeenCalled()
+        expect(toasts.error).toHaveBeenCalledTimes(1)
     })
 
     it("says what each device is: this one, signed out, holding the history, who approved it, paired when, its short id", async () => {

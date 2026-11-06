@@ -54,6 +54,7 @@ export class FastSealer extends HistoryArchiveAdapter {
 }
 
 const stale = () => new IdpError(409, "stale_history_key", "Not the account's current history key")
+const approvalRequired = () => new IdpError(403, "approval_required", "This takes a device approved under the current history key")
 
 function authTimeOf(token: string): number | null {
     try {
@@ -130,6 +131,8 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
     }
     /** The IdP's rule on `PUT` past generation 1 from a device not approved: its own matured request. Off unless asked: older flows' tests set generations directly. */
     startOverRule = false
+    /** The IdP's rule on clearing the backup and signing the other devices out once there is a key: an approved device only. Off unless asked, as `startOverRule`. */
+    approvalRule = false
     readonly startOvers: StartOverRequest[] = []
     /** Approvals by another device's root key, as the code handshake leaves them. */
     readonly deviceApprovals: Array<{ deviceId: string; by: string }> = []
@@ -142,6 +145,11 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
     private approvedUnderKey(device: string): boolean {
         const byWords = (id: string) => this.approvals.some((a) => a.deviceId === id && a.generation === this.key?.generation)
         return byWords(device) || this.deviceApprovals.some((a) => a.deviceId === device && byWords(a.by))
+    }
+
+    private refuseUnapproved(accessToken: string): void {
+        const device = this.named.get(accessToken)
+        if (this.approvalRule && this.key && (!device || !this.approvedUnderKey(device))) throw approvalRequired()
     }
 
     private endApproved(device: string): void {
@@ -173,7 +181,7 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
                 const open = this.openStartOver()
                 if (open) {
                     if (open.deviceId === device || this.approvedUnderKey(device)) return view(open)
-                    throw new IdpError(403, "approval_required", "This takes a device approved under the current history key")
+                    throw approvalRequired()
                 }
                 const own = this.startOvers.filter((r) => r.deviceId === device).at(-1)
                 return own ? view(own) : null
@@ -184,7 +192,7 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
                 if (!request) throw new IdpError(404, "not_found", "Start over request not found")
                 if (request.ended) throw new IdpError(410, "start_over_ended", "The start over request has ended")
                 const reason = request.deviceId === device ? "withdrawn" : this.approvedUnderKey(device) ? "cancelled" : null
-                if (!reason) throw new IdpError(403, "approval_required", "This takes a device approved under the current history key")
+                if (!reason) throw approvalRequired()
                 request.ended = { reason, at: this.now() }
             },
         }
@@ -208,7 +216,8 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
         return { entries: [...this.archive.values()], next_cursor: null }
     }
 
-    async wipeArchive(): Promise<number> {
+    async wipeArchive(_idpUrl: string, accessToken: string): Promise<number> {
+        this.refuseUnapproved(accessToken)
         const deleted = this.archive.size
         this.archive.clear()
         return deleted
@@ -225,7 +234,7 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
                 this.named.set(accessToken, deviceId)
                 this.log.push("name session")
             },
-            signOutOtherDevices: async () => undefined,
+            signOutOtherDevices: async (_idpUrl, accessToken) => this.refuseUnapproved(accessToken),
         }
     }
 

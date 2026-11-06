@@ -643,9 +643,9 @@ export class E2eeAdapter implements IE2eePort {
         accessToken: string,
         actorUri: ActorUri,
         devices: readonly DeviceListEntry[],
-    ): Promise<DeviceId[]> {
+    ): Promise<DeviceId[] | null> {
         const key = this.historyArchive ? await this.historyArchive.getKey(idpUrl, accessToken) : null
-        if (!key) return []
+        if (!key) return null
         const read = this.trustTurn.then(() => this.storage.loadDeviceTrust())
         this.trustTurn = read.catch(() => undefined)
         const { trust } = await read

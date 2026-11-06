@@ -51,7 +51,8 @@ export function isDeviceProofInvalid(error: unknown): boolean {
 
 /**
  * Only a device approved under the account's history key does this: revoke an approved device, turn
- * the second factor on, read or end another device's start over request (`identity-provider/specs/e2ee.md § 3.12`).
+ * the second factor on, read or end another device's start over request, clear the history backup,
+ * sign the other devices out (`identity-provider/specs/e2ee.md § 3.12`).
  */
 export const APPROVAL_REQUIRED = "approval_required"
 

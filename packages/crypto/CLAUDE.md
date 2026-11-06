@@ -170,9 +170,10 @@ Three collaborators could not come, and the shape of each is the mobile work:
   - **Naming the session** (`signSessionDevice`): the root key over `PINAI-SESSION-DEVICE-v1`
     for the token's `sid`; the key never leaves the adapter.
   - **`approvedAsTheInstanceCounts`** — for a device not approved (Settings → Devices withholds
-    "Revoke" on these): `approvedDevicesBy` over `checkListedDevices` run under the **stored**
+    "Revoke" on these, and "Clear history backup" and "Sign out other devices" when this device
+    isn't one): `approvedDevicesBy` over `checkListedDevices` run under the **stored**
     approval key — the instance's view, so what it refuses, never a trust decision —, the
-    revocations kept counted.
+    revocations kept counted; `null` without a key in force.
   - **The bound credential** (v2, `leafCredential`): the root key signs the leaf
     key into `leaf_binding` before `setIdentity`. Nothing is bound without an
     attestation, and a registration landing during a bind binds again; a refill
@@ -667,10 +668,11 @@ vitest setup, so a package's specs sit there until it needs its own.
   (`test/setup/issuers.ts`, which also writes list rows and approvals).
 - `apps/web/test/start-over-request.spec.ts` — start over requests: the asking states from the
   `GET` (every `ended` reason, matured, ready as it opened), the prompt's condition, the withheld
-  revoke, the routes' bodies and refusals, the naming proof's body, and the finishing over an IdP
-  keeping the rule (`FakeHistoryIdp.startOverRule`); `session-devices.spec.ts` — the naming proof
-  over the token's `sid`, `device_proof_invalid` once; `start-over-door.spec.ts` — the approved
-  devices' prompt; `second-factor-approval.spec.ts` — the second factor on a device not approved.
+  revoke, clear and sign-out, the routes' bodies and refusals, the naming proof's body, and the
+  finishing over an IdP keeping the rule (`FakeHistoryIdp.startOverRule`);
+  `session-devices.spec.ts` — the naming proof over the token's `sid`, `device_proof_invalid`
+  once; `start-over-door.spec.ts` — the approved devices' prompt; `second-factor-approval.spec.ts`
+  — the second factor on a device not approved.
 - `apps/web/test/device-trust.spec.ts` — the approval rules, real signatures checked
   (the IdP's canonical bytes among them), the baseline and from before, and the review: who
   acts, the events, the trust rows.
@@ -734,8 +736,9 @@ vitest setup, so a package's specs sit there until it needs its own.
   its dismissals.
 - `apps/web/test/devices-warnings.spec.ts` — Settings → Devices' waiting seat, "Not mine"
   and the refused-list banner, from the engine's own reviews; `devices-editor.spec.ts` — the
-  rows ("approved by" from the verdict), the passphrase card, "Restore history", "Replace my words";
-  `devices-seat.spec.ts` — the seats answering inline through the Door's `ApprovalAnswering`;
+  rows ("approved by" from the verdict), the passphrase card, "Restore history", "Replace my words",
+  what a device the instance doesn't count approved is offered, each mode's password advice and the
+  refusals (`FakeHistoryIdp.approvalRule`); `devices-seat.spec.ts` — the seats answering inline through the Door's `ApprovalAnswering`;
   `device-roster.spec.ts` — the pane's rules; `unapproved-notice.spec.ts` — the toast outside
   the pane.
 - `apps/web/test/device-fanout-retry.spec.ts` — the fanout's backoff for unclaimed siblings;

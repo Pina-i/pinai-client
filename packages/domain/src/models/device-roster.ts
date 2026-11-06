@@ -115,17 +115,22 @@ export function refusedDevice(verdict: DeviceTrustVerdict | null, device: Listed
 }
 
 /**
- * "Revoke" withheld on a device the instance counts approved, from a device it doesn't: it refuses
- * that (`approval_required`, `identity-provider/specs/e2ee.md § 3.12`). While its count is unknown
+ * This device isn't among those the instance counts approved under its key in force, so the instance
+ * refuses it clearing the history backup and signing the other devices out (`approval_required`,
+ * `identity-provider/specs/e2ee.md § 3.12`). Without a key in force, or while its count is unknown
  * (`null`), nothing is withheld, and a refusal is said when it comes.
  */
+export function notCountedApproved(approvedByInstance: ReadonlySet<DeviceId> | null, thisDevice: DeviceId | null): boolean {
+    return approvedByInstance !== null && thisDevice !== null && !approvedByInstance.has(thisDevice)
+}
+
+/** "Revoke" withheld on a device the instance counts approved, from a device it doesn't (`notCountedApproved`). */
 export function revokeWithheld(
     approvedByInstance: ReadonlySet<DeviceId> | null,
     thisDevice: DeviceId | null,
     device: Pick<DeviceListEntry, "device_id">,
 ): boolean {
-    if (approvedByInstance === null || thisDevice === null) return false
-    return !approvedByInstance.has(thisDevice) && approvedByInstance.has(device.device_id)
+    return notCountedApproved(approvedByInstance, thisDevice) && approvedByInstance !== null && approvedByInstance.has(device.device_id)
 }
 
 function newestFirst<T extends Seated>(devices: T[]): T[] {

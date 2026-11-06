@@ -1,28 +1,15 @@
 import { KeyRound, ShieldAlert } from "lucide-react"
 
-import type { PasswordChange } from "@pinai/domain/models/instance-admin"
 import { Button } from "@/presentation/atoms/Button/Button"
 import { DoorHead } from "@/presentation/molecules/DoorHead/DoorHead"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { modalSurface } from "@/presentation/molecules/Modal/modal-surface"
+import { passwordAdvice } from "@/presentation/_libs/password-advice"
 import { cn } from "@/presentation/_libs/utils"
 
 import { useStartOverDoorViewModel, type StartOverDoorViewModel } from "./StartOverDoor.viewmodel"
 
 const TITLES = { asked: "Is this you?", guide: "Approve it with a code", cancelled: "Cancelled." } as const
-
-function passwordAdvice(how: PasswordChange, host: string): string {
-    switch (how) {
-        case "forgot-password":
-            return `Sign out, then choose "Forgot password?" on ${host}'s sign-in page: the reset link signs every device out, theirs too.`
-        case "ask-an-admin":
-            return `Ask an admin of ${host} for a password reset link: it signs every device out, theirs too.`
-        case "where-it-runs":
-            return `As an admin of ${host}, you get no reset link: change your password where the instance is run.`
-        case "unknown":
-            return `Change it with a reset link — "Forgot password?" on ${host}'s sign-in page, or ask its admin for one: it signs every device out, theirs too.`
-    }
-}
 
 /** While another device asks to start the history over: the approval prompt's look (`DoorHead`). */
 export function StartOverDoor() {
@@ -108,7 +95,7 @@ function Cancelled({ vm }: { vm: StartOverDoorViewModel }) {
                         now.
                     </span>
                 </p>
-                <p className="m-0">{passwordAdvice(vm.passwordChange, vm.host)}</p>
+                <p className="m-0">{passwordAdvice(vm.passwordChange, vm.host, "theirs too")}</p>
                 <p className="m-0">Then sign {vm.device} out in Settings → Devices.</p>
             </div>
             <div className="flex justify-end pt-1">

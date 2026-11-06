@@ -11,6 +11,7 @@ import {
     historyHolders,
     holdsCurrentWords,
     holdsHistory,
+    notCountedApproved,
     refusedDevice,
     revokeWithheld,
 } from "@pinai/domain/models/device-roster"
@@ -20,8 +21,11 @@ import type { ApprovalAnswering } from "@pinai/domain/usecases/e2ee/approval-han
 import { clearHistoryBackupUseCase } from "@pinai/domain/usecases/e2ee/clear-history-backup.usecase"
 import { revokeDeviceUseCase } from "@pinai/domain/usecases/e2ee/revoke-device.usecase"
 import { getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getSessionPort } from "@/ioc"
+import { instanceHost } from "@/presentation/_libs/instance-host"
 import { warnE2ee, warnOf } from "@/presentation/_libs/key-share-deps"
+import { passwordAdvice } from "@/presentation/_libs/password-advice"
 import { useDeviceRoster } from "@/presentation/hooks/use-device-roster"
+import { usePasswordChange } from "@/presentation/hooks/use-password-change"
 import { useHistoryReset } from "@/presentation/providers/HistoryResetProvider/HistoryReset.context"
 import { devicesQueryKey, type DeviceRow } from "@/presentation/hooks/useDevices"
 import { type RecentSignIn, useRecentSignIn } from "@/presentation/hooks/use-recent-sign-in"
@@ -42,6 +46,12 @@ export interface DeviceRowView {
 
 /** Why "Revoke" isn't offered on an approved device, from one that isn't. */
 export const ONLY_APPROVED_REVOKES = "Only an approved device can remove an approved device"
+
+/** Why "Clear history backup" isn't offered on a device the instance doesn't count approved. */
+export const ONLY_APPROVED_CLEARS = "Only an approved device can clear the history backup"
+
+/** Why "Sign out other devices" isn't offered there, and what instead: a password reset ends every session. How follows, by the instance's mode. */
+export const ONLY_APPROVED_SIGNS_OUT = "Only an approved device can sign out your other devices: change your password instead."
 
 export interface DevicesEditorViewModel {
     isLoading: boolean
@@ -72,6 +82,8 @@ export interface DevicesEditorViewModel {
     offersRestore: boolean | null
     isClearingHistoryBackup: boolean
     onClearHistoryBackup: () => Promise<void>
+    /** Why the card withholds "Clear history backup": the instance doesn't count this device approved. `null` when offered. */
+    clearWithheld: string | null
     /** Only on a device holding the current words, no key of its own pending but a replacement's. */
     offersReplace: boolean
     replaceWords: ReplaceWordsViewModel
@@ -81,6 +93,8 @@ export interface DevicesEditorViewModel {
 
     isSigningOutOthers: boolean
     onSignOutOthers: () => Promise<void>
+    /** Why the header withholds "Sign out other devices", for the same reason, and how to change the password instead. `null` when offered. */
+    signOutOthersWithheld: string | null
 
     /** Revoking, signing the others out, clearing the backup and replacing the words take a recent password. */
     recentSignIn: RecentSignIn
@@ -149,8 +163,10 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
     // What the instance refuses is its own count, this device's included: never this device's trust.
     const approvedByInstance = useQuery({
         queryKey: ["devices-approved-as-listed", idpUrl, listKey],
-        queryFn: async () =>
-            new Set(await getE2eePort().approvedAsTheInstanceCounts(idpUrl!, useAppStore.getState().accessToken!, ownActorUri!, rows!)),
+        queryFn: async () => {
+            const counted = await getE2eePort().approvedAsTheInstanceCounts(idpUrl!, useAppStore.getState().accessToken!, ownActorUri!, rows!)
+            return counted && new Set(counted)
+        },
         enabled: !!idpUrl && !!accessToken && !!ownActorUri && !!rows,
     }).data
 
@@ -165,6 +181,22 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
             approvedBy: approvedByWording(approverOf(verdict, device), rows, thisDevice),
             revokeWithheld: revokeWithheld(approvedByInstance ?? null, thisDevice, device),
         }))
+    const uncounted = notCountedApproved(approvedByInstance ?? null, thisDevice)
+    // NodeInfo read only once there is a key: before one, the instance refuses none of these for approval.
+    const howToChangePassword = usePasswordChange(!!approvedByInstance)
+    const signOutRefused = `${ONLY_APPROVED_SIGNS_OUT} ${passwordAdvice(howToChangePassword, instanceHost(idpUrl), "this one included")}`
+
+    // Refused anyway, the count changed meanwhile: the list read again too, as the count is computed from it.
+    const refusedUnapproved = useCallback(
+        (e: unknown, words: string): boolean => {
+            if (!isApprovalRequired(e)) return false
+            toast.error(words)
+            if (idpUrl) void queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
+            void queryClient.invalidateQueries({ queryKey: ["devices-approved-as-listed", idpUrl] })
+            return true
+        },
+        [idpUrl, queryClient],
+    )
 
     const onClearHistoryBackup = useCallback(async () => {
         if (!idpUrl || !accessToken) return
@@ -173,12 +205,12 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
             await clearHistoryBackupUseCase({ historyArchivePort: getHistoryArchivePort() })(idpUrl, accessToken)
             toast.success("History backup cleared")
         } catch (e) {
-            if (refused(e, "clear the history backup")) return
+            if (refused(e, "clear the history backup") || refusedUnapproved(e, `${ONLY_APPROVED_CLEARS}.`)) return
             toast.error(e instanceof Error ? e.message : "Could not clear history backup")
         } finally {
             setIsClearingHistoryBackup(false)
         }
-    }, [idpUrl, accessToken, refused])
+    }, [idpUrl, accessToken, refused, refusedUnapproved])
 
     const onRevokeDevice = useCallback(
         async (deviceId: string) => {
@@ -197,18 +229,13 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
                 answering?.refresh().catch(warnOf("reading the approval requests"))
                 toast.success("Device revoked")
             } catch (e) {
-                if (refused(e, "revoke a device")) return
-                if (isApprovalRequired(e)) {
-                    toast.error(`${ONLY_APPROVED_REVOKES}.`)
-                    void queryClient.invalidateQueries({ queryKey: ["devices-approved-as-listed", idpUrl] })
-                    return
-                }
+                if (refused(e, "revoke a device") || refusedUnapproved(e, `${ONLY_APPROVED_REVOKES}.`)) return
                 toast.error(e instanceof Error ? e.message : "Revoke failed")
             } finally {
                 setRevokingDeviceId(null)
             }
         },
-        [idpUrl, accessToken, ownActorUri, localDmConvos, queryClient, refused, answering],
+        [idpUrl, accessToken, ownActorUri, localDmConvos, queryClient, refused, refusedUnapproved, answering],
     )
 
     // Their devices stay: each may sign in again, as the same device.
@@ -220,12 +247,12 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
             await queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
             toast.success("Signed out of your other devices")
         } catch (e) {
-            if (refused(e, "sign out your other devices")) return
+            if (refused(e, "sign out your other devices") || refusedUnapproved(e, signOutRefused)) return
             toast.error(e instanceof Error ? e.message : "Could not sign out the other devices")
         } finally {
             setIsSigningOutOthers(false)
         }
-    }, [idpUrl, accessToken, queryClient, refused])
+    }, [idpUrl, accessToken, queryClient, refused, refusedUnapproved, signOutRefused])
 
     return {
         isLoading,
@@ -250,10 +277,12 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
         replaceWords,
         isClearingHistoryBackup,
         onClearHistoryBackup,
+        clearWithheld: uncounted ? ONLY_APPROVED_CLEARS : null,
         revokingDeviceId,
         onRevokeDevice,
         isSigningOutOthers,
         onSignOutOthers,
+        signOutOthersWithheld: uncounted ? signOutRefused : null,
         recentSignIn,
     }
 }

@@ -7,6 +7,7 @@ import { activityLabel } from "@/presentation/_libs/device-activity"
 import { dayLabel } from "@/presentation/_libs/day-label"
 import { deviceFingerprint } from "@/presentation/_libs/device-fingerprint"
 import { cn } from "@/presentation/_libs/utils"
+import { WithheldNote } from "@/presentation/molecules/WithheldNote/WithheldNote"
 
 import { pill } from "../../editor-styles"
 
@@ -110,9 +111,7 @@ export function DeviceCard({ device, holdsHistory, approvedBy, onRevoke, revokeW
                             </span>
                         ))}
                     </div>
-                    {!isRevoked && !isCurrent && revokeWithheld && (
-                        <p className="title m-0 mt-1 text-[11px] italic leading-[1.45] text-muted-foreground">{revokeWithheld}</p>
-                    )}
+                    {!isRevoked && !isCurrent && revokeWithheld && <WithheldNote className="mt-1">{revokeWithheld}</WithheldNote>}
                 </div>
                 {!isRevoked && !isCurrent && !revokeWithheld && (
                     <button
