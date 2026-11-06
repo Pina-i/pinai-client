@@ -161,6 +161,10 @@ export type WsServerEvent =
     | { type: "approval_closed"; data: { request_id: string } }
     /** A key share waits for this device: it reads `GET /api/history/key-shares`. */
     | { type: "history_key_ready"; data: { device_id: string } }
+    /** A device not approved asks to start the history over: to the approved devices' sessions. `ready_at` RFC 3339. */
+    | { type: "start_over_requested"; data: { request_id: string; device_id: string; display_name: string; ready_at: string } }
+    /** A start over request ended unused, and how: to the asker's and the approved devices' sessions. */
+    | { type: "start_over_cancelled"; data: { request_id: string; reason: string } }
     | { type: "group_created"; data: GroupCreatedPayload }
     | { type: "member_added"; data: MemberAddedPayload }
     | { type: "member_removed"; data: MemberRemovedPayload }

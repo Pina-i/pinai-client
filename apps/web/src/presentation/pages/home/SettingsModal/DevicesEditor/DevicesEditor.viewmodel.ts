@@ -1,4 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useLocation } from "@tanstack/react-router"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
@@ -12,8 +12,10 @@ import {
     holdsCurrentWords,
     holdsHistory,
     refusedDevice,
+    revokeWithheld,
 } from "@pinai/domain/models/device-roster"
 import type { HistoryKeyStanding, PendingHistoryKey } from "@pinai/domain/models/history-key"
+import { isApprovalRequired } from "@pinai/domain/models/idp-error"
 import type { ApprovalAnswering } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
 import { clearHistoryBackupUseCase } from "@pinai/domain/usecases/e2ee/clear-history-backup.usecase"
 import { revokeDeviceUseCase } from "@pinai/domain/usecases/e2ee/revoke-device.usecase"
@@ -34,7 +36,12 @@ export interface DeviceRowView {
     holdsHistory: boolean
     /** "this device", another's label, "your 24 words"; `null` on a device that doesn't act. */
     approvedBy: string | null
+    /** Approved, while this device isn't: the instance refuses its revoke, so the row says why instead. */
+    revokeWithheld: boolean
 }
+
+/** Why "Revoke" isn't offered on an approved device, from one that isn't. */
+export const ONLY_APPROVED_REVOKES = "Only an approved device can remove an approved device"
 
 export interface DevicesEditorViewModel {
     isLoading: boolean
@@ -139,6 +146,14 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
     }, [idpUrl, queryClient])
     const replaceWords = useReplaceWordsViewModel(recentSignIn, onReplaceSettled)
 
+    // What the instance refuses is its own count, this device's included: never this device's trust.
+    const approvedByInstance = useQuery({
+        queryKey: ["devices-approved-as-listed", idpUrl, listKey],
+        queryFn: async () =>
+            new Set(await getE2eePort().approvedAsTheInstanceCounts(idpUrl!, useAppStore.getState().accessToken!, ownActorUri!, rows!)),
+        enabled: !!idpUrl && !!accessToken && !!ownActorUri && !!rows,
+    }).data
+
     const holds = held ? holdsCurrentWords(held.standing) : null
     const thisDevice = rows?.find((d) => d.is_current)?.device_id ?? verdict?.thisDevice ?? null
     const seated = new Set([...waiting, ...fromBefore].map((d) => d.device_id))
@@ -148,6 +163,7 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
             device,
             holdsHistory: holdsHistory(device, verdict),
             approvedBy: approvedByWording(approverOf(verdict, device), rows, thisDevice),
+            revokeWithheld: revokeWithheld(approvedByInstance ?? null, thisDevice, device),
         }))
 
     const onClearHistoryBackup = useCallback(async () => {
@@ -182,6 +198,11 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
                 toast.success("Device revoked")
             } catch (e) {
                 if (refused(e, "revoke a device")) return
+                if (isApprovalRequired(e)) {
+                    toast.error(`${ONLY_APPROVED_REVOKES}.`)
+                    void queryClient.invalidateQueries({ queryKey: ["devices-approved-as-listed", idpUrl] })
+                    return
+                }
                 toast.error(e instanceof Error ? e.message : "Revoke failed")
             } finally {
                 setRevokingDeviceId(null)

@@ -20,6 +20,19 @@ interface CodePromptPaneProps {
     onCancel: () => void
 }
 
+/** Why this device can't turn it on, in place of "Enable 2FA". */
+function ApprovalRequired() {
+    return (
+        <div className="mt-8 max-w-md rounded-[16px] border border-line p-5">
+            <p className="mono-eyebrow">— 2FA · off</p>
+            <p className="mt-2 text-[13px] leading-[1.55] text-foreground">
+                Only one of your approved devices can turn two-factor authentication on. This device isn't approved: once
+                one of your devices approves it, you can turn it on from here.
+            </p>
+        </div>
+    )
+}
+
 function CodePromptPane({
     title,
     description,
@@ -68,7 +81,9 @@ export function SecurityEditor() {
             <p className="mono-eyebrow mb-[5px] pr-11">Editing · Security</p>
             <h2 className={editorTitle}>Two-factor authentication.</h2>
 
-            {!vm.totpEnabled && vm.pane === "idle" && (
+            {!vm.totpEnabled && vm.pane === "idle" && vm.approvalRequired && <ApprovalRequired />}
+
+            {!vm.totpEnabled && vm.pane === "idle" && !vm.approvalRequired && (
                 <>
                     <div className="mt-8 max-w-md rounded-[16px] border border-line p-5">
                         <p className="mono-eyebrow">— 2FA · off</p>
@@ -77,12 +92,14 @@ export function SecurityEditor() {
                             6-digit code every time you sign in.
                         </p>
                     </div>
-                    <div className="mt-5 flex max-w-md flex-col gap-3">
-                        <IconButton onPress={vm.startEnroll} className={cn(pill({ variant: "save" }), "w-full px-3.5 py-2.5")}>
-                            <ShieldCheck className="h-[15px] w-[15px]" />
-                            Enable 2FA
-                        </IconButton>
-                    </div>
+                    {vm.offersEnable && (
+                        <div className="mt-5 flex max-w-md flex-col gap-3">
+                            <IconButton onPress={vm.startEnroll} className={cn(pill({ variant: "save" }), "w-full px-3.5 py-2.5")}>
+                                <ShieldCheck className="h-[15px] w-[15px]" />
+                                Enable 2FA
+                            </IconButton>
+                        </div>
+                    )}
                 </>
             )}
 

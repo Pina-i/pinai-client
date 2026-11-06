@@ -43,6 +43,10 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   can't loop on the password. Without the arrival (`presentation/_libs/session-renewal.ts` records
   it), either clock saying recent is taken and the IdP's `401` settles the rest. No `auth_time`,
   not recent. Read before a start over, which mints nothing without it
+- `sessionIdOf(token)` — the token's `sid`, lowercased: the session a device signs to name itself
+  on it; a renewed token keeps it
+- `clockLeadOf(token, arrivedAt)` — how far this device's clock runs ahead of the IdP's: the
+  token's arrival against its `iat`, network time counted as lead
 
 ### ports/auth.port.ts
 - `IAuthPort` — interface for OIDC operations
@@ -88,8 +92,13 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 
 ### ports/session.port.ts · usecases/auth/link-session-device.usecase.ts
 - `ISessionPort` — `linkDevice` names the E2EE device this session signed in,
-  so revoking the device signs it out; `signOutOtherDevices` ends every other
-  session of the account
+  so revoking the device signs it out, with its proof: the root key's signature over
+  `PINAI-SESSION-DEVICE-v1` for the session (`IE2eePort.signSessionDevice`, never the key);
+  `signOutOtherDevices` ends every other session of the account
+- `name-session-device.usecase.ts` — every naming (the link below, `set-up-this-device`): the
+  proof over `sessionIdOf(accessToken)`; `device_proof_invalid` registers the device again
+  (`registerDevice(…, { again: true })`, the same keys) and names it once more, a second refusal
+  thrown in plain words, never tried again
 - `linkSessionDeviceUseCase` links only once the device exists: on a first
   sign-in, the onboarding creates it after the route guard first runs. It
   registers the device again first when it has to (`IE2eePort.registerDevice`:
@@ -217,6 +226,10 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   toast; the new words' screen names the same (`devices-from-before.usecase.ts`).
   `refusedDevice` — the device the user refused: it waits, counted, "not yours", no code (the
   Door's `answerableRequests` leaves it out too).
+  `revokeWithheld` — "Revoke" withheld on a device the instance counts approved while it doesn't
+  count this one (`IE2eePort.approvedAsTheInstanceCounts`: the approval rule over approvals
+  verified under the stored approval key — what the instance refuses, never trust); unknown,
+  nothing.
   `holdsCurrentWords` (the words shown, else "Restore history"); `holdsHistory` /
   `historyHolders` — on an acting verdict, a device it approves that says it holds its
   generation. `approverOf` — over the root key listed now; `approvedByWording` — "this
@@ -244,6 +257,12 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   is a lie this device caught: no partner decides it. Out too from a list naming an id
   twice. A non-holding device's best judgement: the acting devices verify chains
   themselves before adding or sharing. `needsPartners` — the list is read only then.
+- `approvedHere(admission)` — approved under the key in force as this device last found itself:
+  in by its words or its partner, never by kept words: the second factor's offer
+  (`mayTurnOnSecondFactor`: any device before a key, else only an approved one;
+  `second-factor-approval.usecase.ts` reads the recorded standing and admission, and the screens
+  let the IdP decide when it can't be read). Never what hides a start over prompt: that is the IdP's
+  answer.
 - `replacedOn(standing, setter, devices)` — the reset page after a newer generation: the setter's
   label when this device found it approved (`IE2eePort.resetSetter`), else `null` ("another device").
 - `decideGateRoute` — a pending key or `no-key` → `setup` (`pendingKeyRoute`, the first rule alone,
@@ -471,6 +490,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   sends a handle or an address. `offersPasswordReset` — not to an admin,
   who recovers through `ADMIN_EMAIL` / `ADMIN_PASSWORD`. `memberActivity` —
   online, seen (a session's last use), or signed out everywhere.
+- `passwordChange(info, admin)` — how to change a password someone else has: "Forgot password?" on
+  an open instance, an admin's reset link on an invite-only one, where the instance is run for an
+  admin there; `unknown` before NodeInfo answers.
 - `refusedAsNonAdmin` — every admin route's `403`. `revoke-invitation.usecase.ts`
   takes a `404` as `gone` (used, expired or revoked meanwhile): the row leaves
   the list either way.
@@ -671,6 +693,27 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   best effort — reported, never thrown; the page-load check, the tick and the fanout redo them —, and
   `started-over` with the words. `key-changed` when another generation lands before the approval
   (the words no longer to show).
+- **Start over requests** (`identity-provider/specs/e2ee.md § 3.12`; `models/start-over.ts`,
+  `ports/start-over.port.ts`, `start-over-request.usecase.ts`). A device not approved under the key
+  in force sets the next generation only through its own request, matured once no approved device
+  has been used for 7 days. `StartOverRequest` (times as epoch ms, the IdP's clock), `StartOverRead`
+  (`none`, a `request`, `elsewhere`: another device's it may not read, `403 approval_required`).
+  `startOverReady` — past `readyAt`, or ready as it opened (`readyAt ≤ createdAt`: none to wait for,
+  whatever this device's clock says). `askingState` — `choice`, `waiting`, `ready`, `elsewhere`, and
+  how its latest one ended: `cancelled` (said), `approved` / `superseded` (the gate's), anything
+  else the choice. `START_OVER_REREAD_MS` (5 min): the date moves only when an approved device is
+  used, and nothing is pushed then. `requestToPrompt` — another device's open request, whenever the
+  IdP answers one: it does only to the devices approved under its generation, those it lets cancel;
+  `promptShown` — "Not now" for the page load. Refusals by code, pure: `askRefusal` (`not-needed` —
+  `ALREADY_APPROVED`, `NO_HISTORY_KEY`: the device sets it itself —, `elsewhere` —
+  `START_OVER_PENDING` —, `too-many` — `429`), `finishRefusal` (`not-ready` with its date,
+  `request-required`), `readsElsewhere` (`approval_required`), `endedAlready` (`410` / `404`).
+  `FinishHold` — a finish refused as too early held back (`holdAfterRefusal`, `heldBack`) until this
+  device's clock passes the IdP's date by its lead (`clockLeadOf`; unknown, one reread), or a reread
+  moves the date. `askToStartOverUseCase` — set up, then `POST`. `readStartOverUseCase`,
+  `startOverToPromptUseCase` (`{ request, answersCodes }`: `mayAnswer` over the standing, which
+  only decides whether "It's me" is offered), `endStartOverUseCase`. `startOverUseCase` is the
+  finishing: a `finishRefusal` erases the pending key like a conflict's.
 - `take-device-baseline.usecase.ts` — `takeDeviceBaseline`, best effort: bootstrap after
   generation 1 is set, typed words and an accepted share once kept, `finishNewGeneration`
   (with its intent), the settle of a lost answer's pending key (the intent minted with it).
@@ -802,6 +845,10 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   (`DEVICE_MISMATCH`): `sign-in-again.usecase.ts`.
 - `isStaleHistoryKey` / `isHistoryKeyConflict` — a generation that isn't the current one; another
   device's generation set first.
+- `isDeviceProofInvalid` — a naming proof refused; `isApprovalRequired` — only an approved device
+  does that (revoke an approved device, turn the second factor on, read or end another device's
+  start over request); `START_OVER_REQUIRED` / `START_OVER_NOT_READY`, the latter's date in
+  `IdpError.readyAt` (`@pinai/api` reads the body's `ready_at`).
 - `isUnreachable` — no answer (a failed fetch is a `TypeError`, a `TimeoutError`) or a `5xx`;
   a refusal or a nonsensical answer is not. Only it falls back to what was recorded.
 

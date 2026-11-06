@@ -35,6 +35,8 @@ const WENT_OTHERWISE: Record<Exclude<WordsReplacement["kind"], "replaced" | "rec
     "restore-due": "Your history is still being brought to this device. Replace your words once it's back.",
     "cache-unread": "This device hasn't finished reading its own history. Reload Pīna'i, then try again.",
     "restore-failed": "Your history backup couldn't be brought onto this device first, so nothing was replaced. Try again.",
+    "not-ready": "Your instance doesn't count this device as approved, so it can't replace your words.",
+    "request-required": "Your instance doesn't count this device as approved, so it can't replace your words.",
 }
 
 /** The password is asked before anything is minted; the re-archive starts behind the new words. */

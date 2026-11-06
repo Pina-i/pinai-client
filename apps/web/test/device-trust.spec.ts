@@ -40,7 +40,7 @@ import type { LeafVerdict } from "@pinai/domain/models/leaf-trust"
 import type { IJwksCachePort } from "@pinai/domain/ports/jwks-cache.port"
 import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstrap-first-device.usecase"
 
-import { ACTOR, FakeHistoryIdp, FastSealer, IDP, MemoryHistoryStorage, historyDevice } from "./setup/history-idp"
+import { ACTOR, FakeHistoryIdp, FastSealer, IDP, MemoryHistoryStorage, historyDevice, nameSession } from "./setup/history-idp"
 import { FakeIssuers, approvedBy, approvedByPassphrase, listedDevice, testDevice, type TestDevice } from "./setup/issuers"
 
 afterEach(() => {
@@ -606,7 +606,7 @@ describe("reviewing the device list", () => {
         ])
 
         const other = historyDevice(idp, "elsewhere")
-        await idp.session().linkDevice(IDP, other.token, other.storage.deviceId)
+        await nameSession(other)
         await idp.setKey(IDP, other.token, (await other.e2ee.mintHistoryKey(2)).key)
         await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
 
@@ -717,7 +717,7 @@ describe("reviewing the device list", () => {
         expect(unapproved(laptop.e2ee.trustSnapshot())).toHaveLength(1)
 
         const other = historyDevice(idp, "elsewhere")
-        await idp.session().linkDevice(IDP, other.token, other.storage.deviceId)
+        await nameSession(other)
         await idp.setKey(IDP, other.token, (await other.e2ee.mintHistoryKey(2)).key)
         expect((await review(laptop, devices)).acting).toBe(false)
 

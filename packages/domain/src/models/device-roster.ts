@@ -114,6 +114,20 @@ export function refusedDevice(verdict: DeviceTrustVerdict | null, device: Listed
     return !!verdict?.acting && inList(verdict.before?.refused ?? [], device)
 }
 
+/**
+ * "Revoke" withheld on a device the instance counts approved, from a device it doesn't: it refuses
+ * that (`approval_required`, `identity-provider/specs/e2ee.md § 3.12`). While its count is unknown
+ * (`null`), nothing is withheld, and a refusal is said when it comes.
+ */
+export function revokeWithheld(
+    approvedByInstance: ReadonlySet<DeviceId> | null,
+    thisDevice: DeviceId | null,
+    device: Pick<DeviceListEntry, "device_id">,
+): boolean {
+    if (approvedByInstance === null || thisDevice === null) return false
+    return !approvedByInstance.has(thisDevice) && approvedByInstance.has(device.device_id)
+}
+
 function newestFirst<T extends Seated>(devices: T[]): T[] {
     return devices.sort((a, b) => Date.parse(b.paired_at) - Date.parse(a.paired_at))
 }

@@ -42,11 +42,12 @@ import { RecoverySetupPage } from "@/presentation/pages/onboarding/RecoverySetup
 import { ApprovalAnswering } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
 import { startOverUseCase } from "@pinai/domain/usecases/e2ee/start-over.usecase"
 import { useAppStore } from "@/store/store"
+import { momentLabel } from "@/presentation/_libs/day-label"
 import { toast } from "sonner"
 
 import { accessToken } from "./setup/access-token"
 import { FakeAccount } from "./setup/approval-relay"
-import { ACTOR, FakeHistoryIdp, IDP, MemoryHistoryStorage, historyDevice } from "./setup/history-idp"
+import { ACTOR, FakeHistoryIdp, IDP, MemoryHistoryStorage, historyDevice, nameSession } from "./setup/history-idp"
 import { FakeIssuers } from "./setup/issuers"
 
 const wired = vi.hoisted(() => ({
@@ -56,6 +57,7 @@ const wired = vi.hoisted(() => ({
     directory: null as unknown,
     relay: null as unknown,
     platform: null as unknown,
+    startOver: null as unknown,
     keyShares: { share: async () => undefined, waiting: async () => null } as unknown,
     lowHandler: null as (() => void) | null,
 }))
@@ -66,6 +68,7 @@ vi.mock("@/ioc", () => ({
     getDeviceDirectoryPort: () => wired.directory,
     getApprovalRelayPort: () => wired.relay,
     getKeySharePort: () => wired.keyShares,
+    getStartOverPort: () => wired.startOver,
     getAuthPlatform: () => wired.platform,
     getAuthPort: vi.fn(),
     getSessionRenewal: vi.fn(),
@@ -99,13 +102,13 @@ async function account() {
 
 async function startOverElsewhere(idp: FakeHistoryIdp) {
     const other = historyDevice(idp, "elsewhere")
-    await idp.session().linkDevice(IDP, other.token, other.storage.deviceId)
+    await nameSession(other)
     await idp.setKey(IDP, other.token, (await other.e2ee.mintHistoryKey(2)).key)
 }
 
 /** `device` sets generation 2 — its words replaced, or a start over: the IdP records it as the setter. */
 async function newWordsOn(device: Device, idp: FakeHistoryIdp) {
-    await idp.session().linkDevice(IDP, device.token, device.storage.deviceId)
+    await nameSession(device)
     await idp.setKey(IDP, device.token, (await device.e2ee.mintHistoryKey(2)).key)
 }
 
@@ -120,6 +123,7 @@ function signIn(device: Device, idp: FakeHistoryIdp, net: FakeAccount) {
         directory: net.directory,
         relay: net.relay,
         platform: platform(),
+        startOver: idp.startOverRoutes(),
     })
     useAppStore.setState({ idpUrl: IDP, accessToken: device.token, user: { actor_uri: ACTOR, display_name: "Alice" } as UserProfile })
 }
@@ -647,7 +651,7 @@ describe("“Start over” on the new-device page", () => {
         await until(() => at() === "/home")
     })
 
-    it("with a password typed too long ago: asks it again before minting anything, comes back to the tab, and starts over once confirmed again", async () => {
+    it("with a password typed too long ago: asks it again before minting anything, comes back to the tab, and finishes once confirmed again", async () => {
         const { idp, phone, net } = await account()
         signedInAgo(phone, idp, net, 10 * 60_000)
         await render(page, "/onboarding/recovery-restore?tab=start-over")
@@ -667,17 +671,17 @@ describe("“Start over” on the new-device page", () => {
         })
         await unmount()
 
-        // Back from the IdP's page: a fresh password, the page on its tab, nothing done by itself.
+        // Back from the IdP's page: a fresh password, the page on its tab, its request matured, nothing done by itself.
         signedInAgo(phone, idp, net)
         await render(page, "/onboarding/recovery-restore?tab=start-over")
-        await until(() => button("Erase and start over")?.disabled === false)
+        await until(() => button("Finish starting over")?.disabled === false)
         expect(openTab()).toBe("Start over")
         await advance(5_000)
         expect(router.state.location.searchStr).toBe("")
         expect(idp.key?.generation).toBe(1)
         expect(phone.storage.pending).toBeNull()
 
-        await press(button("Erase and start over"))
+        await press(button("Finish starting over"))
         await until(() => text().includes("Your new 24 words"))
         expect(idp.key?.generation).toBe(2)
     })
@@ -740,6 +744,193 @@ describe("“Start over” on the new-device page", () => {
     })
 })
 
+describe("a start over that waits for the approved devices", () => {
+    const page = () => createElement(RecoveryRestorePage)
+    const DAY = 86_400_000
+    const readyAt = (idp: FakeHistoryIdp) => Math.max(idp.startOvers[0].createdAt, idp.approvedLastUse ?? 0) + 7 * DAY
+
+    beforeEach(() => {
+        if (!globalThis.CSS?.escape) vi.stubGlobal("CSS", { ...globalThis.CSS, escape: (text: string) => text })
+    })
+
+    afterEach(() => {
+        vi.unstubAllGlobals()
+    })
+
+    /** The laptop approved and in use; the phone, on its new-device page, asks. */
+    async function asked() {
+        const accounts = await account()
+        accounts.idp.startOverRule = true
+        accounts.idp.approvedLastUse = Date.now()
+        signedInAgo(accounts.phone, accounts.idp, accounts.net)
+        await render(page, "/onboarding/recovery-restore?tab=start-over")
+        await until(() => button("Erase and start over")?.disabled === false)
+        expect(text()).toContain("Your approved devices, if any, are told first: you finish here once none of them has been used for 7 days.")
+        await press(button("Erase and start over"))
+        await until(() => text().includes("Your other devices have been told."))
+        return accounts
+    }
+
+    it("asks first: the other devices told, the date it may finish in the reader's words, nothing erased", async () => {
+        const { idp, phone } = await asked()
+        expect(text()).toContain(`If none of them is used for 7 days, you can finish here on ${momentLabel(readyAt(idp))}.`)
+        expect(idp.startOvers).toHaveLength(1)
+        expect(idp.key?.generation).toBe(1)
+        expect(phone.storage.pending).toBeNull()
+        expect(button("Erase and start over")).toBeUndefined()
+        expect(button("Finish starting over")).toBeUndefined()
+    })
+
+    it("keeps the date current as the approved devices are used, read again on a calm interval", async () => {
+        const { idp } = await asked()
+        const before = momentLabel(readyAt(idp))
+        await advance(60 * 60_000)
+        idp.approvedLastUse = Date.now()
+        const after = momentLabel(readyAt(idp))
+        expect(after).not.toBe(before)
+        await until(() => text().includes(after), 30_000)
+        expect(text()).not.toContain(before)
+    })
+
+    it("offers the code instead, on the “Another device” tab, and withdrawing goes back to the choice", async () => {
+        const { idp } = await asked()
+        expect(text()).toContain("Still have one of your devices? Approving this one with a code from it is quicker, and keeps your history.")
+        await press(button("Approve with another device instead"))
+        await until(() => openTab() === "Another device")
+
+        await press(tab("Start over"))
+        await until(() => button("Withdraw the request") !== undefined)
+        await press(button("Withdraw the request"))
+        await until(() => button("Erase and start over")?.disabled === false)
+        expect(idp.startOvers[0].ended?.reason).toBe("withdrawn")
+    })
+
+    it("opens on its tab after a reload while it waits, and once matured, “Finish starting over” runs the start over", async () => {
+        const { idp, phone, net } = await asked()
+        await unmount()
+
+        signedInAgo(phone, idp, net)
+        await render(page, "/onboarding/recovery-restore")
+        await until(() => openTab() === "Start over" && text().includes("Waiting on your other devices"))
+
+        // A week on, no approved device used since.
+        idp.startOvers[0].createdAt -= 8 * DAY
+        idp.approvedLastUse = Date.now() - 8 * DAY
+        await until(() => button("Finish starting over")?.disabled === false, 30_000)
+        expect(text()).toContain("None of your other devices has been used for 7 days.")
+
+        await press(button("Finish starting over"))
+        await until(() => text().includes("Your new 24 words"))
+        expect(idp.key).toMatchObject({ generation: 2, setByDevice: phone.storage.deviceId })
+        expect(idp.startOvers[0].ended?.reason).toBe("used")
+    })
+
+    it("a finish the IdP finds too early moves the date shown, nothing kept", async () => {
+        const { idp, phone } = await asked()
+        idp.startOvers[0].createdAt -= 8 * DAY
+        idp.approvedLastUse = Date.now() - 8 * DAY
+        await until(() => button("Finish starting over")?.disabled === false, 30_000)
+
+        // The laptop used just now: the IdP refuses, and the screen waits again with the new date.
+        idp.approvedLastUse = Date.now()
+        await press(button("Finish starting over"))
+        await until(() => text().includes(`you can finish here on ${momentLabel(readyAt(idp))}`))
+        expect(idp.key?.generation).toBe(1)
+        expect(phone.storage.pending).toBeNull()
+    })
+
+    it("says plainly that one of the user's devices cancelled it — after a reload too — and may ask again", async () => {
+        const { idp, laptop, phone, net } = await asked()
+        await idp.startOverRoutes().end(IDP, laptop.token, idp.startOvers[0].id)
+        const said = "One of your devices cancelled your request to start over."
+        await until(() => text().includes(said), 30_000)
+        expect(button("Erase and start over")?.disabled).toBe(false)
+        await unmount()
+
+        signedInAgo(phone, idp, net)
+        await render(page, "/onboarding/recovery-restore?tab=start-over")
+        await until(() => text().includes(said))
+    })
+
+    it("another device's request open: explained as the page reads it, nothing to ask with", async () => {
+        const { idp, phone, net } = await account()
+        idp.approvedLastUse = Date.now()
+        const tablet = historyDevice(idp, "tablet")
+        await nameSession(tablet)
+        await idp.startOverRoutes().ask(IDP, tablet.token)
+        signedInAgo(phone, idp, net)
+        await render(page, "/onboarding/recovery-restore?tab=start-over")
+
+        await until(() => text().includes("Another device asked first"))
+        expect(text()).toContain("only one request can be open at a time")
+        expect(button("Erase and start over")).toBeUndefined()
+        expect(button("Approve with another device instead")).toBeDefined()
+        expect(idp.startOvers).toHaveLength(1)
+    })
+
+    it("approved by another device meanwhile: says so, and goes where the gate says — still out here, back to the code tab", async () => {
+        const { idp } = await asked()
+        idp.startOvers[0].ended = { reason: "approved", at: Date.now() }
+        await until(() => text().includes("Another of your devices approved this one"), 30_000)
+        await until(() => openTab() === "Another device")
+        expect(at()).toBe("/onboarding/recovery-restore")
+    })
+
+    it("on a device whose clock runs ahead: “not yet” with the IdP's date, and no press mints anything until it may", async () => {
+        const { idp, phone } = await asked()
+        // The instance's clock runs 30 minutes behind this device's; by it, the request matures in 15.
+        idp.clockOffset = -30 * 60_000
+        idp.startOvers[0].createdAt -= 8 * DAY
+        idp.approvedLastUse = Date.now() - 7 * DAY - 15 * 60_000
+        await until(() => button("Finish starting over")?.disabled === false, 30_000)
+        const setKey = vi.spyOn(idp, "setKey")
+        const minted = vi.spyOn(phone.e2ee, "mintHistoryKey")
+        await press(button("Finish starting over"))
+        await until(() => setKey.mock.calls.length === 1)
+
+        await until(() => text().includes(`Not yet: you can finish on ${momentLabel(readyAt(idp))}.`))
+        expect(button("Finish starting over")).toBeUndefined()
+        expect(phone.storage.pending).toBeNull()
+        expect(minted).toHaveBeenCalledOnce()
+
+        // One reread on, its date unmoved, a press may go again.
+        await until(() => button("Finish starting over") !== undefined, 30_000)
+        expect(setKey).toHaveBeenCalledOnce()
+        expect(minted).toHaveBeenCalledOnce()
+    })
+
+    it("after a reload, says new words ended its request, and opens on its tab to say so", async () => {
+        const { idp, phone, net } = await asked()
+        await unmount()
+        idp.startOvers[0].ended = { reason: "superseded", at: Date.now() }
+        signedInAgo(phone, idp, net)
+        await render(page, "/onboarding/recovery-restore")
+        await until(() => openTab() === "Start over" && text().includes("One of your approved devices set new words, which ended your request to start over."))
+        expect(button("Erase and start over")).toBeDefined()
+    })
+
+    it("after a reload, opens on its tab to say one of the user's devices cancelled it", async () => {
+        const { idp, laptop, phone, net } = await asked()
+        await idp.startOverRoutes().end(IDP, laptop.token, idp.startOvers[0].id)
+        await unmount()
+        signedInAgo(phone, idp, net)
+        await render(page, "/onboarding/recovery-restore")
+        await until(() => openTab() === "Start over" && text().includes("One of your devices cancelled your request to start over."))
+    })
+
+    it("with no approved device to wait for, it goes straight on to finishing", async () => {
+        const { idp, phone, net } = await account()
+        idp.startOverRule = true
+        idp.approvals.length = 0
+        signedInAgo(phone, idp, net)
+        await render(page, "/onboarding/recovery-restore?tab=start-over")
+        await until(() => button("Erase and start over")?.disabled === false)
+        await press(button("Erase and start over"))
+        await until(() => text().includes("Your new 24 words"))
+        expect(idp.startOvers[0]).toMatchObject({ deviceId: phone.storage.deviceId, ended: { reason: "used" } })
+    })
+})
+
 describe("the reset page", () => {
     const page = () => createElement(RecoveryRestorePage, { variant: "reset" })
 
@@ -781,9 +972,34 @@ describe("the reset page", () => {
 
         await press(tab("Start over"))
         expect(text()).toContain(
-            "Then someone else replaced your words on Chrome on Android: it won't be approved, and you can revoke it from another device.",
+            "Then someone else replaced your words on Chrome on Android: it won't be approved, and once this device has started over, it can sign Chrome on Android out.",
         )
+        // The password first: that device's holder has it, and it would cancel every request.
+        expect(text()).toContain("First, your password")
+        expect(text()).toContain("Whoever has Chrome on Android has your password too.")
+        expect(text()).toContain("once you've signed in again, come back here to start over.")
         expect(button("Erase and start over")).toBeDefined()
+    })
+
+    it("“It wasn't me”: a cancel says whoever has that device has the password, to change first", async () => {
+        const { idp, laptop, phone, net } = await account()
+        laptop.storage.trust = { ...laptop.storage.trust, approved: [{ deviceId: phone.storage.deviceId, rootKey: phone.storage.rootKey.publicKey }] }
+        await newWordsOn(phone, idp)
+        idp.approvals.push({ deviceId: phone.storage.deviceId, generation: 2 })
+        idp.approvedLastUse = Date.now()
+        await laptop.e2ee.checkHistoryKey(IDP, laptop.token)
+        signIn(laptop, idp, net)
+        await render(page, "/onboarding/history-reset?tab=start-over")
+        await until(() => button("Erase and start over")?.disabled === false)
+        await press(button("Erase and start over"))
+        await until(() => text().includes("Your other devices have been told."))
+        expect(text()).toContain("If it was you after all, approving this device with a code from Chrome on Android keeps your history.")
+
+        await idp.startOverRoutes().end(IDP, phone.token, idp.startOvers[0].id)
+        await until(
+            () => text().includes("Your request to start over was cancelled. Whoever has Chrome on Android has your password: change it first, then ask again."),
+            30_000,
+        )
     })
 
     it("never says “reset from another device”, nor its instruction, before naming the device that replaced the words", async () => {

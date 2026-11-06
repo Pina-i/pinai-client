@@ -7,7 +7,7 @@ import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { cn } from "@/presentation/_libs/utils"
 
 import { DeviceCard } from "./DeviceCard/DeviceCard"
-import { useDevicesEditorViewModel } from "./DevicesEditor.viewmodel"
+import { ONLY_APPROVED_REVOKES, useDevicesEditorViewModel } from "./DevicesEditor.viewmodel"
 import { ReplaceWords } from "./ReplaceWords/ReplaceWords"
 import { WaitingSeat } from "./WaitingSeat/WaitingSeat"
 
@@ -148,12 +148,13 @@ export function DevicesEditor() {
                                 ))}
                             </section>
                         )}
-                        {vm.rows.map(({ device, holdsHistory, approvedBy }) => (
+                        {vm.rows.map(({ device, holdsHistory, approvedBy, revokeWithheld }) => (
                             <DeviceCard
                                 key={device.device_id}
                                 device={device}
                                 holdsHistory={holdsHistory}
                                 approvedBy={approvedBy}
+                                revokeWithheld={revokeWithheld ? ONLY_APPROVED_REVOKES : null}
                                 onRevoke={() => void vm.onRevokeDevice(device.device_id)}
                                 isRevoking={vm.revokingDeviceId === device.device_id}
                             />

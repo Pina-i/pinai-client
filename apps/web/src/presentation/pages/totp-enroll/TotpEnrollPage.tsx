@@ -32,12 +32,26 @@ export function TotpEnrollPage() {
                     </button>
                 </div>
                 <h2 className="title mt-2 text-[32px] font-normal tracking-[-0.015em] text-foreground">
-                    Scan and verify
+                    {vm.approvalRequired ? "Not from this device" : "Scan and verify"}
                 </h2>
-                <p className="mt-2 max-w-sm text-[13.5px] leading-[1.55] text-muted-foreground">
-                    Open your authenticator app, scan the QR code, then type the 6-digit code to confirm.
-                </p>
+                {!vm.approvalRequired && (
+                    <p className="mt-2 max-w-sm text-[13.5px] leading-[1.55] text-muted-foreground">
+                        Open your authenticator app, scan the QR code, then type the 6-digit code to confirm.
+                    </p>
+                )}
             </div>
+
+            {vm.approvalRequired && (
+                <div className="flex flex-col gap-[18px]" role="status">
+                    <p className="text-[13.5px] leading-[1.55] text-muted-foreground">
+                        Only one of your approved devices can turn two-factor authentication on. This device isn't
+                        approved: once one of your devices approves it, you can turn it on here.
+                    </p>
+                    <Button variant="secondary" onPress={() => navigate({ to: "/home" })}>
+                        Back to Pīna'i
+                    </Button>
+                </div>
+            )}
 
             {vm.bootError && (
                 <p className="mb-3 text-xs text-dnd" role="alert">

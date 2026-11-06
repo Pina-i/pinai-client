@@ -81,16 +81,26 @@ export interface IssuedTokens {
  * crypto helpers move to a shared package this should switch to the same
  * base64url decoder they use.
  */
-function claimsOf(token: string): { iat?: number; exp?: number; auth_time?: number } | null {
+function claimsOf(token: string): { iat?: number; exp?: number; auth_time?: number; sid?: unknown } | null {
     try {
         return JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))) as {
             iat?: number
             exp?: number
             auth_time?: number
+            sid?: unknown
         }
     } catch {
         return null
     }
+}
+
+/**
+ * The session the access token belongs to (its `sid`), lowercased as the IdP writes UUIDs: what a
+ * device signs to name itself on it. A renewed token keeps it. `null` for a token naming none.
+ */
+export function sessionIdOf(token: string): string | null {
+    const sid = claimsOf(token)?.sid
+    return typeof sid === "string" && sid !== "" ? sid.toLowerCase() : null
 }
 
 /**
@@ -123,6 +133,16 @@ export function signedInRecently(token: string | null, arrivedAt: number | null 
     const ageAtIssue = typeof claims?.iat === "number" ? (claims.iat - authTime) * 1000 : null
     if (ageAtIssue !== null && arrivedAt !== null) return ageAtIssue + Math.max(0, now - arrivedAt) < RECENT_SIGN_IN_MS
     return now - authTime * 1000 < RECENT_SIGN_IN_MS || (ageAtIssue !== null && ageAtIssue < RECENT_SIGN_IN_MS)
+}
+
+/**
+ * How far this device's clock runs ahead of the IdP's, as the access token shows it: its arrival on
+ * this clock against its `iat` on the IdP's. Network time counts as lead, so it errs on the late
+ * side. `null` without both.
+ */
+export function clockLeadOf(token: string | null, arrivedAt: number | null): number | null {
+    const iat = token ? claimsOf(token)?.iat : undefined
+    return typeof iat === "number" && arrivedAt !== null ? arrivedAt - iat * 1000 : null
 }
 
 /** An access token is renewed once this share of its lifetime has gone. */

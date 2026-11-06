@@ -13,6 +13,7 @@ import { act, createElement } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import type { KeptWordsReset } from "@pinai/domain/models/admission"
 import type { UserProfile } from "@pinai/domain/models/auth"
 import type { DeviceListEntry } from "@pinai/domain/models/device"
 import { IdpError } from "@pinai/domain/models/idp-error"
@@ -20,10 +21,11 @@ import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstr
 import { replaceWordsUseCase } from "@pinai/domain/usecases/e2ee/replace-words.usecase"
 import { deviceFingerprint } from "@/presentation/_libs/device-fingerprint"
 import { DevicesEditor } from "@/presentation/pages/home/SettingsModal/DevicesEditor/DevicesEditor"
+import { HistoryResetContext } from "@/presentation/providers/HistoryResetProvider/HistoryReset.context"
 import { useAppStore } from "@/store/store"
 
 import { accessToken } from "./setup/access-token"
-import { ACTOR, FakeHistoryIdp, FastSealer, IDP, MemoryHistoryStorage, historyDevice } from "./setup/history-idp"
+import { ACTOR, FakeHistoryIdp, FastSealer, IDP, MemoryHistoryStorage, historyDevice, nameSession } from "./setup/history-idp"
 import { FakeIssuers, approvedBy, approvedByPassphrase, listedDevice, testDevice, type TestDevice } from "./setup/issuers"
 
 const wired = vi.hoisted(() => ({
@@ -37,9 +39,9 @@ const wired = vi.hoisted(() => ({
 vi.mock("@/ioc", () => ({
     getE2eePort: () => wired.e2ee,
     getDeviceDirectoryPort: () => ({
+        markRevoked: async () => undefined,
         ...wired.directory,
         listDevices: async () => ({ devices: wired.rows }),
-        markRevoked: async () => undefined,
     }),
     getHistoryArchivePort: () => wired.history,
     getSessionPort: () => wired.session,
@@ -50,7 +52,8 @@ vi.mock("@/ioc", () => ({
 }))
 const rearchive = vi.hoisted(() => ({ run: vi.fn(async () => ({ kind: "idle" })) }))
 vi.mock("@/presentation/_libs/history-rearchive", () => ({ rearchiveDueHistory: rearchive.run }))
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }))
+const toasts = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), message: vi.fn() }))
+vi.mock("sonner", () => ({ toast: toasts }))
 vi.mock("@/presentation/molecules/RecentSignInModal/RecentSignInModal", () => ({
     RecentSignInModal: ({ action }: { action: string | null }) => (action ? `To ${action}, sign in again` : null),
 }))
@@ -100,9 +103,12 @@ async function account() {
 let root: Root | null = null
 let container: HTMLElement
 
-async function render(): Promise<void> {
+async function render(reset: KeptWordsReset | null = null): Promise<void> {
+    const recheck = async () => "checked" as const
     const router = createRouter({
-        routeTree: createRootRoute({ component: DevicesEditor }),
+        routeTree: createRootRoute({
+            component: () => createElement(HistoryResetContext.Provider, { value: { reset, recheck } }, createElement(DevicesEditor)),
+        }),
         history: createMemoryHistory({ initialEntries: ["/home"] }),
     })
     container = document.createElement("div")
@@ -131,6 +137,7 @@ const restoreLink = () => [...container.querySelectorAll("a")].find((a) => a.tex
 
 beforeEach(() => {
     ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    wired.directory = {}
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] })
     vi.spyOn(console, "warn").mockImplementation(() => undefined)
 })
@@ -147,6 +154,53 @@ afterEach(async () => {
 })
 
 describe("Settings → Devices", () => {
+    it("on a device that isn't approved, withholds Revoke on the devices the instance counts approved, saying why, and keeps it on the others", async () => {
+        const { idp, rows } = await account()
+        const web = historyDevice(idp, "web", new MemoryHistoryStorage(), issuers.jwks)
+        await nameSession(web)
+        const self: TestDevice = {
+            actorUri: ACTOR,
+            deviceId: web.storage.deviceId,
+            rootKey: web.storage.rootKey,
+            attestation: issuers.attest(ACTOR, web.storage.deviceId, web.storage.rootKey.publicKey),
+        }
+        const stranger = testDevice(issuers, ACTOR)
+        wired.e2ee = web.e2ee
+        wired.history = idp
+        wired.rows = [
+            ...rows,
+            listedDevice(self, [], { display_name: "Chrome on Windows" }),
+            listedDevice(stranger, [], { display_name: "Edge on Windows" }),
+        ]
+        useAppStore.setState({ accessToken: web.token })
+        await render({ cause: "reset-by-unapproved", setter: rows[0].device_id })
+        await until(() => card("Firefox on Linux")?.textContent?.includes("Only an approved device can remove an approved device") === true)
+
+        for (const name of ["Firefox on Linux", "Pixel 8", "Studio iMac"]) {
+            expect(card(name)?.textContent).toContain("Only an approved device can remove an approved device")
+            expect(container.querySelector(`button[aria-label="Revoke ${name}"]`)).toBeNull()
+        }
+        expect(container.querySelector('button[aria-label="Revoke Edge on Windows"]')).not.toBeNull()
+        expect(card("Edge on Windows")?.textContent).not.toContain("Only an approved device")
+
+        // Refused anyway — the instance's word changed meanwhile —, it is said, nothing else.
+        wired.directory = { markRevoked: async () => Promise.reject(new IdpError(403, "approval_required", "refused")) }
+        await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Revoke Edge on Windows"]')?.click())
+        await until(() => toasts.error.mock.calls.some(([message]) => message === "Only an approved device can remove an approved device."))
+    })
+
+    it("withholds nothing on a device the instance counts approved", async () => {
+        const { idp, laptop, rows } = await account()
+        wired.e2ee = laptop.e2ee
+        wired.history = idp
+        wired.rows = rows
+        const counted = vi.spyOn(laptop.e2ee, "approvedAsTheInstanceCounts")
+        await render()
+        await until(() => counted.mock.calls.length > 0 && button("Revoke") !== undefined)
+        await expect(counted.mock.results[0].value).resolves.toContain(laptop.storage.deviceId)
+        expect(container.textContent).not.toContain("Only an approved device")
+    })
+
     it("says what each device is: this one, signed out, holding the history, who approved it, paired when, its short id", async () => {
         const { laptop, rows, phone, tablet } = await account()
         wired.e2ee = laptop.e2ee
@@ -229,7 +283,7 @@ describe("Settings → Devices", () => {
     it("offers “Restore history” and no words on a device that doesn't hold the current passphrase, naming no approver nor holder", async () => {
         const { idp, rows } = await account()
         const fresh = historyDevice(idp, "fresh", new MemoryHistoryStorage(), issuers.jwks)
-        await idp.session().linkDevice(IDP, fresh.token, fresh.storage.deviceId)
+        await nameSession(fresh)
         expect(await fresh.e2ee.checkHistoryKey(IDP, fresh.token)).toMatchObject({ kind: "no-passphrase" })
         wired.e2ee = fresh.e2ee
         wired.rows = rows
@@ -377,7 +431,7 @@ describe("Settings → Devices: replacing the words", () => {
     it("no “Replace my words” on a device without the current words, nor with a key of its own waiting", async () => {
         const { idp, laptop, rows } = await account()
         const fresh = historyDevice(idp, "fresh", new MemoryHistoryStorage(), issuers.jwks)
-        await idp.session().linkDevice(IDP, fresh.token, fresh.storage.deviceId)
+        await nameSession(fresh)
         await fresh.e2ee.checkHistoryKey(IDP, fresh.token)
         wire(fresh, idp, rows)
         useAppStore.setState({ accessToken: fresh.token })

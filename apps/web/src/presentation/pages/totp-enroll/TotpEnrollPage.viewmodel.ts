@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useAppStore } from "@/store/store"
 import { getAuthPort, getTotpPort } from "@/ioc/index"
+import { isApprovalRequired } from "@pinai/domain/models/idp-error"
 import { useRecentSignIn } from "@/presentation/hooks/use-recent-sign-in"
+import { useMayTurnOnSecondFactor } from "@/presentation/hooks/use-second-factor-offer"
 
 const returnHere = () => "/settings/totp/enroll"
 
@@ -24,10 +26,13 @@ export function useTotpEnrollPageViewModel() {
     const navigate = useNavigate()
     const recentSignIn = useRecentSignIn(returnHere)
     const { refused } = recentSignIn
+    const mayTurnOn = useMayTurnOnSecondFactor()
+    // The IdP's word, should it differ from what this device last found: only an approved device turns it on.
+    const [refusedApproval, setRefusedApproval] = useState(false)
 
     useEffect(() => {
         const accessToken = useAppStore.getState().accessToken
-        if (!accessToken || !idpUrl) return
+        if (!accessToken || !idpUrl || mayTurnOn !== true) return
         let cancelled = false
         ;(async () => {
             try {
@@ -37,13 +42,14 @@ export function useTotpEnrollPageViewModel() {
                 setSecretBase32(res.secret_base32)
             } catch (e) {
                 if (cancelled || refused(e, "turn on two-factor authentication")) return
-                setBootError(e instanceof Error ? e.message : "Failed to start enrollment")
+                if (isApprovalRequired(e)) setRefusedApproval(true)
+                else setBootError(e instanceof Error ? e.message : "Failed to start enrollment")
             }
         })()
         return () => {
             cancelled = true
         }
-    }, [signedIn, idpUrl, refused])
+    }, [signedIn, idpUrl, refused, mayTurnOn])
 
     const verify = useCallback(async () => {
         if (!accessToken || !idpUrl) return
@@ -69,13 +75,20 @@ export function useTotpEnrollPageViewModel() {
 
             navigate({ to: "/settings/totp/recovery-codes" })
         } catch (e) {
-            setVerifyError(e instanceof Error ? e.message : "Verification failed")
+            if (isApprovalRequired(e)) {
+                setProvisioningUrl(null)
+                setRefusedApproval(true)
+            } else {
+                setVerifyError(e instanceof Error ? e.message : "Verification failed")
+            }
         } finally {
             setSubmitting(false)
         }
     }, [accessToken, idpUrl, code, navigate, setPendingRecoveryCodes, setUser])
 
     return {
+        /** Once the account has a history key, only an approved device turns it on: this one is told why instead. */
+        approvalRequired: mayTurnOn === false || refusedApproval,
         provisioningUrl,
         secretBase32,
         bootError,

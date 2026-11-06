@@ -48,7 +48,7 @@ import type { Message } from "@/lib/types"
 import { useAppStore } from "@/store/store"
 
 import { accessToken } from "./setup/access-token"
-import { ACTOR, FakeHistoryIdp, IDP, historyDevice } from "./setup/history-idp"
+import { ACTOR, FakeHistoryIdp, IDP, historyDevice, nameSession } from "./setup/history-idp"
 
 const ME = "alice_xk9mp@idp.test"
 const BOB = "bob_a1b2c@idp.test"
@@ -388,7 +388,7 @@ describe("re-archiving after a replacement", () => {
 
         // The phone types the new words: the real restore, then the store's own actions.
         const phone = historyDevice(idp, "phone")
-        await phone.deps.sessionPort.linkDevice(IDP, phone.token, phone.storage.deviceId)
+        await nameSession(phone)
         expect(await restoreHistoryFromPassphraseUseCase(phone.deps)({ idpUrl: IDP, accessToken: phone.token, actorUri: ACTOR, passphrase: words })).toEqual({
             kind: "kept",
             generation: 2,
@@ -433,7 +433,7 @@ describe("re-archiving after a replacement", () => {
 
         await laptop.e2ee.dismissNewWords()
         laptop.token = accessToken(Date.now(), "laptop")
-        await laptop.deps.sessionPort.linkDevice(IDP, laptop.token, laptop.storage.deviceId)
+        await nameSession(laptop)
         await replace(laptop)
         await rearchiving(laptop, cache).run(context(laptop))
         expect(idp.key?.generation).toBe(3)
@@ -574,7 +574,7 @@ describe("re-archiving after a replacement", () => {
     it("is dropped once another generation is in force — another replacement, a start over —, the row with it", async () => {
         const { idp, laptop } = await replaced()
         const rival = historyDevice(idp, "rival")
-        await idp.session().linkDevice(IDP, rival.token, rival.storage.deviceId)
+        await nameSession(rival)
         const upload = vi.spyOn(idp, "uploadBatch")
         upload.mockImplementationOnce(async (...args) => {
             const inserted = await FakeHistoryIdp.prototype.uploadBatch.apply(idp, args)

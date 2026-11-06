@@ -52,6 +52,23 @@ export type Admission =
 
 const OUT: Admission = { kind: "out" }
 
+/**
+ * Approved under the account's history key, as this device last found itself: in by the words it
+ * holds, or by the partner that approved it. In by words a newer key replaced, or out, it isn't.
+ */
+export function approvedHere(admission: Admission | null): boolean {
+    return admission?.kind === "in" && admission.by !== "kept-words"
+}
+
+/**
+ * Only an approved device turns the second factor on, once the account has a history key
+ * (`identity-provider/specs/auth.md § 3`): someone with the password alone would lock the user's
+ * devices out. Before any key, every device may.
+ */
+export function mayTurnOnSecondFactor(standing: HistoryKeyStanding, admission: Admission | null): boolean {
+    return standing.kind === "no-key" || approvedHere(admission)
+}
+
 /** An admission as it was recorded; `null` for anything else. */
 export function parseAdmission(value: unknown): Admission | null {
     if (typeof value !== "object" || value === null) return null

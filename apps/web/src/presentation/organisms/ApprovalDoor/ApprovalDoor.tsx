@@ -1,7 +1,8 @@
-import { Check, Laptop, ShieldCheck } from "lucide-react"
+import { Check, ShieldCheck } from "lucide-react"
 
 import { Button } from "@/presentation/atoms/Button/Button"
 import { OtpInput } from "@/presentation/atoms/OtpInput/OtpInput"
+import { DoorHead } from "@/presentation/molecules/DoorHead/DoorHead"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { modalSurface } from "@/presentation/molecules/Modal/modal-surface"
 import { RecentSignInModal } from "@/presentation/molecules/RecentSignInModal/RecentSignInModal"
@@ -30,22 +31,7 @@ export function ApprovalDoor() {
                 label={vm.title}
             >
                 <div className={cn(modalSurface, "w-[470px] gap-5 px-[30px] pb-[22px] pt-7 max-[520px]:px-5")}>
-                    <div>
-                        <p className="eye">— New sign-in</p>
-                        <h2 className="title m-0 mt-1.5 text-[32px] font-normal leading-[1.1] tracking-[-0.015em] text-foreground">
-                            {approved ? "Approved." : "Is this you?"}
-                        </h2>
-                    </div>
-
-                    <div className="flex items-center gap-3.5 rounded-[16px] border border-line bg-surf px-4 py-3.5">
-                        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] bg-acc-soft text-acc">
-                            <Laptop className="h-[22px] w-[22px]" strokeWidth={1.9} aria-hidden />
-                        </span>
-                        <span className="min-w-0">
-                            <span className="title block truncate text-[18px] font-semibold text-foreground">{vm.device}</span>
-                            <span className="fact fact-plain mt-[3px] block">{vm.asked}</span>
-                        </span>
-                    </div>
+                    <DoorHead eyebrow="New sign-in" title={approved ? "Approved." : "Is this you?"} device={vm.device} asked={vm.asked} />
 
                     <div role="status" aria-live="polite">
                         {approved && (

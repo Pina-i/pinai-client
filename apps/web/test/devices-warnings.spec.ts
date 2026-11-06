@@ -18,7 +18,7 @@ import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstr
 import { DevicesEditor } from "@/presentation/pages/home/SettingsModal/DevicesEditor/DevicesEditor"
 import { useAppStore } from "@/store/store"
 
-import { ACTOR, FakeHistoryIdp, FastSealer, IDP, MemoryHistoryStorage, historyDevice } from "./setup/history-idp"
+import { ACTOR, FakeHistoryIdp, FastSealer, IDP, MemoryHistoryStorage, historyDevice, nameSession } from "./setup/history-idp"
 import { FakeIssuers, approvedBy, approvedByPassphrase, listedDevice, testDevice, type TestDevice } from "./setup/issuers"
 
 const wired = vi.hoisted(() => ({
@@ -178,7 +178,7 @@ describe("Settings → Devices", () => {
         await until(() => buttonIn(card("Chrome on Android"), "Not mine") !== undefined)
 
         const other = historyDevice(idp, "elsewhere")
-        await idp.session().linkDevice(IDP, other.token, other.storage.deviceId)
+        await nameSession(other)
         await idp.setKey(IDP, other.token, (await other.e2ee.mintHistoryKey(2)).key)
         await act(async () => {
             await laptop.e2ee.reviewDevices(IDP, laptop.token, ACTOR, rows)

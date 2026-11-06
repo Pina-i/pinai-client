@@ -241,13 +241,17 @@ function StartOver({ vm }: { vm: HistoryResetBannerViewModel }) {
                             <Heading eyebrow="First, your password" title="Change your password" tone="dnd">
                                 Someone else has it. Change it with a reset link — "Forgot password?" on your instance's
                                 sign-in page, or ask its admin for one. That signs every session out, theirs and this one:
-                                once you've signed in again, choose "It wasn't me" on this banner once more.
+                                once you've signed in again, choose "It wasn't me" on this banner once more. This device
+                                then waits like any other: it can finish starting over once the device that reset your
+                                history has gone 7 days unused. As long as they can still use it, it never finishes — which
+                                is why the password comes first.
                             </Heading>
                         )}
                         <Notice text={vm.notice} />
                         <StartOverPanel
                             reason={notMe ? "password-changed" : "unknown-change"}
                             ready
+                            own={vm.ownStartOver}
                             refused={vm.refused}
                             returnTo={vm.startOverReturn}
                             onStartedOver={vm.onStartedOver}

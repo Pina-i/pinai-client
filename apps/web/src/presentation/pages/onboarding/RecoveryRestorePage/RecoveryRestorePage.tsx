@@ -59,6 +59,8 @@ export function RecoveryRestorePage({ variant = "new-device" }: { variant?: Rest
         <StartOverPanel
             reason={reason}
             ready={vm.deviceReady && !vm.approvedHere}
+            own={vm.ownStartOver}
+            onApproveInstead={reason === "lost-everything" || reason === "not-me" ? () => vm.setTab("device") : undefined}
             returnTo={vm.startOverReturn}
             onStartedOver={vm.onStartedOver}
             onWentOtherwise={vm.onStartOverWentOtherwise}

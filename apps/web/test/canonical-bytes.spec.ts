@@ -1,6 +1,6 @@
 /**
- * The canonical signed bytes of `identity-provider/specs/e2ee.md § 7.2`. The attestation, HPKE
- * and approval vectors are the IdP's own (its domain and attestation tests): the bytes a device
+ * The canonical signed bytes of `identity-provider/specs/e2ee.md § 7.2`. The attestation, HPKE,
+ * session naming and approval vectors are the IdP's own (its domain and attestation tests): the bytes a device
  * rebuilds must be the very bytes the IdP signs and checks. A change here needs a new tag.
  */
 import { describe, expect, it } from "vitest"
@@ -11,6 +11,7 @@ import {
     attestationBytes,
     deviceHpkeKeyBytes,
     leafBindingBytes,
+    sessionDeviceBytes,
 } from "@pinai/crypto/canonical-bytes"
 
 const ACTOR = "https://idp.alice.com/users/alice_xK9mP"
@@ -27,6 +28,23 @@ describe("canonical signed bytes", () => {
                 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n" +
                 "2027-05-14T00:00:00Z\n" +
                 "key-2026-01",
+        )
+    })
+
+    it("writes what a root key signs to name its device on a session, as the IdP checks it", () => {
+        expect(
+            text(sessionDeviceBytes("https://idp.alice.test/users/alice_xk9mp", DEVICE, "6ba7b810-9dad-11d1-80b4-00c04fd430c8")),
+        ).toBe(
+            "PINAI-SESSION-DEVICE-v1\n" +
+                "https://idp.alice.test/users/alice_xk9mp\n" +
+                "550e8400-e29b-41d4-a716-446655440000\n" +
+                "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+        )
+    })
+
+    it("writes the device and the session lowercased, as the IdP writes UUIDs", () => {
+        expect(text(sessionDeviceBytes(ACTOR, DEVICE.toUpperCase(), "6BA7B810-9DAD-11D1-80B4-00C04FD430C8"))).toBe(
+            `PINAI-SESSION-DEVICE-v1\n${ACTOR}\n${DEVICE}\n6ba7b810-9dad-11d1-80b4-00c04fd430c8`,
         )
     })
 

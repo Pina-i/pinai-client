@@ -17,7 +17,7 @@ import { IdpError, isUnreachable } from "@pinai/domain/models/idp-error"
 import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstrap-first-device.usecase"
 import { gateDecisionUseCase, gateThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/gate-this-device.usecase"
 
-import { ACTOR, FakeHistoryIdp, IDP, historyDevice } from "./setup/history-idp"
+import { ACTOR, FakeHistoryIdp, IDP, historyDevice, nameSession } from "./setup/history-idp"
 
 afterEach(() => {
     vi.restoreAllMocks()
@@ -111,7 +111,7 @@ describe("the gate on a device", () => {
 
     async function startOverElsewhere(idp: FakeHistoryIdp) {
         const other = historyDevice(idp, "elsewhere")
-        await idp.session().linkDevice(IDP, other.token, other.storage.deviceId)
+        await nameSession(other)
         await idp.setKey(IDP, other.token, (await other.e2ee.mintHistoryKey(2)).key)
     }
 
@@ -151,7 +151,7 @@ describe("the gate on a device", () => {
         expect(await decide(laptop)).toEqual({ route: "app", reset: null, offline: false })
 
         const other = historyDevice(idp, "elsewhere")
-        await idp.session().linkDevice(IDP, other.token, other.storage.deviceId)
+        await nameSession(other)
         await idp.setKey(IDP, other.token, (await other.e2ee.mintHistoryKey(2)).key)
         expect(await decide(laptop)).toEqual({ route: "app", reset: { cause: "reset-by-unapproved", setter: other.storage.deviceId }, offline: false })
         expect(resetCause(await laptop.e2ee.historyKeyStanding())).toBe("newer-generation")
@@ -173,7 +173,7 @@ describe("the gate on a device", () => {
         })
         const listed = [{ ...listedRow(other.storage.deviceId), drk_public_key: other.storage.rootKey.publicKey }]
         const seeing = { ...laptop.deps, deviceDirectoryPort: { ...laptop.deps.deviceDirectoryPort, listDevices: async () => ({ devices: listed }) } }
-        await idp.session().linkDevice(IDP, other.token, other.storage.deviceId)
+        await nameSession(other)
         await idp.setKey(IDP, other.token, (await other.e2ee.mintHistoryKey(2)).key)
 
         expect(await gateDecisionUseCase(seeing)(IDP, laptop.token, ACTOR)).toEqual({ route: "reset", reset: null, offline: false })

@@ -18,6 +18,7 @@ import { peerAgainstList, type HandshakeRole } from "@pinai/domain/models/approv
 import type { DeviceListEntry } from "@pinai/domain/models/device"
 import {
     actsOnApproval,
+    approvedDevicesBy,
     deviceBaseline,
     devicesBefore,
     duplicateDeviceIds,
@@ -113,6 +114,7 @@ import {
     attestationBytes,
     deviceHpkeKeyBytes,
     leafBindingBytes,
+    sessionDeviceBytes,
 } from "./canonical-bytes"
 import { HISTORY_SALT_BYTES, type HistoryArchiveAdapter } from "./history-archive.adapter"
 import type { IdentityAdapter } from "./identity.adapter"
@@ -235,14 +237,19 @@ export class E2eeAdapter implements IE2eePort {
         idpUrl: string,
         accessToken: string,
         actorUri: ActorUri,
+        options: { again?: boolean } = {},
     ): Promise<void> {
+        const again = options.again === true
         // Dedupe concurrent callers (gate + bootstrap usecase under StrictMode).
-        if (this.registerDevicePromise) return this.registerDevicePromise
-        this.registerDevicePromise = this.doRegisterDevice(idpUrl, accessToken, actorUri)
+        if (this.registerDevicePromise && !again) return this.registerDevicePromise
+        // One in flight may send nothing, the attestation fresh: `again` must send, so it goes after.
+        const before = this.registerDevicePromise?.catch(() => undefined) ?? Promise.resolve()
+        const run = before.then(() => this.doRegisterDevice(idpUrl, accessToken, actorUri, again))
+        this.registerDevicePromise = run
         try {
-            await this.registerDevicePromise
+            await run
         } finally {
-            this.registerDevicePromise = null
+            if (this.registerDevicePromise === run) this.registerDevicePromise = null
         }
     }
 
@@ -250,10 +257,11 @@ export class E2eeAdapter implements IE2eePort {
         idpUrl: string,
         accessToken: string,
         actorUri: ActorUri,
+        again: boolean,
     ): Promise<void> {
         const existing = await this.storage.loadDeviceAttestation()
         // A device without its HPKE key registers again at once, whatever the renewal window says.
-        if (existing?.hpke && !attestationNeedsRenewal(existing)) return
+        if (!again && existing?.hpke && !attestationNeedsRenewal(existing)) return
         const rootKey = existing
             ? { secretKey: existing.drk_private, publicKey: existing.drk_public }
             : ed25519.keygen()
@@ -628,6 +636,22 @@ export class E2eeAdapter implements IE2eePort {
         const { trust, unreadable } = await read
         if (unreadable.includes("revoked")) return null
         return { deviceId: reset.setByDevice, approved: !resetByUnapproved(reset, listed, trust, thisDevice, pending), self: false }
+    }
+
+    async approvedAsTheInstanceCounts(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+        devices: readonly DeviceListEntry[],
+    ): Promise<DeviceId[]> {
+        const key = this.historyArchive ? await this.historyArchive.getKey(idpUrl, accessToken) : null
+        if (!key) return []
+        const read = this.trustTurn.then(() => this.storage.loadDeviceTrust())
+        this.trustTurn = read.catch(() => undefined)
+        const { trust } = await read
+        // The stored approval key, not this device's derivation: the instance's own view, for what it refuses.
+        const checked = await checkListedDevices(actorUri, devices, key.approvalPublicKey, this.jwks, this.rootChecks)
+        return approvedDevicesBy(checked, key.generation, trust.revoked).map((d) => d.deviceId)
     }
 
     /** `trust` as it can still be acted on: not once this device holds another generation, or none. */
@@ -1801,6 +1825,12 @@ export class E2eeAdapter implements IE2eePort {
         }
         if (root.reason === "unreachable" || root.reason === "expired") return { ok: false, reason: "unsettled" }
         return refuse(root.reason === "revoked" ? "revoked" : "attestation")
+    }
+
+    async signSessionDevice(actorUri: ActorUri, deviceId: DeviceId, sessionId: string): Promise<Uint8Array> {
+        const attestation = await this.storage.loadDeviceAttestation()
+        if (!attestation) throw new Error("This device has no root key yet")
+        return ed25519.sign(sessionDeviceBytes(actorUri, deviceId, sessionId), attestation.drk_private)
     }
 
     async signDeviceApproval(actorUri: ActorUri, deviceId: DeviceId, rootKey: Uint8Array): Promise<Uint8Array> {

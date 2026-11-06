@@ -18,6 +18,8 @@ interface DeviceCardProps {
     approvedBy: string | null
     /** Pressed when the user clicks "Revoke" on a still-active row. */
     onRevoke: () => void
+    /** Why "Revoke" isn't offered, in its place: an approved device, from one that isn't. */
+    revokeWithheld?: string | null
     /** True while a revoke for this device is in flight. */
     isRevoking?: boolean
 }
@@ -39,7 +41,7 @@ function kindIcon(kind: DeviceRow["kind"]) {
     }
 }
 
-export function DeviceCard({ device, holdsHistory, approvedBy, onRevoke, isRevoking }: DeviceCardProps) {
+export function DeviceCard({ device, holdsHistory, approvedBy, onRevoke, revokeWithheld = null, isRevoking }: DeviceCardProps) {
     const isRevoked = device.revoked_at !== null
     const isCurrent = device.is_current
     const isSignedOut = !isRevoked && !isCurrent && deviceStatus(device).kind === "signed-out"
@@ -108,8 +110,11 @@ export function DeviceCard({ device, holdsHistory, approvedBy, onRevoke, isRevok
                             </span>
                         ))}
                     </div>
+                    {!isRevoked && !isCurrent && revokeWithheld && (
+                        <p className="title m-0 mt-1 text-[11px] italic leading-[1.45] text-muted-foreground">{revokeWithheld}</p>
+                    )}
                 </div>
-                {!isRevoked && !isCurrent && (
+                {!isRevoked && !isCurrent && !revokeWithheld && (
                     <button
                         type="button"
                         onClick={onRevoke}

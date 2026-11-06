@@ -34,6 +34,11 @@ export function leafBindingBytes(actorUri: string, deviceId: string, leafSignatu
     return lines("PINAI-LEAF-BINDING-v1", actorUri, deviceId, bytesToBase64(leafSignatureKey))
 }
 
+/** What a device's root key signs to name it on the session `sessionId`, the access token's `sid`. */
+export function sessionDeviceBytes(actorUri: string, deviceId: string, sessionId: string): Uint8Array {
+    return lines("PINAI-SESSION-DEVICE-v1", actorUri, deviceId.toLowerCase(), sessionId.toLowerCase())
+}
+
 /** What approves a device — another device's root key, or a generation's approval key — over its root key. */
 export function approvalBytes(actorUri: string, deviceId: string, rootKey: Uint8Array): Uint8Array {
     return lines("PINAI-DEVICE-APPROVAL-v1", actorUri, deviceId, bytesToBase64(rootKey))

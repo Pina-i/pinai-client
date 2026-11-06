@@ -1,15 +1,15 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useState } from "react"
 import { toast } from "sonner"
 
 import { codeDigits, isWholeCode, type AnsweringView } from "@pinai/domain/models/approval-handshake"
-import { formatLastSeen } from "@pinai/domain/models/relative-time"
 import { revokeDeviceUseCase } from "@pinai/domain/usecases/e2ee/revoke-device.usecase"
 import { getDeviceDirectoryPort, getE2eePort } from "@/ioc"
 import { refusalWording } from "@/presentation/_libs/approval-wording"
 import { devicesQueryKey } from "@/presentation/hooks/useDevices"
 import { warnOf as warn } from "@/presentation/_libs/key-share-deps"
 import { useApprovalAnsweringRuntime, useDoorView } from "@/presentation/hooks/use-approval-answering"
+import { useAskedLine } from "@/presentation/hooks/use-asked-line"
 import { type RecentSignIn, useRecentSignIn } from "@/presentation/hooks/use-recent-sign-in"
 import { useAppStore } from "@/store/store"
 
@@ -65,16 +65,7 @@ export function useApprovalDoorViewModel(): ApprovalDoorViewModel {
     const code = typed.requestId === requestId ? typed.code : ""
     const error = typed.requestId === requestId ? typed.error : null
     const [isSigningOut, setIsSigningOut] = useState(false)
-    const [now, setNow] = useState(() => Date.now())
-
-    useEffect(() => {
-        if (!requestId) return
-        const timer = setInterval(() => setNow(Date.now()), 30_000)
-        return () => clearInterval(timer)
-    }, [requestId])
-
-    const since = view ? formatLastSeen(view.request.createdAt, new Date(now)) : null
-    const host = idpUrl ? new URL(idpUrl).host : ""
+    const asked = useAskedLine(view?.request.createdAt ?? null)
 
     const onApprove = useCallback(() => {
         if (!controller || !isWholeCode(code)) return
@@ -111,7 +102,7 @@ export function useApprovalDoorViewModel(): ApprovalDoorViewModel {
     return {
         view,
         device: view?.request.displayName.trim() || "A device",
-        asked: `asked ${since ?? "just now"}${host ? ` · ${host}` : ""}`,
+        asked,
         title: doorTitle(view),
         code,
         setCode: (text: string) => setTyped({ requestId, code: codeDigits(text), error: null }),

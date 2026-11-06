@@ -7,13 +7,16 @@ export class IdpError extends Error {
     readonly code: string
     /** Whom the refusal names, such as the group invitee who can't be added. */
     readonly actorUri: string | null
+    /** When a start over request matures, for `start_over_not_ready`: epoch ms on the IdP's clock. */
+    readonly readyAt: number | null
 
-    constructor(status: number, code: string, message: string, actorUri: string | null = null) {
+    constructor(status: number, code: string, message: string, actorUri: string | null = null, readyAt: number | null = null) {
         super(message)
         this.name = "IdpError"
         this.status = status
         this.code = code
         this.actorUri = actorUri
+        this.readyAt = readyAt
     }
 }
 
@@ -35,6 +38,41 @@ export const DEVICE_MISMATCH = "device_mismatch"
 export function isDeviceMismatch(error: unknown): boolean {
     return error instanceof IdpError && error.code === DEVICE_MISMATCH
 }
+
+/**
+ * Naming the device on the session took a proof the IdP didn't take: no root key registered there
+ * for it, or another one (`identity-provider/specs/auth.md § 1`, "Sessions and devices").
+ */
+export const DEVICE_PROOF_INVALID = "device_proof_invalid"
+
+export function isDeviceProofInvalid(error: unknown): boolean {
+    return error instanceof IdpError && error.code === DEVICE_PROOF_INVALID
+}
+
+/**
+ * Only a device approved under the account's history key does this: revoke an approved device, turn
+ * the second factor on, read or end another device's start over request (`identity-provider/specs/e2ee.md § 3.12`).
+ */
+export const APPROVAL_REQUIRED = "approval_required"
+
+export function isApprovalRequired(error: unknown): boolean {
+    return error instanceof IdpError && error.code === APPROVAL_REQUIRED
+}
+
+/** Asking to start over from a device approved under the key in force: it replaces the words itself. */
+export const ALREADY_APPROVED = "already_approved"
+
+/** Asking to start over on an account with no history key: the first generation needs no request. */
+export const NO_HISTORY_KEY = "no_history_key"
+
+/** Asking to start over while another device's request is open: one at a time. */
+export const START_OVER_PENDING = "start_over_pending"
+
+/** Setting the next generation from a device not approved, without a request of its own open. */
+export const START_OVER_REQUIRED = "start_over_required"
+
+/** The same, its request not matured yet: the refusal carries when it does (`readyAt`). */
+export const START_OVER_NOT_READY = "start_over_not_ready"
 
 /** An upload, a report or an approval naming a generation that isn't the history key's current one. */
 export const STALE_HISTORY_KEY = "stale_history_key"

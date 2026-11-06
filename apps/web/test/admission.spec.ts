@@ -36,7 +36,7 @@ import { replenishKeyPackagesUseCase } from "@pinai/domain/usecases/e2ee/repleni
 import { HistoryRestore } from "@pinai/domain/usecases/e2ee/restore-due-history.usecase"
 import { restoreHistoryFromPassphraseUseCase } from "@pinai/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
 
-import { ACTOR, FakeHistoryIdp, IDP, MemoryHistoryStorage, historyDevice, publishingDevice } from "./setup/history-idp"
+import { ACTOR, FakeHistoryIdp, IDP, MemoryHistoryStorage, historyDevice, publishingDevice, nameSession } from "./setup/history-idp"
 
 afterEach(() => {
     vi.restoreAllMocks()
@@ -214,7 +214,7 @@ async function account(phoneOf: (idp: FakeHistoryIdp) => Device | Promise<Device
     const founded = await bootstrapFirstDeviceUseCase(laptop.deps)({ idpUrl: IDP, accessToken: laptop.token, actorUri: ACTOR })
     if (founded.kind !== "holds") throw new Error("the first device didn't set the key")
     const phone = await phoneOf(idp)
-    await idp.session().linkDevice(IDP, phone.token, phone.storage.deviceId)
+    await nameSession(phone)
     await phone.e2ee.rememberHandshakePartner({
         deviceId: laptop.storage.deviceId,
         rootKey: laptop.storage.rootKey.publicKey,
@@ -249,7 +249,7 @@ const laptopApproves = (laptop: Device, phone: Device) => approval(laptop.storag
 
 async function startOverElsewhere(idp: FakeHistoryIdp) {
     const other = historyDevice(idp, "elsewhere")
-    await idp.session().linkDevice(IDP, other.token, other.storage.deviceId)
+    await nameSession(other)
     await idp.setKey(IDP, other.token, (await other.e2ee.mintHistoryKey((idp.key?.generation ?? 0) + 1)).key)
 }
 

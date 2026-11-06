@@ -303,7 +303,9 @@ for a known IdP.
    `AuthPlatform.browserSession` is what tells the two apart
 11. Once the account's device storage is open and its E2EE device exists, `requireSession` names
    the device to the IdP (`PUT /api/sessions/current/device`, once per page load —
-   `presentation/_libs/session-device.ts`), registering it again first when it has to (near
+   `presentation/_libs/session-device.ts`) with its proof — its root key's signature over the
+   access token's session (`sid`); a proof refused (`device_proof_invalid`) registers it again and
+   names it once more, a second refusal final —, registering it again first when it has to (near
    its attestation's end, or no HPKE key yet — a registration failing otherwise still names it,
    and the KeyPackage tick tries it again): revoking the device in Settings → Devices then
    signs it out at once, and the screen tells each device's state — "Active 3 days ago", "Signed

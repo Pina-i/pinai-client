@@ -22,6 +22,7 @@ import { useReplenishKeyPackages } from "@/presentation/hooks/use-replenish-key-
 import { useUnapprovedDeviceNotice } from "@/presentation/hooks/use-unapproved-device-notice"
 import { useLoadPresence } from "@/presentation/hooks/useLoadPresence"
 import { ApprovalDoor } from "@/presentation/organisms/ApprovalDoor/ApprovalDoor"
+import { StartOverDoor } from "@/presentation/organisms/StartOverDoor/StartOverDoor"
 import { HomeLayout } from "@/presentation/templates/HomeLayout/HomeLayout"
 import { Backdrop } from "@/presentation/atoms/backdrop/backdrop"
 import { Button } from "@/presentation/atoms/Button/Button"
@@ -85,6 +86,7 @@ function AuthenticatedLayout() {
             {gate.status === "ready" && <AppRuntime />}
             {gate.status === "ready" && <HistoryResetContext.Provider value={reset}>{shell}</HistoryResetContext.Provider>}
             {gate.status === "ready" && <ApprovalDoor />}
+            {gate.status === "ready" && <StartOverDoor />}
         </>
     )
 }

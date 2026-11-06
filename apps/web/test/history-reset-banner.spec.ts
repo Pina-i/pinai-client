@@ -53,6 +53,7 @@ const wired = vi.hoisted(() => ({
     history: null as unknown,
     keyShares: null as unknown,
     session: null as unknown,
+    startOver: null as unknown,
     ready: null as (() => void) | null,
 }))
 const toast = vi.hoisted(() => Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), message: vi.fn(), loading: vi.fn(), dismiss: vi.fn() }))
@@ -62,6 +63,7 @@ vi.mock("@/ioc", () => ({
     getDeviceDirectoryPort: () => wired.directory,
     getHistoryArchivePort: () => wired.history,
     getKeySharePort: () => wired.keyShares,
+    getStartOverPort: () => wired.startOver,
     getSessionPort: () => wired.session,
     getAuthPort: vi.fn(),
     getAuthPlatform: vi.fn(),
@@ -165,6 +167,7 @@ function wire(device: SharingDevice, a: SharingAccount) {
         history: a.idp,
         keyShares: a.shares,
         session: a.idp.session(),
+        startOver: a.idp.startOverRoutes(),
     })
     useAppStore.setState({ idpUrl: IDP, accessToken: device.token, user: { actor_uri: ACTOR, display_name: "Alice" } as UserProfile, wsStatus: "connected" })
 }
@@ -556,6 +559,9 @@ describe("the banner", () => {
         expect(modal.textContent).toContain("Change your password")
         expect(modal.textContent).toContain("Someone else has it. Change it with a reset link")
         expect(modal.textContent).toContain(`That signs every session out, theirs and this one: once you've signed in again, choose "It wasn't me" on this banner once more.`)
+        expect(modal.textContent).toContain(
+            "This device then waits like any other: it can finish starting over once the device that reset your history has gone 7 days unused. As long as they can still use it, it never finishes — which is why the password comes first.",
+        )
         expect(modal.textContent).toContain("The device that reset your history isn't yours: it won't be approved.")
         expect(modal.textContent).not.toContain("Then the device")
 

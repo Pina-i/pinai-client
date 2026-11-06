@@ -15,9 +15,10 @@ import { userAgentLabel } from "@/presentation/_libs/user-agent-label"
 import { GATE_PAGES } from "@/presentation/_libs/gate-pages"
 import { instanceHost } from "@/presentation/_libs/instance-host"
 import { warnE2ee } from "@/presentation/_libs/key-share-deps"
-import { START_OVER_NOTICES } from "@/presentation/organisms/StartOverPanel/StartOverPanel.viewmodel"
+import { START_OVER_NOTICES, type StartOverNotice } from "@/presentation/organisms/StartOverPanel/StartOverPanel.viewmodel"
 import { dropSearchParam } from "@/presentation/_libs/search-param"
 import { useAwaitedShare } from "@/presentation/hooks/use-awaited-share"
+import { useOwnStartOver, type OwnStartOver } from "@/presentation/hooks/use-own-start-over"
 import { useTypedWords } from "@/presentation/hooks/use-typed-words"
 import { useAppStore } from "@/store/store"
 
@@ -90,9 +91,11 @@ export interface RecoveryRestoreViewModel {
     /** The account's new words, once this device started over — or a reload since, nobody gone past them. */
     newWords: string[] | null
     onStartedOver: (words: string[]) => void
-    /** Another device's generation landed first, or right after: the gate decides where this one goes. */
-    onStartOverWentOtherwise: (how: "conflict" | "key-changed") => void
+    /** Another device's generation landed first or right after, or one approved this device: the gate decides where it goes. */
+    onStartOverWentOtherwise: (how: StartOverNotice) => void
     onRolledBack: () => void
+    /** This device's own start over request, read once for the page and its Start over panel. */
+    ownStartOver: OwnStartOver
 }
 
 /**
@@ -258,7 +261,7 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
     const onStartedOver = useCallback((next: string[]) => setNewWords(next), [])
 
     const onStartOverWentOtherwise = useCallback(
-        (how: "conflict" | "key-changed") => {
+        (how: StartOverNotice) => {
             const accessToken = useAppStore.getState().accessToken
             if (!idpUrl || !accessToken || !ownActorUri) return
             setNotice(START_OVER_NOTICES[how])
@@ -282,8 +285,21 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
 
     const onRolledBack = useCallback(() => setRolledBack(true), [])
 
+    // A request this device asked, or how it ended, is said on its own tab: the page opens there, unless the user chose one.
+    const own = useOwnStartOver(deviceReady && !isIn && !approvedHere)
+    const [tabChosen, setTabChosen] = useState(askedTab !== null)
+    const ownState = own.state?.kind ?? null
+    if (!tabChosen && ownState !== null) {
+        setTabChosen(true)
+        if (ownState === "waiting" || ownState === "ready" || ownState === "cancelled" || ownState === "superseded") {
+            setTab("start-over")
+            showStartOver(true)
+        }
+    }
+
     // The user acting again: the last notice no longer applies.
     const chooseTab = useCallback((next: RestoreTab) => {
+        setTabChosen(true)
         setNotice(null)
         setTab(next)
     }, [])
@@ -336,6 +352,7 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
         onStartedOver,
         onStartOverWentOtherwise,
         onRolledBack,
+        ownStartOver: own,
     }
 }
 

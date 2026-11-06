@@ -7,8 +7,9 @@ import type { AwaitedShareState } from "@pinai/domain/usecases/e2ee/accept-histo
 import { dropSearchParam } from "@/presentation/_libs/search-param"
 import { userAgentLabel } from "@/presentation/_libs/user-agent-label"
 import { useAwaitedShare } from "@/presentation/hooks/use-awaited-share"
+import { useOwnStartOver, type OwnStartOver } from "@/presentation/hooks/use-own-start-over"
 import { useTypedWords, type TypedWords } from "@/presentation/hooks/use-typed-words"
-import { START_OVER_NOTICES } from "@/presentation/organisms/StartOverPanel/StartOverPanel.viewmodel"
+import { START_OVER_NOTICES, type StartOverNotice } from "@/presentation/organisms/StartOverPanel/StartOverPanel.viewmodel"
 import { useHistoryReset, type RecheckOutcome } from "@/presentation/providers/HistoryResetProvider/HistoryReset.context"
 
 /** `way-back`: "It was me", the code or the new words; `start-over`: "It wasn't me", or a start over after an unknown change. */
@@ -56,11 +57,13 @@ export interface HistoryResetBannerViewModel {
 
     /** "It wasn't me": the device the key names, kept apart from the devices from before. */
     refused: DeviceId | null
+    /** This device's own start over request, read while the start over modal is open. */
+    ownStartOver: OwnStartOver
     startOverReturn: () => string
     onStartOverBusy: (busy: boolean) => void
     newWords: string[] | null
     onStartedOver: (words: string[]) => void
-    onStartOverWentOtherwise: (how: "conflict" | "key-changed") => void
+    onStartOverWentOtherwise: (how: StartOverNotice) => void
     rolledBack: boolean
     onRolledBack: () => void
     /** What went otherwise than asked: a line over the modal's content. */
@@ -162,7 +165,7 @@ export function useHistoryResetBannerViewModel(onHeld: (held: boolean) => void):
         setStartingOver(busy)
     }, [])
     const onStartOverWentOtherwise = useCallback(
-        (how: "conflict" | "key-changed") => {
+        (how: StartOverNotice) => {
             setNotice(START_OVER_NOTICES[how])
             void recheck()
         },
@@ -182,6 +185,7 @@ export function useHistoryResetBannerViewModel(onHeld: (held: boolean) => void):
         close()
     }, [close])
 
+    const ownStartOver = useOwnStartOver(opened?.modal === "start-over")
     const deviceLabel = useMemo(() => userAgentLabel(), [])
     const openedFor = opened?.reset ?? null
 
@@ -204,6 +208,7 @@ export function useHistoryResetBannerViewModel(onHeld: (held: boolean) => void):
         onWorking: setAnswering,
         typed,
         refused: openedFor?.cause === "reset-by-unapproved" ? openedFor.setter : null,
+        ownStartOver,
         startOverReturn,
         onStartOverBusy,
         newWords,

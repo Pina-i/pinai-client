@@ -23,7 +23,7 @@ import { replaceWordsUseCase, type ReplaceWordsDeps } from "@pinai/domain/usecas
 import { restoreHistoryFromPassphraseUseCase } from "@pinai/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
 
 import { accessToken } from "./setup/access-token"
-import { ACTOR, FakeHistoryIdp, IDP, historyDevice } from "./setup/history-idp"
+import { ACTOR, FakeHistoryIdp, IDP, historyDevice, nameSession } from "./setup/history-idp"
 import { FakeIssuers } from "./setup/issuers"
 import { bundleHpke, sharingAccount, type SharingDevice } from "./setup/key-shares"
 
@@ -191,7 +191,7 @@ describe("replacing the words", () => {
         const held = laptop.storage.kept
         const rival = historyDevice(idp, "rival")
         vi.spyOn(idp, "setKey").mockImplementationOnce(async (...args) => {
-            await idp.session().linkDevice(IDP, rival.token, rival.storage.deviceId)
+            await nameSession(rival)
             await FakeHistoryIdp.prototype.setKey.call(idp, IDP, rival.token, (await rival.e2ee.mintHistoryKey(2)).key)
             return FakeHistoryIdp.prototype.setKey.apply(idp, args)
         })
@@ -219,7 +219,7 @@ describe("replacing the words", () => {
     it("only a device that acts: one without the current words, or with a key of its own waiting, mints nothing", async () => {
         const { idp, laptop } = await account()
         const fresh = historyDevice(idp, "fresh")
-        await idp.session().linkDevice(IDP, fresh.token, fresh.storage.deviceId)
+        await nameSession(fresh)
 
         expect(await replace(fresh)).toEqual({ kind: "not-acting" })
         expect(fresh.storage.pending).toBeNull()
@@ -262,7 +262,7 @@ describe("replacing the words", () => {
     it("another device's replacement landing between its two reads of the key: a conflict — nothing minted over a generation it never held", async () => {
         const { idp, laptop } = await account()
         const tablet = historyDevice(idp, "tablet")
-        await idp.session().linkDevice(IDP, tablet.token, tablet.storage.deviceId)
+        await nameSession(tablet)
         vi.spyOn(idp, "downloadPage").mockImplementationOnce(async (...args) => {
             await idp.setKey(IDP, tablet.token, (await tablet.e2ee.mintHistoryKey(2)).key)
             return FakeHistoryIdp.prototype.downloadPage.apply(idp, args)
@@ -356,7 +356,7 @@ describe("the old words", () => {
     it("no longer give the key in force: a device holding them is refused, typed they are wrong, and they approve no device", async () => {
         const { idp, laptop, oldWords } = await account()
         const tablet = historyDevice(idp, "tablet")
-        await idp.session().linkDevice(IDP, tablet.token, tablet.storage.deviceId)
+        await nameSession(tablet)
         expect(
             await restoreHistoryFromPassphraseUseCase(tablet.deps)({ idpUrl: IDP, accessToken: tablet.token, actorUri: ACTOR, passphrase: oldWords }),
         ).toEqual({ kind: "kept", generation: 1 })
@@ -368,7 +368,7 @@ describe("the old words", () => {
         await expect(tablet.e2ee.signPassphraseApproval(IDP, tablet.token, ACTOR)).rejects.toThrow("holds no current history passphrase")
 
         const stranger = historyDevice(idp, "stranger")
-        await idp.session().linkDevice(IDP, stranger.token, stranger.storage.deviceId)
+        await nameSession(stranger)
         expect(
             await restoreHistoryFromPassphraseUseCase(stranger.deps)({ idpUrl: IDP, accessToken: stranger.token, actorUri: ACTOR, passphrase: oldWords }),
         ).toEqual({ kind: "wrong-passphrase" })

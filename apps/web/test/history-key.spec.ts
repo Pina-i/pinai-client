@@ -34,7 +34,7 @@ import { HistoryRestore } from "@pinai/domain/usecases/e2ee/restore-due-history.
 import { restoreHistoryFromPassphraseUseCase } from "@pinai/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
 import { startThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/start-this-device.usecase"
 
-import { ACTOR, FakeHistoryIdp, FastSealer, IDP, historyDevice } from "./setup/history-idp"
+import { ACTOR, FakeHistoryIdp, FastSealer, IDP, historyDevice, nameSession } from "./setup/history-idp"
 
 const SENDER = { address: "alice@idp.test", displayName: "Alice" }
 const C1 = "11112222-3333-4444-5555-666677778888"
@@ -65,7 +65,7 @@ function typeWords(device: Device, passphrase: string[]) {
 
 /** What a page load runs once the session named its device. */
 async function startUp(device: Device) {
-    await device.deps.sessionPort.linkDevice(IDP, device.token, device.storage.deviceId)
+    await nameSession(device)
     return checkHistoryKeyUseCase(device.deps)(IDP, device.token, ACTOR)
 }
 
@@ -81,7 +81,7 @@ async function account() {
 /** Another device sets the next generation with words of its own: a start over elsewhere. */
 async function startOverElsewhere(idp: FakeHistoryIdp) {
     const other = historyDevice(idp, "elsewhere")
-    await idp.session().linkDevice(IDP, other.token, other.storage.deviceId)
+    await nameSession(other)
     const { words, key } = await other.e2ee.mintHistoryKey((idp.key?.generation ?? 0) + 1)
     await idp.setKey(IDP, other.token, key)
     return { other, words }

@@ -55,6 +55,7 @@ vi.mock("@/ioc", () => ({
     getHistoryArchivePort: () => wired.history,
     getKeySharePort: () => wired.keyShares,
     getSessionPort: () => wired.session,
+    getStartOverPort: () => ({ read: async () => null }),
     getAuthPort: vi.fn(),
     getAuthPlatform: vi.fn(),
     getSessionRenewal: vi.fn(),

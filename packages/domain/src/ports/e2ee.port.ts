@@ -320,14 +320,23 @@ export interface IE2eePort {
     /**
      * Idempotent — generates the Device Root Key and the device's HPKE key on first call, signs
      * the HPKE key with the root key and registers both, persists locally. Registers again within
-     * 30 days of the attestation's expiry, and at once on a device holding no HPKE key yet. A
-     * session that named another device refuses it: `IdpError` 403 `device_mismatch`.
+     * 30 days of the attestation's expiry, and at once on a device holding no HPKE key yet — or
+     * whenever `again`, the same keys sent once more: the IdP refused a proof by the root key it
+     * should hold. A session that named another device refuses it: `IdpError` 403 `device_mismatch`.
      */
     registerDevice(
         idpUrl: string,
         accessToken: string,
         actorUri: ActorUri,
+        options?: { again?: boolean },
     ): Promise<void>
+
+    /**
+     * This device's root key over `PINAI-SESSION-DEVICE-v1` for the session `sessionId`: the proof
+     * that names it on that session (`identity-provider/specs/auth.md § 1`, "Sessions and devices").
+     * Throws when the device has no root key yet.
+     */
+    signSessionDevice(actorUri: ActorUri, deviceId: DeviceId, sessionId: string): Promise<Uint8Array>
 
     /**
      * Queue an entry for the history archive: a message this device sent or read. An id is queued
@@ -558,6 +567,20 @@ export interface IE2eePort {
      * kept can't be read.
      */
     resetSetter(devices: readonly DeviceListEntry[]): Promise<ResetSetter | null>
+
+    /**
+     * The devices of `devices` the instance counts approved under its key in force: the approval
+     * rule (`approvedDevicesBy`) over the approvals as verified under the approval key it stores —
+     * its word, never this device's derivation —, the revocations kept counted. It decides no trust:
+     * only what the instance refuses a device it doesn't count approved — revoking one of these.
+     * None without a key in force.
+     */
+    approvedAsTheInstanceCounts(
+        idpUrl: string,
+        accessToken: string,
+        actorUri: ActorUri,
+        devices: readonly DeviceListEntry[],
+    ): Promise<DeviceId[]>
 }
 
 /** A re-archive's batch, sealed: what `uploadRearchive` sends, as many times as it takes. */

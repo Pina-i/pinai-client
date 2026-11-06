@@ -3,13 +3,14 @@ import { ed25519, x25519 } from "@noble/curves/ed25519.js"
 import { sha256 } from "@noble/hashes/sha2.js"
 
 import { verifyStrict } from "@pinai/crypto/attestation-chain.adapter"
-import { approvalBytes } from "@pinai/crypto/canonical-bytes"
+import { approvalBytes, sessionDeviceBytes } from "@pinai/crypto/canonical-bytes"
 import { E2eeAdapter } from "@pinai/crypto/e2ee.adapter"
 import { HistoryArchiveAdapter } from "@pinai/crypto/history-archive.adapter"
 import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
 import type { DeviceAttestation, E2eeStorage, KeptPassphrase, MlsSnapshot, PendingPassphrase, RestoreDue } from "@pinai/crypto/sealed-storage"
 import { MlsAdapter } from "@pinai/mls/wasm.adapter"
 import type { Admission } from "@pinai/domain/models/admission"
+import { sessionIdOf } from "@pinai/domain/models/auth"
 import type { RearchiveDue } from "@pinai/domain/models/history-rearchive"
 import { emptyDeviceTrust, withTrust, type DeviceTrust, type DeviceTrustRow } from "@pinai/domain/models/device-trust"
 import type { ActorUri, DeviceId, IdentityKeypair, KeyPackageStatusResponse } from "@pinai/domain/models/e2ee"
@@ -28,6 +29,8 @@ import type { IJwksCachePort } from "@pinai/domain/ports/jwks-cache.port"
 import type { IKeyDirectoryPort, RegisterDeviceResponse } from "@pinai/domain/ports/key-directory.port"
 import type { IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
 import type { ISessionPort } from "@pinai/domain/ports/session.port"
+import type { IStartOverPort } from "@pinai/domain/ports/start-over.port"
+import type { StartOverRequest } from "@pinai/domain/models/start-over"
 
 import { accessToken } from "./access-token"
 import { FakeIssuers } from "./issuers"
@@ -100,9 +103,91 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
         if (key.generation !== (this.key?.generation ?? 0) + 1) {
             throw new IdpError(409, "history_key_conflict", "The history key is at another generation")
         }
+        const request = this.openStartOver()
+        if (this.startOverRule && this.key && !this.approvedUnderKey(device)) {
+            if (request?.deviceId !== device) throw new IdpError(403, "start_over_required", "A device not approved starts over through a request")
+            const readyAt = this.readyAt(request)
+            if (readyAt > this.now()) {
+                throw new IdpError(403, "start_over_not_ready", "No approved device may be used for a week first", null, readyAt)
+            }
+        }
+        if (request) request.ended = { reason: request.deviceId === device ? "used" : "superseded", at: this.now() }
         this.key = { ...key, setByDevice: device }
         this.archive.clear()
         this.log.push(`set key ${key.generation}`)
+    }
+
+    /**
+     * When the approved devices' sessions were last used, as a start over request matures by it;
+     * `null` with none approved: a request is ready at once.
+     */
+    approvedLastUse: number | null = null
+    /** How far this IdP's clock runs ahead of the devices' (behind, negative). */
+    clockOffset = 0
+
+    private now(): number {
+        return Date.now() + this.clockOffset
+    }
+    /** The IdP's rule on `PUT` past generation 1 from a device not approved: its own matured request. Off unless asked: older flows' tests set generations directly. */
+    startOverRule = false
+    readonly startOvers: StartOverRequest[] = []
+    /** Approvals by another device's root key, as the code handshake leaves them. */
+    readonly deviceApprovals: Array<{ deviceId: string; by: string }> = []
+
+    private openStartOver(): StartOverRequest | undefined {
+        return this.startOvers.find((r) => r.ended === null)
+    }
+
+    // The structure the IdP reads, two links at most: by the key's words, or by a device so approved.
+    private approvedUnderKey(device: string): boolean {
+        const byWords = (id: string) => this.approvals.some((a) => a.deviceId === id && a.generation === this.key?.generation)
+        return byWords(device) || this.deviceApprovals.some((a) => a.deviceId === device && byWords(a.by))
+    }
+
+    private endApproved(device: string): void {
+        const open = this.openStartOver()
+        if (open?.deviceId === device && this.approvedUnderKey(device)) open.ended = { reason: "approved", at: this.now() }
+    }
+
+    private readyAt(request: StartOverRequest): number {
+        return this.approvedLastUse === null ? request.createdAt : Math.max(request.createdAt, this.approvedLastUse) + 7 * 86_400_000
+    }
+
+    /** `/api/history/start-over` as the IdP answers it (`identity-provider/specs/e2ee.md § 3.12`). */
+    startOverRoutes(): IStartOverPort {
+        const view = (r: StartOverRequest): StartOverRequest => ({ ...r, readyAt: this.readyAt(r), ended: r.ended && { ...r.ended } })
+        return {
+            ask: async (_idpUrl, accessToken) => {
+                const device = this.namedDevice(accessToken)
+                if (!this.key) throw new IdpError(409, "no_history_key", "No history key")
+                if (this.approvedUnderKey(device)) throw new IdpError(409, "already_approved", "An approved device replaces the history key itself")
+                const open = this.openStartOver()
+                if (open && open.deviceId !== device) throw new IdpError(409, "start_over_pending", "Another device of the account is starting over")
+                const request = open ?? { id: crypto.randomUUID(), deviceId: device, displayName: "", createdAt: this.now(), readyAt: 0, ended: null }
+                if (!open) this.startOvers.push(request)
+                const { id, createdAt, readyAt } = view(request)
+                return { id, createdAt, readyAt }
+            },
+            read: async (_idpUrl, accessToken) => {
+                const device = this.namedDevice(accessToken)
+                const open = this.openStartOver()
+                if (open) {
+                    if (open.deviceId === device || this.approvedUnderKey(device)) return view(open)
+                    throw new IdpError(403, "approval_required", "This takes a device approved under the current history key")
+                }
+                const own = this.startOvers.filter((r) => r.deviceId === device).at(-1)
+                return own ? view(own) : null
+            },
+            end: async (_idpUrl, accessToken, id) => {
+                const device = this.namedDevice(accessToken)
+                const request = this.startOvers.find((r) => r.id === id)
+                if (!request) throw new IdpError(404, "not_found", "Start over request not found")
+                if (request.ended) throw new IdpError(410, "start_over_ended", "The start over request has ended")
+                const reason = request.deviceId === device ? "withdrawn" : this.approvedUnderKey(device) ? "cancelled" : null
+                if (!reason) throw new IdpError(403, "approval_required", "This takes a device approved under the current history key")
+                request.ended = { reason, at: this.now() }
+            },
+        }
     }
 
     async uploadBatch(_idpUrl: string, _token: string, generation: number, entries: ArchiveEntry[]): Promise<number> {
@@ -131,7 +216,12 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
 
     session(): ISessionPort {
         return {
-            linkDevice: async (_idpUrl, accessToken, deviceId) => {
+            linkDevice: async (_idpUrl, accessToken, deviceId, signature) => {
+                const rootKey = this.rootKeys.get(deviceId)
+                const sid = sessionIdOf(accessToken)
+                if (!rootKey || !sid || !verifyStrict(signature, sessionDeviceBytes(ACTOR, deviceId, sid), rootKey)) {
+                    throw new IdpError(403, "device_proof_invalid", "The signature does not prove this device's root key")
+                }
                 this.named.set(accessToken, deviceId)
                 this.log.push("name session")
             },
@@ -152,9 +242,13 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
                     throw new IdpError(400, "invalid_request", "signature does not verify over the device's root key")
                 }
                 this.approvals.push({ deviceId, generation })
+                this.endApproved(deviceId)
                 this.log.push(`approve by passphrase ${generation}`)
             },
-            approveByDevice: async () => undefined,
+            approveByDevice: async (_idpUrl, accessToken, deviceId) => {
+                this.deviceApprovals.push({ deviceId, by: this.namedDevice(accessToken) })
+                this.endApproved(deviceId)
+            },
             reportHistoryKey: async (_idpUrl, accessToken, deviceId, generation) => {
                 this.ownDevice(accessToken, deviceId)
                 if (!this.key || generation !== this.key.generation) throw stale()
@@ -217,6 +311,12 @@ export class MemoryHistoryStorage {
                         signed_message: this.attested.signed_message,
                     }),
                 }) as DeviceAttestation,
+            saveDeviceAttestation: async (saved: DeviceAttestation) => {
+                this.rootKey = { publicKey: Uint8Array.from(saved.drk_public), secretKey: Uint8Array.from(saved.drk_private) }
+                if (saved.hpke) this.hpkeKey = { publicKey: Uint8Array.from(saved.hpke.public_key), secretKey: Uint8Array.from(saved.hpke.private_key) }
+                const { signature, kid, issued_at, expires_at, signed_message } = saved
+                this.attested = { signature, kid, issued_at, expires_at, signed_message }
+            },
             getBoundActorUri: async () => this.boundActorUri,
             setBoundActorUri: async (actorUri: ActorUri) => {
                 this.boundActorUri = actorUri
@@ -354,6 +454,14 @@ export async function publishingDevice(idp: FakeHistoryIdp, name: string, storag
     await mls.initialize({ module_or_path: await loadWasmModule() } as never)
     storage.attested ??= new FakeIssuers().attest(ACTOR, storage.deviceId, storage.rootKey.publicKey)
     return historyDevice(idp, name, storage, jwks, { mls })
+}
+
+/** `device`'s session named as the client names it: by its root key's proof over the token's session. */
+export async function nameSession(device: ReturnType<typeof historyDevice>): Promise<void> {
+    const sid = sessionIdOf(device.token)
+    if (!sid) throw new Error("This test token names no session")
+    const signature = await device.e2ee.signSessionDevice(ACTOR, device.storage.deviceId, sid)
+    await device.deps.sessionPort.linkDevice(IDP, device.token, device.storage.deviceId, signature)
 }
 
 /** The KeyPackage routes as the IdP answers them (`identity-provider/specs/e2ee.md § 3.5`): a stash per device, at most `cap`. */

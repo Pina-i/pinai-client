@@ -100,6 +100,19 @@ export function offersPasswordReset(member: InstanceMember): boolean {
     return !member.admin
 }
 
+/**
+ * How the user changes a password someone else has (`identity-provider/specs/auth.md § 7`):
+ * "Forgot password?" on an open instance, a reset link from an admin on an invite-only one — never
+ * for an admin, who recovers where the instance is run. `unknown` while its mode isn't known.
+ */
+export type PasswordChange = "forgot-password" | "ask-an-admin" | "where-it-runs" | "unknown"
+
+export function passwordChange(info: InstanceInfo | null, admin: boolean): PasswordChange {
+    if (!info) return "unknown"
+    if (info.openRegistrations) return "forgot-password"
+    return admin ? "where-it-runs" : "ask-an-admin"
+}
+
 export type MemberActivity = { kind: "online" } | { kind: "seen"; at: string } | { kind: "signed-out" }
 
 /** Online, else when a session of it was last used, else signed out everywhere. */

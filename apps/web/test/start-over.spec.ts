@@ -33,7 +33,7 @@ import { devicesFromBeforeUseCase } from "@pinai/domain/usecases/e2ee/devices-fr
 import { waitingDevices } from "@pinai/domain/models/device-roster"
 
 import { accessToken } from "./setup/access-token"
-import { ACTOR, FakeHistoryIdp, IDP, historyDevice } from "./setup/history-idp"
+import { ACTOR, FakeHistoryIdp, IDP, historyDevice, nameSession } from "./setup/history-idp"
 import { FakeIssuers } from "./setup/issuers"
 import { bundleHpke, sharingAccount, type SharingDevice } from "./setup/key-shares"
 
@@ -260,7 +260,7 @@ describe("starting over", () => {
         const { idp, fresh } = await account()
         const rival = historyDevice(idp, "rival")
         vi.spyOn(idp, "setKey").mockImplementationOnce(async (...args) => {
-            await idp.session().linkDevice(IDP, rival.token, rival.storage.deviceId)
+            await nameSession(rival)
             await FakeHistoryIdp.prototype.setKey.call(idp, IDP, rival.token, (await rival.e2ee.mintHistoryKey(2)).key)
             return FakeHistoryIdp.prototype.setKey.apply(idp, args)
         })
@@ -368,7 +368,7 @@ describe("a pending generation past 1, at the next start", () => {
         const setKey = vi.spyOn(idp, "setKey")
         setKey.mockClear()
 
-        await reloaded.deps.sessionPort.linkDevice(IDP, reloaded.token, reloaded.storage.deviceId)
+        await nameSession(reloaded)
         expect(await checkHistoryKeyUseCase(reloaded.deps)(IDP, reloaded.token, ACTOR)).toEqual({ kind: "no-passphrase", generation: 1 })
 
         expect(setKey).not.toHaveBeenCalled()
@@ -381,7 +381,7 @@ describe("a pending generation past 1, at the next start", () => {
         const { idp, fresh, reloaded } = await cutShort(true)
         reloaded.token = fresh.token
 
-        await reloaded.deps.sessionPort.linkDevice(IDP, reloaded.token, reloaded.storage.deviceId)
+        await nameSession(reloaded)
         expect(await checkHistoryKeyUseCase(reloaded.deps)(IDP, reloaded.token, ACTOR)).toEqual({ kind: "holds", generation: 2, settled: true })
 
         expect(fresh.storage.pending).toBeNull()
@@ -393,7 +393,7 @@ describe("a pending generation past 1, at the next start", () => {
         vi.useFakeTimers({ toFake: ["Date"] })
         const { idp, fresh, reloaded } = await cutShort(false)
         reloaded.token = fresh.token
-        await reloaded.deps.sessionPort.linkDevice(IDP, reloaded.token, reloaded.storage.deviceId)
+        await nameSession(reloaded)
 
         await checkHistoryKeyUseCase(reloaded.deps)(IDP, reloaded.token, ACTOR)
         expect(fresh.storage.pending?.key.generation).toBe(2)

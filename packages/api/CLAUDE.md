@@ -2,13 +2,14 @@
 
 The IdP's HTTP and WebSocket surface, as adapters implementing domain ports.
 
-Eighteen files, one per resource: OIDC, NodeInfo (what an instance says
+Nineteen files, one per resource: OIDC, NodeInfo (what an instance says
 about itself before any sign-in), the instance's administration (its name and
 description, members, invitations, reset links — `/api/admin/*`, an admin's
 token only), the caller's sessions (which device each signed in, signing out
 the others), DMs, groups, social, privacy (blocks and the contact setting),
 presence, TOTP, user, user settings, device directory, the approval relay, the
-E2EE key directory, the history archive, key shares, and the WebSocket connection.
+E2EE key directory, the history archive, key shares, start over requests, and the WebSocket
+connection.
 `ky` for REST, `XMLHttpRequest` in `dm-api` where upload progress is needed,
 the platform `WebSocket` for the live connection.
 
@@ -56,6 +57,15 @@ domain as `IKeyDirectoryPort`, which is what keeps the two independent.
   `approval_request_ended`, `approval_request_full`, `too_many_requests`). A device approves
   another by its root key through the device directory (`approveByDevice`,
   `{ by: "device", signature }`), whose list's device ids are lowercased too.
+- Naming the session's device (`session-api.adapter.ts`): `{ device_id, signature }`, the id
+  lowercased, the proof in standard base64.
+- Start over requests (`start-over-api.adapter.ts`, `/api/history/start-over`): times read as epoch
+  ms, ids lowercased; `GET` reads a `404` as none and refuses a body that isn't one
+  (`parseStartOverRequest`, an `ended.reason` it doesn't know included); every refusal an `IdpError`
+  (`already_approved`, `no_history_key`, `start_over_pending`, `too_many_requests`,
+  `approval_required`, `start_over_ended`). `toIdpError` reads a refusal's `ready_at` into
+  `IdpError.readyAt` (`start_over_not_ready`, from `PUT /api/history/key`). The pushes
+  `start_over_requested` / `start_over_cancelled` are typed in the domain's `WsServerEvent`.
 - Key shares (`key-share-api.adapter.ts`, `/api/history/key-shares`): the seal's bytes as standard
   base64 both ways; `GET` reads a `404` as no share and refuses an answer whose bytes aren't their
   size or whose sender is no UUID (`parseKeyShare`, ids lowercased); every refusal an `IdpError`,

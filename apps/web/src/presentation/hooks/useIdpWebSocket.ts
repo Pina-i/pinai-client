@@ -28,6 +28,7 @@ import { groupMembersQueryKey } from "@/presentation/pages/home/GroupMembersPane
 import { useAppearance } from "@/presentation/providers/AppearanceProvider/AppearanceProvider.context"
 import { useNotificationSettings } from "@/presentation/providers/AppearanceProvider/NotificationSettings.context"
 import { renewAccessToken } from "@/presentation/_libs/session-renewal"
+import { startOverQueryKey } from "@/presentation/hooks/use-own-start-over"
 
 /** Module-level slot — `useDeviceFanout` registers its callback here. */
 const deviceFanoutHandlerRef: { current: (() => void) | null } = {
@@ -65,6 +66,20 @@ export function registerHistoryKeyReadyHandler(handler: () => void): () => void 
     return () => {
         if (historyKeyReadyHandlerRef.current === handler) {
             historyKeyReadyHandlerRef.current = null
+        }
+    }
+}
+
+export type StartOverEvent = Extract<WsServerEvent, { type: "start_over_requested" | "start_over_cancelled" }>
+
+/** Module-level slot — the start over prompt (`StartOverDoor`) registers here. */
+const startOverHandlerRef: { current: ((event: StartOverEvent) => void) | null } = { current: null }
+
+export function registerStartOverHandler(handler: (event: StartOverEvent) => void): () => void {
+    startOverHandlerRef.current = handler
+    return () => {
+        if (startOverHandlerRef.current === handler) {
+            startOverHandlerRef.current = null
         }
     }
 }
@@ -688,6 +703,12 @@ export function useIdpWebSocket(): void {
                 case "approval_message":
                 case "approval_closed": {
                     approvalHandlerRef.current?.(event)
+                    break
+                }
+                case "start_over_requested":
+                case "start_over_cancelled": {
+                    startOverHandlerRef.current?.(event)
+                    if (idpUrl) queryClient.invalidateQueries({ queryKey: startOverQueryKey(idpUrl) })
                     break
                 }
                 case "friend_request":

@@ -108,7 +108,8 @@ Three collaborators could not come, and the shape of each is the mobile work:
   against each side gets at most two online guesses per code.
 - **`canonical-bytes.ts`** — the bytes the protocol signs
   (`identity-provider/specs/e2ee.md § 7.2`): `IDP-ATTEST-v1`,
-  `PINAI-DEVICE-HPKE-v1`, `PINAI-LEAF-BINDING-v1`, `PINAI-DEVICE-APPROVAL-v1`,
+  `PINAI-DEVICE-HPKE-v1`, `PINAI-LEAF-BINDING-v1`, `PINAI-SESSION-DEVICE-v1` (the device and
+  session ids lowercased), `PINAI-DEVICE-APPROVAL-v1`,
   rebuilt from bytes, a key share's `PINAI-HISTORY-SHARE-v1` `aad` and the bytes its
   sender signs (`shareAad`, `shareSignedBytes`: `enc` and the ciphertext appended in
   base64), and an archive entry's `PINAI-ARCHIVE-v1` associated
@@ -163,7 +164,15 @@ Three collaborators could not come, and the shape of each is the mobile work:
     since every peer rebuilds them from the credential's text. `register` runs
     it first: every KeyPackage carries the attestation. A new attestation goes to
     `onDeviceRegistered` listeners — the fanout refetches the device list, so the
-    leaves take it in the same page load.
+    leaves take it in the same page load. `again` sends the same keys once more
+    whatever the window says: the IdP refused a naming proof by the root key it should hold. It goes
+    after a registration in flight, never joins it: that one may have sent nothing.
+  - **Naming the session** (`signSessionDevice`): the root key over `PINAI-SESSION-DEVICE-v1`
+    for the token's `sid`; the key never leaves the adapter.
+  - **`approvedAsTheInstanceCounts`** — for a device not approved (Settings → Devices withholds
+    "Revoke" on these): `approvedDevicesBy` over `checkListedDevices` run under the **stored**
+    approval key — the instance's view, so what it refuses, never a trust decision —, the
+    revocations kept counted.
   - **The bound credential** (v2, `leafCredential`): the root key signs the leaf
     key into `leaf_binding` before `setIdentity`. Nothing is bound without an
     attestation, and a registration landing during a bind binds again; a refill
@@ -656,6 +665,12 @@ vitest setup, so a package's specs sit there until it needs its own.
   announced and forgotten, own leaves refreshed, a renewal racing a refresh or a refill,
   and an acting device's adds and commits out. Its directory attests as the IdP would
   (`test/setup/issuers.ts`, which also writes list rows and approvals).
+- `apps/web/test/start-over-request.spec.ts` — start over requests: the asking states from the
+  `GET` (every `ended` reason, matured, ready as it opened), the prompt's condition, the withheld
+  revoke, the routes' bodies and refusals, the naming proof's body, and the finishing over an IdP
+  keeping the rule (`FakeHistoryIdp.startOverRule`); `session-devices.spec.ts` — the naming proof
+  over the token's `sid`, `device_proof_invalid` once; `start-over-door.spec.ts` — the approved
+  devices' prompt; `second-factor-approval.spec.ts` — the second factor on a device not approved.
 - `apps/web/test/device-trust.spec.ts` — the approval rules, real signatures checked
   (the IdP's canonical bytes among them), the baseline and from before, and the review: who
   acts, the events, the trust rows.

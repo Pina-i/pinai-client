@@ -3,13 +3,16 @@ import { isDeviceMismatch } from "../../models/idp-error"
 import type { IE2eePort } from "../../ports/e2ee.port"
 import type { ISessionPort } from "../../ports/session.port"
 
+import { nameSessionDeviceUseCase } from "./name-session-device.usecase"
+
 /**
  * Tells the IdP which device this session signed in, once the device exists — on a first
  * sign-in it is created by the onboarding that follows. The device registers again first when it
  * has to — its attestation near its end, or no HPKE key yet —, as the spec has a device name its
  * session right after registering. A registration that fails is tried again at the next page load
- * or KeyPackage tick, and names the device all the same — but for `device_mismatch`, thrown: the
- * session is another device's. Whether it was linked, and why the registration failed.
+ * or KeyPackage tick, and names the device all the same — with its root key's proof — but for
+ * `device_mismatch`, thrown: the session is another device's. Whether it was linked, and why the
+ * registration failed.
  */
 export function linkSessionDeviceUseCase(deps: { sessionPort: ISessionPort; e2eePort: IE2eePort }) {
     return async (
@@ -25,7 +28,7 @@ export function linkSessionDeviceUseCase(deps: { sessionPort: ISessionPort; e2ee
             if (isDeviceMismatch(error)) throw error
             registrationFailure = error
         }
-        await deps.sessionPort.linkDevice(idpUrl, accessToken, await deps.e2eePort.getDeviceId())
+        await nameSessionDeviceUseCase(deps)(idpUrl, accessToken, actorUri)
         return registrationFailure === undefined ? { linked: true } : { linked: true, registrationFailure }
     }
 }

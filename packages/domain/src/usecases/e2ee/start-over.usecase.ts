@@ -4,6 +4,7 @@ import { signedInRecently } from "../../models/auth"
 import type { ActorUri, DeviceId } from "../../models/e2ee"
 import { sameHistoryKey, settlePending, startOverGeneration, type HistoryKeyStanding } from "../../models/history-key"
 import { isHistoryKeyConflict, needsRecentSignIn } from "../../models/idp-error"
+import { finishRefusal, type FinishRefusal } from "../../models/start-over"
 import type { IHistoryArchivePort } from "../../ports/history-archive.port"
 import type { ISessionPort } from "../../ports/session.port"
 
@@ -41,8 +42,10 @@ export type StartOver =
     | { kind: "rolled-back" }
     /** This device started over, then another generation landed before it approved itself: its words give nothing now. */
     | { kind: "key-changed" }
+    /** Not approved here: its request not matured, or none open — it ended meanwhile. Nothing kept. */
+    | FinishRefusal
 
-type Setting = { kind: "set"; generation: number } | { kind: "recent-sign-in" } | { kind: "conflict" } | { kind: "rolled-back" }
+type Setting = { kind: "set"; generation: number } | { kind: "recent-sign-in" } | { kind: "conflict" } | { kind: "rolled-back" } | FinishRefusal
 
 /**
  * `rearchive`: the new words replace words this device holds, and its copy is archived again under
@@ -56,7 +59,8 @@ export interface NewGenerationOptions {
 }
 
 /**
- * Starting over (`identity-provider/specs/e2ee.md § 6.11`). New words a start over set and the user
+ * Starting over (`identity-provider/specs/e2ee.md § 6.11`) — on a device not approved, what its
+ * matured request allows (`askToStartOverUseCase` asks). New words a start over set and the user
  * hasn't gone past are answered again, never a second start over. Otherwise the password typed
  * recently is checked first — nothing is minted without it —, then generation n+1 is minted and
  * sealed as pending and `PUT`; once the IdP took it, the start over has happened: its words are kept
@@ -131,10 +135,11 @@ async function setNextGeneration(
         await deps.historyArchivePort.setKey(idpUrl, accessToken, key)
     } catch (error) {
         const recentSignIn = needsRecentSignIn(error)
-        if (!recentSignIn && !isHistoryKeyConflict(error)) throw error
+        const request = finishRefusal(error)
+        if (!recentSignIn && !request && !isHistoryKeyConflict(error)) throw error
         if (settlePending(key, await deps.historyArchivePort.getKey(idpUrl, accessToken)) !== "keep") {
             await e2ee.dropPendingHistoryKey()
-            return { kind: recentSignIn ? "recent-sign-in" : "conflict" }
+            return request ?? { kind: recentSignIn ? "recent-sign-in" : "conflict" }
         }
     }
     await e2ee.promotePendingHistoryKey({ show: true, rearchive })

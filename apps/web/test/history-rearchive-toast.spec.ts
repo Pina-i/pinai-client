@@ -15,7 +15,7 @@ import { rearchiveDueHistory, showRearchiveInApp } from "@/presentation/_libs/hi
 import type { Message } from "@/lib/types"
 import { useAppStore } from "@/store/store"
 
-import { ACTOR, FakeHistoryIdp, IDP, historyDevice } from "./setup/history-idp"
+import { ACTOR, FakeHistoryIdp, IDP, historyDevice, nameSession } from "./setup/history-idp"
 
 const wired = vi.hoisted(() => ({ e2ee: null as unknown }))
 vi.mock("@/ioc", () => ({ getE2eePort: () => wired.e2ee }))
@@ -117,7 +117,7 @@ describe("the re-archive in the app", () => {
         const { idp } = await replaced()
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
         const rival = historyDevice(idp, "rival")
-        await idp.session().linkDevice(IDP, rival.token, rival.storage.deviceId)
+        await nameSession(rival)
         vi.spyOn(idp, "uploadBatch").mockImplementationOnce(async (...args) => {
             const inserted = await FakeHistoryIdp.prototype.uploadBatch.apply(idp, args)
             await idp.setKey(IDP, rival.token, (await rival.e2ee.mintHistoryKey(3)).key)
