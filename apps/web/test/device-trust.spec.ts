@@ -760,7 +760,9 @@ describe("reviewing the device list", () => {
         expect(verdict.approved.map((d) => d.deviceId)).toEqual([self.deviceId])
         expect(verdict.listed).toContainEqual({ deviceId: phone.deviceId, rootKey: rotated.rootKey.publicKey })
         expect(unapproved(stood)).toMatchObject([{ deviceId: phone.deviceId, rootKey: rotated.rootKey.publicKey, arrived: true }])
-        expect(laptop.storage.trust.approved).toContainEqual({ deviceId: phone.deviceId, rootKey: phone.rootKey.publicKey })
+        // Stored bytes come back as another realm's Uint8Array, which vitest 5's equality tells apart.
+        const stored = laptop.storage.trust.approved.map((d) => ({ deviceId: d.deviceId, rootKey: [...d.rootKey] }))
+        expect(stored).toContainEqual({ deviceId: phone.deviceId, rootKey: [...phone.rootKey.publicKey] })
     })
 
     it("keeps a revocation final when the list later shows the device unrevoked", async () => {
