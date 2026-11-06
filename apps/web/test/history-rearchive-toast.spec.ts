@@ -3,8 +3,11 @@
  * read through the store once it was read back, and the restore's pattern in the corner — one keyed
  * toast, raised only while the app is mounted, "Re-saving your history… N of M messages", then "Your
  * history is saved under your new words", or the failure and the next start, warned of; dismissed
- * when a later generation drops it or the user signs out. On fake timers.
+ * when a later generation drops it, the user signs out or the instance waits for this device's
+ * approval — the app's hook going on once an approval lands. On fake timers.
  */
+import { act, createElement } from "react"
+import { createRoot } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { UserProfile } from "@pinai/domain/models/auth"
@@ -12,6 +15,7 @@ import { IdpError } from "@pinai/domain/models/idp-error"
 import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstrap-first-device.usecase"
 import { replaceWordsUseCase } from "@pinai/domain/usecases/e2ee/replace-words.usecase"
 import { rearchiveDueHistory, showRearchiveInApp } from "@/presentation/_libs/history-rearchive"
+import { useHistoryRearchive } from "@/presentation/hooks/use-history-rearchive"
 import type { Message } from "@/lib/types"
 import { useAppStore } from "@/store/store"
 
@@ -145,6 +149,47 @@ describe("the re-archive in the app", () => {
         leave = null
         expect(toast.dismiss).toHaveBeenCalledWith("history-rearchive")
         expect(toast.error).not.toHaveBeenCalled()
+    })
+
+    it("paused for this device's approval, its toast goes without a word, and the run that goes on shows it again", async () => {
+        const { idp } = await replaced()
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+        const approvals = idp.approvals.splice(0)
+        leave = showRearchiveInApp()
+
+        expect(await settle(rearchiveDueHistory())).toEqual({ kind: "paused", generation: 2 })
+        expect(toast.dismiss).toHaveBeenCalledWith("history-rearchive")
+        expect(toast.error).not.toHaveBeenCalled()
+        expect(warn).not.toHaveBeenCalled()
+
+        idp.approvals.push(...approvals)
+        expect(await settle(rearchiveDueHistory())).toEqual({ kind: "rearchived", generation: 2, messages: 3, skipped: 0 })
+        expect(toast.success).toHaveBeenCalledWith("Your history is saved under your new words", { id: "history-rearchive", description: undefined })
+        expect(idp.archive.size).toBe(3)
+    })
+
+    it("in the app, a paused run goes on by itself once an approval lands (`device_approved`): no reload, no reconnect", async () => {
+        ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+        const { idp, laptop } = await replaced()
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+        const approvals = idp.approvals.splice(0)
+        const host = document.createElement("div")
+        const root = createRoot(host)
+        const Runtime = () => {
+            useHistoryRearchive()
+            return null
+        }
+
+        await act(async () => root.render(createElement(Runtime)))
+        leave = () => void act(() => root.unmount())
+        expect(await settle(rearchiveDueHistory())).toEqual({ kind: "paused", generation: 2 })
+        expect(idp.archive.size).toBe(0)
+
+        idp.approvals.push(...approvals)
+        await act(async () => laptop.e2ee.approvalLanded())
+        for (let i = 0; i < 50 && idp.archive.size < 3; i++) await vi.advanceTimersByTimeAsync(100)
+        expect(idp.archive.size).toBe(3)
+        expect(laptop.storage.rearchiveDue).toBeNull()
     })
 
     it("raises nothing while the app isn't mounted — and settles nothing it never raised", async () => {

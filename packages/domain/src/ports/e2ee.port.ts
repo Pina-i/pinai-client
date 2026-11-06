@@ -342,7 +342,9 @@ export interface IE2eePort {
      * Queue an entry for the history archive: a message this device sent or read. An id is queued
      * once per page load; a no-op when the archive is unwired. Entries wait unsealed while the
      * history key is unchecked or held — at most `ARCHIVE_BUFFER_LIMIT`, the oldest dropped —,
-     * and go out sealed under the generation held, their ids bound as associated data.
+     * and go out sealed under the generation held, their ids bound as associated data, only once
+     * the device is approved under it (`savesToArchive`). Refused with `approval_required`, they
+     * wait again until the next check of the key or {@link IE2eePort.approvalLanded}.
      */
     bufferForArchive(conversationId: ConversationId, entryId: string, entry: ArchiveEnvelope): void
 
@@ -355,6 +357,17 @@ export interface IE2eePort {
      */
     startFlushing(idpUrl: string, accessToken: () => string | null): void
     stopFlushing(): void
+
+    /** An approval landed on the account (`device_approved`): saves the instance refused for this device's approval may go again. */
+    approvalLanded(): void
+
+    /**
+     * `listener` is told when saves held back for this device's approval may go: it comes to stand
+     * approved under the key it holds (`opensSaves`), or, after an `approval_required`, the key is
+     * checked again or an approval lands — or one did while the re-archive's batch was being
+     * refused. Answers the unsubscribe.
+     */
+    onSavesResumable(listener: () => void): () => void
 
     // ─── The history key (`identity-provider/specs/e2ee.md § 3.6–3.9`) ─────
 
@@ -555,7 +568,11 @@ export interface IE2eePort {
      */
     sealForRearchive(generation: number, entries: readonly RearchiveEntry[]): Promise<SealedRearchive | null>
 
-    /** One sealed batch to the archive; sending it again is harmless. Refused as `IHistoryArchivePort.uploadBatch` is. */
+    /**
+     * One sealed batch to the archive; sending it again is harmless. Refused as
+     * `IHistoryArchivePort.uploadBatch` is; an `approval_required` holds this device's saves back
+     * as the flusher's are ({@link IE2eePort.onSavesResumable}).
+     */
     uploadRearchive(idpUrl: string, accessToken: string, sealed: SealedRearchive): Promise<void>
 
     /**

@@ -22,6 +22,7 @@ import {
 } from "@pinai/domain/models/history-key"
 import { asActorUri } from "@pinai/domain/models/identity"
 import { IdpError } from "@pinai/domain/models/idp-error"
+import { sameBytes } from "@pinai/domain/models/bytes"
 import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
 import type { ArchiveEntry, ArchivePage, IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
 import type { IHpkePort } from "@pinai/domain/ports/hpke.port"
@@ -67,7 +68,7 @@ function authTimeOf(token: string): number | null {
 
 /**
  * The history key's routes as the IdP answers them (`identity-provider/specs/e2ee.md § 5`): the
- * compare-and-set of a generation, uploads checked by generation, approvals by the passphrase
+ * compare-and-set of a generation, uploads checked by generation then by the device's approval, approvals by the passphrase
  * verified under the generation's approval key, reports — the last three from a session that
  * named its device. `log` keeps the order of what reached it, and of what the devices sealed.
  */
@@ -77,6 +78,8 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
     readonly keyPackages = new FakeKeyPackages(this.log)
     readonly archive = new Map<string, ArchiveEntry & { created_at: string }>()
     readonly uploads: Array<{ generation: number; ids: string[] }> = []
+    /** The uploads refused with `approval_required`, also in `uploads`. */
+    readonly refusedUploads: Array<{ generation: number; ids: string[] }> = []
     readonly approvals: Array<{ deviceId: string; generation: number }> = []
     readonly reports = new Map<string, number>()
     readonly rootKeys = new Map<string, Uint8Array>()
@@ -133,18 +136,30 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
     startOverRule = false
     /** The IdP's rule on clearing the backup and signing the other devices out once there is a key: an approved device only. Off unless asked, as `startOverRule`. */
     approvalRule = false
+    /** The IdP's rule on uploads: from a session naming a device approved under the key, checked after the generation. On unless a test turns it off. */
+    uploadRule = true
     readonly startOvers: StartOverRequest[] = []
     /** Approvals by another device's root key, as the code handshake leaves them. */
     readonly deviceApprovals: Array<{ deviceId: string; by: string }> = []
+    /** The root key each approval binds, as held when made; one a test pushes binds whatever the device holds. */
+    private readonly bound = new WeakMap<object, Uint8Array>()
+    readonly revoked = new Set<string>()
 
     private openStartOver(): StartOverRequest | undefined {
         return this.startOvers.find((r) => r.ended === null)
     }
 
-    // The structure the IdP reads, two links at most: by the key's words, or by a device so approved.
+    // The structure the IdP reads, two links at most: by the key's words, or by a device so approved — unrevoked, over the root key held.
     private approvedUnderKey(device: string): boolean {
-        const byWords = (id: string) => this.approvals.some((a) => a.deviceId === id && a.generation === this.key?.generation)
-        return byWords(device) || this.deviceApprovals.some((a) => a.deviceId === device && byWords(a.by))
+        const live = (id: string) => !this.revoked.has(id)
+        const binds = (approval: object, id: string) => {
+            const root = this.bound.get(approval)
+            const held = this.rootKeys.get(id)
+            return !root || (!!held && sameBytes(root, held))
+        }
+        const byWords = (id: string) =>
+            live(id) && this.approvals.some((a) => a.deviceId === id && a.generation === this.key?.generation && binds(a, id))
+        return byWords(device) || (live(device) && this.deviceApprovals.some((a) => a.deviceId === device && binds(a, device) && byWords(a.by)))
     }
 
     private refuseUnapproved(accessToken: string): void {
@@ -198,9 +213,15 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
         }
     }
 
-    async uploadBatch(_idpUrl: string, _token: string, generation: number, entries: ArchiveEntry[]): Promise<number> {
-        this.uploads.push({ generation, ids: entries.map((e) => e.id) })
+    async uploadBatch(_idpUrl: string, accessToken: string, generation: number, entries: ArchiveEntry[]): Promise<number> {
+        const upload = { generation, ids: entries.map((e) => e.id) }
+        this.uploads.push(upload)
         if (!this.key || generation !== this.key.generation) throw stale()
+        const device = this.named.get(accessToken)
+        if (this.uploadRule && (!device || !this.approvedUnderKey(device))) {
+            this.refusedUploads.push(upload)
+            throw approvalRequired()
+        }
         let inserted = 0
         for (const entry of entries) {
             if (this.archive.has(entry.id)) continue
@@ -241,7 +262,9 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
     directory(): IDeviceDirectoryPort {
         return {
             listDevices: async () => ({ devices: [] }),
-            markRevoked: async () => undefined,
+            markRevoked: async (_idpUrl, _token, deviceId) => {
+                this.revoked.add(deviceId)
+            },
             approveByPassphrase: async (_idpUrl, accessToken, deviceId, generation, signature) => {
                 this.onApprove?.()
                 this.ownDevice(accessToken, deviceId)
@@ -250,12 +273,17 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
                 if (!rootKey || !verifyStrict(signature, approvalBytes(ACTOR, deviceId, rootKey), this.key.approvalPublicKey)) {
                     throw new IdpError(400, "invalid_request", "signature does not verify over the device's root key")
                 }
-                this.approvals.push({ deviceId, generation })
+                const approval = { deviceId, generation }
+                this.approvals.push(approval)
+                this.bound.set(approval, rootKey)
                 this.endApproved(deviceId)
                 this.log.push(`approve by passphrase ${generation}`)
             },
             approveByDevice: async (_idpUrl, accessToken, deviceId) => {
-                this.deviceApprovals.push({ deviceId, by: this.namedDevice(accessToken) })
+                const approval = { deviceId, by: this.namedDevice(accessToken) }
+                this.deviceApprovals.push(approval)
+                const rootKey = this.rootKeys.get(deviceId)
+                if (rootKey) this.bound.set(approval, rootKey)
                 this.endApproved(deviceId)
             },
             reportHistoryKey: async (_idpUrl, accessToken, deviceId, generation) => {

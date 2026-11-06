@@ -49,10 +49,17 @@ export function isDeviceProofInvalid(error: unknown): boolean {
     return error instanceof IdpError && error.code === DEVICE_PROOF_INVALID
 }
 
+/** The session hasn't named its device yet: what takes the naming waits for it. */
+export const DEVICE_REQUIRED = "device_required"
+
+export function isDeviceRequired(error: unknown): boolean {
+    return error instanceof IdpError && error.code === DEVICE_REQUIRED
+}
+
 /**
  * Only a device approved under the account's history key does this: revoke an approved device, turn
- * the second factor on, read or end another device's start over request, clear the history backup,
- * sign the other devices out (`identity-provider/specs/e2ee.md § 3.12`).
+ * the second factor on, read or end another device's start over request, save to or clear the history
+ * backup, sign the other devices out (`identity-provider/specs/e2ee.md § 3.8`, § 3.12).
  */
 export const APPROVAL_REQUIRED = "approval_required"
 

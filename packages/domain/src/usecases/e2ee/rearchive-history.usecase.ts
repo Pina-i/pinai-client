@@ -22,6 +22,8 @@ export type HistoryRearchiveState =
     | { kind: "rearchived"; generation: number; messages: number; skipped: number }
     /** A later generation is in force: what was re-made went with the archive it erased. */
     | { kind: "abandoned"; generation: number }
+    /** The instance doesn't count this device approved yet (`approval_required`): the cursor kept, untried for a later call. */
+    | { kind: "paused"; generation: number }
     | { kind: "signed-out"; generation: number }
     | { kind: "failed"; generation: number; error: unknown }
 
@@ -63,6 +65,7 @@ type Sent = "sent" | "skipped" | "abandon"
 
 class SignedOut extends Error {}
 class NotHeld extends Error {}
+class Unapproved extends Error {}
 
 /** Once per page load and generation, but for a run cut short by no answer: a later call tries it again. */
 export class HistoryRearchive {
@@ -70,6 +73,7 @@ export class HistoryRearchive {
 
     private readonly deps: HistoryRearchiveDeps
     private running: Promise<HistoryRearchiveState> | null = null
+    private rerun = false
     private readonly tried = new Set<number>()
     private readonly listeners = new Set<() => void>()
 
@@ -82,10 +86,25 @@ export class HistoryRearchive {
         return () => this.listeners.delete(listener)
     }
 
-    /** A call while one runs is that run, which goes on to a re-archive marked meanwhile. */
+    /**
+     * A call while one runs is that run, which looks once more as it ends — at a re-archive marked
+     * meanwhile, or one a signal let go on after the run paused or found the device not approved.
+     */
     run(context: HistoryRearchiveContext): Promise<HistoryRearchiveState> {
+        if (this.running) {
+            this.rerun = true
+            return this.running
+        }
+        const runs = async () => {
+            let state: HistoryRearchiveState
+            do {
+                this.rerun = false
+                state = await this.loop(context)
+            } while (this.rerun)
+            return state
+        }
         const { lock } = this.deps
-        this.running ??= (lock ? lock(() => this.loop(context)) : this.loop(context)).finally(() => {
+        this.running = (lock ? lock(runs) : runs()).finally(() => {
             this.running = null
         })
         return this.running
@@ -104,7 +123,7 @@ export class HistoryRearchive {
                 await e2ee.historyRearchived(due.generation)
                 continue
             }
-            if (verdict === "wait" || !context.accessToken()) return this.state
+            if (verdict !== "rearchive" || !context.accessToken()) return this.state
             const local = await this.deps.localHistory()
             if (!local) return this.state
             this.tried.add(due.generation)
@@ -150,7 +169,13 @@ export class HistoryRearchive {
                 this.set({ kind: "signed-out", generation })
                 return
             }
-            if (rearchiveRefusal(error) === "retry") this.tried.delete(generation)
+            const refusal = error instanceof Unapproved ? "wait" : rearchiveRefusal(error)
+            if (refusal === "wait") {
+                this.tried.delete(generation)
+                this.set({ kind: "paused", generation })
+                return
+            }
+            if (refusal === "retry") this.tried.delete(generation)
             this.set({ kind: "failed", generation, error })
         }
     }
@@ -180,6 +205,7 @@ export class HistoryRearchive {
                 if (meaning !== "stale") throw error
                 const verdict = dueRearchive(generation, await e2ee.checkHistoryKey(context.idpUrl, accessToken))
                 if (verdict === "abandon") return "abandon"
+                if (verdict === "unapproved") throw new Unapproved()
                 if (verdict === "wait" || keyReadAgain) throw error
                 keyReadAgain = true
             }

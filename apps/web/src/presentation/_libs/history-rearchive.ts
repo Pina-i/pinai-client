@@ -49,6 +49,7 @@ function showInCorner(state: HistoryRearchiveState): void {
             return
         case "abandoned":
         case "signed-out":
+        case "paused":
             corner.dismiss()
             return
     }

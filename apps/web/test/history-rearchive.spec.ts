@@ -262,18 +262,20 @@ describe("the entries a cached conversation gives", () => {
         expect(remainingAfter(plan(cache), batches[1][49].position)).toEqual([...batches[2], ...batches[3]])
     })
 
-    it("is due while the generation is held, dropped once a later one is in force, waits otherwise", () => {
+    it("is due while the generation is held and the device approved under it, unapproved until it is, dropped once a later one is in force, waits otherwise", () => {
         expect(dueRearchive(2, { kind: "holds", generation: 2, settled: true })).toBe("rearchive")
+        expect(dueRearchive(2, { kind: "holds", generation: 2, settled: false })).toBe("unapproved")
         expect(dueRearchive(2, { kind: "mismatch", generation: 3, setByDevice: "x", reason: "check-value", held: 2 })).toBe("abandon")
         expect(dueRearchive(2, { kind: "mismatch", generation: 2, setByDevice: "x", reason: "check-value", held: 2 })).toBe("wait")
         expect(dueRearchive(2, { kind: "unchecked" })).toBe("wait")
     })
 
-    it("tries again what may pass, reads the key again on stale, skips what is refused for good, stops otherwise", () => {
+    it("tries again what may pass, reads the key again on stale, waits for an approval, skips what is refused for good, stops otherwise", () => {
         expect(rearchiveRefusal(new IdpError(429, "too_many_requests", ""))).toBe("retry")
         expect(rearchiveRefusal(new IdpError(503, "unavailable", ""))).toBe("retry")
         expect(rearchiveRefusal(new TypeError("Failed to fetch"))).toBe("retry")
         expect(rearchiveRefusal(new IdpError(409, "stale_history_key", ""))).toBe("stale")
+        expect(rearchiveRefusal(new IdpError(403, "approval_required", ""))).toBe("wait")
         expect(rearchiveRefusal(new IdpError(403, "access_denied", ""))).toBe("skip")
         expect(rearchiveRefusal(new IdpError(401, "invalid_token", ""))).toBe("stop")
         expect(rearchiveRefusal(new Error("what"))).toBe("stop")

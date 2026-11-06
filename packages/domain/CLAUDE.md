@@ -273,7 +273,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   at most once in 30 s, never while a check runs; `forcesRecheck` — `reset-by-unapproved`,
   `key-replaced`, `approval-key-differs` re-check at once; `withdrawalRechecks` — one of them
   withdrawn too, unless a pending key written in the last `PENDING_KEY_FRESH_MS` waits.
-- `checkAdmissionUseCase` — one key read (the standing's), the list only when partners
+- `checkAdmissionUseCase` — one key read (the standing's), the device's own approval made again
+  when it holds the key without it (`tryApproveHeldWords`), the list only when partners
   count, the setter read after a newer generation; the admission recorded
   (`IE2eePort.recordAdmission`). `gateDecisionUseCase` — the route, `reset` and `offline`
   (`GateDecision`); `gateThisDeviceUseCase`, its route alone —
@@ -643,7 +644,12 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   `rollback` — a generation below the newest seen, or none after one —, `relabelled` — the kept
   generation's key under another number; the words are kept, nothing uploaded), `no-key`,
   `no-passphrase` (with the key's generation). Generations only move forward; words give the one
-  generation they were kept for. `newestGenerationSeen`, `approvalCarriedOver`, `buffersForArchive`.
+  generation they were kept for. `newestGenerationSeen`, `approvalCarriedOver`, `buffersForArchive`;
+  `savesToArchive` — entries go only once `holds` is `settled`: the device approved itself with its
+  words and reported. The instance takes uploads from any device approved under the key, by its
+  words or by a device so approved, and refuses the rest (`approval_required`); waiting for its own
+  approval is stricter, and every holder makes it. `opensSaves(before, after)` — saves held back
+  may go: the device came to stand so under a generation it didn't just before.
   `PendingHistoryKey` — a pending key with when it was written (`mintedAt`). `settlePending(pending,
   current, now)` — `keep` (it is the key in force), `send-again` (generation 1, none in force: the
   first device's), `leave` (a row written in the last `PENDING_KEY_FRESH_MS`, 2 minutes: its `PUT`,
@@ -678,6 +684,12 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   `HistoryRestore`'s, so one cut short runs again.
 - `approve-by-passphrase.usecase.ts` — a device that comes to hold the current passphrase
   approves itself and reports; `stale_history_key` reads the key again and answers the standing.
+  `approveHeldWords` — the one rule for a standing holding the key without that approval (a flow's
+  is best effort): approved, then shared; `tryApproveHeldWords`, never thrown (`device_required` and
+  an instance out of reach left for the next try, anything else reported) — what
+  `checkAdmissionUseCase` runs at every check, so the gate's checks and the KeyPackage tick approve
+  again within the page load; `approveHeldWordsUseCase` — the same over the standing held, for the
+  socket coming back.
   `shareOnceHeld` (`share-history-key.usecase.ts`) — what a flow runs once the device holds a
   generation, after its KeyPackages: typed words, an accepted share, the startup check settling
   (`check-history-key`); failures to an injected `report`. `dueRestore` (`models/history-key.ts`)
@@ -737,7 +749,7 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
     words kept, shown, approved, reported, shared — `replaced`. A conflict or `401` erases the pending
     key, its mark with it; a re-archive still due from before stays.
 - `check-history-key.usecase.ts` — the pending key settled, then the standing; holding the key
-  unsettled, the approval made. `start-this-device.usecase.ts` — what a page load runs: the naming,
+  unsettled, the approval made (`approveHeldWords`, thrown: the page load tries it at the next route). `start-this-device.usecase.ts` — what a page load runs: the naming,
   then that check.
 - `clear-history-backup.usecase.ts` — the entries erased; the words and generation stay.
 
@@ -823,16 +835,21 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `RearchivePosition` / the cursor — the last entry the IdP took (part 0 the text, 1 the snapshot);
   `remainingAfter`, `rearchiveProgress` (messages, counted without building an entry),
   `rearchiveBatches` (one conversation, 50 at most: a `403` refuses a batch whole). `dueRearchive` —
-  the restore's rule. `rearchiveRefusal` — `retry` (no answer, `5xx`, `429`, `408`;
-  `REARCHIVE_RETRY_DELAYS_MS`), `stale`, `skip` (another `4xx`), `stop` (a `401`, the rest).
+  the restore's rule, the device approved under the generation too (`savesToArchive`), else
+  `unapproved`.
+  `rearchiveRefusal` — `retry` (no answer, `5xx`, `429`, `408`; `REARCHIVE_RETRY_DELAYS_MS`),
+  `stale`, `wait` (`approval_required`), `skip` (another `4xx`), `stop` (a `401`, the rest).
   `REARCHIVE_PACE_MS` between batches. `parseRearchiveDue` — the row.
 - `HistoryRearchive` — one run at a time, under the injected `lock` across tabs (the cursor never
-  goes back), once per page load and generation: marked tried only once the cache was read back,
+  goes back); a call made while one runs marks it to look once more as it ends, so a resume signal
+  mid-run isn't lost. Once per page load and generation: marked tried only once the cache was read back,
   and a run that ran out of tries on no answer left untried for a later call (a reconnect). Each
   batch sealed once (`sealForRearchive`) and sent until taken (`uploadRearchive`; the IdP keeps the
   first upload of an id), the cursor kept after each; a skipped batch counted; `stale` or a key not
   held reads the key again — still held, the batch once more; a later generation `abandoned`, the
-  row dropped; signed out, `signed-out`, untried; anything else `failed`, the row kept.
+  row dropped; signed out, `signed-out`, untried; `approval_required`, or a key read after `stale`
+  finding the device holding the generation unapproved, `paused` at its cursor, untried — a later
+  call goes on (the app's: `IE2eePort.onSavesResumable`); anything else `failed`, the row kept.
 
 ### models/idp-error.ts
 - `IdpError` — a refusal as the IdP sent it: status, `error` code, the
@@ -846,10 +863,11 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   (`DEVICE_MISMATCH`): `sign-in-again.usecase.ts`.
 - `isStaleHistoryKey` / `isHistoryKeyConflict` — a generation that isn't the current one; another
   device's generation set first.
-- `isDeviceProofInvalid` — a naming proof refused; `isApprovalRequired` — only an approved device
+- `isDeviceProofInvalid` — a naming proof refused; `isDeviceRequired` — the session named no
+  device yet; `isApprovalRequired` — only an approved device
   does that (revoke an approved device, turn the second factor on, read or end another device's
   start over request, clear the history backup or sign the other devices out once there is a
-  key); `START_OVER_REQUIRED` / `START_OVER_NOT_READY`, the latter's date in `IdpError.readyAt`
+  key, or save to the backup); `START_OVER_REQUIRED` / `START_OVER_NOT_READY`, the latter's date in `IdpError.readyAt`
   (`@pinai/api` reads the body's `ready_at`).
 - `isUnreachable` — no answer (a failed fetch is a `TypeError`, a `TimeoutError`) or a `5xx`;
   a refusal or a nonsensical answer is not. Only it falls back to what was recorded.

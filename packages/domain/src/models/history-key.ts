@@ -197,6 +197,22 @@ export function buffersForArchive(standing: HistoryKeyStanding): boolean {
     return standing.kind === "unchecked" || standing.kind === "holds"
 }
 
+/**
+ * Entries go to the archive only once the device approved itself under the generation it holds —
+ * its words over its root key, and reported (`settled`). The instance takes them from a device
+ * approved under the key by its words or by a device so approved, and refuses any other
+ * (`approval_required`): the first entry stored under an id is the one restored. Waiting for its own
+ * approval is stricter, and every device holding the words makes it.
+ */
+export function savesToArchive(standing: HistoryKeyStanding): standing is Extract<HistoryKeyStanding, { kind: "holds" }> & { settled: true } {
+    return standing.kind === "holds" && standing.settled
+}
+
+/** Saves held back may go: the device came to stand approved under a generation it didn't save under just before. */
+export function opensSaves(before: HistoryKeyStanding, after: HistoryKeyStanding): boolean {
+    return savesToArchive(after) && !(savesToArchive(before) && before.generation === after.generation)
+}
+
 /** A standing as it was recorded; `null` for anything else. */
 export function parseHistoryKeyStanding(value: unknown): HistoryKeyStanding | null {
     if (typeof value !== "object" || value === null) return null

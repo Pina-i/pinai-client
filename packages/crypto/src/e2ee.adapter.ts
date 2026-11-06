@@ -76,7 +76,9 @@ import {
     buffersForArchive,
     isSettled,
     newestGenerationSeen,
+    opensSaves,
     passphraseVerdict,
+    savesToArchive,
     standingAgainst,
     type DerivedHistoryKey,
     type HistoryKey,
@@ -84,7 +86,7 @@ import {
     type PendingHistoryKey,
 } from "@pinai/domain/models/history-key"
 import type { RearchiveDue, RearchiveEntry, RearchivePosition } from "@pinai/domain/models/history-rearchive"
-import { IdpError, isStaleHistoryKey } from "@pinai/domain/models/idp-error"
+import { IdpError, isApprovalRequired, isStaleHistoryKey } from "@pinai/domain/models/idp-error"
 import {
     shareCandidates,
     type KeyShare,
@@ -735,6 +737,12 @@ export class E2eeAdapter implements IE2eePort {
     private flushTimer: ReturnType<typeof setInterval> | null = null
     private flushIdpUrl: string | null = null
     private flushAccessToken: (() => string | null) | null = null
+    // Set by an `approval_required`: no upload until a check of the key or an approval landing, never on a timer.
+    private approvalAwaited = false
+    // Every signal that may lift the hold, counted: a refusal answered after one doesn't hold.
+    private approvalSignals = 0
+    private readonly resumableListeners = new Set<() => void>()
+    private bufferDropWarned = false
 
     /** The standing and, while it holds, the key it holds: replaced together, never half. */
     private holding: Holding = UNCHECKED
@@ -763,7 +771,13 @@ export class E2eeAdapter implements IE2eePort {
 
     private boundArchiveBuffer(): void {
         const over = this.archiveBuffer.length - ARCHIVE_BUFFER_LIMIT
-        if (over > 0) this.archiveBuffer.splice(0, over)
+        if (over <= 0) return
+        // A dropped entry may be met again — a history load, the next decrypt — and queued then.
+        for (const dropped of this.archiveBuffer.splice(0, over)) this.archivedIds.delete(dropped.entryId)
+        if (this.bufferDropWarned) return
+        this.bufferDropWarned = true
+        // eslint-disable-next-line no-console
+        console.warn(`[history-archive] over ${ARCHIVE_BUFFER_LIMIT} entries wait for the archive; the oldest dropped`)
     }
 
     startFlushing(idpUrl: string, accessToken: () => string | null): void {
@@ -783,6 +797,28 @@ export class E2eeAdapter implements IE2eePort {
         }
         this.flushIdpUrl = null
         this.flushAccessToken = null
+    }
+
+    approvalLanded(): void {
+        this.approvalSignals += 1
+        if (this.approvalAwaited) this.resumeSaves()
+    }
+
+    onSavesResumable(listener: () => void): () => void {
+        this.resumableListeners.add(listener)
+        return () => this.resumableListeners.delete(listener)
+    }
+
+    private resumeSaves(): void {
+        this.approvalAwaited = false
+        for (const listener of this.resumableListeners) {
+            try {
+                listener()
+            } catch (e) {
+                // eslint-disable-next-line no-console
+                console.warn("onSavesResumable listener failed:", e)
+            }
+        }
     }
 
     mintHistoryKey(
@@ -1025,6 +1061,8 @@ export class E2eeAdapter implements IE2eePort {
     }
 
     private async setHolding(standing: HistoryKeyStanding, key: HeldKey | null): Promise<HistoryKeyStanding> {
+        const approvedAnew = opensSaves(this.holding.standing, standing)
+        this.approvalSignals += 1
         this.holding = { standing, key }
         this.checkedOnce = true
         if (!actsOnApproval(standing)) this.withdrawUnapproved()
@@ -1047,6 +1085,7 @@ export class E2eeAdapter implements IE2eePort {
             // eslint-disable-next-line no-console
             console.warn("[history-key] recording the standing failed", e)
         }
+        if (approvedAnew || this.approvalAwaited) this.resumeSaves()
         return standing
     }
 
@@ -1106,16 +1145,23 @@ export class E2eeAdapter implements IE2eePort {
         while (this.archiveBuffer.length > 0) {
             const idpUrl = this.flushIdpUrl
             const accessToken = this.flushAccessToken?.()
-            if (!this.historyArchive || !this.historyCrypto || !idpUrl || !accessToken) return
+            if (!this.historyArchive || !this.historyCrypto || !idpUrl || !accessToken || this.approvalAwaited) return
             if (this.holding.standing.kind === "unchecked") {
                 if (!this.checkedOnce || !(await this.recheck(idpUrl, accessToken))) return
             }
             const holding = this.holding
-            if (!holding.key) return
+            if (!holding.key || !savesToArchive(holding.standing)) return
             const batch = this.archiveBuffer.splice(0, ARCHIVE_UPLOAD_LIMIT)
+            const signals = this.approvalSignals
             try {
                 await this.uploadSealed(idpUrl, accessToken, holding.key, batch)
             } catch (err) {
+                if (isApprovalRequired(err)) {
+                    this.archiveBuffer.unshift(...batch)
+                    this.boundArchiveBuffer()
+                    if (this.approvalSignals === signals) this.approvalAwaited = true
+                    return
+                }
                 if (isStaleHistoryKey(err)) {
                     this.archiveBuffer.unshift(...batch)
                     this.boundArchiveBuffer()
@@ -1211,7 +1257,17 @@ export class E2eeAdapter implements IE2eePort {
     }
 
     async uploadRearchive(idpUrl: string, accessToken: string, sealed: SealedRearchive): Promise<void> {
-        await this.archive().uploadBatch(idpUrl, accessToken, sealed.generation, sealed.entries)
+        const signals = this.approvalSignals
+        try {
+            await this.archive().uploadBatch(idpUrl, accessToken, sealed.generation, sealed.entries)
+        } catch (err) {
+            if (isApprovalRequired(err)) {
+                // A signal landed while this was refused: the run is told to go on rather than wait for another.
+                if (this.approvalSignals === signals) this.approvalAwaited = true
+                else this.resumeSaves()
+            }
+            throw err
+        }
     }
 
     /**
@@ -1409,6 +1465,7 @@ export class E2eeAdapter implements IE2eePort {
         this.derivations.clear()
         this.archiveBuffer = []
         this.archivedIds.clear()
+        this.approvalAwaited = false
         this.reset = null
         this.trustEvents.clear()
         this.untrustedLeaves.clear()

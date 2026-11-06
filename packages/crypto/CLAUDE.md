@@ -300,9 +300,23 @@ Three collaborators could not come, and the shape of each is the mobile work:
   - **Uploads** — entries wait unsealed while the standing is unchecked or
     holds (`ARCHIVE_BUFFER_LIMIT`, the oldest dropped), and are dropped out of
     it; they go out under the generation held, each sealed with its ids as
-    associated data; an edit under the id its ciphertext gives. The first check
+    associated data, only once the device is approved under it (`savesToArchive`:
+    every flow keeps the words before it approves itself, so they wait meanwhile);
+    an edit under the id its ciphertext gives. The first check
     is a flow's, after the naming. `stale_history_key` reads the key again and
     sends the batch again once; a second stale in one flush waits for the next.
+    `approval_required` (the flusher's or `uploadRearchive`'s) keeps the batch and
+    holds the flusher — its 2 s timer finds it held and sends nothing — until the
+    next `setHolding` (any check of the key, the device's own approval) or
+    `approvalLanded` (`device_approved`); then `onSavesResumable` tells its
+    listeners, as it does whenever the device comes to stand approved under a
+    generation (`opensSaves`). Every such signal is counted: a refusal answered
+    after one landed holds nothing — the flusher's batch waits for the next tick,
+    and `uploadRearchive` tells the listeners at once. A refused re-archive pauses
+    at its cursor; the app runs it again on `onSavesResumable`, at each start and
+    when the socket comes back. Past `ARCHIVE_BUFFER_LIMIT` the oldest go — a
+    warning once a page load —, their ids free to be queued again. A wipe drops
+    the hold.
     `restoreHistory` opens each entry under the ids its row carries: one moved
     is skipped. Each entry keeps its row's `created_at` (`archivedAt`), what a reaction snapshot is
     dated by.
@@ -733,7 +747,14 @@ vitest setup, so a package's specs sit there until it needs its own.
   a cut, nothing tried before the cache, dropped for a later generation, `stale_history_key`,
   back-off and pace on fake timers, a skipped batch, one seal per entry, signed out, two tabs;
   `history-rearchive-toast.spec.ts` — the app's runner: the store read once read back, the toast and
-  its dismissals.
+  its dismissals, a pause for approval and the hook going on after `device_approved`;
+  `history-archive-approval.spec.ts` — uploads under the IdP's approval rule
+  (`FakeHistoryIdp.uploadRule`, on by default; approvals honour revocation and the root key they
+  bind): on each path that saves, nothing before the device's own approval; a refusal kept and
+  held until a check or an approval lands, and not held when one landed while it was refused; a
+  failed approval made again at the gate's next check and when the socket comes back, or at the
+  next page load; the re-archive waiting, paused at its cursor and going on, a call mid-run never
+  lost; the queue at its cap.
 - `apps/web/test/devices-warnings.spec.ts` — Settings → Devices' waiting seat, "Not mine"
   and the refused-list banner, from the engine's own reviews; `devices-editor.spec.ts` — the
   rows ("approved by" from the verdict), the passphrase card, "Restore history", "Replace my words",

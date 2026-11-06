@@ -14,8 +14,8 @@ import {
     type ArchiveEnvelope,
     type SnapshotReaction,
 } from "./history-archive"
-import { dueRestore, isGeneration, type HistoryKeyStanding } from "./history-key"
-import { IdpError, isStaleHistoryKey, isUnreachable } from "./idp-error"
+import { dueRestore, isGeneration, savesToArchive, type HistoryKeyStanding } from "./history-key"
+import { IdpError, isApprovalRequired, isStaleHistoryKey, isUnreachable } from "./idp-error"
 
 /** A cached message as the re-archive reads it: the web's `Message` has this shape. */
 export interface CachedMessage extends Decryption {
@@ -196,21 +196,29 @@ export function rearchiveBatches(entries: readonly RearchiveEntry[]): RearchiveE
     return batches
 }
 
-/** The restore's rule: run while the device holds `due`; moot once a later generation is in force, which erased the archive. */
-export function dueRearchive(due: number, standing: HistoryKeyStanding): "rearchive" | "abandon" | "wait" {
+/**
+ * The restore's rule, and saving's: run while the device holds `due`, approved under it
+ * (`savesToArchive`) — `unapproved` until it is —; moot once a later generation is in force, which
+ * erased the archive.
+ */
+export function dueRearchive(due: number, standing: HistoryKeyStanding): "rearchive" | "abandon" | "unapproved" | "wait" {
     const verdict = dueRestore(due, standing)
-    return verdict === "restore" ? "rearchive" : verdict === "moot" ? "abandon" : "wait"
+    if (verdict === "moot") return "abandon"
+    if (verdict === "wait") return "wait"
+    return savesToArchive(standing) ? "rearchive" : "unapproved"
 }
 
 /**
  * What a refused batch means: `retry` after a pause (no answer, `5xx`, `429`, `408`), `stale` (the
- * key read again), `skip` (refused for good: sending it again changes nothing), `stop` (anything
- * else — a `401` the renewal didn't cure —: the next start goes on from the cursor).
+ * key read again), `wait` (`approval_required`: the instance doesn't count this device approved
+ * yet — the run pauses at its cursor), `skip` (refused for good: sending it again changes nothing),
+ * `stop` (anything else — a `401` the renewal didn't cure —: the next start goes on from the cursor).
  */
-export type RearchiveRefusal = "retry" | "stale" | "skip" | "stop"
+export type RearchiveRefusal = "retry" | "stale" | "wait" | "skip" | "stop"
 
 export function rearchiveRefusal(error: unknown): RearchiveRefusal {
     if (isStaleHistoryKey(error)) return "stale"
+    if (isApprovalRequired(error)) return "wait"
     if (isUnreachable(error)) return "retry"
     if (!(error instanceof IdpError)) return "stop"
     if (error.status === 429 || error.status === 408) return "retry"

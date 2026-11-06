@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react"
 
+import { getE2eePort } from "@/ioc"
 import { rearchiveDueHistory, showRearchiveInApp } from "@/presentation/_libs/history-rearchive"
 import { useAppStore } from "@/store/store"
 
-/** A re-archive cut short — a reload, an instance out of reach — goes on where it stopped. */
+/** A re-archive cut short — a reload, an instance out of reach, a device not approved yet — goes on where it stopped. */
 export function useHistoryRearchive(): void {
     const signedIn = useAppStore((s) => s.accessToken !== null)
     const socketUp = useAppStore((s) => s.wsStatus === "connected")
@@ -12,7 +13,9 @@ export function useHistoryRearchive(): void {
     useEffect(() => showRearchiveInApp(), [])
 
     useEffect(() => {
-        if (signedIn) void rearchiveDueHistory()
+        if (!signedIn) return
+        void rearchiveDueHistory()
+        return getE2eePort().onSavesResumable(() => void rearchiveDueHistory())
     }, [signedIn])
 
     // The first connect follows the run at startup; a later one may find the instance back.

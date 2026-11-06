@@ -685,8 +685,12 @@ export function useIdpWebSocket(): void {
                     }
                     break
                 }
-                case "device_joined":
                 case "device_approved": {
+                    getE2eePort().approvalLanded()
+                    deviceFanoutHandlerRef.current?.()
+                    break
+                }
+                case "device_joined": {
                     // useDeviceFanout owns the actual fanout via its registered ref.
                     deviceFanoutHandlerRef.current?.()
                     break
