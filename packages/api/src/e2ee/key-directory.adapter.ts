@@ -19,11 +19,9 @@ import type {
     KeyPackageStatusResponse,
 } from "@pinai/domain/models/e2ee"
 import type {
-    Argon2Params,
     CommitView,
     IdentityKeysResponse,
     IKeyDirectoryPort,
-    RecoveryBlobResponse,
     RegisterDeviceResponse,
     WelcomeView,
 } from "@pinai/domain/ports/key-directory.port"
@@ -41,12 +39,18 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
         accessToken: string,
         deviceId: DeviceId,
         drkPublicKey: Uint8Array,
+        hpkeKey: { publicKey: Uint8Array; signature: Uint8Array },
     ): Promise<RegisterDeviceResponse> {
         const url = `${trimSlash(idpUrl)}/api/keys/devices`
         const body = await guarded(() =>
             idp.post(url, {
                 headers: authHeader(accessToken),
-                json: { device_id: deviceId, drk_public_key: b64(drkPublicKey) },
+                json: {
+                    device_id: deviceId,
+                    drk_public_key: b64(drkPublicKey),
+                    hpke_public_key: b64(hpkeKey.publicKey),
+                    hpke_key_signature: b64(hpkeKey.signature),
+                },
             }).json<{
                 signature: string
                 kid: string
@@ -258,24 +262,6 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
                 .json<{ id: string }>(),
         )
     }
-
-    // Legacy — /api/keys/recovery is gone; the passphrase now derives the
-    // History Archive Key. Methods stay on the interface for the
-    // integration test stub.
-    async putRecoveryBlob(
-        _idpUrl: string,
-        _accessToken: string,
-        _body: { wrapped_msk: Uint8Array; salt: Uint8Array; argon2_params: Argon2Params },
-    ): Promise<void> {}
-
-    async getRecoveryBlob(
-        _idpUrl: string,
-        _accessToken: string,
-    ): Promise<RecoveryBlobResponse | null> {
-        return null
-    }
-
-    async deleteRecoveryBlob(_idpUrl: string, _accessToken: string): Promise<void> {}
 }
 
 interface RawCommitView {

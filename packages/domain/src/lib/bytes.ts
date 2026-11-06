@@ -35,3 +35,14 @@ export function base64ToBytes(s: string): Uint8Array {
     for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
     return out
 }
+
+/** Standard base64 from the wire: its bytes, or null for what isn't base64 — or isn't `length` bytes long. */
+export function decodeBase64(value: unknown, length?: number): Uint8Array | null {
+    if (typeof value !== "string") return null
+    try {
+        const bytes = base64ToBytes(value)
+        return length === undefined || bytes.length === length ? bytes : null
+    } catch {
+        return null
+    }
+}

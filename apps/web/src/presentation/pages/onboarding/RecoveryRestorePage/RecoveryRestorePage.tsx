@@ -1,220 +1,191 @@
-import { ArrowRight, ClipboardPaste, Trash2 } from "lucide-react"
-import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
-import { Backdrop } from "@/presentation/atoms/backdrop/backdrop"
+import { useEffect, useRef } from "react"
+
+import type { ResetCause } from "@pinai/domain/models/admission"
 import { Button } from "@/presentation/atoms/Button/Button"
-import { PageTransition } from "@/presentation/atoms/page-transition/page-transition"
-import { RecoveryPassphraseInput } from "@/presentation/molecules/RecoveryPassphraseInput/RecoveryPassphraseInput"
-import { cn } from "@/presentation/_libs/utils"
+import { SegmentedTabPanel, SegmentedTabs, type SegmentedTab } from "@/presentation/molecules/SegmentedTabs/SegmentedTabs"
+import { ApproveFromAnotherDevice } from "@/presentation/organisms/ApproveFromAnotherDevice/ApproveFromAnotherDevice"
+import { NewWords } from "@/presentation/organisms/NewWords/NewWords"
+import { StartOverPanel, type StartOverReason } from "@/presentation/organisms/StartOverPanel/StartOverPanel"
+import { WordsPanel } from "@/presentation/organisms/WordsPanel/WordsPanel"
+import { PassCard, PassShell } from "@/presentation/templates/PassShell/PassShell"
 
-import { useRecoveryRestorePageViewModel } from "./RecoveryRestorePage.viewmodel"
+import { ResetNote } from "./ResetNote/ResetNote"
+import { UnknownChange } from "./UnknownChange/UnknownChange"
+import {
+    useRecoveryRestorePageViewModel,
+    type RecoveryRestoreViewModel,
+    type RestoreTab,
+    type RestoreVariant,
+} from "./RecoveryRestorePage.viewmodel"
 
-// MSK + Device Root Key are bootstrapped silently, so both Restore and Start fresh exit ready.
-export function RecoveryRestorePage() {
-    const vm = useRecoveryRestorePageViewModel()
-    const isMidEntry = vm.filledCount > 0
-    const isRestoring = vm.status === "restoring"
-    const initials = (vm.welcomeName[0] ?? "?").toUpperCase()
+const NEW_DEVICE_TABS: readonly SegmentedTab<RestoreTab>[] = [
+    { id: "device", label: "Another device" },
+    { id: "words", label: "My 24 words" },
+    { id: "start-over", label: "Start over" },
+]
+
+const RESET_TABS: readonly SegmentedTab<RestoreTab>[] = [
+    { id: "device", label: "That device" },
+    { id: "words", label: "Its 24 words" },
+    { id: "start-over", label: "Start over" },
+]
+
+const RESET_TITLES: Record<ResetCause | "unknown", string> = {
+    "newer-generation": "Your history was reset from another device",
+    "unknown-change": "Your instance changed your history key",
+    unknown: "Your history key changed",
+}
+
+/**
+ * Where a device that isn't in stays — § 5.2's new-device page, or § 5.4's reset page, both drawn as
+ * Pass — until another device approves it, its 24 words are typed, or it starts over; signing out is
+ * the only other way off. A device already in comes here only to bring its history.
+ */
+export function RecoveryRestorePage({ variant = "new-device" }: { variant?: RestoreVariant }) {
+    const vm = useRecoveryRestorePageViewModel(variant)
+    const reset = variant === "reset"
+
+    if (vm.newWords) {
+        return (
+            <PassShell instance={vm.instance} title="Your new 24 words" titleFocusKey="new-words">
+                <PassCard>
+                    <NewWords words={vm.newWords} onContinue={vm.onIn} />
+                </PassCard>
+            </PassShell>
+        )
+    }
+
+    const startOver = (reason: StartOverReason) => (
+        <StartOverPanel
+            reason={reason}
+            ready={vm.deviceReady && !vm.approvedHere}
+            own={vm.ownStartOver}
+            onApproveInstead={reason === "lost-everything" || reason === "not-me" ? () => vm.setTab("device") : undefined}
+            returnTo={vm.startOverReturn}
+            onStartedOver={vm.onStartedOver}
+            onWentOtherwise={vm.onStartOverWentOtherwise}
+            onRolledBack={vm.onRolledBack}
+            onBusy={vm.onStartOverBusy}
+            replacedOn={vm.replacedOn}
+            refused={reason === "not-me" ? vm.refused : null}
+        />
+    )
+    const tabs = (reset ? RESET_TABS : NEW_DEVICE_TABS).filter((t) => t.id !== "start-over" || vm.offersStartOver)
+    const title = reset
+        ? vm.replacedOn
+            ? `Your words were replaced on ${vm.replacedOn}`
+            : RESET_TITLES[vm.resetCause ?? "unknown"]
+        : vm.isIn
+          ? "Bring your history to this device"
+          : "First connection to a new device"
 
     return (
-        <div className="relative flex min-h-app items-center justify-center overflow-auto bg-background">
-            <Backdrop />
-            <PageTransition className="relative z-[2] grid w-full max-w-[1200px] grid-cols-[1.1fr_1fr] gap-9 px-14 py-10">
-                <div>
-                    <Breadcrumb />
+        <PassShell instance={vm.instance} title={title} footer={<Footer vm={vm} />}>
+            {vm.notice && <Notice text={vm.notice} takesFocus />}
+            {vm.offersWayIn && vm.shareRefused && (
+                <Notice text="Your history couldn't be received from your other device. Type your 24 words to bring it back." />
+            )}
 
-                    <WelcomeChip
-                        name={vm.welcomeName}
-                        initials={initials}
-                        deviceLabel={vm.deviceLabel}
-                    />
-
-                    {isMidEntry ? <HeroMidEntry /> : <HeroEmpty />}
-
-                    <p className="m-0 mb-3.5 max-w-[520px] text-[14px] leading-[1.6] text-muted-foreground">
-                        {isMidEntry ? (
-                            <>
-                                We've matched {vm.filledCount} of your 24 words. {24 - vm.filledCount}{" "}
-                                {24 - vm.filledCount === 1 ? "is" : "are"} still empty — finish those and
-                                we'll restore everything.
-                            </>
-                        ) : (
-                            <>
-                                Your old conversations are sealed on your other devices — only the 24
-                                words you saved can unlock them here. Paste or type them once, and your
-                                messages, photos and rooms come right back.
-                            </>
+            {vm.rolledBack ? (
+                <PassCard>
+                    <ResetNote eyebrow="What happened" onCheckAgain={vm.onIn}>
+                        Your instance went back on your account's history key: it now serves an older one than your
+                        devices have seen. No device can start over from it — only your instance can put the key back.
+                    </ResetNote>
+                </PassCard>
+            ) : vm.offersWayIn ? (
+                <SegmentedTabs tabs={tabs} selected={vm.tab} onChange={vm.setTab} label="How to let this device in" isDisabled={vm.busy}>
+                    <PassCard>
+                        {/* Mounted on every tab: an exchange another device answered, and the approval it brings, outlive a look elsewhere. */}
+                        <SegmentedTabPanel id="device" keepMounted>
+                            <ApproveFromAnotherDevice
+                                ready={vm.deviceReady}
+                                active={vm.tab === "device"}
+                                fallbackLabel={vm.deviceLabel}
+                                instruction={
+                                    vm.replacedOn
+                                        ? `Open Pīna'i on ${vm.replacedOn} and type it when it asks.`
+                                        : reset
+                                          ? "Open Pīna'i on the device that reset your history and type it when it asks."
+                                          : undefined
+                                }
+                                share={vm.share}
+                                onApproved={vm.onApproved}
+                                onIn={vm.onIn}
+                            />
+                        </SegmentedTabPanel>
+                        <SegmentedTabPanel id="words">
+                            <WordsPanel
+                                reset={reset}
+                                replacedOn={vm.replacedOn}
+                                words={vm.words}
+                                setWords={vm.setWords}
+                                canRestore={vm.canRestore}
+                                restoring={vm.status === "restoring"}
+                                onRestore={() => void vm.onRestore()}
+                            />
+                        </SegmentedTabPanel>
+                        {vm.offersStartOver && (
+                            <SegmentedTabPanel id="start-over">{startOver(reset ? "not-me" : "lost-everything")}</SegmentedTabPanel>
                         )}
-                    </p>
-
-                    <div className="mt-[18px] flex max-w-[540px] flex-col gap-2.5">
-                        {isMidEntry ? (
-                            <>
-                                <RowFact
-                                    icon="✓"
-                                    title="What's ready"
-                                    body={`${vm.filledCount} of 24 words match the dictionary. ${
-                                        24 - vm.filledCount
-                                    } ${24 - vm.filledCount === 1 ? "slot remains" : "slots remain"} empty.`}
-                                />
-                                <RowFact
-                                    icon="↺"
-                                    title="Take your time"
-                                    body="Order matters — they must be in the same sequence you saved."
-                                />
-                            </>
-                        ) : (
-                            <>
-                                <RowFact
-                                    icon="↺"
-                                    title="Bring everything back"
-                                    body="Past chats, voice rooms you're in, the friends you've added. All restored on this device."
-                                />
-                                <RowFact
-                                    icon="✓"
-                                    title="Faster: paste them all"
-                                    body="Most password managers can paste the whole 24 words at once."
-                                />
-                                <RowFact
-                                    icon="?"
-                                    title="Lost the passphrase?"
-                                    body="You can still chat from this device — but messages from before today won't follow you here."
-                                    tone="warning"
-                                />
-                            </>
-                        )}
-                    </div>
-
-                    <div className={cn("mt-7 flex items-center gap-2.5", isMidEntry && "mt-6")}>
-                        {isMidEntry ? (
-                            <Button variant="secondary" size="inline" onPress={vm.onClear} isDisabled={isRestoring}>
-                                <Trash2 className="h-[15px] w-[15px]" />
-                                Clear all
-                            </Button>
-                        ) : (
-                            <Button
-                                variant="secondary"
-                                size="inline"
-                                onPress={vm.onPaste}
-                                isDisabled={vm.status === "initializing"}
-                            >
-                                <ClipboardPaste className="h-[15px] w-[15px]" />
-                                Paste passphrase
-                            </Button>
-                        )}
-
-                        <Button
-                            size="inline"
-                            onPress={() => void vm.onRestore()}
-                            isDisabled={!vm.canRestore || isRestoring}
-                        >
-                            {isRestoring ? "Restoring…" : "Restore"}
-                            {!isRestoring && <ArrowRight className="h-[15px] w-[15px]" />}
-                        </Button>
-
-                        <span className="flex-1" />
-
-                        <Button
-                            variant="ghost"
-                            onPress={vm.onStartFresh}
-                            isDisabled={vm.status === "initializing" || isRestoring}
-                            className="text-[12.5px] underline-offset-[3px]"
-                        >
-                            Start fresh on this device
-                        </Button>
-                    </div>
-
-                    {vm.status === "error" && vm.error && (
-                        <p className="mt-4 text-[12px] text-dnd">
-                            {vm.error}
-                        </p>
+                    </PassCard>
+                </SegmentedTabs>
+            ) : reset && vm.resetCause === "unknown-change" ? (
+                <PassCard>
+                    {vm.startOverShown ? (
+                        <>
+                            {startOver("unknown-change")}
+                            <div className="-mt-3 px-[34px] pb-[26px] max-[440px]:px-5">
+                                <Button variant="ghost" onPress={() => vm.showStartOver(false)} isDisabled={vm.busy} className="text-[12.5px]">
+                                    ← What happened
+                                </Button>
+                            </div>
+                        </>
+                    ) : (
+                        <UnknownChange onCheckAgain={vm.onIn} onStartOver={() => vm.showStartOver(true)} />
                     )}
-                </div>
+                </PassCard>
+            ) : (
+                <PassCard>
+                    <ResetNote eyebrow="Your history key" onCheckAgain={vm.onIn}>
+                        Reading what changed on your instance…
+                    </ResetNote>
+                </PassCard>
+            )}
 
-                <div>
-                    <RecoveryPassphraseInput
-                        value={vm.words}
-                        onChange={vm.setWords}
-                        disabled={isRestoring}
-                        handleRef={vm.inputHandleRef}
-                    />
-                </div>
-            </PageTransition>
-        </div>
+            {vm.status === "error" && vm.error && (
+                <p role="alert" className="m-0 max-w-[520px] text-center text-[12.5px] text-dnd-ink">
+                    {vm.error}
+                </p>
+            )}
+        </PassShell>
     )
 }
 
-function Breadcrumb() {
+function Footer({ vm }: { vm: RecoveryRestoreViewModel }) {
     return (
-        <div className="mb-3.5 flex items-center gap-[7px] text-[12px] text-muted-foreground">
-            <span>Sign in</span>
-            <span className="text-line2">›</span>
-            <span>New device</span>
-            <span className="text-line2">›</span>
-            <span className="font-medium text-foreground">Recover history</span>
-        </div>
+        <>
+            {vm.isIn && (
+                <Button variant="ghost" onPress={vm.onIn} isDisabled={vm.busy} className="text-[12.5px] underline-offset-[3px]">
+                    Back to Pīna'i
+                </Button>
+            )}
+            <Button variant="ghost" onPress={vm.onSignOut} isDisabled={vm.busy} className="text-[12.5px] underline-offset-[3px]">
+                Sign out
+            </Button>
+        </>
     )
 }
 
-interface WelcomeChipProps {
-    name: string
-    initials: string
-    deviceLabel: string
-}
-
-function WelcomeChip({ name, initials, deviceLabel }: WelcomeChipProps) {
+// `takesFocus`: it replaces what the user was looking at, so the focus goes to it.
+function Notice({ text, takesFocus = false }: { text: string; takesFocus?: boolean }) {
+    const line = useRef<HTMLParagraphElement>(null)
+    useEffect(() => {
+        if (takesFocus) line.current?.focus()
+    }, [text, takesFocus])
     return (
-        <div className="mb-3 inline-flex w-fit items-center gap-2.5 rounded-full border border-[color-mix(in_oklab,var(--acc)_28%,var(--line2))] bg-[color-mix(in_oklab,var(--acc)_8%,var(--surf))] py-1.5 pl-1.5 pr-3">
-            <Avatar initials={initials} tone="acc" size="sm" />
-            <span className="text-[12px] text-foreground">
-                Welcome back, <span className="title text-[14px] font-semibold text-acc">{name}</span>
-            </span>
-            <span className="h-[3px] w-[3px] rounded-full bg-line2" />
-            <span className="fact fact-plain">{deviceLabel} · just paired</span>
-        </div>
-    )
-}
-
-function HeroEmpty() {
-    return (
-        <h1 className="title m-0 mb-3.5 text-[42px] font-normal leading-[1.05] tracking-[-0.02em] text-foreground">
-            Pick up where you{" "}
-            <em className="italic text-acc">left off.</em>
-        </h1>
-    )
-}
-
-function HeroMidEntry() {
-    return (
-        <h1 className="title m-0 mb-3.5 text-[42px] font-normal leading-[1.05] tracking-[-0.02em] text-foreground">
-            Almost <em className="italic text-acc">there.</em>
-        </h1>
-    )
-}
-
-interface RowFactProps {
-    icon: string
-    title: string
-    body: string
-    tone?: "warning"
-}
-
-function RowFact({ icon, title, body, tone }: RowFactProps) {
-    const warning = tone === "warning"
-    return (
-        <div className="flex items-start gap-[11px]">
-            <span
-                className={cn(
-                    "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[7px] font-mono text-[12px] font-medium",
-                    warning ? "bg-[color-mix(in_oklab,var(--idle)_16%,transparent)] text-idle" : "bg-surf3 text-muted-foreground",
-                )}
-                aria-hidden
-            >
-                {icon}
-            </span>
-            <div className="flex-1 text-[12.5px] leading-[1.55]">
-                <p className={cn("fact mb-0.5", warning && "text-idle")}>{title}</p>
-                <span className="text-muted-foreground">{body}</span>
-            </div>
-        </div>
+        <p ref={line} tabIndex={-1} role="status" className="m-0 max-w-[520px] text-center text-[13px] leading-[1.55] text-idle-ink outline-none">
+            {text}
+        </p>
     )
 }

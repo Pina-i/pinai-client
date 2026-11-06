@@ -36,6 +36,19 @@ export function actorUriToAddress(uri: string): string {
     }
 }
 
+/**
+ * The instance a URL belongs to, as an origin: an actor URI's is the instance that attests its
+ * devices, and an attestation's issuer must be that one. Null for what isn't a URL.
+ */
+export function instanceOrigin(uri: string): string | null {
+    try {
+        const { origin } = new URL(uri)
+        return origin === "null" ? null : origin
+    } catch {
+        return null
+    }
+}
+
 /** `handle@host` → its two parts; an address without an `@` is all handle. */
 export function addressParts(address: string): { handle: string; host: string } {
     const at = address.lastIndexOf("@")

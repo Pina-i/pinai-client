@@ -8,7 +8,7 @@ interface RecoveryPassphraseDisplayProps {
     badgeTone?: "success" | "muted"
 }
 
-/** Read-only 3-col grid of numbered recovery words. */
+/** Read-only grid of numbered recovery words: three a row, two on a phone, never a word cut. */
 export function RecoveryPassphraseDisplay({
     words,
     badgeLabel = "strong",
@@ -30,7 +30,7 @@ export function RecoveryPassphraseDisplay({
                 </span>
             </div>
 
-            <div className="grid grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-3 gap-1.5 max-[440px]:grid-cols-2">
                 {words.map((word, i) => (
                     <div
                         key={`${i}-${word}`}
@@ -39,7 +39,7 @@ export function RecoveryPassphraseDisplay({
                         <span className="w-4 shrink-0 text-right font-mono text-[8.5px] tracking-[0.05em] text-muted-foreground">
                             {String(i + 1).padStart(2, "0")}
                         </span>
-                        <span className="truncate font-mono text-[12px] font-medium text-foreground">{word}</span>
+                        <span className="min-w-0 break-all font-mono text-[12px] font-medium text-foreground">{word}</span>
                     </div>
                 ))}
             </div>

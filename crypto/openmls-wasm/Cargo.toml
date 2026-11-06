@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 publish = false
-description = "Pina'i WASM bundle around openmls — minimum surface needed by the web client (KeyPackage, MlsGroup ops, Welcome handling, application encrypt/decrypt, secret export)."
+description = "Pina'i WASM bundle around openmls — minimum surface needed by the web client (KeyPackage, MlsGroup ops, Welcome handling, application encrypt/decrypt, secret export) and the HPKE key shares are sealed with."
 
 # Two crate types so the same source can be wasm-pack-built (cdylib) and
 # unit-tested on the native host (rlib). Tests compile against the rlib.
@@ -26,6 +26,7 @@ openmls_traits           = { version = "=0.5.0" }
 openmls_rust_crypto      = { version = "=0.5.1" }
 openmls_basic_credential = { version = "=0.5.0" }
 tls_codec                = { version = "=0.4.2" }
+zeroize                  = "1.8"
 
 # Better panic messages in dev. Cheap; we keep it always-on for now —
 # Phase 4b can flip it off behind a release-only flag if WASM size becomes

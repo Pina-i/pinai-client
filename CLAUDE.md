@@ -43,7 +43,7 @@ The user configures their identity provider URL (e.g. `idp.alice.com`) and the c
 | WebSocket | Native WebSocket API with a custom hook layer |
 | Auth | OIDC Authorization Code + PKCE (no implicit flow) |
 | Routing | Tanstack Router |
-| E2EE | MLS (RFC 9420) via `openmls 0.8.1` WASM bundle (`crypto/openmls-wasm/`); identity + recovery via `@noble/curves` + `@noble/hashes` + `@noble/ciphers` |
+| E2EE | MLS (RFC 9420) via `openmls 0.8.1` WASM bundle (`crypto/openmls-wasm/`); identity + the history key via `@noble/curves` + `@noble/hashes` + `@noble/ciphers` |
 | At-rest persistence | `SealedStorage` (schema + sealing) over an `IKeyValueStore`; on the web that is IndexedDB (`idb`), with AES-256-GCM under a non-extractable device key behind `IDeviceKeyPort`. The zustand cache's inner format is **msgpack** (`msgpackr`) — preserves `Uint8Array` round-trip natively |
 
 ## Related Repository
@@ -101,7 +101,7 @@ pinai-client/                 # pnpm workspace root
 │   │                         #   `wasm.adapter.ts` is the only importer of
 │   │                         #   openmls-wasm. The native binding lands here.
 │   ├── crypto/               # @pinai/crypto — the E2EE core: MLS orchestration,
-│   │                         #   identity, recovery, pairing, attestation,
+│   │                         #   identity, the history key, the code handshake, attestation,
 │   │                         #   attachment sealing, the sealed store's schema.
 │   │                         #   All @noble, never crypto.subtle.
 │   └── domain/               # @pinai/domain — models, ports, use cases.
@@ -285,10 +285,15 @@ for a known IdP.
    refresh token (`invalid_grant`) means the session is over: the store is cleared and the
    browser goes through `/authorize` once, which shows the login page. A reload loses the
    refresh token: `/authorize` signs in again, silent while the IdP's browser session lives (90
-   days, sliding) — the IdP signs in silently only to an app its account signed in to with the
-   password, so a new client's first sign-in always asks it
+   days, sliding; the web app's use keeps it alive) — the IdP signs in silently only to an app
+   its account signed in to with the password, so a new client's first sign-in always asks it.
+   The web app's tokens belong to a session of its own under that browser session, which each of
+   its exchanges there reuses, so the device it names stays named; another web app in the same
+   browser (another origin: an instance's, the dev server, the Docker image) has its own, and
+   its own device (`identity-provider/specs/auth.md § 1` "Sessions")
 9. Logout drops the refresh token, then sends `client_id` with `post_logout_redirect_uri`, which
-   the document lists; the IdP ends the session, its refresh tokens with it
+   the document lists; the IdP ends the browser session and every web app's session under it,
+   their refresh tokens with them — the desktop app's own stays
 10. **The desktop app** shows the IdP's pages in its own window, as the web app does in its tab:
    its client is the IdP's own `/clients/desktop.json`, it asks `offline_access` (an app session
    of its own) and `prompt=login` (the window keeps the IdP's cookie), and the main process turns
@@ -298,9 +303,23 @@ for a known IdP.
    `AuthPlatform.browserSession` is what tells the two apart
 11. Once the account's device storage is open and its E2EE device exists, `requireSession` names
    the device to the IdP (`PUT /api/sessions/current/device`, once per page load —
-   `presentation/_libs/session-device.ts`): revoking the device in Settings → Devices then signs
-   it out at once, and the screen tells each device's state — "Active 3 days ago", "Signed out",
-   revoked — with "Sign out other devices"
+   `presentation/_libs/session-device.ts`) with its proof — its root key's signature over the
+   access token's session (`sid`); a proof refused (`device_proof_invalid`) registers it again and
+   names it once more, a second refusal final —, registering it again first when it has to (near
+   its attestation's end, or no HPKE key yet — a registration failing otherwise still names it,
+   and the KeyPackage tick tries it again): revoking the device in Settings → Devices then
+   signs it out at once, and the screen tells each device's state — "Active 3 days ago", "Signed
+   out", revoked — with "Sign out other devices". A registration or a naming refused with `403
+   device_mismatch` — this device's storage was wiped while its session lived — ends the app's
+   own session and signs in again at once (`presentation/_libs/device-mismatch.ts`,
+   `sign-in-again.usecase.ts`): the web app revokes its refresh token (`/revoke`), and its
+   sign-in, silent while the browser session lives, opens a new session under it — no password,
+   no other web app of the browser signed out. It never goes through the IdP's logout: a renewal
+   holding the token is waited for, and without a token at all it signs in anyway, the next page
+   then meeting the mismatch with the callback's token, which it revokes. The desktop clears its
+   token, which revokes it, and its sign-in opens an app session of its own. Revoking a web app's
+   device from another device signs its whole browser out, so coming back there takes the
+   password
 12. **Sensitive actions** — revoking a device, signing out the others, turning TOTP on, clearing
    the history backup, making a member's password reset link — take a password typed in the last
    10 minutes. The IdP refuses an older
@@ -308,7 +327,11 @@ for a known IdP.
    hook doesn't renew for it): `useRecentSignIn` tells the user, then `startLoginUseCase` with
    `{ reauthenticate: true, returnTo }` sends `prompt=login`, and the callback comes back where
    they were — Settings reopens on its section through `?settings=<section>`. They do it again;
-   nothing is replayed. "← Another home" comes back there too, still signed in
+   nothing is replayed. "← Another home" comes back there too, still signed in. Every start over,
+   and every "Replace my words", asks it before anything is minted: the password's age is read on
+   the IdP's clock first (`signedInRecently`: `iat − auth_time` plus the time since the token
+   arrived, 9 minutes), and the page comes back on its tab (`?tab=start-over`) or pane
+   (`?settings=devices`)
 13. **Arriving with `/?instance=<domain>`** — where the IdP sends people after an invitation's
    sign-up (its browser session open, the web app already consented to) and from a reset link's
    last page. The landing's `beforeLoad` decides, at every location (`instanceArrival` in
@@ -349,7 +372,7 @@ for a known IdP.
 - **Multi-IdP aware** — the client is not hardcoded to a single IdP; the user's configured IdP URL is stored in `localStorage` only (not the token)
 - **Two separate WebSocket connections**: one to the identity-provider (for DMs), one to the active chat-server (for channels)
 - **JWT never sent to wrong backend** — the chat-server JWT and IdP session are kept strictly separate in the store
-- **MLS E2EE is end-to-end client-driven**: encryption/decryption happens in `packages/crypto/`, server is opaque to message content. Per-device identity (Phase 7) — each device generates a Device Root Key (Ed25519) signed by the IdP into an attestation; peers verify via the issuer's JWKS. DRK + MLS provider state + per-device 24-word recovery passphrase all live in IndexedDB, encrypted at rest under a per-device non-extractable AES-256-GCM `CryptoKey`. The same device key encrypts the persisted message-plaintext cache (`pinai-zustand-store` IDB) so MLS forward secrecy doesn't blank conversation history on reload. Both databases are kept **per account** (`pinai-e2ee:<actor URI>`, `pinai-zustand-store:<actor URI>`), so several accounts can take turns on one browser without erasing each other's device; the route guard opens the signed-in account's before the app shell mounts (`apps/web/src/adapters/storage/CLAUDE.md`). The recovery passphrase derives a History Archive Key (Argon2id) used to encrypt every decrypted plaintext for opt-out server-side history backup. See `packages/crypto/CLAUDE.md` and `identity-provider/specs/e2ee.md` in the `pinai` monorepo.
+- **MLS E2EE is end-to-end client-driven**: encryption/decryption happens in `packages/crypto/`, server is opaque to message content. Per-device identity (Phase 7) — each device generates a Device Root Key (Ed25519) signed by the IdP into an attestation; peers verify via the issuer's JWKS. The DRK signs the device's HPKE key (X25519, for key shares) and every MLS leaf key it uses (`leaf_binding` in the v2 leaf credential), checked on every leaf added or met. DRK + MLS provider state + the account's 24-word history passphrase all live in IndexedDB, encrypted at rest under a per-device non-extractable AES-256-GCM `CryptoKey`. The same device key encrypts the persisted message-plaintext cache (`pinai-zustand-store` IDB) so MLS forward secrecy doesn't blank conversation history on reload. Both databases are kept **per account** (`pinai-e2ee:<actor URI>`, `pinai-zustand-store:<actor URI>`), so several accounts can take turns on one browser without erasing each other's device; the route guard opens the signed-in account's before the app shell mounts (`apps/web/src/adapters/storage/CLAUDE.md`). The passphrase, the account's in generations, derives a History Archive Key (Argon2id) used to encrypt every decrypted plaintext for the server-side history backup; a device uploads only while its words give the generation in force (check value and approval key) and it approved itself with them; a refusal (`approval_required`) keeps the entries until a check of the key or an approval lands. A device holding it shares it with the devices it approved in a code handshake — HPKE-sealed for the recipient, signed by the sender's root key — and a recipient keeps the words only when the share passes its four checks, then restores the archive in the background. See `packages/crypto/CLAUDE.md` and `identity-provider/specs/e2ee.md` in the `pinai` monorepo.
 - **The persisted cache is written only over what hydration applied** (`apps/web/src/store/persist-guard.ts`,
   wired in `store.ts` through `onRehydrateStorage`). zustand's `persist` saves on every `set`,
   hydrated or not, so a `set` before what was read is in the store — the callback's `setSession`,

@@ -5,6 +5,8 @@ import { AnimatePresence, motion } from "motion/react"
 import { useConsumeMlsWelcomes } from "@/presentation/hooks/useConsumeMlsWelcomes"
 import { useDeviceFanout } from "@/presentation/hooks/useDeviceFanout"
 import { useHistoryArchiveFlusher } from "@/presentation/hooks/useHistoryArchiveFlusher"
+import { useHistoryShare } from "@/presentation/hooks/use-history-share"
+import { useHistoryRearchive } from "@/presentation/hooks/use-history-rearchive"
 import { useIdentityOnboardingGate } from "@/presentation/hooks/useIdentityOnboardingGate"
 import {
     registerDeviceFanoutHandler,
@@ -15,17 +17,18 @@ import { useLoadDmConversations } from "@/presentation/hooks/useLoadDmConversati
 import { useHeartbeat } from "@/presentation/hooks/useHeartbeat"
 import { useTypingPruner } from "@/presentation/hooks/useTypingPruner"
 import { useHoldSplashScreen } from "@/presentation/hooks/use-hold-splash-screen"
+import { HistoryResetContext } from "@/presentation/providers/HistoryResetProvider/HistoryReset.context"
 import { useReplenishKeyPackages } from "@/presentation/hooks/use-replenish-key-packages"
+import { useUnapprovedDeviceNotice } from "@/presentation/hooks/use-unapproved-device-notice"
 import { useLoadPresence } from "@/presentation/hooks/useLoadPresence"
+import { ApprovalDoor } from "@/presentation/organisms/ApprovalDoor/ApprovalDoor"
+import { StartOverDoor } from "@/presentation/organisms/StartOverDoor/StartOverDoor"
 import { HomeLayout } from "@/presentation/templates/HomeLayout/HomeLayout"
 import { Backdrop } from "@/presentation/atoms/backdrop/backdrop"
 import { Button } from "@/presentation/atoms/Button/Button"
 
-function AuthenticatedLayout() {
-    // Gate the app shell behind onboarding — bootstrap happens explicitly
-    // inside the setup view so the passphrase can be shown to the user.
-    const gate = useIdentityOnboardingGate()
-
+/** What runs only for a device the gate let in: a device that is out joins nothing, syncs nothing, saves nothing. */
+function AppRuntime() {
     useIdpWebSocket()
     useHeartbeat()
     useTypingPruner()
@@ -33,19 +36,28 @@ function AuthenticatedLayout() {
     useLoadDmConversations()
     useLoadPresence()
     useConsumeMlsWelcomes()
-    useReplenishKeyPackages(gate.status === "ready")
     useHistoryArchiveFlusher()
-    const { onDeviceJoined } = useDeviceFanout()
-    useEffect(() => registerDeviceFanoutHandler(onDeviceJoined), [onDeviceJoined])
+    useHistoryShare()
+    useHistoryRearchive()
+    useUnapprovedDeviceNotice()
+    const { onDeviceListChanged } = useDeviceFanout()
+    useEffect(() => registerDeviceFanoutHandler(onDeviceListChanged), [onDeviceListChanged])
+    return null
+}
+
+function AuthenticatedLayout() {
+    // Gate the app shell behind onboarding — bootstrap happens explicitly
+    // inside the setup view so the passphrase can be shown to the user.
+    const gate = useIdentityOnboardingGate()
+    useReplenishKeyPackages(gate.status === "ready")
 
     // The splash screen stands in for the gate's loader, so a hard refresh
     // shows one loader from first paint to the shell.
     useHoldSplashScreen(gate.status === "loading" || gate.status === "redirecting")
     const showError = gate.status === "error"
 
-    // The data hooks above re-render this layout on every conversation-list or
-    // presence refresh; a stable element keeps that from cascading through the
-    // shell. HomeLayout and the Outlet still update through their own subscriptions.
+    // A stable element keeps this layout's re-renders from cascading through the shell; HomeLayout
+    // and the Outlet update through their own subscriptions.
     const shell = useMemo(
         () => (
             <HomeLayout>
@@ -54,6 +66,7 @@ function AuthenticatedLayout() {
         ),
         [],
     )
+    const reset = useMemo(() => ({ reset: gate.reset, recheck: gate.recheck }), [gate.reset, gate.recheck])
 
     return (
         <>
@@ -70,7 +83,10 @@ function AuthenticatedLayout() {
                     </motion.div>
                 )}
             </AnimatePresence>
-            {gate.status === "ready" && shell}
+            {gate.status === "ready" && <AppRuntime />}
+            {gate.status === "ready" && <HistoryResetContext.Provider value={reset}>{shell}</HistoryResetContext.Provider>}
+            {gate.status === "ready" && <ApprovalDoor />}
+            {gate.status === "ready" && <StartOverDoor />}
         </>
     )
 }

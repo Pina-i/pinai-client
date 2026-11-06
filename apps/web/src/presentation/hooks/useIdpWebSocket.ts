@@ -15,7 +15,7 @@ import type { WsConnectionStatus, WsServerEvent } from "@pinai/domain/models/ws"
 import type { Message } from "@/lib/types"
 import { actorUriToAddress } from "@pinai/domain/models/identity"
 import { isHeldHere } from "@pinai/domain/models/own-messages"
-import { applyFederationStatus } from "@pinai/domain/models/dm"
+import { UNDECRYPTABLE_TEXT, applyFederationStatus } from "@pinai/domain/models/dm"
 import { reconcileGroupKeysUseCase } from "@pinai/domain/usecases/e2ee/reconcile-group-keys.usecase"
 import { shouldPingForMessage } from "@pinai/domain/models/mute"
 import { countsAsUnread, isBlocked } from "@pinai/domain/models/block"
@@ -28,21 +28,58 @@ import { groupMembersQueryKey } from "@/presentation/pages/home/GroupMembersPane
 import { useAppearance } from "@/presentation/providers/AppearanceProvider/AppearanceProvider.context"
 import { useNotificationSettings } from "@/presentation/providers/AppearanceProvider/NotificationSettings.context"
 import { renewAccessToken } from "@/presentation/_libs/session-renewal"
-
-const UNDECRYPTABLE_PLACEHOLDER = "[encrypted]"
+import { startOverQueryKey } from "@/presentation/hooks/use-own-start-over"
 
 /** Module-level slot — `useDeviceFanout` registers its callback here. */
-const deviceFanoutHandlerRef: { current: ((e: import("@pinai/domain/models/ws").DeviceJoinedPayload) => void) | null } = {
+const deviceFanoutHandlerRef: { current: (() => void) | null } = {
     current: null,
 }
 
-export function registerDeviceFanoutHandler(
-    handler: (e: import("@pinai/domain/models/ws").DeviceJoinedPayload) => void,
-): () => void {
+export function registerDeviceFanoutHandler(handler: () => void): () => void {
     deviceFanoutHandlerRef.current = handler
     return () => {
         if (deviceFanoutHandlerRef.current === handler) {
             deviceFanoutHandlerRef.current = null
+        }
+    }
+}
+
+export type ApprovalEvent = Extract<WsServerEvent, { type: "approval_requested" | "approval_message" | "approval_closed" }>
+
+/** Module-level slot — the approval prompt (`ApprovalDoor`) registers here. */
+const approvalHandlerRef: { current: ((event: ApprovalEvent) => void) | null } = { current: null }
+
+export function registerApprovalHandler(handler: (event: ApprovalEvent) => void): () => void {
+    approvalHandlerRef.current = handler
+    return () => {
+        if (approvalHandlerRef.current === handler) {
+            approvalHandlerRef.current = null
+        }
+    }
+}
+
+/** Module-level slot — `useHistoryShare` registers here: a key share waits for this device. */
+const historyKeyReadyHandlerRef: { current: (() => void) | null } = { current: null }
+
+export function registerHistoryKeyReadyHandler(handler: () => void): () => void {
+    historyKeyReadyHandlerRef.current = handler
+    return () => {
+        if (historyKeyReadyHandlerRef.current === handler) {
+            historyKeyReadyHandlerRef.current = null
+        }
+    }
+}
+
+export type StartOverEvent = Extract<WsServerEvent, { type: "start_over_requested" | "start_over_cancelled" }>
+
+/** Module-level slot — the start over prompt (`StartOverDoor`) registers here. */
+const startOverHandlerRef: { current: ((event: StartOverEvent) => void) | null } = { current: null }
+
+export function registerStartOverHandler(handler: (event: StartOverEvent) => void): () => void {
+    startOverHandlerRef.current = handler
+    return () => {
+        if (startOverHandlerRef.current === handler) {
+            startOverHandlerRef.current = null
         }
     }
 }
@@ -264,7 +301,7 @@ export function useIdpWebSocket(): void {
                     }
 
                     // Default: text (or reply) — render as a Message.
-                    let plaintext = UNDECRYPTABLE_PLACEHOLDER
+                    let plaintext = UNDECRYPTABLE_TEXT
                     let inlineReplyMeta: { content: string; author: string } | null = null
                     let attachmentKeys: Record<string, AttachmentBlobKey> | undefined
                     if (app && app.kind === "text") {
@@ -313,7 +350,7 @@ export function useIdpWebSocket(): void {
                                 author: senderDisplayName,
                                 authorAddress: senderAddress,
                                 avatar: senderDisplayName.slice(0, 2).toUpperCase(),
-                                content: optimistic?.content ?? UNDECRYPTABLE_PLACEHOLDER,
+                                content: optimistic?.content ?? UNDECRYPTABLE_TEXT,
                                 timestamp: new Date(event.data.created_at).toLocaleTimeString([], {
                                     hour: "2-digit",
                                     minute: "2-digit",
@@ -506,7 +543,7 @@ export function useIdpWebSocket(): void {
                     // practice each ciphertext can only decrypt under
                     // its own group state.
                     const conversationKeys = Object.keys(useAppStore.getState().dmMessages)
-                    let newText = UNDECRYPTABLE_PLACEHOLDER
+                    let newText = UNDECRYPTABLE_TEXT
                     const catchUp =
                         idpUrl && accessToken ? { idpUrl, accessToken } : undefined
                     for (const convKey of conversationKeys) {
@@ -519,9 +556,9 @@ export function useIdpWebSocket(): void {
                                     .getState()
                                     .dmMessages[convKey]?.find((m) => m.id === message_id)
                                 if (target?.authorAddress) {
-                                    getE2eePort().bufferForArchive(
+                                    getE2eePort().bufferEditForArchive(
                                         convKey,
-                                        crypto.randomUUID(),
+                                        b64ToBytes(new_mls_ciphertext),
                                         archivedEdit(
                                             { address: target.authorAddress, displayName: target.author },
                                             event.data.edited_at,
@@ -533,7 +570,7 @@ export function useIdpWebSocket(): void {
                             }
                         }
                     }
-                    if (newText === UNDECRYPTABLE_PLACEHOLDER) {
+                    if (newText === UNDECRYPTABLE_TEXT) {
                         // An edit of one of the user's messages that doesn't decrypt is this
                         // device's own, applied when it was made.
                         const me = actionsRef.current.user?.address
@@ -648,13 +685,34 @@ export function useIdpWebSocket(): void {
                     }
                     break
                 }
+                case "device_approved": {
+                    getE2eePort().approvalLanded()
+                    deviceFanoutHandlerRef.current?.()
+                    break
+                }
                 case "device_joined": {
                     // useDeviceFanout owns the actual fanout via its registered ref.
-                    deviceFanoutHandlerRef.current?.(event.data)
+                    deviceFanoutHandlerRef.current?.()
+                    break
+                }
+                case "history_key_ready": {
+                    historyKeyReadyHandlerRef.current?.()
                     break
                 }
                 case "key_packages_low": {
                     keyPackagesLowHandlerRef.current?.()
+                    break
+                }
+                case "approval_requested":
+                case "approval_message":
+                case "approval_closed": {
+                    approvalHandlerRef.current?.(event)
+                    break
+                }
+                case "start_over_requested":
+                case "start_over_cancelled": {
+                    startOverHandlerRef.current?.(event)
+                    if (idpUrl) queryClient.invalidateQueries({ queryKey: startOverQueryKey(idpUrl) })
                     break
                 }
                 case "friend_request":

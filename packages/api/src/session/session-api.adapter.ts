@@ -1,14 +1,15 @@
+import { bytesToBase64 } from "@pinai/domain/lib/bytes"
 import type { ISessionPort } from "@pinai/domain/ports/session.port"
 
 import { idp } from "../http"
 import { idpErrorFrom } from "../idp-error"
 
 export class SessionApiAdapter implements ISessionPort {
-    async linkDevice(idpUrl: string, accessToken: string, deviceId: string): Promise<void> {
+    async linkDevice(idpUrl: string, accessToken: string, deviceId: string, signature: Uint8Array): Promise<void> {
         try {
             await idp.put(`${idpUrl.replace(/\/$/, "")}/api/sessions/current/device`, {
                 headers: { Authorization: `Bearer ${accessToken}` },
-                json: { device_id: deviceId },
+                json: { device_id: deviceId.toLowerCase(), signature: bytesToBase64(signature) },
             })
         } catch (error) {
             throw await idpErrorFrom(error, "Linking this device failed")

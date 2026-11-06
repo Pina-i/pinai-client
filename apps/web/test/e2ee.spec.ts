@@ -13,8 +13,6 @@
  * What's not covered yet (intentional, lands in later 4b turns):
  * - IndexedDB storage round-trip (jsdom lacks IndexedDB; pull in
  *   `fake-indexeddb/auto` when `storage.adapter.ts` gets tested).
- * - Recovery Key wrap/unwrap — Argon2id integration is a separate turn.
- * - SPAKE2 pairing — separate turn.
  */
 
 import { beforeAll, describe, expect, it } from "vitest"
@@ -24,7 +22,8 @@ import { loadWasmModule } from "./setup/wasm"
 import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
 import { MlsAdapter } from "@pinai/mls/wasm.adapter"
 import { asActorUri } from "@pinai/domain/models/identity"
-import { DEFAULT_ARGON2_PARAMS, NobleRecoveryAdapter } from "@pinai/crypto/recovery.adapter"
+
+import { FakeIssuers, credentialFor, testDevice } from "./setup/issuers"
 
 /**
  * Load the openmls-wasm bytes from disk and compile them once. Reused
@@ -39,12 +38,13 @@ beforeAll(async () => {
     wasmModule = await loadWasmModule()
 })
 
+const issuers = new FakeIssuers()
+
 async function makeAdapter(actorUri: string): Promise<MlsAdapter> {
     const a = new MlsAdapter()
     await a.initialize({ module_or_path: wasmModule } as never)
-    // `deviceId` is not optional: it goes into the leaf credential, and
-    // omitting it produced credential bytes no production build would emit.
-    await a.setIdentity(asActorUri(actorUri), `${actorUri}#device-1`)
+    const key = await a.generateSignatureKey()
+    await a.setIdentity(credentialFor(testDevice(issuers, asActorUri(actorUri)), key), key)
     return a
 }
 
@@ -85,8 +85,8 @@ describe("mls adapter — two-member round trip", () => {
     const conversationId = "00112233-4455-6677-8899-aabbccddeeff"
 
     it("alice founds, adds bob, exchanges one application message", async () => {
-        const alice = await makeAdapter("alice@idp.example.com")
-        const bob = await makeAdapter("bob@idp.example.com")
+        const alice = await makeAdapter("https://idp.example.com/users/alice")
+        const bob = await makeAdapter("https://idp.example.com/users/bob")
 
         // Bob publishes a KeyPackage; Alice claims it (in this test we
         // hand it over directly — the real flow goes through the IdP
@@ -116,26 +116,9 @@ describe("mls adapter — two-member round trip", () => {
         }
     })
 
-    it("recoverFromMsk derives the same MSK public", () => {
-        const idAdapter = new NobleIdentityAdapter()
-        const original = idAdapter.generate()
-        const recovered = idAdapter.recoverFromMsk(original.msk_private)
-        // Same MSK private → same MSK public → same fingerprint, even
-        // though SSK + USK are rotated.
-        expect(recovered.msk_public).toEqual(original.msk_public)
-        expect(idAdapter.fingerprint(recovered.msk_public)).toBe(
-            idAdapter.fingerprint(original.msk_public),
-        )
-        // SSK + USK are fresh, so their bytes differ.
-        expect(recovered.ssk_public).not.toEqual(original.ssk_public)
-        expect(recovered.usk_public).not.toEqual(original.usk_public)
-        // The fresh SSK + USK still validate under the same MSK.
-        expect(idAdapter.validatePublicKeys(idAdapter.publicKeys(recovered))).toBe(true)
-    })
-
     it("export_secret returns matching bytes on both sides", async () => {
-        const alice = await makeAdapter("alice@idp.example.com")
-        const bob = await makeAdapter("bob@idp.example.com")
+        const alice = await makeAdapter("https://idp.example.com/users/alice")
+        const bob = await makeAdapter("https://idp.example.com/users/bob")
         const bobKp = await bob.createKeyPackage()
         await alice.createGroup(conversationId)
         const add = await alice.addMember(conversationId, bobKp)
@@ -159,53 +142,75 @@ describe("mls adapter — two-member round trip", () => {
     })
 })
 
-describe("recovery adapter — Argon2id wrap / XChaCha20-Poly1305 round trip", () => {
-    // Test-only Argon2id params — the spec's m=64 MiB / t=3 default is
-    // intentionally slow on real hardware and would dominate the test
-    // suite's wall time. Production paths use DEFAULT_ARGON2_PARAMS.
-    const FAST_PARAMS = { m_kib: 64, t: 1, p: 1 }
+describe("mls adapter — what a device checks of a leaf", () => {
+    const conversationId = "00112233-4455-6677-8899-aabbccddeeff"
+    const bobActor = asActorUri("https://idp.example.com/users/bob")
 
-    const recovery = new NobleRecoveryAdapter()
+    it("shows a KeyPackage's credential and the signature key its leaf carries", async () => {
+        const bob = new MlsAdapter()
+        await bob.initialize({ module_or_path: wasmModule } as never)
+        const key = await bob.generateSignatureKey()
+        const credential = credentialFor(testDevice(issuers, bobActor), key)
+        await bob.setIdentity(credential, key)
 
-    it("round-trips an MSK private with the right passphrase", async () => {
-        const msk = new Uint8Array(32)
-        crypto.getRandomValues(msk)
+        const leaf = await bob.inspectKeyPackage(await bob.createKeyPackage())
 
-        const blob = await recovery.wrap(msk, "correct horse battery staple", FAST_PARAMS)
-        const restored = await recovery.unwrap(blob, "correct horse battery staple")
-        expect(restored).toEqual(msk)
+        expect(leaf).toEqual({ credential, signatureKey: key })
+        await expect(bob.inspectKeyPackage(new Uint8Array([1, 2, 3]))).rejects.toThrow()
     })
 
-    it("rejects the wrong passphrase with a single user-friendly error", async () => {
-        const msk = new Uint8Array(32)
-        crypto.getRandomValues(msk)
-        const blob = await recovery.wrap(msk, "real-passphrase", FAST_PARAMS)
-        await expect(recovery.unwrap(blob, "wrong-passphrase")).rejects.toThrow(
-            /wrong passphrase or corrupt data/i,
+    it("refuses to bind a signature key it doesn't hold", async () => {
+        const bob = new MlsAdapter()
+        await bob.initialize({ module_or_path: wasmModule } as never)
+        const stranger = new Uint8Array(32).fill(3)
+
+        await expect(bob.setIdentity(credentialFor(testDevice(issuers, bobActor), stranger), stranger)).rejects.toThrow()
+    })
+
+    it("hands the members a commit's new leaf, and lists each leaf with this device's own marked", async () => {
+        const alice = await makeAdapter("https://idp.example.com/users/alice")
+        const bob = await makeAdapter("https://idp.example.com/users/bob")
+        const carol = await makeAdapter("https://idp.example.com/users/carol")
+        await alice.createGroup(conversationId)
+        const addBob = await alice.addMember(conversationId, await bob.createKeyPackage())
+        await alice.mergePendingCommit(conversationId)
+        await bob.joinGroup(conversationId, addBob.welcome, null)
+        const carolsPackage = await carol.createKeyPackage()
+        const addCarol = await alice.addMember(conversationId, carolsPackage)
+        await alice.mergePendingCommit(conversationId)
+
+        const outcome = await bob.processMessage(conversationId, addCarol.commit)
+
+        const carolsLeaf = await carol.inspectKeyPackage(carolsPackage)
+        expect(outcome).toEqual({ kind: "commit", leavesMet: [{ leafIndex: 2, own: false, ...carolsLeaf }] })
+        const leaves = await bob.groupLeaves(conversationId)
+        expect(leaves.map((l) => [l.leafIndex, l.own])).toEqual([[0, false], [1, true], [2, false]])
+        expect(await bob.ownLeafSignatureKey()).toEqual(leaves[1].signatureKey)
+        expect(leaves[2].credential?.actor_uri).toBe("https://idp.example.com/users/carol")
+    })
+
+    it("puts a new credential in its own leaf, over the key the leaf carries", async () => {
+        const alice = await makeAdapter("https://idp.example.com/users/alice")
+        const bob = await makeAdapter("https://idp.example.com/users/bob")
+        await alice.createGroup(conversationId)
+        const add = await alice.addMember(conversationId, await bob.createKeyPackage())
+        await alice.mergePendingCommit(conversationId)
+        await bob.joinGroup(conversationId, add.welcome, null)
+        const [own] = await alice.groupLeaves(conversationId)
+        const renewed = credentialFor(testDevice(issuers, asActorUri("https://idp.example.com/users/alice")), own.signatureKey)
+
+        const commit = await alice.updateOwnCredential(conversationId, renewed)
+        await alice.mergePendingCommit(conversationId)
+        const outcome = await bob.processMessage(conversationId, commit)
+
+        expect(outcome).toEqual({
+            kind: "commit",
+            leavesMet: [{ leafIndex: 0, own: false, credential: renewed, signatureKey: own.signatureKey }],
+        })
+        const after = await bob.processMessage(
+            conversationId,
+            await alice.encryptApplication(conversationId, new TextEncoder().encode("same key")),
         )
-    })
-
-    it("rejects a tampered ciphertext", async () => {
-        const msk = new Uint8Array(32)
-        crypto.getRandomValues(msk)
-        const blob = await recovery.wrap(msk, "real-passphrase", FAST_PARAMS)
-        // Flip a byte mid-ciphertext (after the 24-byte nonce).
-        blob.wrapped_msk[30] ^= 0x01
-        await expect(recovery.unwrap(blob, "real-passphrase")).rejects.toThrow(
-            /wrong passphrase or corrupt data/i,
-        )
-    })
-
-    it("emits a fresh salt + nonce on each wrap (deterministic input → different blobs)", async () => {
-        const msk = new Uint8Array(32)
-        crypto.getRandomValues(msk)
-        const a = await recovery.wrap(msk, "same-passphrase", FAST_PARAMS)
-        const b = await recovery.wrap(msk, "same-passphrase", FAST_PARAMS)
-        expect(a.salt).not.toEqual(b.salt)
-        expect(a.wrapped_msk).not.toEqual(b.wrapped_msk)
-    })
-
-    it("DEFAULT_ARGON2_PARAMS matches the spec's recommendation", () => {
-        expect(DEFAULT_ARGON2_PARAMS).toEqual({ m_kib: 64 * 1024, t: 3, p: 4 })
+        expect(after.kind).toBe("application")
     })
 })

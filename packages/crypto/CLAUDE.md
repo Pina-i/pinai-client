@@ -1,6 +1,6 @@
 # @pinai/crypto
 
-The E2EE core: MLS orchestration, identity, recovery, pairing, attestation
+The E2EE core: MLS orchestration, identity, the history key, the code handshake, attestation
 verification, attachment sealing, and the encrypted store's schema.
 
 Exactly one external entry point — `IE2eePort`, implemented by
@@ -34,9 +34,7 @@ Three collaborators could not come, and the shape of each is the mobile work:
 - **`identity.adapter.ts`** — `NobleIdentityAdapter`.
   MSK/SSK/USK Ed25519 generation via `@noble/curves`; SSK + USK signed
   by MSK with domain-separation tags. Computes the 60-char base32
-  fingerprint (SHA-512 of MSK public, sliced). `recoverFromMsk`
-  rebuilds an `IdentityKeypair` from a recovered MSK private (used by
-  the Recovery Key flow on a fresh device).
+  fingerprint (SHA-512 of MSK public, sliced).
 - **`sealed-storage.ts`** — `SealedStorage`. Schema + sealing only, with no
   idea where the bytes land: it takes an `IKeyValueStore` and an
   `IDeviceKeyPort`, so a React Native build reuses it whole over SQLite or
@@ -49,35 +47,103 @@ Three collaborators could not come, and the shape of each is the mobile work:
   `meta` (device UUID + non-extractable AES-GCM CryptoKey),
   `identity` (encrypted MSK/SSK/USK bundle), `mls_snapshot`
   (encrypted snapshot of the openmls provider state +
-  `knownGroupIds[]`), `recovery_passphrase` (encrypted local copy
-  of the 24-word mnemonic, Phase 6a — DB v3). All at-rest blobs are
+  `knownGroupIds[]`), `recovery_passphrase` (`current`: the account's 24
+  words, the one generation they give, the root key the device approved
+  itself over with them, and their salt and HAK, so a check runs no Argon2id;
+  `pending`: words minted whose `PUT` is unanswered, with their key, HAK and when the row was
+  written (`minted_at`, `null` in a row from before it), `rearchive` when they replace words
+  the device holds, and `intent` — what the baseline keeps when a settle promotes them; `new_words`: the generation whose words a start over set and the user hasn't
+  gone past; `rearchive_due`: the generation a re-archive is due under and its cursor, the last
+  entry the IdP took (`parseRearchiveDue`);
+  `standing`: where the words stood when last checked; `admission`: whether the
+  device was in at its last check, read when the IdP can't be reached;
+  `newest_generation`: the newest generation seen; `restore_due`: the generation an archive
+  restore is due under and when it was last applied (`applied_at`), kept until a later page load
+  confirms it. Read strictly — 24 words, a 16-byte salt, a
+  32-byte HAK; a row that won't open or parse is moved to
+  `<key>:unreadable:<ISO time>:<random>`, never deleted; a device key that can't be
+  loaded throws),
+  `device_attestation` (the root key, its attestation and the device's HPKE
+  key — `hpke` null in a row from before it, which registers again — and,
+  beside it, `device_trust`'s rows `trust:seen`, `trust:approved` (device ids
+  with root keys), `trust:revoked` (device ids), `trust:partners` (device ids
+  with the root and HPKE keys a code handshake gave), `trust:baselines` (the
+  generations a baseline was taken under) and `trust:before` (per generation this
+  device set over others: its cause, the devices from before, the one refused).
+  A store of their own would take an IndexedDB upgrade; a new row takes none.
+  Read as the passphrase's are, an unreadable row set aside and named
+  (`unreadable`); `addToDeviceTrust` reads each row again just before writing
+  it, so another tab's additions stay). All at-rest blobs are
   encrypted under the same per-device key; the key is also re-used
   by the Zustand `persist` middleware so the message-plaintext cache
   lives behind the same key material.
 - **`@pinai/api/e2ee/key-directory.adapter`** — `KeyDirectoryApiAdapter`
   implementing `IKeyDirectoryPort`, outside this package. REST client for
-  the `/api/keys/*` and `/api/mls/*` endpoints; the identity and
-  recovery-blob methods are no-op stubs, since `/api/keys/recovery` is gone.
-- **`recovery.adapter.ts`** — `NobleRecoveryAdapter`. Argon2id
-  (`@noble/hashes/argon2.js`) + XChaCha20-Poly1305 (`@noble/ciphers`)
-  wrap/unwrap of the MSK private. Default params m=64 MiB, t=3, p=4
-  per `identity-provider/specs/e2ee.md § 9`. AAD-tagged, nonce-prepended.
-- **`spake2.ts`** — Hand-rolled SPAKE2 over Ristretto255 via
-  `@noble/curves`. M and N derived once via `ristretto255_hasher.hashToCurve`
-  from labels. Returns `{ ourMessage, derive(peerMessage) }` →
-  `{ sessionKey, ourConfirmation, verifyConfirmation }`.
-- **`pairing.adapter.ts`** — `PairingInitiator` / `PairingResponder`
-  classes. Wraps SPAKE2 + AEAD-sealed `IdentityKeypair` bundle.
-  Existing device emits a `QrPayload`; new device calls `fromQr` +
-  ferries SPAKE2 messages through caller-provided transport.
+  the `/api/keys/*` and `/api/mls/*` endpoints; the identity methods are no-op
+  stubs, since `/api/keys/identity` is gone.
+- **`history-archive.adapter.ts`** — `HistoryArchiveAdapter`
+  (`identity-provider/specs/e2ee.md § 3.7`): the HAK, Argon2id over the words
+  trimmed, lowercased and joined by single spaces, as UTF-8, whoever calls it
+  (m=64 MiB, t=3, p=4); `derive(hak)` the check value
+  and approval public key; `signApproval`; AES-256-GCM entries with the
+  `PINAI-ARCHIVE-v1` ids as associated data; `reactionSnapshotId` — a version-8 UUID of
+  `HMAC-SHA256(HKDF-SHA256(HAK, info "pinai/rearchive-entry-id/v1"), "<conversation>\n<message>\nreactions")`:
+  only the words' holders compute it, the same at every run under one key.
+- **`spake2-p256.ts`** — SPAKE2 as RFC 9382 specifies it, suite
+  SPAKE2-P256-SHA256-HKDF-HMAC: the RFC's M and N, SEC1 uncompressed shares
+  checked on the curve, TT, Ke/Ka, KcA/KcB with an AAD, the HMAC confirmations.
+  Pure; Appendix B's vectors pin it (`apps/web/test/spake2-p256.spec.ts`).
+- **`approval-handshake.ts`** — the code handshake (`identity-provider/specs/e2ee.md
+  § 3.10`): `newApprovalCode` (uniform, rejection-sampled), the code through
+  Argon2id (19 MiB, t=2, p=1, 40 bytes) salted with the request id, identities
+  `<actor_uri>\n<device_id>`, the request bound in the confirmation keys' AAD;
+  five messages, each `0x01 || type || payload` (the layout in its header); the
+  keys sealed AES-256-GCM under a key a direction from Ke, sent only once the
+  peer's confirmation verified. `ApprovalHandshake` is the port's
+  `ApprovalHandshakeSession`: a message out of turn or format, a seal that
+  doesn't open → `HandshakeRefused("tampered")`, a confirmation →
+  `"wrong-code"`; either ends the side. `close()` drops its secrets — done by
+  itself once the peer's keys came —; Argon2's output, the code's bytes and each
+  sealing key are zeroed after use. A man in the middle running one session
+  against each side gets at most two online guesses per code.
+- **`canonical-bytes.ts`** — the bytes the protocol signs
+  (`identity-provider/specs/e2ee.md § 7.2`): `IDP-ATTEST-v1`,
+  `PINAI-DEVICE-HPKE-v1`, `PINAI-LEAF-BINDING-v1`, `PINAI-SESSION-DEVICE-v1` (the device and
+  session ids lowercased), `PINAI-DEVICE-APPROVAL-v1`,
+  rebuilt from bytes, a key share's `PINAI-HISTORY-SHARE-v1` `aad` and the bytes its
+  sender signs (`shareAad`, `shareSignedBytes`: `enc` and the ciphertext appended in
+  base64), and an archive entry's `PINAI-ARCHIVE-v1` associated
+  data (its ids lowercased, as the IdP writes UUIDs);
+  `apps/web/test/canonical-bytes.spec.ts` and `key-share.spec.ts` hold the IdP's golden vectors.
+- **`key-share.ts`** — a key share's seal (§ 3.11): `sealKeyShare` — the words as `shareText`
+  writes them, HPKE base mode for the recipient's key, `info` `pinai/history-key-share/v1`, the
+  `aad` above, the sender's root key signing; `openKeyShare` — checks 2 and 3: the signature under
+  one of the root keys the exchanges gave, then the seal opening to 24 words. The plaintext bytes
+  are zeroed once sealed or read.
+- **`attestation-chain.adapter.ts`** — what a device checks itself, Ed25519
+  strict (`verifyStrict`, a small-order key refused) as the IdP checks root keys.
+  `verifyLeafCredential(leaf, jwks)` — § 3.4's checks 1–5 on a leaf or a
+  claimed KeyPackage: v2, the issuer exactly the actor's origin (where its JWKS
+  is fetched), expiry (5 min skew, as for the device chain),
+  the attestation under the issuer's JWKS key (fetched again once on failure,
+  for rotation), the leaf binding under the attested root key over the
+  LeafNode's own signature key. `verifyDeviceRoot` — one listed device,
+  unrevoked, JWKS → attestation → root key: what announcing and approving rest
+  on. `verifyDeviceChain` adds its HPKE key, for sharing the passphrase. An
+  issuer out of reach is `unreachable`, never a bad signature.
+  `checkListedDevices(actorUri, devices, approvalKey, jwks, rootChecks?)` — each
+  listed device's root chain (cached by the row's content until its expiry,
+  `unreachable` never kept) and each approval's signature over its listed root
+  key (`verifyApproval`): by the passphrase under the approval key this device
+  derived, never the listed one; by a device under that device's listed root
+  key, carried as `approverRootKey`, with the listed `created_at`. Who is approved is the
+  domain's `approvedDevicesBy`.
 - **`e2ee.adapter.ts`** — `E2eeAdapter`. The `IE2eePort` impl. Wires
   every sub-adapter into `register`, `replenishKeyPackages`,
   `encryptOutbound`, `decryptInbound`, `addContactToGroup`,
   `ensureGroupExists`, `consumePendingWelcomes`, `revokeDevice`, `addOwnDevices`, `pruneGroup`,
-  `forgetGroup`,
-  `setupRecoveryKey`, `recoverFromPassphrase`, `hasRecoveryKey`,
-  `clearRecoveryKey`, `loadStoredPassphrase`, `saveStoredPassphrase`,
-  `hasLocalIdentity`, `startPairingAsInitiator`, `pairAsResponder`,
+  `forgetGroup`, the history key's, `loadStoredPassphrase`,
+  `hasLocalIdentity`,
   `getOwnFingerprint`, `getPeerFingerprint`. Bootstrap paths
   (`ensureInitialized`, `register`) are guarded by cached promises
   so concurrent callers (React strict-mode double-fire, sibling
@@ -85,21 +151,188 @@ Three collaborators could not come, and the shape of each is the mobile work:
   instances; `replenishKeyPackages` likewise shares one run, so the
   entry check, the 6 h timer and a `key_packages_low` push never
   overshoot the stash cap. The whole port is intentionally idempotent.
+  - **KeyPackages** go out through `register` and `replenishKeyPackages` only, the
+    domain calling them for a device that is in (`registerIdentityUseCase`,
+    `replenishKeyPackagesUseCase`). Both follow the refill's rule (§ 3.5): a stash at
+    the threshold, or one the status doesn't list, filled to the cap — never topped up
+    on a reload above it. Both bind the account (`bindToAccount`): the engine's
+    credential and the storage's bound actor URI.
+  - **Registration** (`registerDevice`): the root key and the HPKE key (from
+    `IHpkePort`, made once) together, the HPKE key signed by the root key; again
+    within 30 days of expiry, and at once for a device holding no HPKE key. The
+    answer's `signed_message` must be the `IDP-ATTEST-v1` bytes rebuilt from it,
+    since every peer rebuilds them from the credential's text. `register` runs
+    it first: every KeyPackage carries the attestation. A new attestation goes to
+    `onDeviceRegistered` listeners — the fanout refetches the device list, so the
+    leaves take it in the same page load. `again` sends the same keys once more
+    whatever the window says: the IdP refused a naming proof by the root key it should hold. It goes
+    after a registration in flight, never joins it: that one may have sent nothing.
+  - **Naming the session** (`signSessionDevice`): the root key over `PINAI-SESSION-DEVICE-v1`
+    for the token's `sid`; the key never leaves the adapter.
+  - **`approvedAsTheInstanceCounts`** — for a device not approved (Settings → Devices withholds
+    "Revoke" on these, and "Clear history backup" and "Sign out other devices" when this device
+    isn't one): `approvedDevicesBy` over `checkListedDevices` run under the **stored**
+    approval key — the instance's view, so what it refuses, never a trust decision —, the
+    revocations kept counted; `null` without a key in force.
+  - **The bound credential** (v2, `leafCredential`): the root key signs the leaf
+    key into `leaf_binding` before `setIdentity`. Nothing is bound without an
+    attestation, and a registration landing during a bind binds again; a refill
+    whose binding a renewal dropped binds again before it makes KeyPackages.
+  - **Leaves checked**: a claimed KeyPackage before it is added
+    (`addContactToGroup` — the contact's devices whose leaves verify, none
+    verifying is `KeyPackageUnavailable` —, `addOwnDevices`), each as the very
+    device it was claimed for (`admitsClaim`); every leaf met — a Welcome's tree
+    on a join or rejoin, a commit's `leavesMet` in `decryptInbound` and the
+    catch-up. One met that fails is logged and recorded by conversation and leaf
+    index — until that leaf verifies, changes or leaves — and goes to
+    `onTrustEvent` listeners, late ones getting the records held; it is
+    committed out by `removeUntrustedLeaves` when forged, and stays when its
+    attestation only expired. An issuer out of reach records nothing: the leaf
+    is checked when next met. Verdicts are kept by leaf fingerprint until the
+    attestation's expiry, `unreachable` never.
+  - **Trust** (`reviewDevices`, `identity-provider/specs/e2ee.md § 3.9`): a list
+    naming an id twice refused whole (`device-list-refused`); the list's
+    revocations kept for good — unless the kept ones can't be read, and then
+    nothing is decided; then, unless a pending key waits, the key read again:
+    only `holds` acts (`judgeDevices`), the devices found approved and those
+    seen kept, the baseline taken when none was under that generation, the
+    verdict's `before` read from `trust:before`; every review that decides
+    nothing — a list naming an id twice, revocations that can't be read, a device
+    not acting — withdraws the unapproved devices it announced, and so does a check
+    of the key that finds the device no longer holding (`setHolding`): only an
+    acting device announces. Any device warns of a reset by
+    a device it never found approved, or attributed to itself while it sets
+    none, and of a key changed under the generation it holds. Events stand until
+    what they are about changes (`onTrustWithdrawn`), are replayed to late
+    listeners, read whole with `trustSnapshot`, logged; an unapproved device
+    stands again after a reload. Each review's verdict is kept (`verdictSnapshot`,
+    `onVerdict`), its `approvedBy` included, as it acts now (`actingNow`: a check landing
+    mid-review counts), and made non-acting (`retireVerdict`) once the generation it acted
+    under isn't held — `setHolding`, and a stale upload's dropping the holding; a wipe drops it.
+  - **A verdict acts** only while the device holds its generation
+    (`actingNow`): one from before a new generation adds nobody and commits no
+    own leaf out.
+  - **`removeUntrustedLeaves`** — in the group's queue, through `commitEach`:
+    every non-own leaf of the tree as it stands judged again before each commit
+    (`judgeLeaf`; an index changes hands): a forgery, any device; an own leaf
+    the acting verdict doesn't approve over its root key (recorded
+    `not-listed` / `not-approved`), once `reviewAgain` read the list again. A
+    commit refused other than by an epoch race throws, the records kept for the
+    next sync; one refused for good (a `4xx` but `401`, `408`, `409`, `429`)
+    isn't built again this page load.
+  - **Removal**: `pruneGroup` also commits out leaves whose credential names
+    nobody or that a check shows forged (`leafOrigin`), whomever they name;
+    `revokeDevice` keeps the revocation, then every leaf naming the device, one
+    a commit.
+  - `addOwnDevices` takes the verdict: a sibling no verified leaf stands for is
+    added, its KeyPackage carrying the root key it was approved over; one no
+    KeyPackage could be claimed for is answered in `unclaimed`, for the fanout to
+    try again.
+  - `commitEach` — the one loop for a run of commits (`pruneGroup`,
+    `addOwnDevices`, `refreshOwnLeaf`, `removeUntrustedLeaves`): one a commit,
+    looked at again after each, an epoch race caught up and tried again, five at most.
+  - **`refreshOwnLeaf`** — a commit putting the credential the device makes now
+    into its own leaf when the leaf carries another: one from before the leaf
+    binding, or before a renewal — a registration under way is waited for. Run by
+    `syncOwnGroupsUseCase` after the catch-up.
+  - **The code handshake** (§ 3.10): `startApprovalHandshake` with this device's
+    root and HPKE keys; `checkHandshakePeer` — the peer's keys from the exchange
+    against its one listed row, no revocation seen, its root chain
+    (`verifyDeviceRoot`), a refusal standing as `handshake-keys-refused` with its
+    latest reason and withdrawn once the device passes; a list naming an id
+    twice (`device-list-refused`), an issuer out of reach or an expiry
+    `unsettled`; `signDeviceApproval`, `approvesThisDevice`; partners kept, and
+    the rows read, in the trust rows' turn. `checkHandshakePartners` — for the
+    domain's `deviceAdmission`: the list's revocations kept for good first (not
+    from a list naming an id twice), then each partner's `by: device` approvals
+    listed for this device, verified over its current root key under the
+    partner's root key from the exchange. `recordAdmission` / `recordedAdmission`
+    — the admission row.
+  - **Key shares** (§ 3.11; the flows are the domain's): `sealHistoryShares` — nothing unless
+    holding the current generation, settled; a list naming an id twice refused; the revocations
+    kept read, never written (the review keeps the list's); `shareCandidates` picks the partners;
+    this device's listed approval of each verified under its own root key and the partner's of
+    it under the root key the exchange gave — one that doesn't verify is an `[e2ee]` warning, and
+    nothing is sealed —, its chain `verifyDeviceChain` from the row whose root key is the
+    exchange's, sealed for the listed HPKE key; the words loaded only once a partner passes. A root key, HPKE key or
+    attestation that fails stands as `share-recipient-refused`, withdrawn once it passes; an
+    issuer out of reach or an expiry waits for the next refresh. `forgoHistoryShare` — refused for
+    good, by device and generation, for the page load. `openHistoryShare` — checks 1–4 in order
+    (a partner by device id, never one seen revoked; `openKeyShare`; the words' check value and
+    approval key under the key in force, one Argon2id through `hakFor`, whose derivation is
+    dropped and zeroed when check 4 fails); a failure stands as `share-refused`, withdrawn once
+    the device holds. `markHistoryRestoreDue` / `historyRestoreDue` / `historyRestoreApplied` /
+    `historyRestored` — the `restore_due` row.
+  - **The re-archive** (a replacement of the words; the flow is the domain's `HistoryRearchive`,
+    which seals each batch once a run and sends the same sealed batch on a retry): the pending key
+    carries `rearchive` from its minting, and its promotion — the flow's or the next start's settle —
+    writes `rearchive_due` before keeping the words; dropping the pending key drops a row of its
+    generation. `sealForRearchive` seals under the generation only while holding it (`null`
+    otherwise), a reaction snapshot under `reactionSnapshotId` (`history-archive.adapter.ts`), and
+    drops the flusher's waiting copies of those ids, marking them queued; `uploadRearchive` sends a
+    sealed batch. `advanceHistoryRearchive` / `historyRearchived`, like the restore rows' writes,
+    run in the passphrase rows' turn and only for the generation due: an older run never writes over
+    a newer replacement's row.
+  - **The baseline** — `takeDeviceBaseline(generation, devices, intent)` keeps
+    `deviceBaseline`'s change in the trust rows' turn (nothing when the revocations
+    can't be read), then gives the kept verdict of that generation its `before`
+    when a review landed first. `mintHistoryKey`'s `intent` rides with the pending row.
+  - **`resetSetter`** — the gate's and the reset page's: the last check's setter of a
+    newer generation, approved when `resetByUnapproved` says it isn't over the list's
+    unrevoked devices, read in the trust rows' turn; `self` when it names this device
+    with no pending key of that generation. Nothing, another device named, from a list
+    naming an id twice or revocations kept that can't be read.
+  - **The history key** (`identity-provider/specs/e2ee.md § 3.6–3.9`): the flows
+    are the domain's; here the crypto and the standing (`standingAgainst`).
+    `mintHistoryKey` seals the words as pending before answering them, the same
+    words for the page load until dropped — and a pending row of that generation
+    already sealed gives its words again, written anew; `promotePendingHistoryKey`
+    keeps them once the IdP took their key, marking them to show first when asked
+    (`show`); `newWordsToShow` answers them while they are the words kept and
+    nothing is pending, until `dismissNewWords`; dropping a pending key drops its
+    mark. `keepPassphrase` refuses words that don't
+    give the key, a generation below the newest seen, and words another tab kept
+    meanwhile (the row is read again just before the write). `checkHistoryKey`
+    runs no Argon2id: it stands the kept HAK's values against the key in force;
+    the words stay, whatever it says. Argon2id runs once per words and salt, in
+    flight included, keyed by a digest. The standing and the key held change
+    together, and a flush clears them only when still the ones it used.
+  - **Uploads** — entries wait unsealed while the standing is unchecked or
+    holds (`ARCHIVE_BUFFER_LIMIT`, the oldest dropped), and are dropped out of
+    it; they go out under the generation held, each sealed with its ids as
+    associated data, only once the device is approved under it (`savesToArchive`:
+    every flow keeps the words before it approves itself, so they wait meanwhile);
+    an edit under the id its ciphertext gives. The first check
+    is a flow's, after the naming. `stale_history_key` reads the key again and
+    sends the batch again once; a second stale in one flush waits for the next.
+    `approval_required` (the flusher's or `uploadRearchive`'s) keeps the batch and
+    holds the flusher — its 2 s timer finds it held and sends nothing — until the
+    next `setHolding` (any check of the key, the device's own approval) or
+    `approvalLanded` (`device_approved`); then `onSavesResumable` tells its
+    listeners, as it does whenever the device comes to stand approved under a
+    generation (`opensSaves`). Every such signal is counted: a refusal answered
+    after one landed holds nothing — the flusher's batch waits for the next tick,
+    and `uploadRearchive` tells the listeners at once. A refused re-archive pauses
+    at its cursor; the app runs it again on `onSavesResumable`, at each start and
+    when the socket comes back. Past `ARCHIVE_BUFFER_LIMIT` the oldest go — a
+    warning once a page load —, their ids free to be queued again. A wipe drops
+    the hold.
+    `restoreHistory` opens each entry under the ids its row carries: one moved
+    is skipped. Each entry keeps its row's `created_at` (`archivedAt`), what a reaction snapshot is
+    dated by.
 
 ## Use cases
 
 `@pinai/domain/usecases/e2ee/`:
-- `register-identity.usecase.ts`
+- `register-identity.usecase.ts` — KeyPackages only once in (`check-admission.usecase.ts`,
+  `models/admission.ts`)
 - `replenish-keypackages.usecase.ts`
-- `setup-recovery-key.usecase.ts`
-- `recover-from-passphrase.usecase.ts`
-- `bootstrap-first-device.usecase.ts` — Phase 6a. Orchestrates
-  `register` → BIP-39 mnemonic generation → `setupRecoveryKey` →
-  `saveStoredPassphrase` as one transactional unit (every step is
-  idempotent, so retry-on-failure is safe).
-- `pair-device.usecase.ts` — `startPairingAsInitiatorUseCase` and
-  `pairAsResponderUseCase` plus a `PairDeviceTransport` interface
-  for caller-supplied message ferrying.
+- `gate-this-device.usecase.ts` — where the onboarding gate sends the device
+- The history key's: `set-up-this-device`, `bootstrap-first-device`,
+  `restore-history-from-passphrase`, `approve-by-passphrase`,
+  `check-history-key` — see `packages/domain/CLAUDE.md`.
+- `approval-handshake.usecase.ts` — the code handshake's flows; see
+  `packages/domain/CLAUDE.md`.
 - `revoke-device.usecase.ts` — calls into the deferred port method.
 
 ## UI plumbing
@@ -246,9 +479,8 @@ above, the sections above win.
   walks the credentials and returns the matching leaf index (or
   null).
 - `e2ee.adapter.revokeDevice(idpUrl, token, actorUri, deviceId,
-  conversationIds, opts?)` iterates the caller-supplied conversation
-  list, builds + posts a Remove commit per group, optionally clears
-  the wrapped Recovery Key. Per-group failures are logged + swallowed
+  conversationIds)` iterates the caller-supplied conversation
+  list, builds + posts a Remove commit per group. Per-group failures are logged + swallowed
   so one bad group doesn't block the rest; the commit a failure leaves
   pending is cleared, or the group's next commit would be refused.
 
@@ -425,21 +657,113 @@ above, the sections above win.
 All specs live in `apps/web/test/` — the app is still the only place with a
 vitest setup, so a package's specs sit there until it needs its own.
 
-- `apps/web/test/e2ee.spec.ts` — identity adapter + MLS two-member round trip +
-  recovery wrap/unwrap.
-- `apps/web/test/spake2.spec.ts` — SPAKE2 round trip + wrong-password
-  detection + role-mismatch + tamper detection.
-- `apps/web/test/pairing.spec.ts` — full pairing dance round trip + tampered
-  pair_token + tampered ciphertext + malformed QR.
+- `apps/web/test/e2ee.spec.ts` — identity adapter + MLS two-member round trip.
+- `apps/web/test/spake2-p256.spec.ts` — RFC 9382's M, N and Appendix B;
+  `approval-handshake.spec.ts` — the handshake's rules and two real engines over a
+  relay keeping the IdP's rules (`test/setup/approval-relay.ts`).
 - `apps/web/test/e2ee-integration.spec.ts` — Alice+Bob full-loop register →
   add → text → reaction → edit → attachment, plus a same-IdP
   routing case.
-
+- `apps/web/test/key-share.spec.ts` — the share's bytes against the IdP's vectors, its rules, and
+  real engines with the bundle's HPKE over fakes keeping the IdP's rules (`test/setup/key-shares.ts`):
+  § 6.10 end to end, each of the four checks failing, the sender's refusals, the instance's
+  refusals by code, a new generation, a start over, the background restore;
+  `history-share-screens.spec.ts` — the real restore page and the app's hook on fake timers: the
+  share read from mount, the asking section's copy (bringing, back, failed, a share it couldn't
+  use), going on after the restore or `RESTORE_WAIT_MS` / `SHARE_WAIT_AFTER_IN_MS` (each to ±50 ms),
+  the app's triggers (startup, `history_key_ready`, a reconnect), its toast (outliving no restore),
+  and one accept when the asking page and the app take the share at once.
+- `apps/web/test/canonical-bytes.spec.ts`, `hpke.spec.ts` (RFC 9180 A.1.1 through
+  the real bundle), `attestation-chain.spec.ts` (both chains), `register-device.spec.ts`
+  (the root key and HPKE key registration, the tick's renewal); the integration suite's
+  last blocks check leaves end to end — forged KeyPackages refused, untrusted leaves
+  announced and forgotten, own leaves refreshed, a renewal racing a refresh or a refill,
+  and an acting device's adds and commits out. Its directory attests as the IdP would
+  (`test/setup/issuers.ts`, which also writes list rows and approvals).
+- `apps/web/test/start-over-request.spec.ts` — start over requests: the asking states from the
+  `GET` (every `ended` reason, matured, ready as it opened), the prompt's condition, the withheld
+  revoke, clear and sign-out, the routes' bodies and refusals, the naming proof's body, and the
+  finishing over an IdP keeping the rule (`FakeHistoryIdp.startOverRule`);
+  `session-devices.spec.ts` — the naming proof over the token's `sid`, `device_proof_invalid`
+  once; `start-over-door.spec.ts` — the approved devices' prompt; `second-factor-approval.spec.ts`
+  — the second factor on a device not approved.
+- `apps/web/test/device-trust.spec.ts` — the approval rules, real signatures checked
+  (the IdP's canonical bytes among them), the baseline and from before, and the review: who
+  acts, the events, the trust rows.
 - `apps/web/test/message-status.spec.ts` — fade-window math behind the
   `MessageStatus` molecule.
-- `apps/web/test/bootstrap-first-device.spec.ts` — 6a use-case ordering +
-  idempotent retry.
-- `apps/web/test/gate-routing.spec.ts` — 6a gate's pure decision table.
+- `apps/web/test/history-key.spec.ts` — the history key's flows with the real
+  engine against an IdP answering as the spec says (`test/setup/history-idp.ts`):
+  the first device's order, racing founders, typed words, the startup check,
+  uploads on `stale_history_key`, the archive's associated data;
+  `history-key-api.spec.ts`, its routes; `history-key-vectors.spec.ts`,
+  known answers computed with OpenSSL and Python's `cryptography`.
+- `apps/web/test/gate-routing.spec.ts` — the gate's table (`decideGateRoute`, `resetCause`),
+  `isUnreachable`, and the gate on real engines: setup, the new-device and reset pages, the app
+  under a banner over a reset the device didn't make, the offline rule on what was recorded.
+- `apps/web/test/history-reset-banner.spec.ts` — the user's test end to end (the desktop app
+  holding the words, the web app starting over): no toast for the devices there, the new words
+  and Settings → Devices naming them from before, the desktop app in under its banner, "It was
+  me" with a code; a device under the banner acting on nothing; the accepted share's baseline;
+  a later device announced; the banner's causes, "Check again" checked or not, the live region,
+  StrictMode, the return after the password, fields cleared, no dismissal mid-exchange, the
+  words typed, "It wasn't me" — the refused device's seat, never offered a code — and a start
+  over after an unknown change, the device never leaving the app; no "Restore history" under it.
+- `apps/web/test/admission.spec.ts` — when a device is in: the rule and its table (a partner
+  first, kept words over a reset by a device never found approved, a self-named setter or an
+  unknown change, out after a replacement by one found approved, out never having held words),
+  the withdrawal rule, then real keys (a partner's approval over the current root key and the
+  exchanged key, an old partner, a list-swapped key, a swapped approval key, the setter read
+  from the list, revocations kept); KeyPackages on each path only once in, through the real
+  `register` and refills (`publishingDevice`): the refill's rule, a failed renewal, a device
+  turned out.
+- `apps/web/test/onboarding-pages.spec.ts` — the gate hook's re-checks (throttle, trust
+  events, the newest deciding, a failure, an unmount or a sign-out mid-check), the tick
+  gated on it, the new-device and reset pages as Pass: the tabs, a request ended by leaving
+  its tab, the words tab, start over from each (the password asked again first, the words
+  only after the IdP's `204`, a `401`, a conflict), the unknown change on a device that never
+  held words, the words replaced on a device found approved, a device holding words sent on to
+  the app at the page's check.
+- `apps/web/test/start-over.spec.ts` — `signedInRecently` (on the IdP's clock, a device clock 15
+  minutes fast), `settlePending` (fresh rows left), `startOverGeneration`; the start over on real
+  engines: its order, nothing minted without a recent password, a `401` or `409` whose key landed,
+  two devices at once, a failure after the IdP took the key, pressed again before the words were
+  seen, `key-changed`, a page load's check waiting for its `PUT`, two tabs under one lock, a
+  pending generation past 1 at the next start (left fresh, then erased, or kept), sharing after;
+  the devices listed as a device starts acting (a start over keeping from before, the refused
+  device apart; a replacement keeping those it had found approved; a lost answer's settle
+  keeping them too; typed words only as seen; a first review taking the baseline itself; a
+  review landing first refreshed).
+- `apps/web/test/replace-words.spec.ts` — replacing the words on real engines: only a device that
+  acts, the refusals before any password (cache unread, a restore due), the password asked first,
+  the archive brought first (or nothing minted), a `401`, a conflict (an earlier re-archive left
+  alone), another replacement between two reads, the words shown and marked, the re-archive marked
+  before they are kept, a lost answer pressed again and settled at the next start, shares to
+  partners, still acting and answering an old device's request, the old words refused;
+  `history-rearchive.spec.ts` — the entries from a cached conversation, the cursor, batches, the due
+  rule and refusals, the restore's snapshot merge (the flusher's copy counted once, a later remove,
+  a late decrypt), then real runs: sealed under n+1 with its associated data and restored by another
+  device through the real path, keyed snapshot ids, a resumed run after new reactions, resumed after
+  a cut, nothing tried before the cache, dropped for a later generation, `stale_history_key`,
+  back-off and pace on fake timers, a skipped batch, one seal per entry, signed out, two tabs;
+  `history-rearchive-toast.spec.ts` — the app's runner: the store read once read back, the toast and
+  its dismissals, a pause for approval and the hook going on after `device_approved`;
+  `history-archive-approval.spec.ts` — uploads under the IdP's approval rule
+  (`FakeHistoryIdp.uploadRule`, on by default; approvals honour revocation and the root key they
+  bind): on each path that saves, nothing before the device's own approval; a refusal kept and
+  held until a check or an approval lands, and not held when one landed while it was refused; a
+  failed approval made again at the gate's next check and when the socket comes back, or at the
+  next page load; the re-archive waiting, paused at its cursor and going on, a call mid-run never
+  lost; the queue at its cap.
+- `apps/web/test/devices-warnings.spec.ts` — Settings → Devices' waiting seat, "Not mine"
+  and the refused-list banner, from the engine's own reviews; `devices-editor.spec.ts` — the
+  rows ("approved by" from the verdict), the passphrase card, "Restore history", "Replace my words",
+  what a device the instance doesn't count approved is offered, each mode's password advice and the
+  refusals (`FakeHistoryIdp.approvalRule`); `devices-seat.spec.ts` — the seats answering inline through the Door's `ApprovalAnswering`;
+  `device-roster.spec.ts` — the pane's rules; `unapproved-notice.spec.ts` — the toast outside
+  the pane.
+- `apps/web/test/device-fanout-retry.spec.ts` — the fanout's backoff for unclaimed siblings;
+  `e2ee-integration.spec.ts` has a sibling's stash landing late, mid-run included.
 - `apps/web/test/recovery-passphrase-input.spec.ts` — 6a `isPassphraseComplete`
   predicate.
 
@@ -451,31 +775,22 @@ number written here is wrong by the next commit.
 - **`hasLocalIdentity()`** on `IE2eePort`. Cheap predicate the
   onboarding gate uses to short-circuit when an identity bundle is
   already in IDB.
-- **`hasRecoveryKey(idpUrl, token)`** on `IE2eePort`. Probes
-  `GET /api/keys/recovery` and surfaces a boolean — used by the gate
-  + the restore page to decide the full vs. degraded variant.
-- **`clearRecoveryKey(idpUrl, token)`** on `IE2eePort`. Pairs the
-  server-side `DELETE /api/keys/recovery` with a local wipe of the
-  passphrase IDB slot. Used by the eventual 6b "Clear recovery key"
-  action.
-- **`loadStoredPassphrase()`** / **`saveStoredPassphrase(words)`** on
-  `IE2eePort`. Reveal source for the 6b Settings UI + the persistence
-  side of the bootstrap use case.
+- **`loadStoredPassphrase()`** on `IE2eePort`. Reveal source for the
+  6b Settings UI.
 - **`recovery_passphrase` IDB store** (DB v3) in
   `IndexedDbStorageAdapter`. Encrypted under the device key — same
   pattern as `identity` and `mls_snapshot`. Migration is additive.
-- **`bootstrapFirstDeviceUseCase`** in `@pinai/domain/usecases/e2ee/`.
-  Four-step orchestration (register → mnemonic → setupRecoveryKey →
-  saveStoredPassphrase); idempotent under retry.
+- **`bootstrapFirstDeviceUseCase`** in `@pinai/domain/usecases/e2ee/`
+  — the first device's flow, since rebuilt around the history key's
+  generations (see "The history key" above).
 - **`@scure/bip39` dependency** (~10 KB gzipped). English 2048-word
   list + `generateMnemonic` / `validateMnemonic`. Same noble family
-  used by `identity.adapter.ts` and `recovery.adapter.ts`.
+  used by `identity.adapter.ts`.
 - **`useIdentityOnboardingGate`** in `presentation/hooks/`. Replaces
-  the old `useRegisterMlsIdentity` auto-register-on-mount. Probes
-  local identity + server identity + server recovery blob, then
-  routes to `/onboarding/recovery-setup` (first device),
-  `/onboarding/recovery-restore` (paired-elsewhere or recovery-key
-  case), or admits to the app shell. The pure `decideGateRoute`
+  the old `useRegisterMlsIdentity` auto-register-on-mount; routes to
+  `/onboarding/recovery-setup` (first device),
+  `/onboarding/recovery-restore` (a new device on an account with a
+  history key), or admits to the app shell. The pure `decideGateRoute`
   helper is unit-tested in `test/gate-routing.spec.ts`.
 - **`RecoveryPassphraseDisplay`** / **`RecoveryPassphraseInput`**
   molecules. Display variant is read-only; Input variant has
@@ -483,9 +798,9 @@ number written here is wrong by the next commit.
   be reused by the 6b reveal UI.
 - **`RecoverySetupPage`** / **`RecoveryRestorePage`** in
   `presentation/pages/onboarding/`. Setup runs the bootstrap use
-  case, shows the 24 generated words on success. Restore drives
-  `recoverFromPassphraseUseCase`; "Start fresh on this device" link
-  runs plain `register()`.
+  case, shows the 24 generated words on success. Restore drives the
+  typed words' flow (`restoreHistoryFromPassphraseUseCase`); "Start
+  fresh on this device" lets the device in without them.
 
 ## Phase 6b additions (Settings → Devices)
 
@@ -555,12 +870,12 @@ for the full design.
 - **`history-archive.adapter.ts`** —
   `HistoryArchiveAdapter`. `deriveKey(passphraseWords, salt)` via
   `argon2idAsync` (t=3, m=64 MiB, p=4, dkLen=32);
-  `encrypt(key, plaintext)` → AES-256-GCM with fresh 12-byte nonce;
-  `decrypt(key, ct, nonce)` throws on auth-tag mismatch.
+  `encrypt(key, plaintext, aad)` → AES-256-GCM with fresh 12-byte nonce;
+  `decrypt(key, ct, nonce, aad)` throws on auth-tag mismatch.
 - **`@pinai/api/e2ee/history-archive-api.adapter`** —
   `HistoryArchiveApiAdapter` implementing `IHistoryArchivePort`.
   Pure transport for `POST/GET/DELETE /api/history/messages` +
-  `GET/POST /api/history/salt`; base64 encode/decode of opaque
+  `GET/PUT /api/history/key`; base64 encode/decode of opaque
   ciphertexts.
 
 ### Wire-format simplification
@@ -586,16 +901,14 @@ publishes) holds against the documented threat model.
     Dedupes concurrent callers via in-flight promise; renews
     silently when within 30 days of expiry.
   - `bufferForArchive` / `startFlushing` /
-    `stopFlushing` / `clearHistoryBackup` — Layer B engine. Takes an
+    `stopFlushing` — Layer B engine. Takes an
     `ArchiveEnvelope` (`@pinai/domain/models/history-archive`), once per
     id per page load: a sent message is queued by the send's answer and by
     its echo. One drain at a time, `ARCHIVE_UPLOAD_LIMIT` (50) entries per
     upload; a batch the IdP refuses (a `4xx` other than `401`/`408`/`429`)
     is dropped, any other failure re-queued for the next tick.
-  - `restoreHistoryFromPassphrase` — pull-and-decrypt loop; answers the
-    decoded entries, which the domain turns into messages.
-  - `bootstrapFirstDevice` now also calls `registerDevice` after
-    the legacy MSK register completes.
+  - `restoreHistory` — pull-and-decrypt loop; answers the decoded
+    entries, which the domain turns into messages.
 
 ### Use cases (`@pinai/domain/usecases/e2ee/`)
 
@@ -646,3 +959,11 @@ account just registers its own MSK + Device Root Key in the setup flow.
   there
 - `e2ee-debug` DEV-only inspection page + route — gone
 - `useFingerprint` hook — gone (no callers remained)
+
+## Leaf binding and the device's HPKE key
+
+- The credential is v2 (`leaf_binding`), which undoes Phase 7's "wire-format
+  simplification" above: the wrapper now makes the leaf key before the
+  credential, so the root key signs it. v1 is read as no credential at all.
+- `IHpkePort` is the bundle's HPKE, beside `IMlsEngine` rather than on it; the
+  key shares (`key-share.ts`) use it.

@@ -33,6 +33,12 @@ const buttonVariants = tv({
                 "bg-[color-mix(in_oklab,var(--dnd)_14%,transparent)] text-dnd text-[13.5px]",
                 "hover:opacity-90 pressed:opacity-80",
             ].join(" "),
+            // Outlined, so a page's one irreversible action doesn't outweigh its way forward.
+            "destructive-outline": [
+                "rounded-full border border-[color-mix(in_oklab,var(--dnd)_55%,transparent)]",
+                "bg-transparent text-dnd-ink text-[13.5px] font-semibold",
+                "hover:bg-[color-mix(in_oklab,var(--dnd)_8%,transparent)] pressed:opacity-80",
+            ].join(" "),
             ghost: [
                 "text-muted-foreground hover:text-foreground",
                 "underline underline-offset-2",

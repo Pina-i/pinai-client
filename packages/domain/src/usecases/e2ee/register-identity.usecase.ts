@@ -1,31 +1,26 @@
-import type { ActorUri, DeviceId, Fingerprint } from "../../models/e2ee"
-import type { IE2eePort } from "../../ports/e2ee.port"
+import type { Admission } from "../../models/admission"
+import type { ActorUri } from "../../models/e2ee"
 
-export interface RegisterIdentityDeps {
-    e2eePort: IE2eePort
-}
+import { checkAdmissionUseCase, type CheckAdmissionDeps } from "./check-admission.usecase"
 
 export interface RegisterIdentityInput {
     idpUrl: string
     accessToken: string
     actorUri: ActorUri
+    /** One a flow of the domain's has just decided, not to read the key again; else checked here. */
+    admission?: Admission
 }
 
 /**
- * One-time setup at first login on a fresh device.
- *
- * The use case is idempotent: if the device already has a stored
- * MSK / SSK / USK bundle the port returns its existing fingerprint
- * and refills the KeyPackage stash if the IdP says so.
- *
- * UI is wired in Phase 6's onboarding flow ("Generate identity",
- * "Pair with another device", "Restore from Recovery Key"); this
- * use case is the first option.
+ * Publishes this device's KeyPackages only once it is in (`identity-provider/specs/e2ee.md § 3.6`):
+ * until then nobody but the instance can add it to a conversation. Answers whether it was in.
  */
 export const registerIdentityUseCase =
-    ({ e2eePort }: RegisterIdentityDeps) =>
-    async (
-        input: RegisterIdentityInput,
-    ): Promise<{ device_id: DeviceId; fingerprint: Fingerprint }> => {
-        return e2eePort.register(input.idpUrl, input.accessToken, input.actorUri)
+    (deps: CheckAdmissionDeps) =>
+    async ({ idpUrl, accessToken, actorUri, admission }: RegisterIdentityInput): Promise<Admission> => {
+        let known = admission
+        if (known) await deps.e2eePort.recordAdmission(known)
+        else known = (await checkAdmissionUseCase(deps)(idpUrl, accessToken, actorUri)).admission
+        if (known.kind === "in") await deps.e2eePort.register(idpUrl, accessToken, actorUri)
+        return known
     }

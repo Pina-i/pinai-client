@@ -147,7 +147,7 @@ const SECTIONS: SectionDescriptor[] = [
 ]
 
 export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModalProps) {
-    const { selectSection, instance, shownSection } = useSettingsModalViewModel()
+    const { selectSection, instance, shownSection, isAnswering, waitingCount } = useSettingsModalViewModel()
 
     const displayName = user.display_name ?? user.preferred_username
     const initials = displayName.slice(0, 2).toUpperCase()
@@ -158,7 +158,14 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
     const contactPolicyLabel = CONTACT_POLICY_CHOICES.find((c) => c.value === contactPolicy)?.label
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} variant="fullscreen" isDismissable label="Settings">
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            variant="fullscreen"
+            isDismissable
+            isKeyboardDismissDisabled={isAnswering}
+            label="Settings"
+        >
             <div className="relative flex h-app w-full max-[700px]:flex-col max-[700px]:overflow-y-auto">
                 <IconButton
                     onPress={onClose}
@@ -201,7 +208,15 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
                                         icon={s.icon}
                                         label={s.label}
                                         description={s.description}
-                                        preview={s.id === "privacy" ? <span className={`${FACT_PREVIEW} text-on`}>● {contactPolicyLabel}</span> : s.preview}
+                                        preview={
+                                            s.id === "privacy" ? (
+                                                <span className={`${FACT_PREVIEW} text-on`}>● {contactPolicyLabel}</span>
+                                            ) : s.id === "devices" && waitingCount > 0 ? (
+                                                <span className={`${FACT_PREVIEW} text-idle-ink`}>● {waitingCount} waiting</span>
+                                            ) : (
+                                                s.preview
+                                            )
+                                        }
                                         state={s.id === shownSection ? "active" : "idle"}
                                         onPress={() => selectSection(s.id)}
                                     />
@@ -217,7 +232,7 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
                         </ScrollArea>
 
                         <p className="mt-[18px] text-right font-mono text-[10px] tracking-[0.06em] text-muted-foreground">
-                            Pīna'i v0.9 · {host || "kauai.pinai"} · ESC to close
+                            Pīna'i v0.9 · {host || "kauai.pinai"} · {isAnswering ? "ESC once the approval is done" : "ESC to close"}
                         </p>
                     </div>
                 </div>

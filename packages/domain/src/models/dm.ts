@@ -83,6 +83,9 @@ export interface Decryption {
     undecrypted?: true
 }
 
+/** What a timeline shows in place of a text this device never read. */
+export const UNDECRYPTABLE_TEXT = "[encrypted]"
+
 // The held copy wins — it is the one already decrypted — unless only the other is: that one then
 // takes over, with what only the held copy knew (reactions folded into it, a send status).
 function keepCopy<T extends Decryption>(held: T, other: T): T {

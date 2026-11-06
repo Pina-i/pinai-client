@@ -1,17 +1,30 @@
 import { useCallback, useEffect, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { toast } from "sonner"
 
+import { firstWordsShownOffline } from "@pinai/domain/models/history-key"
 import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstrap-first-device.usecase"
-import { getE2eePort } from "@/ioc"
+import { gateThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/gate-this-device.usecase"
+import { getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getSessionPort } from "@/ioc"
+import { admissionDeps } from "@/presentation/_libs/admission-deps"
+import { copyPassphrase } from "@/presentation/_libs/copy-passphrase"
+import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
+import { GATE_PAGES } from "@/presentation/_libs/gate-pages"
+import { instanceHost } from "@/presentation/_libs/instance-host"
+import { warnE2ee } from "@/presentation/_libs/key-share-deps"
+import { pendingKeyLock } from "@/presentation/_libs/pending-key-lock"
 import { useAppStore } from "@/store/store"
 
-export type SetupStatus = "checking" | "running" | "done" | "error"
+/** `new-words`: a start over's words, set and not yet gone past — shown as the restore page shows them. */
+export type SetupStatus = "checking" | "running" | "done" | "new-words" | "error"
+
+// A pending key written moments ago is left for a later settle; this page tries again until it is.
+export const PENDING_RECHECK_MS = 15_000
 
 export interface RecoverySetupViewModel {
     status: SetupStatus
     words: string[]
     error: string | null
+    instance: string
     onCopy: () => void
     onContinue: () => void
     onSkip: () => void
@@ -19,8 +32,10 @@ export interface RecoverySetupViewModel {
 }
 
 /**
- * Runs bootstrap on mount, then shows the 24 generated words. Continue
- * and Skip both navigate to /home — the cryptographic state is the same.
+ * Runs the first device's bootstrap on mount, then shows the 24 words — only once the IdP took
+ * the history key they give. New words a start over set and nobody went past are shown as such.
+ * A device that finds the account has a key another device set goes to the page the gate decides
+ * instead. Continue and Skip both navigate to /home.
  */
 export function useRecoverySetupPageViewModel(): RecoverySetupViewModel {
     const signedIn = useAppStore((s) => s.accessToken !== null)
@@ -36,74 +51,81 @@ export function useRecoverySetupPageViewModel(): RecoverySetupViewModel {
     useEffect(() => {
         const accessToken = useAppStore.getState().accessToken
         if (!accessToken || !idpUrl || !ownActorUri) return
+        const port = getE2eePort()
         let cancelled = false
+        let recheck: ReturnType<typeof setTimeout> | undefined
+        const showNewWords = async () => {
+            const unseen = await port.newWordsToShow()
+            if (!unseen || cancelled) return false
+            setWords(unseen.words)
+            setStatus("new-words")
+            return true
+        }
         ;(async () => {
+            let kept: string[] | null = null
             try {
-                const port = getE2eePort()
-                // Fast path: a passphrase is already stored on this
-                // device (hard refresh, or the user navigated back to
-                // this route after completing setup once). Skip the
-                // full bootstrap so the "Setting up your recovery
-                // passphrase…" loader doesn't flash needlessly — that
-                // text belongs to the *actual* setup work, not the
-                // re-render path.
-                const existing = await port.loadStoredPassphrase()
+                // Words kept already (a reload after setup) are only checked; the loader shows either way.
+                kept = await port.loadStoredPassphrase()
                 if (cancelled) return
-                if (existing && existing.length === 24) {
-                    setWords(existing)
-                    setStatus("done")
-                    return
-                }
-                // Cold path: real bootstrap — register, generate
-                // mnemonic, wrap MSK, upload. This is where the
-                // visible loader makes sense.
-                setStatus("running")
-                const result = await bootstrapFirstDeviceUseCase({
+                setStatus(kept ? "checking" : "running")
+                const outcome = await bootstrapFirstDeviceUseCase({
                     e2eePort: port,
+                    sessionPort: getSessionPort(),
+                    historyArchivePort: getHistoryArchivePort(),
+                    deviceDirectoryPort: getDeviceDirectoryPort(),
+                    pendingKeyLock: pendingKeyLock(ownActorUri),
+                    report: warnE2ee,
                 })({
                     idpUrl,
                     accessToken,
                     actorUri: ownActorUri,
                 })
-                if (cancelled) return
-                setWords(result.words)
+                if (cancelled || (await showNewWords())) return
+                if (outcome.kind === "has-key") {
+                    if (await port.pendingHistoryKey()) {
+                        recheck = setTimeout(() => setAttemptNonce((n) => n + 1), PENDING_RECHECK_MS)
+                        return
+                    }
+                    // The gate's own decision, without mounting the app on the way to the device's page.
+                    const route = await gateThisDeviceUseCase(admissionDeps())(idpUrl, accessToken, ownActorUri)
+                    if (!cancelled) void navigate({ to: GATE_PAGES[route] })
+                    return
+                }
+                setWords(outcome.words)
                 setStatus("done")
             } catch (e) {
+                if (cancelled || (await signInAgainOnDeviceMismatch(e))) return
+                if (await showNewWords().catch(() => false)) return
+                // The first device's words, which the IdP took already: an IdP out of reach doesn't take them back.
+                const offline = await Promise.all([port.newestHistoryGeneration(), port.pendingHistoryKey()]).then(
+                    ([newest, pending]) => firstWordsShownOffline(newest, pending !== null),
+                    () => false,
+                )
                 if (cancelled) return
+                if (kept && offline) {
+                    setWords(kept)
+                    setStatus("done")
+                    return
+                }
                 setStatus("error")
                 setError(e instanceof Error ? e.message : "Setup failed.")
             }
         })()
         return () => {
-            // Cancel this effect's in-flight bootstrap. Don't gate
-            // re-entry with a ref — under React strict mode the
-            // cleanup runs between two effect invocations on the
-            // same mount; a ref-guarded "already ran" check would
-            // suppress the second invocation while the first was
-            // cancelled, stranding the page at status="running".
-            // `bootstrapFirstDeviceUseCase` is idempotent
-            // (register/setupRecoveryKey both deduplicate or
-            // overwrite), so two passes are safe.
+            // Don't gate re-entry with a ref: under strict mode the cleanup runs between two
+            // invocations, and a guard would strand the page. A second run sets the same key.
             cancelled = true
+            clearTimeout(recheck)
         }
-    }, [signedIn, idpUrl, ownActorUri, attemptNonce])
+    }, [signedIn, idpUrl, ownActorUri, attemptNonce, navigate])
 
-    const onCopy = useCallback(() => {
-        if (words.length === 0) return
-        const text = words.join(" ")
-        navigator.clipboard.writeText(text).then(
-            () => toast.success("Passphrase copied"),
-            () => toast.error("Could not copy — write the words down manually"),
-        )
-    }, [words])
+    const onCopy = useCallback(() => copyPassphrase(words), [words])
 
     const onContinue = useCallback(() => {
         void navigate({ to: "/home" })
     }, [navigate])
 
-    // Skip and Continue are functionally identical — the recovery blob
-    // is already uploaded and the local copy is already saved. Naming
-    // them differently is purely a UX nudge.
+    // The words are kept already either way; the two names are a nudge.
     const onSkip = onContinue
 
     const onRetry = useCallback(() => {
@@ -112,5 +134,5 @@ export function useRecoverySetupPageViewModel(): RecoverySetupViewModel {
         setAttemptNonce((n) => n + 1)
     }, [])
 
-    return { status, words, error, onCopy, onContinue, onSkip, onRetry }
+    return { status, words, error, instance: instanceHost(idpUrl), onCopy, onContinue, onSkip, onRetry }
 }

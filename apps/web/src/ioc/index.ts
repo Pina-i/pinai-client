@@ -14,16 +14,18 @@ import { BrowserWindowFrameAdapter } from "@/adapters/window-frame/window-frame-
 import { type RenewAccessToken, retryUnauthorizedWith } from "@pinai/api/http"
 import { OidcAdapter } from "@pinai/api/auth/oidc.adapter"
 import { WebCryptoPkceAdapter } from "@/adapters/auth/pkce"
+import { ApprovalRelayApiAdapter } from "@pinai/api/device-directory/approval-relay-api.adapter"
 import { DeviceDirectoryApiAdapter } from "@pinai/api/device-directory/device-directory-api.adapter"
 import { SessionApiAdapter } from "@pinai/api/session/session-api.adapter"
 import { WebCryptoAttachmentCryptoAdapter } from "@pinai/crypto/attachment-crypto"
 import { E2eeAdapter } from "@pinai/crypto/e2ee.adapter"
 import { HistoryArchiveAdapter } from "@pinai/crypto/history-archive.adapter"
 import { HistoryArchiveApiAdapter } from "@pinai/api/e2ee/history-archive-api.adapter"
+import { KeyShareApiAdapter } from "@pinai/api/e2ee/key-share-api.adapter"
+import { StartOverApiAdapter } from "@pinai/api/e2ee/start-over-api.adapter"
 import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
 import { KeyDirectoryApiAdapter } from "@pinai/api/e2ee/key-directory.adapter"
 import { MlsAdapter } from "@pinai/mls/wasm.adapter"
-import { NobleRecoveryAdapter } from "@pinai/crypto/recovery.adapter"
 import { JwksCacheAdapter } from "@/adapters/jwks/jwks-cache.adapter"
 import { UserSettingsLocalStorageAdapter } from "@/adapters/user-settings/user-settings-local-storage.adapter"
 import { RecentInstancesLocalStorageAdapter } from "@/adapters/instance/recent-instances-local-storage.adapter"
@@ -47,11 +49,15 @@ import type { IAppUpdatesPort } from "@pinai/domain/ports/app-updates.port"
 import type { IWindowFramePort } from "@pinai/domain/ports/window-frame.port"
 import type { AuthPlatform, IAuthPort, IAuthSessionStore } from "@pinai/domain/ports/auth.port"
 import { type Renewal, renewSessionUseCase } from "@pinai/domain/usecases/auth/renew-session.usecase"
+import type { IApprovalRelayPort } from "@pinai/domain/ports/approval-relay.port"
 import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
 import type { ISessionPort } from "@pinai/domain/ports/session.port"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
 import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
+import type { IKeySharePort } from "@pinai/domain/ports/key-share.port"
+import type { IStartOverPort } from "@pinai/domain/ports/start-over.port"
 import type { IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
+import type { IHpkePort } from "@pinai/domain/ports/hpke.port"
 import type { ISocialPort } from "@pinai/domain/ports/social.port"
 import type { IPrivacyPort } from "@pinai/domain/ports/privacy.port"
 import type { IDmPort } from "@pinai/domain/ports/dm.port"
@@ -114,6 +120,7 @@ const presencePort: IPresencePort = new PresenceApiAdapter()
 const totpPort: ITotpPort = new TotpApiAdapter()
 const userPort: IUserPort = new UserApiAdapter()
 const deviceDirectoryPort: IDeviceDirectoryPort = new DeviceDirectoryApiAdapter()
+const approvalRelayPort: IApprovalRelayPort = new ApprovalRelayApiAdapter()
 const sessionPort: ISessionPort = new SessionApiAdapter()
 const attachmentCryptoPort: IAttachmentCryptoPort = new WebCryptoAttachmentCryptoAdapter()
 
@@ -123,6 +130,8 @@ const attachmentCryptoPort: IAttachmentCryptoPort = new WebCryptoAttachmentCrypt
 const jwksCache = new JwksCacheAdapter()
 const accountSettingsPort: IAccountSettingsPort = new UserSettingsApiAdapter()
 const historyArchivePort: IHistoryArchivePort = new HistoryArchiveApiAdapter()
+const keySharePort: IKeySharePort = new KeyShareApiAdapter()
+const startOverPort: IStartOverPort = new StartOverApiAdapter()
 const historyArchiveCrypto = new HistoryArchiveAdapter()
 
 // E2EE crypto core. Singletons — the MLS engine owns session-scoped
@@ -132,15 +141,18 @@ const historyArchiveCrypto = new HistoryArchiveAdapter()
 //
 // `mlsEngine` is the one line a React Native container replaces: same
 // `IMlsEngine`, backed by the openmls crate built natively instead of
-// as WASM.
-const mlsEngine: IMlsEngine = new MlsAdapter()
+// as WASM. The bundle's HPKE comes with it.
+const mlsAdapter = new MlsAdapter()
+const mlsEngine: IMlsEngine = mlsAdapter
+const hpke: IHpkePort = mlsAdapter
 
 const e2eePort: IE2eePort = new E2eeAdapter(
     new NobleIdentityAdapter(),
     mlsEngine,
     getSharedE2eeStorage(),
     new KeyDirectoryApiAdapter(),
-    new NobleRecoveryAdapter(),
+    hpke,
+    jwksCache,
     historyArchivePort,
     historyArchiveCrypto,
 )
@@ -248,6 +260,10 @@ export function getDeviceDirectoryPort(): IDeviceDirectoryPort {
     return deviceDirectoryPort
 }
 
+export function getApprovalRelayPort(): IApprovalRelayPort {
+    return approvalRelayPort
+}
+
 export function getAttachmentCryptoPort(): IAttachmentCryptoPort {
     return attachmentCryptoPort
 }
@@ -266,4 +282,12 @@ export function getJwksCache(): JwksCacheAdapter {
 
 export function getHistoryArchivePort(): IHistoryArchivePort {
     return historyArchivePort
+}
+
+export function getKeySharePort(): IKeySharePort {
+    return keySharePort
+}
+
+export function getStartOverPort(): IStartOverPort {
+    return startOverPort
 }

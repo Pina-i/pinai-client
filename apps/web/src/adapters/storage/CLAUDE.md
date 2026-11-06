@@ -21,7 +21,13 @@ open: the E2EE store rejects every call and the message cache is inert.
 ## Files
 
 - `idb-key-value-store.adapter.ts` — `IdbKeyValueStore`, the `IKeyValueStore`
-  over one database, plus the device-key slot only IndexedDB can hold
+  over one database, plus the device-key slot only IndexedDB can hold. Its
+  collections are object stores (`COLLECTIONS`); a new one takes a `DB_VERSION`
+  upgrade, so new rows go under keys of an existing store when they can
+  (`device_trust`'s, beside the attestation). A connection a newer build needs
+  to upgrade is closed and its handle dropped (`blocking`); an upgrade an older
+  tab holds up rejects (`blocked`), so the gate shows an error instead of
+  hanging, and the next open tries again
 - `encrypted-idb-storage.adapter.ts` — the zustand `PersistStorage`, msgpack
   inside AES-GCM. A read loads the device key first (`IDeviceKeyPort.ready`):
   - the key or IndexedDB failing is a failed read: thrown, nothing touched,

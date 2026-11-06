@@ -14,6 +14,8 @@ interface ModalProps {
     /** Extra classes for the overlay, e.g. a see-through fullscreen scrim. */
     overlayClassName?: string
     isDismissable?: boolean
+    /** Escape doesn't close it either: for a step that must finish or be cancelled. */
+    isKeyboardDismissDisabled?: boolean
     /** Accessible name for the dialog. React Aria's `Dialog` emits a console
      *  warning when neither this nor a `<Heading slot="title">` child is
      *  present, so every Modal consumer should pass one (or render a title
@@ -30,6 +32,7 @@ export function Modal({
     className,
     overlayClassName,
     isDismissable = true,
+    isKeyboardDismissDisabled = false,
     label,
 }: ModalProps) {
     const isFullscreen = variant === "fullscreen"
@@ -39,6 +42,7 @@ export function Modal({
             isOpen={isOpen}
             onOpenChange={(open) => !open && onClose()}
             isDismissable={isDismissable}
+            isKeyboardDismissDisabled={isKeyboardDismissDisabled}
             className={cn(
                 "fixed inset-x-0 bottom-0 top-(--titlebar-height) z-(--z-overlay) flex",
                 isFullscreen

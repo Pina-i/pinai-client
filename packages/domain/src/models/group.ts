@@ -1,4 +1,5 @@
-import type { ActorUri, DeviceId } from "./e2ee"
+import { sameDevice, type DeviceTrustVerdict, type KnownDevice } from "./device-trust"
+import type { LeafOrigin, LeafVerdict } from "./leaf-trust"
 
 /** A member of a group conversation, as returned by the group REST API. */
 export interface GroupMember {
@@ -20,38 +21,45 @@ export function seatsLeft(members: number): number {
     return Math.max(0, MAX_GROUP_MEMBERS - members)
 }
 
-/** A device's leaf in a group's MLS state, by the credential it carries. */
-export interface GroupLeaf {
-    leafIndex: number
-    actorUri: ActorUri
-    deviceId: DeviceId
-}
-
 /**
- * The leaves to commit out of a group's MLS state: every device of someone its roster no longer
- * holds. None when the roster doesn't hold `me`: that view of the group isn't the user's.
+ * The leaves to commit out of a group's MLS state: every leaf not the device of someone its roster
+ * holds — a device of someone it no longer holds, a leaf whose credential names nobody (`actorUri`
+ * null), one a check shows forged whomever it names. A leaf left unsettled is taken at its
+ * credential's word. None when the roster doesn't hold `me`: that view of the group isn't the user's.
  */
 export function leavesToRemove(
-    leaves: readonly GroupLeaf[],
+    leaves: readonly { leafIndex: number; actorUri: string | null; origin: LeafOrigin }[],
     roster: readonly string[],
     me: string,
 ): number[] {
     if (!roster.includes(me)) return []
-    return leaves.filter((leaf) => !roster.includes(leaf.actorUri)).map((leaf) => leaf.leafIndex)
+    return leaves
+        .filter((leaf) => leaf.actorUri === null || leaf.origin === "forged" || !roster.includes(leaf.actorUri))
+        .map((leaf) => leaf.leafIndex)
 }
 
 /**
- * The devices of `me` to bring into a group: those of `devices` it holds no leaf for. A user's
- * devices add one another, so each one reads what the group sends from then on.
+ * The devices of `me` to bring into a group: those an acting verdict found approved that no leaf
+ * of the group, verified (`present`), stands for under that root key. A user's devices add one
+ * another, so each one reads what the group sends from then on.
  */
-export function devicesToAdd(
-    leaves: readonly GroupLeaf[],
-    me: string,
-    devices: readonly DeviceId[],
-): DeviceId[] {
-    return devices.filter(
-        (device) => !leaves.some((leaf) => leaf.actorUri === me && leaf.deviceId === device),
+export function devicesToAdd(present: readonly LeafVerdict[], me: string, trust: DeviceTrustVerdict): KnownDevice[] {
+    if (!trust.acting) return []
+    return trust.approved.filter(
+        (device) =>
+            device.deviceId !== trust.thisDevice &&
+            !present.some((leaf) => leaf.ok && leaf.actorUri === me && sameDevice(leaf, device)),
     )
+}
+
+/**
+ * When a sibling no KeyPackage could be claimed for is tried again: a device publishes its stash
+ * only once in, after the approvals that start the sync adding it, and its upload starts none.
+ */
+export const UNCLAIMED_RETRY_MS = [5_000, 15_000, 60_000, 5 * 60_000, 15 * 60_000] as const
+
+export function unclaimedRetryDelay(attempt: number): number {
+    return UNCLAIMED_RETRY_MS[Math.min(attempt, UNCLAIMED_RETRY_MS.length - 1)]
 }
 
 /** A group conversation snapshot returned by create / rename. */

@@ -151,6 +151,20 @@ export type WsServerEvent =
     | { type: "mls_welcome_ready"; data: MlsWelcomeReadyPayload }
     | { type: "mls_commit"; data: MlsCommitPayload }
     | { type: "device_joined"; data: DeviceJoinedPayload }
+    /** A device of the user's was approved: each session reads the device list again. */
+    | { type: "device_approved"; data: { device_id: string } }
+    /** Another device of the user's asks to be approved: its request's id, the device and its name. */
+    | { type: "approval_requested"; data: { request_id: string; device_id: string; display_name: string } }
+    /** The other side of a request this device takes part in posted: read its messages. */
+    | { type: "approval_message"; data: { request_id: string; seq: number } }
+    /** A request this device takes part in ended, or another device answered it. */
+    | { type: "approval_closed"; data: { request_id: string } }
+    /** A key share waits for this device: it reads `GET /api/history/key-shares`. */
+    | { type: "history_key_ready"; data: { device_id: string } }
+    /** A device not approved asks to start the history over: to the approved devices' sessions. `ready_at` RFC 3339. */
+    | { type: "start_over_requested"; data: { request_id: string; device_id: string; display_name: string; ready_at: string } }
+    /** A start over request ended unused, and how: to the asker's and the approved devices' sessions. */
+    | { type: "start_over_cancelled"; data: { request_id: string; reason: string } }
     | { type: "group_created"; data: GroupCreatedPayload }
     | { type: "member_added"; data: MemberAddedPayload }
     | { type: "member_removed"; data: MemberRemovedPayload }

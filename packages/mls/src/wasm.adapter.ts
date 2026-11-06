@@ -10,8 +10,10 @@
  * Holds:
  * - One {@link Provider} per session (in-memory keystore + RNG;
  *   `storage.adapter.ts` will checkpoint to IndexedDB).
- * - One {@link Identity} per paired device.
+ * - The bound {@link Identity}: the leaf credential this device's KeyPackages carry.
  * - A `Map<conversationId, Group>` of live group handles.
+ *
+ * It is the bundle's HPKE too ({@link IHpkePort}), so one load serves both.
  *
  * All bytes-in / bytes-out — `mls_ciphertext` from the wire feeds
  * straight into {@link MlsAdapter.processMessage}, and outputs of
@@ -21,21 +23,21 @@
 
 import init, {
     Group,
+    type GroupMember,
     Identity,
     KeyPackage,
     ProcessedKind,
     Provider,
+    hpke_generate_key_pair,
+    hpke_open,
+    hpke_seal,
     start as wasmStart,
 } from "openmls-wasm"
 
 import type { ActorUri, ConversationId, DeviceId } from "@pinai/domain/models/e2ee"
-import type { GroupLeaf } from "@pinai/domain/models/group"
-import { asActorUri } from "@pinai/domain/models/identity"
-import {
-    decodeLeafCredential,
-    encodeLeafCredential,
-    type LeafCredential,
-} from "./leaf-credential"
+import type { LeafClaim, LeafCredential, MlsLeaf } from "@pinai/domain/models/leaf-trust"
+import type { HpkeKeyPair, HpkeSealed, IHpkePort } from "@pinai/domain/ports/hpke.port"
+import { decodeLeafCredential, encodeLeafCredential } from "./leaf-credential"
 import type {
     AddMemberOutput,
     IMlsEngine,
@@ -45,7 +47,7 @@ import type {
 
 export type { AddMemberOutput, MlsCiphertext, ProcessOutcome }
 
-export class MlsAdapter implements IMlsEngine {
+export class MlsAdapter implements IMlsEngine, IHpkePort {
     /** Set after {@link MlsAdapter.init}. */
     private provider: Provider | null = null
     /** Set after {@link MlsAdapter.setIdentity}. */
@@ -98,66 +100,27 @@ export class MlsAdapter implements IMlsEngine {
         return this.initPromise
     }
 
-    /**
-     * Bind a per-device `Identity` to this adapter. The credential
-     * embeds both `actorUri` (so receivers can map a leaf back to
-     * its IdP user) and `deviceId` (so the user's other devices can
-     * find this specific leaf during revocation). Both fields are
-     * serialized as JSON inside the BasicCredential — peers decode
-     * the same way to recover the (actor_uri, device_id) pair.
-     *
-     * When `existingSignaturePublicKey` is supplied, this rebinds to
-     * an already-stored leaf signing keypair via `Identity.restore`.
-     * Use this on every page reload after the MLS snapshot has been
-     * restored, so new KeyPackages keep the key the device already
-     * published instead of minting one on every mount.
-     *
-     * When omitted, a fresh keypair is generated and stored — the
-     * correct path for a brand-new device (first-ever register).
-     */
-    async setIdentity(
-        actorUri: ActorUri,
-        deviceId: DeviceId,
-        existingSignaturePublicKey?: Uint8Array,
-    ): Promise<void> {
-        this.requireProvider()
-        const credential: LeafCredential = { actor_uri: actorUri, device_id: deviceId }
-        const credentialBytes = encodeLeafCredential(credential)
-        if (existingSignaturePublicKey) {
-            this.identity = Identity.restore(
-                this.provider!,
-                credentialBytes,
-                existingSignaturePublicKey,
-            )
-        } else {
-            this.identity = new Identity(this.provider!, credentialBytes)
-        }
+    async generateSignatureKey(): Promise<Uint8Array> {
+        return Identity.generate_signature_key(this.requireProvider())
+    }
+
+    /** Fails when the key isn't in the provider's storage: made here, or restored with a snapshot. */
+    async setIdentity(credential: LeafCredential, signatureKey: Uint8Array): Promise<void> {
+        const bound = Identity.bind(this.requireProvider(), encodeLeafCredential(credential), signatureKey)
+        this.identity?.free()
+        this.identity = bound
     }
 
     /**
-     * Walk every restored group looking for a leaf whose credential
-     * matches `(actorUri, deviceId)`. Returns the leaf's
-     * `signature_public_key` so the caller can rebind `setIdentity`
-     * to the same keypair across reloads. Returns `null` when no
-     * group holds a matching leaf — typical for a fresh device that
-     * hasn't joined any conversation yet, in which case the caller
-     * falls back to generating a new keypair via `setIdentity` without
-     * the third argument.
-     *
-     * Groups joined through KeyPackages of different binds carry
-     * different keys; any of them will do, since each group signs with
-     * its own leaf's key whatever is bound.
+     * Reused across reloads, so new KeyPackages keep the key a group's leaf carries instead of
+     * minting one on every mount. Groups joined through KeyPackages of different binds carry
+     * different keys; any of them will do, since each group signs with its own leaf's key.
      */
-    async findOwnLeafSigKey(
-        actorUri: ActorUri,
-        deviceId: DeviceId,
-    ): Promise<Uint8Array | null> {
+    async ownLeafSignatureKey(): Promise<Uint8Array | null> {
         for (const group of this.groups.values()) {
-            const own = group.list_members().find((m) => {
-                const cred = decodeLeafCredential(m.credential_bytes)
-                return cred?.actor_uri === actorUri && cred.device_id === deviceId
-            })
-            if (own) return own.signature_public_key
+            const own = group.own_leaf_index()
+            const leaf = group.list_members().find((m) => m.leaf_index === own)
+            if (leaf) return leaf.signature_public_key
         }
         return null
     }
@@ -178,13 +141,17 @@ export class MlsAdapter implements IMlsEngine {
         return kp.to_bytes()
     }
 
-    /**
-     * Validate + parse a peer's KeyPackage bytes from `/api/keys/packages/claim`.
-     * Throws when the protocol version, ciphersuite, or signature don't
-     * match.
-     */
-    static parseKeyPackage(bytes: Uint8Array): KeyPackage {
-        return KeyPackage.from_bytes(bytes)
+    /** Validated first: the protocol version, ciphersuite and LeafNode signature. */
+    async inspectKeyPackage(keyPackageBytes: Uint8Array): Promise<LeafClaim> {
+        const keyPackage = KeyPackage.from_bytes(keyPackageBytes)
+        try {
+            return {
+                credential: decodeLeafCredential(keyPackage.credential_bytes()),
+                signatureKey: keyPackage.signature_public_key(),
+            }
+        } finally {
+            keyPackage.free()
+        }
     }
 
     // ─── Group lifecycle ─────────────────────────────────────────────
@@ -309,10 +276,8 @@ export class MlsAdapter implements IMlsEngine {
     }
 
     /**
-     * Find the leaf index for a specific `(actor_uri, device_id)` in
-     * a conversation's MLS group, or `null` if no matching leaf is
-     * present. Used by the device-revocation flow to locate the
-     * lost device's leaf in each group it belongs to.
+     * The leaf whose credential names `(actorUri, deviceId)`, or `null`: the device-revocation
+     * flow's way to the leaf to remove.
      */
     async findLeafByDeviceId(
         conversationId: ConversationId,
@@ -330,19 +295,10 @@ export class MlsAdapter implements IMlsEngine {
         return null
     }
 
-    async groupMembers(conversationId: ConversationId): Promise<GroupLeaf[]> {
-        const leaves: GroupLeaf[] = []
-        for (const m of this.requireGroup(conversationId).list_members()) {
-            const cred = decodeLeafCredential(m.credential_bytes)
-            if (cred) {
-                leaves.push({
-                    leafIndex: m.leaf_index,
-                    actorUri: asActorUri(cred.actor_uri),
-                    deviceId: cred.device_id,
-                })
-            }
-        }
-        return leaves
+    async groupLeaves(conversationId: ConversationId): Promise<MlsLeaf[]> {
+        const group = this.requireGroup(conversationId)
+        const own = group.own_leaf_index()
+        return group.list_members().map((m) => mlsLeaf(m, m.leaf_index === own))
     }
 
     async clearPendingCommit(conversationId: ConversationId): Promise<void> {
@@ -353,6 +309,11 @@ export class MlsAdapter implements IMlsEngine {
     async update(conversationId: ConversationId): Promise<Uint8Array> {
         const group = this.requireGroup(conversationId)
         return group.update(this.requireProvider()).commit
+    }
+
+    async updateOwnCredential(conversationId: ConversationId, credential: LeafCredential): Promise<Uint8Array> {
+        const group = this.requireGroup(conversationId)
+        return group.update_credential(this.requireProvider(), encodeLeafCredential(credential)).commit
     }
 
     /** After the IdP DS confirms our commit landed, advance our local copy. */
@@ -379,7 +340,7 @@ export class MlsAdapter implements IMlsEngine {
             case ProcessedKind.Application:
                 return { kind: "application", plaintext: processed.application }
             case ProcessedKind.Commit:
-                return { kind: "commit" }
+                return { kind: "commit", leavesMet: processed.leaves_met.map((m) => mlsLeaf(m, false)) }
             case ProcessedKind.Proposal:
                 return { kind: "proposal" }
             default:
@@ -406,6 +367,33 @@ export class MlsAdapter implements IMlsEngine {
         )
     }
 
+    // ─── HPKE ────────────────────────────────────────────────────────
+
+    async generateKeyPair(): Promise<HpkeKeyPair> {
+        await this.initialize()
+        const pair = hpke_generate_key_pair()
+        try {
+            return { publicKey: pair.public_key, privateKey: pair.private_key }
+        } finally {
+            pair.free()
+        }
+    }
+
+    async seal(publicKey: Uint8Array, info: Uint8Array, aad: Uint8Array, plaintext: Uint8Array): Promise<HpkeSealed> {
+        await this.initialize()
+        const sealed = hpke_seal(publicKey, info, aad, plaintext)
+        try {
+            return { enc: sealed.enc, ciphertext: sealed.ciphertext }
+        } finally {
+            sealed.free()
+        }
+    }
+
+    async open(privateKey: Uint8Array, sealed: HpkeSealed, info: Uint8Array, aad: Uint8Array): Promise<Uint8Array> {
+        await this.initialize()
+        return hpke_open(privateKey, sealed.enc, sealed.ciphertext, info, aad)
+    }
+
     // ─── Internals ───────────────────────────────────────────────────
 
     private requireProvider(): Provider {
@@ -422,6 +410,15 @@ export class MlsAdapter implements IMlsEngine {
         const group = this.groups.get(conversationId)
         if (!group) throw new Error(`No MLS group state for conversation ${conversationId}`)
         return group
+    }
+}
+
+function mlsLeaf(member: GroupMember, own: boolean): MlsLeaf {
+    return {
+        leafIndex: member.leaf_index,
+        own,
+        signatureKey: member.signature_public_key,
+        credential: decodeLeafCredential(member.credential_bytes),
     }
 }
 

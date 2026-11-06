@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { getAuthPort, getTotpPort } from "@/ioc/index"
+import { useMayTurnOnSecondFactor } from "@/presentation/hooks/use-second-factor-offer"
 import { useAppStore } from "@/store/store"
 
 type Pane = "idle" | "disable" | "regenerate"
@@ -18,6 +19,7 @@ export function useSecurityEditorViewModel() {
     const [busy, setBusy] = useState(false)
 
     const navigate = useNavigate()
+    const mayTurnOn = useMayTurnOnSecondFactor()
 
     const reset = useCallback(() => {
         setPane("idle")
@@ -81,6 +83,10 @@ export function useSecurityEditorViewModel() {
 
     return {
         totpEnabled: user?.totp_enabled ?? false,
+        /** Once the account has a history key, only an approved device turns it on: this one explains instead. */
+        approvalRequired: mayTurnOn === false,
+        /** Offered once known: no "Enable 2FA" flashing before the explanation. */
+        offersEnable: mayTurnOn === true,
         pane,
         setPane,
         code,

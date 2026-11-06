@@ -11,6 +11,7 @@ import { useBlockUser, useBlocks } from "@/presentation/hooks/useBlocks"
 import { actorUriToAddress, addressToActorUri, asActorUri } from "@pinai/domain/models/identity"
 import type { Message, TimelineNotice } from "@/lib/types"
 import {
+    UNDECRYPTABLE_TEXT,
     applyFederationStatus,
     findConversation,
     settleStaleSend,
@@ -30,9 +31,6 @@ import type {
 import { archivedEdit, archivedReaction, archivedText } from "@pinai/domain/models/history-archive"
 import type { UserProfile } from "@pinai/domain/models/auth"
 import type { MessageListHandle } from "@/presentation/organisms/MessageList/MessageList"
-
-/** Placeholder rendered when an MLS ciphertext can't be decrypted. */
-const UNDECRYPTABLE_PLACEHOLDER = "[encrypted]"
 
 /**
  * Decode a base64 string to bytes. The wire format throughout 5a is
@@ -146,9 +144,9 @@ async function mapApiMessage(
         )
     } else if (app.kind === "edit") {
         // An edited message's ciphertext is the edit's; the archive may hold its first text.
-        getE2eePort().bufferForArchive(
+        getE2eePort().bufferEditForArchive(
             msg.conversation_id,
-            crypto.randomUUID(),
+            b64ToBytes(msg.mls_ciphertext),
             archivedEdit(sender, msg.edited_at ?? msg.created_at, app.body as EditBody),
         )
     }
@@ -174,7 +172,7 @@ async function mapApiMessage(
         return { kind: "skip" }
     }
 
-    let plaintext = UNDECRYPTABLE_PLACEHOLDER
+    let plaintext = UNDECRYPTABLE_TEXT
     let inlineReplyMeta: { content: string; author: string } | null = null
     let attachmentKeys: Record<string, AttachmentBlobKey> | undefined
     if (app.kind === "text") {
@@ -746,7 +744,7 @@ export function useConversationPageViewModel(name: string) {
     // is gone: after a reload, or once the IdP accepted the message.
     const intentFromMessage = useCallback(
         (message: Message): SendIntent | null => {
-            if (!conversationId || message.content === UNDECRYPTABLE_PLACEHOLDER) return null
+            if (!conversationId || message.content === UNDECRYPTABLE_TEXT) return null
             const isGroup = dmData?.kind === "group"
             if (!isGroup && !recipientActorUri) return null
             const keys = message.attachmentKeys ?? {}
@@ -795,7 +793,7 @@ export function useConversationPageViewModel(name: string) {
     // A resend needs the plaintext, which a device that never held it
     // (another device's echo) only has as the placeholder.
     const canResend = useCallback(
-        (message: Message) => message.content !== UNDECRYPTABLE_PLACEHOLDER,
+        (message: Message) => message.content !== UNDECRYPTABLE_TEXT,
         [],
     )
 

@@ -1,52 +1,106 @@
-import { useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useLocation } from "@tanstack/react-router"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 
+import type { SeatsView } from "@pinai/domain/models/approval-handshake"
+import { deviceListKey } from "@pinai/domain/models/device"
+import {
+    approvedByWording,
+    approverOf,
+    historyHolders,
+    holdsCurrentWords,
+    holdsHistory,
+    notCountedApproved,
+    refusedDevice,
+    revokeWithheld,
+} from "@pinai/domain/models/device-roster"
+import type { HistoryKeyStanding, PendingHistoryKey } from "@pinai/domain/models/history-key"
+import { isApprovalRequired } from "@pinai/domain/models/idp-error"
+import type { ApprovalAnswering } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
+import { clearHistoryBackupUseCase } from "@pinai/domain/usecases/e2ee/clear-history-backup.usecase"
 import { revokeDeviceUseCase } from "@pinai/domain/usecases/e2ee/revoke-device.usecase"
-import { getDeviceDirectoryPort, getE2eePort, getSessionPort } from "@/ioc"
-import { devicesQueryKey, useDevices, type DeviceRow } from "@/presentation/hooks/useDevices"
+import { getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getSessionPort } from "@/ioc"
+import { instanceHost } from "@/presentation/_libs/instance-host"
+import { warnE2ee, warnOf } from "@/presentation/_libs/key-share-deps"
+import { passwordAdvice } from "@/presentation/_libs/password-advice"
+import { useDeviceRoster } from "@/presentation/hooks/use-device-roster"
+import { usePasswordChange } from "@/presentation/hooks/use-password-change"
+import { useHistoryReset } from "@/presentation/providers/HistoryResetProvider/HistoryReset.context"
+import { devicesQueryKey, type DeviceRow } from "@/presentation/hooks/useDevices"
 import { type RecentSignIn, useRecentSignIn } from "@/presentation/hooks/use-recent-sign-in"
 import { useAppStore } from "@/store/store"
 
 import { settingsHref } from "../SettingsModal.viewmodel"
+import { type ReplaceWordsViewModel, useReplaceWordsViewModel } from "./ReplaceWords/ReplaceWords.viewmodel"
+
+/** A device of the list, as its row says it. */
+export interface DeviceRowView {
+    device: DeviceRow
+    holdsHistory: boolean
+    /** "this device", another's label, "your 24 words"; `null` on a device that doesn't act. */
+    approvedBy: string | null
+    /** Approved, while this device isn't: the instance refuses its revoke, so the row says why instead. */
+    revokeWithheld: boolean
+}
+
+/** Why "Revoke" isn't offered on an approved device, from one that isn't. */
+export const ONLY_APPROVED_REVOKES = "Only an approved device can remove an approved device"
+
+/** Why "Clear history backup" isn't offered on a device the instance doesn't count approved. */
+export const ONLY_APPROVED_CLEARS = "Only an approved device can clear the history backup"
+
+/** Why "Sign out other devices" isn't offered there, and what instead: a password reset ends every session. How follows, by the instance's mode. */
+export const ONLY_APPROVED_SIGNS_OUT = "Only an approved device can sign out your other devices: change your password instead."
 
 export interface DevicesEditorViewModel {
-    rows: DeviceRow[] | undefined
     isLoading: boolean
     error: unknown
+    /** Each unapproved device, newest first: none on a device that doesn't act. */
+    waiting: DeviceRow[]
+    /** Unapproved, listed as this device set its generation over others: seated apart, counted nowhere. */
+    fromBefore: DeviceRow[]
+    /** "From before you started over" or "…you replaced your words"; `null` with none. */
+    fromBeforeHeading: string | null
+    /** The device the user refused, among those waiting: "Reset your history — not yours", no code. */
+    isRefused: (device: DeviceRow) => boolean
+    /** What a screen reader hears as seats come and go. */
+    waitingAnnouncement: string
+    rows: DeviceRowView[] | undefined
+    /** The instance sent a list naming a device twice: nothing new is trusted until it stops. */
+    listRefused: boolean
 
+    /** The answering side the Door shares with the waiting seats; `null` until the Door made it. */
+    answering: ApprovalAnswering | null
+    seats: SeatsView
+
+    /** The words, on a device holding the current passphrase; `null` on any other. */
     passphraseWords: string[] | null
-    isPassphraseLoading: boolean
-    isClearingRecovery: boolean
-    onClearRecovery: () => Promise<void>
+    /** Listed devices, unrevoked, at the current generation; `null` before the list is read. */
+    heldBy: number | null
+    /** Only on a device that doesn't hold the current passphrase: `null` while that is unknown. */
+    offersRestore: boolean | null
+    isClearingHistoryBackup: boolean
+    onClearHistoryBackup: () => Promise<void>
+    /** Why the card withholds "Clear history backup": the instance doesn't count this device approved. `null` when offered. */
+    clearWithheld: string | null
+    /** Only on a device holding the current words, no key of its own pending but a replacement's. */
+    offersReplace: boolean
+    replaceWords: ReplaceWordsViewModel
 
     revokingDeviceId: string | null
     onRevokeDevice: (deviceId: string) => Promise<void>
 
     isSigningOutOthers: boolean
     onSignOutOthers: () => Promise<void>
+    /** Why the header withholds "Sign out other devices", for the same reason, and how to change the password instead. `null` when offered. */
+    signOutOthersWithheld: string | null
 
-    /** Revoking, signing the others out and clearing the backup take a recent password. */
+    /** Revoking, signing the others out, clearing the backup and replacing the words take a recent password. */
     recentSignIn: RecentSignIn
 }
 
-/**
- * Orchestrates the Settings → Devices pane.
- *
- *  - device list via `useDevices` (TanStack Query)
- *  - local passphrase via `IE2eePort.loadStoredPassphrase`
- *  - per-device revoke = `revokeDeviceUseCase` (server flag, then MLS
- *    Remove commits), then invalidate the devices query so the list
- *    re-renders
- *  - "Clear recovery key" = `IE2eePort.clearRecoveryKey` (server blob
- *    DELETE + local wipe), then clears local passphrase state
- *  - a refusal for a password typed too long ago asks for it again, and
- *    comes back to this pane
- *
- * Revoke + clear both run sequentially to avoid two concurrent MLS
- * commits racing each other against the same conversation epoch.
- */
+/** Settings → Devices; the rules are `models/device-roster.ts`, the answering the Door's. */
 export function useDevicesEditorViewModel(): DevicesEditorViewModel {
     const idpUrl = useAppStore((s) => s.idpUrl)
     const accessToken = useAppStore((s) => s.accessToken)
@@ -57,45 +111,106 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
     const recentSignIn = useRecentSignIn(useCallback(() => settingsHref(location, "devices"), [location]))
     const { refused } = recentSignIn
 
-    const { rows, isLoading, error } = useDevices()
+    const { rows, isLoading, error, events, verdict, answering, seats, waiting, fromBefore } = useDeviceRoster()
+    const { reset } = useHistoryReset()
+    const listRefused = events.some((e) => e.kind === "device-list-refused")
 
-    const [passphraseWords, setPassphraseWords] = useState<string[] | null>(null)
-    const [isPassphraseLoading, setIsPassphraseLoading] = useState(true)
-    const [isClearingRecovery, setIsClearingRecovery] = useState(false)
+    // While the pane is up, requests wait in their seats; once it goes, an exchange under way goes on at the Door.
+    useEffect(() => {
+        answering?.showSeats()
+        return () => answering?.leaveSeat()
+    }, [answering])
+
+    // Each review may find this device settled since: it then takes a code.
+    useEffect(() => {
+        answering?.refresh().catch(warnOf("reading the approval requests"))
+    }, [answering, verdict])
+
+    const [held, setHeld] = useState<{ standing: HistoryKeyStanding; words: string[] | null; pending: PendingHistoryKey | null } | null>(
+        null,
+    )
+    const [heldRevision, setHeldRevision] = useState(0)
+    const [isClearingHistoryBackup, setIsClearingHistoryBackup] = useState(false)
     const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null)
     const [isSigningOutOthers, setIsSigningOutOthers] = useState(false)
 
+    // Read again with each review and each list: a share kept or a new generation changes both.
+    const listKey = rows ? deviceListKey(rows) : null
     useEffect(() => {
         let cancelled = false
-        void (async () => {
-            try {
-                const words = await getE2eePort().loadStoredPassphrase()
-                if (!cancelled) setPassphraseWords(words)
-            } catch {
-                if (!cancelled) setPassphraseWords(null)
-            } finally {
-                if (!cancelled) setIsPassphraseLoading(false)
-            }
-        })()
+        const port = getE2eePort()
+        const words = port.loadStoredPassphrase().catch((e: unknown) => {
+            warnE2ee("reading the history passphrase", e)
+            return null
+        })
+        void Promise.all([port.historyKeyStanding(), words, port.pendingHistoryKey()]).then(
+            ([standing, kept, pending]) => {
+                if (!cancelled) setHeld({ standing, words: kept, pending })
+            },
+            warnOf("reading the history key's standing"),
+        )
         return () => {
             cancelled = true
         }
-    }, [])
+    }, [verdict, listKey, heldRevision])
 
-    const onClearRecovery = useCallback(async () => {
+    const onReplaceSettled = useCallback(() => {
+        setHeldRevision((n) => n + 1)
+        if (idpUrl) void queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
+    }, [idpUrl, queryClient])
+    const replaceWords = useReplaceWordsViewModel(recentSignIn, onReplaceSettled)
+
+    // What the instance refuses is its own count, this device's included: never this device's trust.
+    const approvedByInstance = useQuery({
+        queryKey: ["devices-approved-as-listed", idpUrl, listKey],
+        queryFn: async () => {
+            const counted = await getE2eePort().approvedAsTheInstanceCounts(idpUrl!, useAppStore.getState().accessToken!, ownActorUri!, rows!)
+            return counted && new Set(counted)
+        },
+        enabled: !!idpUrl && !!accessToken && !!ownActorUri && !!rows,
+    }).data
+
+    const holds = held ? holdsCurrentWords(held.standing) : null
+    const thisDevice = rows?.find((d) => d.is_current)?.device_id ?? verdict?.thisDevice ?? null
+    const seated = new Set([...waiting, ...fromBefore].map((d) => d.device_id))
+    const listed = rows
+        ?.filter((d) => !seated.has(d.device_id))
+        .map((device) => ({
+            device,
+            holdsHistory: holdsHistory(device, verdict),
+            approvedBy: approvedByWording(approverOf(verdict, device), rows, thisDevice),
+            revokeWithheld: revokeWithheld(approvedByInstance ?? null, thisDevice, device),
+        }))
+    const uncounted = notCountedApproved(approvedByInstance ?? null, thisDevice)
+    // NodeInfo read only once there is a key: before one, the instance refuses none of these for approval.
+    const howToChangePassword = usePasswordChange(!!approvedByInstance)
+    const signOutRefused = `${ONLY_APPROVED_SIGNS_OUT} ${passwordAdvice(howToChangePassword, instanceHost(idpUrl), "this one included")}`
+
+    // Refused anyway, the count changed meanwhile: the list read again too, as the count is computed from it.
+    const refusedUnapproved = useCallback(
+        (e: unknown, words: string): boolean => {
+            if (!isApprovalRequired(e)) return false
+            toast.error(words)
+            if (idpUrl) void queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
+            void queryClient.invalidateQueries({ queryKey: ["devices-approved-as-listed", idpUrl] })
+            return true
+        },
+        [idpUrl, queryClient],
+    )
+
+    const onClearHistoryBackup = useCallback(async () => {
         if (!idpUrl || !accessToken) return
-        setIsClearingRecovery(true)
+        setIsClearingHistoryBackup(true)
         try {
-            await getE2eePort().clearHistoryBackup(idpUrl, accessToken)
-            setPassphraseWords(null)
+            await clearHistoryBackupUseCase({ historyArchivePort: getHistoryArchivePort() })(idpUrl, accessToken)
             toast.success("History backup cleared")
         } catch (e) {
-            if (refused(e, "clear the history backup")) return
+            if (refused(e, "clear the history backup") || refusedUnapproved(e, `${ONLY_APPROVED_CLEARS}.`)) return
             toast.error(e instanceof Error ? e.message : "Could not clear history backup")
         } finally {
-            setIsClearingRecovery(false)
+            setIsClearingHistoryBackup(false)
         }
-    }, [idpUrl, accessToken, refused])
+    }, [idpUrl, accessToken, refused, refusedUnapproved])
 
     const onRevokeDevice = useCallback(
         async (deviceId: string) => {
@@ -110,15 +225,17 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
                     conversationIds: localDmConvos.map((c) => c.id),
                 })
                 await queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
+                // The revoke closed its requests: without the socket's push, the seat would still offer one.
+                answering?.refresh().catch(warnOf("reading the approval requests"))
                 toast.success("Device revoked")
             } catch (e) {
-                if (refused(e, "revoke a device")) return
+                if (refused(e, "revoke a device") || refusedUnapproved(e, `${ONLY_APPROVED_REVOKES}.`)) return
                 toast.error(e instanceof Error ? e.message : "Revoke failed")
             } finally {
                 setRevokingDeviceId(null)
             }
         },
-        [idpUrl, accessToken, ownActorUri, localDmConvos, queryClient, refused],
+        [idpUrl, accessToken, ownActorUri, localDmConvos, queryClient, refused, refusedUnapproved, answering],
     )
 
     // Their devices stay: each may sign in again, as the same device.
@@ -130,25 +247,42 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
             await queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
             toast.success("Signed out of your other devices")
         } catch (e) {
-            if (refused(e, "sign out your other devices")) return
+            if (refused(e, "sign out your other devices") || refusedUnapproved(e, signOutRefused)) return
             toast.error(e instanceof Error ? e.message : "Could not sign out the other devices")
         } finally {
             setIsSigningOutOthers(false)
         }
-    }, [idpUrl, accessToken, queryClient, refused])
+    }, [idpUrl, accessToken, queryClient, refused, refusedUnapproved, signOutRefused])
 
     return {
-        rows,
         isLoading,
         error,
-        passphraseWords,
-        isPassphraseLoading,
-        isClearingRecovery,
-        onClearRecovery,
+        waiting,
+        fromBefore,
+        fromBeforeHeading:
+            fromBefore.length === 0 ? null : verdict?.before?.cause === "replacement" ? "From before you replaced your words" : "From before you started over",
+        isRefused: (device) => refusedDevice(verdict, device),
+        waitingAnnouncement:
+            waiting.length === 0 ? "" : `${waiting.length} waiting for you: ${waiting.map((d) => d.display_name.trim() || "a device").join(", ")}`,
+        rows: listed,
+        listRefused,
+        answering,
+        seats,
+        passphraseWords: holds && held?.words ? held.words : null,
+        heldBy: rows ? historyHolders(rows, verdict) : null,
+        // Under the banner, the way back is its "It was me", never the new-device page.
+        offersRestore: holds === null ? null : !holds && !reset,
+        // A replacement whose answer was lost is pressed again: its key is sent again, or kept.
+        offersReplace: holds === true && !!held?.words && (!held.pending || held.pending.rearchive === true),
+        replaceWords,
+        isClearingHistoryBackup,
+        onClearHistoryBackup,
+        clearWithheld: uncounted ? ONLY_APPROVED_CLEARS : null,
         revokingDeviceId,
         onRevokeDevice,
         isSigningOutOthers,
         onSignOutOthers,
+        signOutOthersWithheld: uncounted ? signOutRefused : null,
         recentSignIn,
     }
 }

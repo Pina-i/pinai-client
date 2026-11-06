@@ -1,13 +1,16 @@
-import { LogOut, Plus, RotateCcw } from "lucide-react"
+import { LogOut, RotateCcw } from "lucide-react"
 import { Link } from "@tanstack/react-router"
 
 import { RecentSignInModal } from "@/presentation/molecules/RecentSignInModal/RecentSignInModal"
 import { RecoveryPassphraseCard } from "@/presentation/molecules/RecoveryPassphraseCard/RecoveryPassphraseCard"
+import { WithheldNote } from "@/presentation/molecules/WithheldNote/WithheldNote"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { cn } from "@/presentation/_libs/utils"
 
 import { DeviceCard } from "./DeviceCard/DeviceCard"
-import { useDevicesEditorViewModel } from "./DevicesEditor.viewmodel"
+import { ONLY_APPROVED_REVOKES, useDevicesEditorViewModel } from "./DevicesEditor.viewmodel"
+import { ReplaceWords } from "./ReplaceWords/ReplaceWords"
+import { WaitingSeat } from "./WaitingSeat/WaitingSeat"
 
 const actionPill = cn(
     "inline-flex h-[34px] items-center gap-1.5 whitespace-nowrap rounded-full border px-[13px]",
@@ -19,6 +22,7 @@ const statePanel =
 
 export function DevicesEditor() {
     const vm = useDevicesEditorViewModel()
+    const waiting = vm.waiting.length
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
@@ -34,91 +38,141 @@ export function DevicesEditor() {
                         <h1 className="title m-0 text-[34px] font-normal leading-[1.1] tracking-[-0.018em] text-foreground">
                             Devices
                             <em className="italic text-acc">.</em>
+                            {waiting > 0 && (
+                                <span className="ml-3.5 inline-flex h-6 items-center gap-1.5 rounded-full bg-[color-mix(in_oklab,var(--idle)_14%,transparent)] px-2.5 align-middle font-mono text-[10px] not-italic uppercase tracking-[0.08em] text-idle-ink">
+                                    <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-idle" />
+                                    {waiting} waiting
+                                </span>
+                            )}
                         </h1>
                         <p className="mt-1.5 max-w-[380px] text-[13px] leading-[1.5] text-muted-foreground">
-                            These are the places you're signed in to Pīna'i. Sign out
-                            anything that isn't you.
+                            These are the places you're signed in to Pīna'i. Only approved devices read your conversations
+                            and hold your history; sign out anything that isn't you.
                         </p>
+                        {vm.signOutOthersWithheld && <WithheldNote className="mt-1.5 max-w-[380px]">{vm.signOutOthersWithheld}</WithheldNote>}
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={() => void vm.onSignOutOthers()}
-                            disabled={vm.isSigningOutOthers}
-                            className={cn(
-                                actionPill,
-                                "cursor-pointer border-line2 bg-transparent text-foreground hover:bg-surf2",
-                                "disabled:cursor-not-allowed disabled:opacity-50",
-                            )}
-                        >
-                            <LogOut className="h-3 w-3" strokeWidth={2} />
-                            {vm.isSigningOutOthers ? "Signing out…" : "Sign out other devices"}
-                        </button>
-                        <Link
-                            to="/onboarding/recovery-restore"
-                            className={cn(actionPill, "border-line2 bg-transparent text-foreground hover:bg-surf2")}
-                        >
-                            <RotateCcw className="h-3 w-3" strokeWidth={2} />
-                            Restore history
-                        </Link>
-                        <button
-                            type="button"
-                            disabled
-                            title="Pairing arrives in the next release."
-                            className={cn(
-                                actionPill,
-                                "border-transparent bg-action font-semibold text-action-foreground",
-                                "disabled:cursor-not-allowed disabled:opacity-50",
-                            )}
-                        >
-                            <Plus className="h-3 w-3" strokeWidth={2.6} />
-                            Pair new
-                        </button>
+                        {!vm.signOutOthersWithheld && (
+                            <button
+                                type="button"
+                                onClick={() => void vm.onSignOutOthers()}
+                                disabled={vm.isSigningOutOthers}
+                                className={cn(
+                                    actionPill,
+                                    "cursor-pointer border-line2 bg-transparent text-foreground hover:bg-surf2",
+                                    "disabled:cursor-not-allowed disabled:opacity-50",
+                                )}
+                            >
+                                <LogOut className="h-3 w-3" strokeWidth={2} />
+                                {vm.isSigningOutOthers ? "Signing out…" : "Sign out other devices"}
+                            </button>
+                        )}
+                        {vm.offersRestore && (
+                            <Link
+                                to="/onboarding/recovery-restore"
+                                className={cn(actionPill, "border-line2 bg-transparent text-foreground hover:bg-surf2")}
+                            >
+                                <RotateCcw className="h-3 w-3" strokeWidth={2} />
+                                Restore history
+                            </Link>
+                        )}
                     </div>
                 </div>
             </div>
 
             <ScrollArea className="min-h-0 flex-1 px-8 pb-8 pt-3.5 max-[1040px]:px-5 max-[1040px]:pb-6 max-[1040px]:pt-3">
-                {!vm.isPassphraseLoading && (
+                {vm.passphraseWords && (
                     <div className="mb-3">
                         <RecoveryPassphraseCard
                             words={vm.passphraseWords}
-                            onClear={() => void vm.onClearRecovery()}
-                            isClearing={vm.isClearingRecovery}
+                            heldBy={vm.heldBy}
+                            onClear={() => void vm.onClearHistoryBackup()}
+                            isClearing={vm.isClearingHistoryBackup}
+                            clearWithheld={vm.clearWithheld}
+                            onReplace={vm.offersReplace ? vm.replaceWords.open : undefined}
+                            replaceRef={vm.replaceWords.replaceRef}
                         />
                     </div>
                 )}
 
+                {/* Mounted throughout, so a seat coming or going is announced. */}
+                <p className="sr-only" role="status">
+                    {vm.waitingAnnouncement}
+                </p>
+
+                {/* Mounted throughout, so the banner is announced as it comes. */}
+                <div role="status">
+                    {vm.listRefused && (
+                        <div className="mb-3 rounded-[14px] border border-[color-mix(in_oklab,var(--idle)_40%,transparent)] bg-[color-mix(in_oklab,var(--idle)_10%,transparent)] px-3.5 py-3 text-[12px] leading-[1.5] text-idle-ink">
+                            Your instance sent a device list naming a device twice. Nothing new is trusted on this
+                            device until it stops.
+                        </div>
+                    )}
+                </div>
+
                 {vm.isLoading && <div className={statePanel}>Loading devices…</div>}
 
                 {vm.error != null && !vm.isLoading && (
-                    <div className="rounded-[14px] border border-[color-mix(in_oklab,var(--dnd)_40%,transparent)] bg-[color-mix(in_oklab,var(--dnd)_10%,transparent)] px-3.5 py-3 text-[12px] text-dnd">
+                    <div className="rounded-[14px] border border-[color-mix(in_oklab,var(--dnd)_40%,transparent)] bg-[color-mix(in_oklab,var(--dnd)_10%,transparent)] px-3.5 py-3 text-[12px] text-dnd-ink">
                         Could not load devices.
                     </div>
                 )}
 
-                {vm.rows && vm.rows.length === 0 && !vm.isLoading && (
+                {vm.rows && vm.rows.length === 0 && waiting === 0 && vm.fromBefore.length === 0 && !vm.isLoading && (
                     <div className={statePanel}>No devices yet — sign in on another device to see it here.</div>
                 )}
 
-                {vm.rows && vm.rows.length > 0 && (
+                {vm.rows && (vm.rows.length > 0 || waiting > 0 || vm.fromBefore.length > 0) && (
                     <div className="flex flex-col gap-2">
-                        {vm.rows.map((d) => (
-                            <DeviceCard
+                        {vm.waiting.map((d) => (
+                            <WaitingSeat
                                 key={d.device_id}
+                                kind={vm.isRefused(d) ? "refused" : "waiting"}
                                 device={d}
-                                onRevoke={() => void vm.onRevokeDevice(d.device_id)}
+                                answering={vm.answering}
+                                seats={vm.seats}
+                                onNotMine={() => void vm.onRevokeDevice(d.device_id)}
                                 isRevoking={vm.revokingDeviceId === d.device_id}
+                            />
+                        ))}
+                        {vm.fromBeforeHeading && (
+                            <section aria-labelledby="devices-from-before" className="mb-1 flex flex-col gap-2">
+                                <h2 id="devices-from-before" className="fact m-0 mt-1 font-normal text-muted-foreground">
+                                    {vm.fromBeforeHeading}
+                                </h2>
+                                {vm.fromBefore.map((d) => (
+                                    <WaitingSeat
+                                        key={d.device_id}
+                                        kind="from-before"
+                                        device={d}
+                                        answering={vm.answering}
+                                        seats={vm.seats}
+                                        onNotMine={() => void vm.onRevokeDevice(d.device_id)}
+                                        isRevoking={vm.revokingDeviceId === d.device_id}
+                                    />
+                                ))}
+                            </section>
+                        )}
+                        {vm.rows.map(({ device, holdsHistory, approvedBy, revokeWithheld }) => (
+                            <DeviceCard
+                                key={device.device_id}
+                                device={device}
+                                holdsHistory={holdsHistory}
+                                approvedBy={approvedBy}
+                                revokeWithheld={revokeWithheld ? ONLY_APPROVED_REVOKES : null}
+                                onRevoke={() => void vm.onRevokeDevice(device.device_id)}
+                                isRevoking={vm.revokingDeviceId === device.device_id}
                             />
                         ))}
                     </div>
                 )}
 
                 <p className="title mt-3 border-t border-line pt-2.5 text-[10.5px] italic leading-[1.5] text-muted-foreground">
-                    Don't recognize a device? Sign it out — your passphrase still
-                    works everywhere else.
+                    Don't recognize a device? Sign it out — your passphrase still works everywhere else.
                 </p>
             </ScrollArea>
+
+            <ReplaceWords vm={vm.replaceWords} />
 
             <RecentSignInModal
                 action={vm.recentSignIn.asking}

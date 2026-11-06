@@ -7,11 +7,13 @@ export function toIdpError(status: number, body: unknown, fallback: string): Idp
         return typeof value === "string" && value !== "" ? value : null
     }
     const code = field("error") ?? ""
+    const readyAt = Date.parse(field("ready_at") ?? "")
     return new IdpError(
         status,
         code,
         field("error_description") ?? (code || `${fallback}: ${status}`),
         field("actor_uri"),
+        Number.isNaN(readyAt) ? null : readyAt,
     )
 }
 
