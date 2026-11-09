@@ -64,31 +64,46 @@ export function electronBadgeSurface(current: () => BrowserWindow | null): Badge
     }
 }
 
-/** The badge on the app's icon: shown when it changes, cleared when the page that set it goes. */
+/**
+ * The badge on the app's icon: shown when it changes, cleared when the page that set it goes.
+ * `onCount` hears each new count, for the tray's icon.
+ */
 export class AppBadge {
     private readonly platform: NodeJS.Platform
     private readonly surface: BadgeSurface
+    private readonly onCount: (count: number) => void
     private shown: Badge = NO_BADGE
 
-    constructor(platform: NodeJS.Platform, surface: BadgeSurface) {
+    constructor(platform: NodeJS.Platform, surface: BadgeSurface, onCount: (count: number) => void = () => {}) {
         this.platform = platform
         this.surface = surface
+        this.onCount = onCount
     }
 
     show(badge: Badge): void {
         if (badge.count === this.shown.count && badge.image === this.shown.image) return
+        if (badge.count !== this.shown.count) this.onCount(badge.count)
         this.shown = badge
-        const action = badgeAction(this.platform, badge)
+        this.paint()
+    }
+
+    clear(): void {
+        this.show(NO_BADGE)
+    }
+
+    /** Windows drops a hidden window's overlay with its taskbar button: laid again once it's back. */
+    repaint(): void {
+        if (this.shown.count > 0 && badgeAction(this.platform, this.shown).kind === "overlay") this.paint()
+    }
+
+    private paint(): void {
+        const action = badgeAction(this.platform, this.shown)
         try {
             if (action.kind === "count") this.surface.setBadgeCount(action.count)
             else if (action.kind === "overlay") this.surface.setOverlayIcon(action.image, action.description)
         } catch {
             // A badge is a convenience: a system without one, or a window gone, must not reach the app.
         }
-    }
-
-    clear(): void {
-        this.show(NO_BADGE)
     }
 }
 

@@ -43,6 +43,9 @@ export function attentionCount({ conversations, unread, openId, windowAttended, 
     return count
 }
 
+/** The app's name, as the window's title and the tray's tooltip give it (`index.html`'s `<title>`). */
+export const APP_TITLE = "Pīna'i"
+
 export function titleWithCount(base: string, count: number): string {
     return count > 0 ? `${base} (${count})` : base
 }

@@ -7,6 +7,7 @@ import { act, createElement } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { APP_TITLE } from "@pinai/domain/models/attention"
 import type { UserProfile } from "@pinai/domain/models/auth"
 import type { WsNotification } from "@pinai/domain/models/ws"
 import type { IAppBadgePort } from "@pinai/domain/ports/app-badge.port"
@@ -39,7 +40,7 @@ vi.mock("@/store/store", async () => {
     }
 })
 
-const { APP_TITLE, useAttention } = await import("@/presentation/hooks/use-attention")
+const { useAttention } = await import("@/presentation/hooks/use-attention")
 const { useAppStore } = await import("@/store/store")
 const { BellProvider } = await import("@/presentation/providers/BellProvider/BellProvider")
 const { NotificationsPopover } = await import("@/presentation/organisms/AppHeader/NotificationsPopover/NotificationsPopover")

@@ -5,10 +5,7 @@ import { useNotificationSettings } from "@/presentation/providers/AppearanceProv
 import { useBell } from "@/presentation/providers/BellProvider/Bell.context"
 import { useWindowAttended } from "@/presentation/hooks/use-window-attention"
 import { useAppStore } from "@/store/store"
-import { attentionCount, titleWithCount, unseenNotifications } from "@pinai/domain/models/attention"
-
-/** `index.html`'s `<title>`. */
-export const APP_TITLE = "Pīna'i"
+import { APP_TITLE, attentionCount, titleWithCount, unseenNotifications } from "@pinai/domain/models/attention"
 
 export function useAttention(): void {
     const { notifications } = useNotificationSettings()

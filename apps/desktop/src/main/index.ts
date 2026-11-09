@@ -2,22 +2,37 @@ import path from "path"
 
 import { OidcAdapter } from "@pinai/api/auth/oidc.adapter"
 import type { HeldRefreshToken } from "@pinai/domain/ports/auth.port"
-import { app, BrowserWindow, type IpcMainInvokeEvent, ipcMain, powerMonitor, shell } from "electron"
+import { app, autoUpdater, BrowserWindow, type IpcMainInvokeEvent, ipcMain, Menu, powerMonitor, shell } from "electron"
 import electronUpdater from "electron-updater"
 
 import icon from "../../build/icons/512x512.png?asset&asarUnpack"
+import trayDotIco from "../../build/tray/tray-dot.ico?asset&asarUnpack"
+import trayDotPng from "../../build/tray/tray-dot.png?asset&asarUnpack"
+import trayIco from "../../build/tray/tray.ico?asset&asarUnpack"
+import trayPng from "../../build/tray/tray.png?asset&asarUnpack"
 
 import { registerAppScheme, serveApp } from "./app-scheme"
 import { AppBadge, badgeOf, clearWhenPageGoes, electronBadgeSurface } from "./badge"
+import {
+    AppLifecycle,
+    KeepRunningChoice,
+    appMenu,
+    comesBackBy,
+    keepRunningByDefault,
+    quitsWithoutWindows,
+    reloadsAfterCrash,
+    showForSignIn,
+} from "./keep-running"
 import { syncMenuEntry } from "./menu-entry"
 import { APP_URL, appUrlFor, isApp, route } from "./navigation"
 import { KeychainSessionTokenStore, MainSession, keychain } from "./session"
 import { refusesToStart } from "./startup"
+import { AppTray, electronTrayHost, showsTray, trayImages } from "./tray"
 import { AppUpdates } from "./updates"
 import { IDP_TITLE_BAR, type TitleBarColors, frameOptions, readTitleBar, saveTitleBar, titleBarColors } from "./window-frame"
 
 if (refusesToStart(app.isPackaged, (name) => app.commandLine.hasSwitch(name))) app.exit(1)
-// One app at a time: a second launch focuses the first.
+// One app at a time: a second launch shows the first, hidden in the tray or not.
 else if (!app.requestSingleInstanceLock()) app.quit()
 else start()
 
@@ -28,11 +43,25 @@ function start(): void {
     let signingInTo: string | null = null
     // The page's last colours, kept across launches: a window opens in them.
     let titleBar: TitleBarColors
-    const badge = new AppBadge(process.platform, electronBadgeSurface(() => window))
-
-    app.on("second-instance", () => {
-        if (window?.isMinimized()) window.restore()
-        window?.focus()
+    let keepRunning: KeepRunningChoice | null = null
+    let lastCrashReload: number | null = null
+    const tray = new AppTray(
+        electronTrayHost(
+            trayImages(process.platform, {
+                ico: { plain: trayIco, dot: trayDotIco },
+                png: { plain: trayPng, dot: trayDotPng },
+            }),
+        ),
+        { show: () => lifecycle.show(), quit: () => app.quit() },
+    )
+    const badge = new AppBadge(process.platform, electronBadgeSurface(() => window), (count) => tray.setCount(count))
+    const lifecycle = new AppLifecycle(app, autoUpdater, {
+        platform: process.platform,
+        keepRunning: () => keepRunning?.current ?? false,
+        window: () => window,
+        open: openWindow,
+        tray,
+        badge,
     })
 
     function openWindow(): void {
@@ -45,6 +74,17 @@ function start(): void {
             return next.kind === "allow"
         })
         clearWhenPageGoes(window.webContents, badge)
+        window.webContents.on("render-process-gone", (_event, { reason }) => {
+            const now = Date.now()
+            if (!reloadsAfterCrash(reason, lastCrashReload, now)) return
+            lastCrashReload = now
+            signingInTo = null
+            void window?.loadURL(appUrl())
+        })
+        window.on("close", (event) => lifecycle.close(event))
+        // The taskbar button may not be back yet at `show`.
+        window.on("show", () => badge.repaint())
+        window.on("focus", () => badge.repaint())
         window.on("closed", () => {
             window = null
             badge.clear()
@@ -54,6 +94,14 @@ function start(): void {
     void app.whenReady().then(() => {
         const titleBarFile = path.join(app.getPath("userData"), "title-bar.json")
         titleBar = readTitleBar(titleBarFile)
+        const desktop = process.env.XDG_CURRENT_DESKTOP
+        const choice = new KeepRunningChoice(
+            path.join(app.getPath("userData"), "keep-running.json"),
+            keepRunningByDefault(desktop),
+        )
+        keepRunning = choice
+        Menu.setApplicationMenu(Menu.buildFromTemplate(appMenu(process.platform)))
+        tray.setShown(showsTray(process.platform, choice.current))
         // Built: electron-vite's renderer output, beside out/main.
         if (appUrl() === APP_URL) serveApp(path.join(import.meta.dirname, "../renderer"))
         const session = new MainSession(
@@ -70,6 +118,7 @@ function start(): void {
         handle("sign-in", (url: string) => {
             if (typeof url !== "string" || !/^https?:\/\//.test(url)) throw new Error("Not a sign-in page")
             signingInTo = new URL(url).origin
+            if (window) showForSignIn(window)
             return window?.loadURL(url)
         })
 
@@ -106,6 +155,14 @@ function start(): void {
             if (!shown) throw new Error("Not a badge")
             badge.show(shown)
         })
+        // This device's choice, in Settings: the tray comes and goes with it.
+        handle("window:keep-running", () => ({
+            keepRunning: choice.current,
+            comesBackBy: comesBackBy(process.platform, desktop),
+        }))
+        handle("window:set-keep-running", (value: unknown) => {
+            if (choice.choose(value)) tray.setShown(showsTray(process.platform, choice.current))
+        })
 
         const { APPIMAGE: appImage, APPDIR: appDir, XDG_DATA_HOME: xdg } = process.env
         if (process.platform === "linux" && app.isPackaged && appImage && appDir) {
@@ -118,16 +175,12 @@ function start(): void {
         }
 
         openWindow()
-        // macOS keeps the app running after its window closes: the Dock opens a new one.
-        app.on("activate", () => {
-            if (!window) openWindow()
-        })
+        // The Dock's click on macOS; registered once the window exists, as macOS may activate at launch.
+        app.on("activate", () => lifecycle.show())
     })
 
-    app.on("will-quit", () => badge.clear())
-
     app.on("window-all-closed", () => {
-        if (process.platform !== "darwin") app.quit()
+        if (quitsWithoutWindows(process.platform)) app.quit()
     })
 }
 

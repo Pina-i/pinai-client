@@ -1,5 +1,6 @@
 import type { AppUpdate } from "@pinai/domain/ports/app-updates.port"
 import type { HeldRefreshToken } from "@pinai/domain/ports/auth.port"
+import type { KeepRunningSetting } from "@pinai/domain/ports/keep-running.port"
 import type { TitleBarColors } from "@pinai/domain/ports/window-frame.port"
 import type { Renewal } from "@pinai/domain/usecases/auth/renew-session.usecase"
 
@@ -37,6 +38,9 @@ export interface DesktopBridge {
         paintTitleBar(colors: TitleBarColors): Promise<void>
         /** The count on the app's icon, 0 clearing it; `image`, a PNG data URL, is Windows' overlay. */
         setBadge(count: number, image: string | null): Promise<void>
+        /** Whether closing the window keeps the app running (`apps/desktop/src/main/keep-running.ts`). */
+        keepRunning(): Promise<KeepRunningSetting>
+        setKeepRunning(keepRunning: boolean): Promise<void>
     }
 }
 

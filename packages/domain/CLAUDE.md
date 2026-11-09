@@ -605,6 +605,15 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   then hide the next one to arrive.
 - The badge is a port because only the desktop app has an icon of its own; a
   browser's tab has the title alone.
+- `APP_TITLE` — the name the title and the desktop tray's tooltip count on, one
+  constant for both apps.
+
+### ports/keep-running.port.ts
+- Whether closing the desktop app's window keeps it running. A port, like the
+  badge, because only the desktop app has a window to close; the web's IoC
+  gives `null`, so the setting is absent rather than a switch that does nothing.
+- `comesBackBy` comes with it from the platform (the tray, the Dock, launching
+  again where no tray shows): only the main process can tell a GNOME session.
 
 ### models/block.ts + ports/privacy.port.ts + usecases/privacy/
 - The IdP enforces blocks and the contact setting; the client only keeps

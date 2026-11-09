@@ -10,6 +10,7 @@ import {
 import { DesktopAppBadgeAdapter } from "@/adapters/desktop/app-badge-desktop.adapter"
 import { DesktopAppUpdatesAdapter } from "@/adapters/desktop/app-updates-desktop.adapter"
 import { desktopBridge } from "@/adapters/desktop/desktop-bridge"
+import { DesktopKeepRunningAdapter } from "@/adapters/desktop/keep-running-desktop.adapter"
 import { DesktopSessionTokenStore } from "@/adapters/desktop/session-token-desktop.adapter"
 import { DesktopWindowFrameAdapter } from "@/adapters/desktop/window-frame-desktop.adapter"
 import { BrowserWindowFrameAdapter } from "@/adapters/window-frame/window-frame-browser.adapter"
@@ -49,6 +50,7 @@ import type { IAttachmentCryptoPort } from "@pinai/domain/ports/attachment-crypt
 import type { IAccountStoragePort } from "@pinai/domain/ports/account-storage.port"
 import type { IAppBadgePort } from "@pinai/domain/ports/app-badge.port"
 import type { IAppUpdatesPort } from "@pinai/domain/ports/app-updates.port"
+import type { IKeepRunningPort } from "@pinai/domain/ports/keep-running.port"
 import type { IWindowFramePort } from "@pinai/domain/ports/window-frame.port"
 import type { AuthPlatform, IAuthPort, IAuthSessionStore } from "@pinai/domain/ports/auth.port"
 import { type Renewal, renewSessionUseCase } from "@pinai/domain/usecases/auth/renew-session.usecase"
@@ -110,6 +112,8 @@ const authPlatform: AuthPlatform = {
 const appUpdatesPort: IAppUpdatesPort = desktop ? new DesktopAppUpdatesAdapter(desktop) : new BrowserAppUpdatesAdapter()
 const windowFramePort: IWindowFramePort = desktop ? new DesktopWindowFrameAdapter(desktop) : new BrowserWindowFrameAdapter()
 const appBadgePort: IAppBadgePort = desktop ? new DesktopAppBadgeAdapter(desktop) : new BrowserAppBadgeAdapter()
+// A tab has no window of its own to close: no setting there.
+const keepRunningPort: IKeepRunningPort | null = desktop ? new DesktopKeepRunningAdapter(desktop) : null
 const nodeInfoPort: INodeInfoPort = new NodeInfoApiAdapter()
 const recentInstancesPort: IRecentInstancesPort = new RecentInstancesLocalStorageAdapter()
 const lastInstancePort: ILastInstancePort = new LastInstanceLocalStorageAdapter()
@@ -179,6 +183,10 @@ export function getWindowFramePort(): IWindowFramePort {
 
 export function getAppBadgePort(): IAppBadgePort {
     return appBadgePort
+}
+
+export function getKeepRunningPort(): IKeepRunningPort | null {
+    return keepRunningPort
 }
 
 export function getAuthSessionStore(): IAuthSessionStore {

@@ -122,6 +122,42 @@ describe("AppBadge", () => {
         ])
     })
 
+    it("tells the tray each new count, not a new picture of the same one", () => {
+        const counts: number[] = []
+        const badge = new AppBadge("win32", surface(), (count) => counts.push(count))
+
+        badge.show({ count: 2, image: PNG })
+        badge.show({ count: 2, image: "data:image/png;base64,AAAA" })
+        badge.show({ count: 120, image: PNG })
+        badge.clear()
+
+        expect(counts).toEqual([2, 120, 0])
+    })
+
+    it("lays Windows' overlay again for a window shown from the tray, and nothing at zero", () => {
+        const icon = surface()
+        const badge = new AppBadge("win32", icon)
+
+        badge.repaint()
+        badge.show({ count: 2, image: PNG })
+        badge.repaint()
+
+        expect(icon.calls).toEqual([
+            ["overlay", PNG, "2 unread"],
+            ["overlay", PNG, "2 unread"],
+        ])
+    })
+
+    it("repaints nothing where the badge isn't the window's", () => {
+        const icon = surface()
+        const badge = new AppBadge("linux", icon)
+
+        badge.show({ count: 2, image: null })
+        badge.repaint()
+
+        expect(icon.calls).toEqual([["count", 2]])
+    })
+
     it("never throws: a system without a badge, or a window gone, stays the badge's problem", () => {
         const badge = new AppBadge("darwin", {
             setBadgeCount: () => {
