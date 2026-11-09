@@ -40,6 +40,7 @@ function bridge() {
         },
         window: {
             paintTitleBar: vi.fn(async () => {}),
+            setBadge: vi.fn(async () => {}),
         },
     }
     return { bridge: value, handedOver }

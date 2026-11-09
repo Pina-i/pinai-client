@@ -42,14 +42,27 @@ window loads the web app's dev server, :5173 like the web app; built
   pages draw no bar: `dom-ready` inserts the same one into theirs (`IDP_TITLE_BAR`, pseudo-elements
   coloured by their tokens — the IdP's palettes are the app's — the mark as masks from
   `title-bar-mark.ts`) and steps their `body` down by its height. Keep it like `.pn-titlebar`.
+- **The badge** (`badge.ts`): the page's attention count (`apps/web`'s `hooks/use-attention.ts`;
+  the window's title is the page's `document.title`, which nothing here overrides) on the app's
+  icon. `window:badge` takes a non-negative integer, capped at `MAX_BADGE_COUNT`, and a PNG data URL
+  or null (`badgeOf`); `badgeAction` decides per system: `app.setBadgeCount` on macOS (the Dock)
+  and Linux, where Electron 44 emits the
+  `com.canonical.Unity.LauncherEntry` `Update` signal itself, no libunity, for
+  `application://<desktopName>` — `pinai.desktop` packaged, the menu entry's; in dev
+  `pinai-desktop.desktop`, which no entry matches, so no badge. Windows takes the page's picture
+  as the taskbar button's overlay (`setOverlayIcon`). Shown on change only, never throwing;
+  cleared at 0, at each page load (`did-navigate`), when the renderer crashes
+  (`render-process-gone`), at sign-out, when the window closes and at quit (`clearWhenPageGoes`).
+  Unverified on a Mac: Electron's docs say the Dock badge needs the notification permission, which
+  the app never asks for — deliberately, no prompt for it.
 - **IPC** answers the app's own pages only (`isApp`): `session:hold`, `session:renew`,
   `session:sign-out`, `sign-in` (`http(s)` only), `updates:status`, `updates:restart`,
-  `updates:download`, `window:title-bar`.
+  `updates:download`, `window:title-bar`, `window:badge`.
 
 ## Preload (`src/preload`)
 
 `window.pinaiDesktop` — `session.{store, renew, clear}`, `signIn`,
-`window.paintTitleBar`, `updates.{status, onChange, restart, download}` (`onChange` listens to `updates:changed`, which
+`window.{paintTitleBar, setBadge}`, `updates.{status, onChange, restart, download}` (`onChange` listens to `updates:changed`, which
 the main process sends the window) — exposed to the app's own pages only (`--pinai-app`,
 `isApp`), never to the IdP's pages in the same window. CommonJS: sandboxed preloads can't be ES
 modules. Its shape is `apps/web/src/adapters/desktop/desktop-bridge.ts`, kept in step by hand.
@@ -99,7 +112,8 @@ modules. Its shape is `apps/web/src/adapters/desktop/desktop-bridge.ts`, kept in
   included); the packaged app ships `out/` alone, no `node_modules`.
 - `test/` (vitest): the navigation rule, the session store and `MainSession`, `electron`
   mocked; the menu entry (`menu-entry.spec.ts`, temp dirs); the startup refusal
-  (`startup.spec.ts`) and `AppUpdates` (`updates.spec.ts`, a fake updater).
+  (`startup.spec.ts`), `AppUpdates` (`updates.spec.ts`, a fake updater) and the badge
+  (`badge.spec.ts`).
 - To drive the app without a screen: a headless sway (`WLR_BACKENDS=headless sway`) and
   `--ozone-platform=wayland`; Ozone's own headless platform crashes Electron.
 - The renderer is `apps/web`'s build without its `/oauth-client.json` (`electron.vite.config.ts`

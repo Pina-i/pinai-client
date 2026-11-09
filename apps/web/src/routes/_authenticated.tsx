@@ -21,6 +21,8 @@ import { HistoryResetContext } from "@/presentation/providers/HistoryResetProvid
 import { useReplenishKeyPackages } from "@/presentation/hooks/use-replenish-key-packages"
 import { useUnapprovedDeviceNotice } from "@/presentation/hooks/use-unapproved-device-notice"
 import { useLoadPresence } from "@/presentation/hooks/useLoadPresence"
+import { useAttention } from "@/presentation/hooks/use-attention"
+import { BellProvider } from "@/presentation/providers/BellProvider/BellProvider"
 import { ApprovalDoor } from "@/presentation/organisms/ApprovalDoor/ApprovalDoor"
 import { StartOverDoor } from "@/presentation/organisms/StartOverDoor/StartOverDoor"
 import { HomeLayout } from "@/presentation/templates/HomeLayout/HomeLayout"
@@ -42,6 +44,12 @@ function AppRuntime() {
     useUnapprovedDeviceNotice()
     const { onDeviceListChanged } = useDeviceFanout()
     useEffect(() => registerDeviceFanoutHandler(onDeviceListChanged), [onDeviceListChanged])
+    return null
+}
+
+// Its own component: the count changing re-renders this alone, not AppRuntime's hooks.
+function Attention() {
+    useAttention()
     return null
 }
 
@@ -69,7 +77,7 @@ function AuthenticatedLayout() {
     const reset = useMemo(() => ({ reset: gate.reset, recheck: gate.recheck }), [gate.reset, gate.recheck])
 
     return (
-        <>
+        <BellProvider>
             <AnimatePresence>
                 {showError && (
                     <motion.div
@@ -84,10 +92,11 @@ function AuthenticatedLayout() {
                 )}
             </AnimatePresence>
             {gate.status === "ready" && <AppRuntime />}
+            {gate.status === "ready" && <Attention />}
             {gate.status === "ready" && <HistoryResetContext.Provider value={reset}>{shell}</HistoryResetContext.Provider>}
             {gate.status === "ready" && <ApprovalDoor />}
             {gate.status === "ready" && <StartOverDoor />}
-        </>
+        </BellProvider>
     )
 }
 

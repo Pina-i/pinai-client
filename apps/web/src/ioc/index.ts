@@ -1,3 +1,4 @@
+import { BrowserAppBadgeAdapter } from "@/adapters/app-badge/app-badge-browser.adapter"
 import { BrowserAppUpdatesAdapter } from "@/adapters/app-updates/app-updates-browser.adapter"
 import { BrowserAuthNavigationAdapter } from "@/adapters/auth/auth-navigation-browser.adapter"
 import { BrowserAuthSessionStore } from "@/adapters/auth/auth-session-browser.adapter"
@@ -6,6 +7,7 @@ import {
     DESKTOP_DOCUMENT_PATH,
     DesktopAuthNavigationAdapter,
 } from "@/adapters/desktop/auth-navigation-desktop.adapter"
+import { DesktopAppBadgeAdapter } from "@/adapters/desktop/app-badge-desktop.adapter"
 import { DesktopAppUpdatesAdapter } from "@/adapters/desktop/app-updates-desktop.adapter"
 import { desktopBridge } from "@/adapters/desktop/desktop-bridge"
 import { DesktopSessionTokenStore } from "@/adapters/desktop/session-token-desktop.adapter"
@@ -45,6 +47,7 @@ import { UserSettingsApiAdapter } from "@pinai/api/user-settings/user-settings-a
 import { getAccountStorage, getSharedE2eeStorage } from "@/store/store"
 import type { IAttachmentCryptoPort } from "@pinai/domain/ports/attachment-crypto.port"
 import type { IAccountStoragePort } from "@pinai/domain/ports/account-storage.port"
+import type { IAppBadgePort } from "@pinai/domain/ports/app-badge.port"
 import type { IAppUpdatesPort } from "@pinai/domain/ports/app-updates.port"
 import type { IWindowFramePort } from "@pinai/domain/ports/window-frame.port"
 import type { AuthPlatform, IAuthPort, IAuthSessionStore } from "@pinai/domain/ports/auth.port"
@@ -106,6 +109,7 @@ const authPlatform: AuthPlatform = {
 }
 const appUpdatesPort: IAppUpdatesPort = desktop ? new DesktopAppUpdatesAdapter(desktop) : new BrowserAppUpdatesAdapter()
 const windowFramePort: IWindowFramePort = desktop ? new DesktopWindowFrameAdapter(desktop) : new BrowserWindowFrameAdapter()
+const appBadgePort: IAppBadgePort = desktop ? new DesktopAppBadgeAdapter(desktop) : new BrowserAppBadgeAdapter()
 const nodeInfoPort: INodeInfoPort = new NodeInfoApiAdapter()
 const recentInstancesPort: IRecentInstancesPort = new RecentInstancesLocalStorageAdapter()
 const lastInstancePort: ILastInstancePort = new LastInstanceLocalStorageAdapter()
@@ -171,6 +175,10 @@ export function getAppUpdatesPort(): IAppUpdatesPort {
 
 export function getWindowFramePort(): IWindowFramePort {
     return windowFramePort
+}
+
+export function getAppBadgePort(): IAppBadgePort {
+    return appBadgePort
 }
 
 export function getAuthSessionStore(): IAuthSessionStore {

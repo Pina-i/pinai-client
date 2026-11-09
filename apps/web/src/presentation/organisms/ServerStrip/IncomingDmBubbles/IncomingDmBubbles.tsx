@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { isConversationMuted } from "@pinai/domain/models/mute"
+import { useBeingRead } from "@/presentation/hooks/use-window-attention"
 import { useAppStore } from "@/store/store"
 import { useNotificationSettings } from "@/presentation/providers/AppearanceProvider/NotificationSettings.context"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
@@ -14,12 +15,13 @@ export function IncomingDmBubbles() {
     const activeDm = useAppStore((s) => s.activeDm)
     const switchToDms = useAppStore((s) => s.switchToDms)
     const { notifications } = useNotificationSettings()
+    const reading = useBeingRead(activeDm) ? activeDm : null
     const navigate = useNavigate()
 
-    // Opening a conversation clears its unread count (ConversationPage.viewmodel),
-    // so its bubble disappears on its own. A muted one keeps its unread pill in the list, but no bubble.
+    // The open conversation gets a bubble only while nobody reads it; once back, its count clears.
+    // A muted one keeps its unread pill in the list, but no bubble.
     const pending = localDmConvos.filter(
-        (dm) => (dmUnread[dm.id] ?? 0) > 0 && activeDm !== dm.id && !isConversationMuted(notifications, dm.id),
+        (dm) => (dmUnread[dm.id] ?? 0) > 0 && dm.id !== reading && !isConversationMuted(notifications, dm.id),
     )
 
     function handleOpen(address: string) {

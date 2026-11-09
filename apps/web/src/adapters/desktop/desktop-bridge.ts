@@ -35,6 +35,8 @@ export interface DesktopBridge {
     window: {
         /** Colours the system's buttons over the page's title bar. */
         paintTitleBar(colors: TitleBarColors): Promise<void>
+        /** The count on the app's icon, 0 clearing it; `image`, a PNG data URL, is Windows' overlay. */
+        setBadge(count: number, image: string | null): Promise<void>
     }
 }
 

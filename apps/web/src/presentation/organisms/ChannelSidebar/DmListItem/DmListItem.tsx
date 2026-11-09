@@ -18,6 +18,7 @@ import { cn } from "@/presentation/_libs/utils"
 import { presenceToUserStatus, userStatusLabel } from "@pinai/domain/models/presence"
 import { useAppStore } from "@/store/store"
 import { useConversationMute } from "@/presentation/hooks/useConversationMute"
+import { useBeingRead } from "@/presentation/hooks/use-window-attention"
 import type { DmConversation } from "@/lib/types"
 import { lastMessagePreview } from "../_helpers/last-message-preview.helper"
 import { groupFact } from "../_helpers/group-fact.helper"
@@ -28,6 +29,7 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
     const navigate = useNavigate()
     // Narrow selectors so only the affected row re-renders, not the whole list.
     const isActive = useAppStore((s) => s.activeDm === dm.id)
+    const beingRead = useBeingRead(dm.id)
     const unread = useAppStore((s) => s.dmUnread[dm.id] ?? 0)
     const presence = useAppStore((s) => s.presenceByAddress[dm.address])
     const avatarUrl = useAppStore((s) => (dm.kind === "dm" ? s.avatarsByAddress[dm.address] ?? null : null))
@@ -112,7 +114,7 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
                                     )
                                 )}
                             </span>
-                            {unread > 0 && !isActive && (
+                            {unread > 0 && !beingRead && (
                                 <UnreadPill
                                     count={unread}
                                     isMuted={isMuted}

@@ -8,6 +8,7 @@ import electronUpdater from "electron-updater"
 import icon from "../../build/icons/512x512.png?asset&asarUnpack"
 
 import { registerAppScheme, serveApp } from "./app-scheme"
+import { AppBadge, badgeOf, clearWhenPageGoes, electronBadgeSurface } from "./badge"
 import { syncMenuEntry } from "./menu-entry"
 import { APP_URL, appUrlFor, isApp, route } from "./navigation"
 import { KeychainSessionTokenStore, MainSession, keychain } from "./session"
@@ -27,6 +28,7 @@ function start(): void {
     let signingInTo: string | null = null
     // The page's last colours, kept across launches: a window opens in them.
     let titleBar: TitleBarColors
+    const badge = new AppBadge(process.platform, electronBadgeSurface(() => window))
 
     app.on("second-instance", () => {
         if (window?.isMinimized()) window.restore()
@@ -42,8 +44,10 @@ function start(): void {
             }
             return next.kind === "allow"
         })
+        clearWhenPageGoes(window.webContents, badge)
         window.on("closed", () => {
             window = null
+            badge.clear()
         })
     }
 
@@ -58,7 +62,10 @@ function start(): void {
         )
         handle("session:hold", (held: HeldRefreshToken) => session.hold(checked(held)))
         handle("session:renew", () => session.renew())
-        handle("session:sign-out", () => session.signOut())
+        handle("session:sign-out", () => {
+            badge.clear()
+            return session.signOut()
+        })
         // The IdP's sign-in pages, in this window, as the web app shows them in its tab.
         handle("sign-in", (url: string) => {
             if (typeof url !== "string" || !/^https?:\/\//.test(url)) throw new Error("Not a sign-in page")
@@ -93,6 +100,12 @@ function start(): void {
                 window?.setTitleBarOverlay({ color: painted.background, symbolColor: painted.symbols })
             }
         })
+        // What waits for the user, on the app's icon.
+        handle("window:badge", (count: unknown, image: unknown) => {
+            const shown = badgeOf(count, image)
+            if (!shown) throw new Error("Not a badge")
+            badge.show(shown)
+        })
 
         const { APPIMAGE: appImage, APPDIR: appDir, XDG_DATA_HOME: xdg } = process.env
         if (process.platform === "linux" && app.isPackaged && appImage && appDir) {
@@ -110,6 +123,8 @@ function start(): void {
             if (!window) openWindow()
         })
     })
+
+    app.on("will-quit", () => badge.clear())
 
     app.on("window-all-closed", () => {
         if (process.platform !== "darwin") app.quit()

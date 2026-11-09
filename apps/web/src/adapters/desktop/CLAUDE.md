@@ -13,6 +13,9 @@ picks them over the browser's. Their other half is the main process (`apps/deskt
   IoC asks it), and `clear` revokes it.
 - `window-frame-desktop.adapter.ts` — colours the system's window buttons like the page's title
   bar (`organisms/TitleBar`); the browser's adapter does nothing.
+- `app-badge-desktop.adapter.ts` — the attention count on the app's icon (`hooks/use-attention.ts`):
+  the main process badges it per system (`apps/desktop/src/main/badge.ts`); `badge-image.ts` draws
+  the disc Windows' overlay needs, sent along on every system; the browser's adapter does nothing.
 - `app-updates-desktop.adapter.ts` — the installed app's updates: the main process checks,
   downloads and installs (`apps/desktop/src/main/updates.ts`); the page shows the notice and
   sends its button back (`restart`, or `download` on an unsigned Mac).

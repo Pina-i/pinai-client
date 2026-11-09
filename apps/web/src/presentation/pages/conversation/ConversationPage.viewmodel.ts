@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
 import { sendTypingStartUseCase } from "@pinai/domain/usecases/presence/send-typing-start.usecase"
-import { getConversationHistoryUseCase } from "@pinai/domain/usecases/dm/get-conversation-history.usecase"
+import { openConversationUseCase } from "@pinai/domain/usecases/dm/open-conversation.usecase"
 import { getDmConversationsUseCase } from "@pinai/domain/usecases/dm/get-dm-conversations.usecase"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 import { getDmPort, getE2eePort, getGroupPort, getWsPort } from "@/ioc"
@@ -20,6 +20,7 @@ import {
 } from "@pinai/domain/models/dm"
 import { describeGroupEvent, type GroupEvent } from "@pinai/domain/models/group-event"
 import { useDismissGroup } from "@/presentation/hooks/useDismissGroup"
+import { useReadOnReturn } from "@/presentation/hooks/use-read-on-return"
 import type {
     ActorUri,
     ApplicationMessage,
@@ -241,6 +242,7 @@ export function useConversationPageViewModel(name: string) {
     const setActiveDm = useAppStore((s) => s.setActiveDm)
     const clearDmUnread = useAppStore((s) => s.clearDmUnread)
     const wsStatus = useAppStore((s) => s.wsStatus)
+    const queryClient = useQueryClient()
 
     // Route param is a conversation UUID (groups, and sidebar clicks) or a
     // `username@host` address (DMing a not-yet-existing conversation). The two
@@ -308,8 +310,8 @@ export function useConversationPageViewModel(name: string) {
     // We deliberately gate on `conversationId` (the UUID) rather than
     // `conversationKey` (which falls back to the route address during
     // the initial loading window) — otherwise `activeDm` is briefly set
-    // to `alice@idp.alice.com` instead of the canonical UUID, the WS
-    // handler's `activeDm !== conversation_id` guard fails for any
+    // to `alice@idp.alice.com` instead of the canonical UUID, the socket's
+    // read decision (`settleIncomingReadUseCase`, by `openId`) misses any
     // `new_dm` arriving in that window, and the unread badge increments
     // for a conversation the user is actively reading.
     useEffect(() => {
@@ -324,6 +326,7 @@ export function useConversationPageViewModel(name: string) {
             if (useAppStore.getState().activeDm === conversationId) setActiveDm(null)
         }
     }, [conversationId, setActiveDm, clearDmUnread])
+    useReadOnReturn(conversationId)
 
     // Tell the IdP to open an outbound SSE for any remote domain involved in
     // this conversation (so cross-instance presence + typing flow back to us).
@@ -362,7 +365,10 @@ export function useConversationPageViewModel(name: string) {
         if (!dmData) return
         historyLoadedRef.current = true
 
-        getConversationHistoryUseCase(idpUrl, accessToken, dmData.id, getDmPort())
+        openConversationUseCase({ idpUrl, accessToken }, dmData.id, {
+            port: getDmPort(),
+            refreshList: () => void queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) }),
+        })
             .then(async ({ messages: msgs, events }) => {
                 addGroupEvents(conversationKey, events)
                 // API returns newest-first → reverse to oldest-first for display.
@@ -453,6 +459,7 @@ export function useConversationPageViewModel(name: string) {
         applyReaction,
         addGroupEvents,
         dmData,
+        queryClient,
     ])
 
     // A send left `sending` by a closed page never settles on its own, so

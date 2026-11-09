@@ -18,7 +18,8 @@ import { isHeldHere } from "@pinai/domain/models/own-messages"
 import { UNDECRYPTABLE_TEXT, applyFederationStatus } from "@pinai/domain/models/dm"
 import { reconcileGroupKeysUseCase } from "@pinai/domain/usecases/e2ee/reconcile-group-keys.usecase"
 import { shouldPingForMessage } from "@pinai/domain/models/mute"
-import { countsAsUnread, isBlocked } from "@pinai/domain/models/block"
+import { isBlocked } from "@pinai/domain/models/block"
+import { settleIncomingReadUseCase } from "@pinai/domain/usecases/dm/settle-incoming-read.usecase"
 import { blocksQueryKey, useBlocks } from "@/presentation/hooks/useBlocks"
 import { TYPING_INDICATOR_TTL_MS } from "@/store/slices/presence.slice"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
@@ -29,6 +30,7 @@ import { useAppearance } from "@/presentation/providers/AppearanceProvider/Appea
 import { useNotificationSettings } from "@/presentation/providers/AppearanceProvider/NotificationSettings.context"
 import { renewAccessToken } from "@/presentation/_libs/session-renewal"
 import { startOverQueryKey } from "@/presentation/hooks/use-own-start-over"
+import { isWindowAttended } from "@/presentation/_libs/window-attention"
 
 /** Module-level slot — `useDeviceFanout` registers its callback here. */
 const deviceFanoutHandlerRef: { current: (() => void) | null } = {
@@ -477,7 +479,6 @@ export function useIdpWebSocket(): void {
                         break
                     }
 
-                    const isActive = actionsRef.current.activeDm === conversationId
                     const senderBlocked = isBlocked(actionsRef.current.blocked, senderAddress)
 
                     // Sound plays whether or not the user is in this
@@ -494,46 +495,24 @@ export function useIdpWebSocket(): void {
                         getNotificationSoundPort().playDmReceived()
                     }
 
-                    if (isActive) {
-                        // User is currently reading this conversation —
-                        // tell the server so its `unread_count` stays at
-                        // 0. Without this, the next `dm-conversations`
-                        // refresh would report unread=1 and the badge /
-                        // bubble would re-appear the moment the user
-                        // navigates away. Fire-and-forget — failure is
-                        // logged but doesn't surface to the user.
-                        if (idpUrl && accessToken) {
-                            getDmPort()
-                                .markConversationRead(idpUrl, accessToken, conversationId)
-                                .catch((e) => {
-                                    // eslint-disable-next-line no-console
-                                    console.warn("markConversationRead failed:", e)
-                                })
-                                .finally(() => {
-                                    // Invalidate AFTER the read marker lands so
-                                    // the refetch picks up the updated
-                                    // `unread_count`.
-                                    if (idpUrl) {
-                                        queryClient.invalidateQueries({
-                                            queryKey: dmConversationsQueryKey(idpUrl),
-                                        })
-                                    }
-                                })
-                        } else if (idpUrl) {
-                            queryClient.invalidateQueries({
-                                queryKey: dmConversationsQueryKey(idpUrl),
-                            })
-                        }
-                    } else {
-                        if (countsAsUnread(isActive, senderBlocked)) {
-                            actionsRef.current.incrementDmUnread(conversationId)
-                        }
-                        if (idpUrl) {
-                            queryClient.invalidateQueries({
-                                queryKey: dmConversationsQueryKey(idpUrl),
-                            })
-                        }
-                    }
+                    // Read only while open on a window the user is in: otherwise it waits, counted, until they come back.
+                    void settleIncomingReadUseCase(
+                        {
+                            conversationId,
+                            openId: actionsRef.current.activeDm,
+                            windowAttended: isWindowAttended(),
+                            senderBlocked,
+                        },
+                        accessToken ? { idpUrl, accessToken } : null,
+                        {
+                            port: getDmPort(),
+                            countUnread: actionsRef.current.incrementDmUnread,
+                            refreshList: () => void queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) }),
+                        },
+                    ).catch((e) => {
+                        // eslint-disable-next-line no-console
+                        console.warn("markConversationRead failed:", e)
+                    })
                     break
                 }
                 case "message_edited": {
