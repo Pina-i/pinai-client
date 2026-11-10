@@ -30,6 +30,9 @@ if (app && isApp(window.location.href, app)) {
         },
         window: {
             paintTitleBar: (colors: unknown) => ipcRenderer.invoke("window:title-bar", colors),
+            setBadge: (count: unknown, image: unknown) => ipcRenderer.invoke("window:badge", count, image),
+            keepRunning: () => ipcRenderer.invoke("window:keep-running"),
+            setKeepRunning: (keepRunning: unknown) => ipcRenderer.invoke("window:set-keep-running", keepRunning),
         },
     })
 }

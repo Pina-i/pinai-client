@@ -5,6 +5,7 @@ import { useLocation, useRouter } from "@tanstack/react-router"
 import type { InstanceInfo } from "@pinai/domain/models/instance"
 import { managedInstanceUseCase } from "@pinai/domain/usecases/instance/managed-instance.usecase"
 import { getNodeInfoPort } from "@/ioc"
+import { IN_DESKTOP_APP } from "@/presentation/_libs/client-download"
 import { dropSearchParam } from "@/presentation/_libs/search-param"
 import { useDeviceRoster } from "@/presentation/hooks/use-device-roster"
 import { useAppStore } from "@/store/store"
@@ -54,6 +55,8 @@ export interface SettingsModalViewModel {
     isAnswering: boolean
     /** Devices waiting for the user, for the Devices tile. */
     waitingCount: number
+    /** Notifications holds the desktop app's keep-running switch, and only that. */
+    offersKeepRunning: boolean
 }
 
 export function useSettingsModalViewModel(): SettingsModalViewModel {
@@ -91,6 +94,7 @@ export function useSettingsModalViewModel(): SettingsModalViewModel {
         shownSection,
         isAnswering: roster.seats.seat?.stage === "working",
         waitingCount: roster.waiting.length,
+        offersKeepRunning: IN_DESKTOP_APP,
     }
 }
 

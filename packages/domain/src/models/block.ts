@@ -22,7 +22,7 @@ export function isBlocked(blocked: ReadonlySet<string>, person: string): boolean
     return blocked.has(actorUriToAddress(person))
 }
 
-/** Whether a new message counts as unread: not while its conversation is open, never from someone blocked. */
-export function countsAsUnread(conversationOpen: boolean, senderBlocked: boolean): boolean {
-    return !conversationOpen && !senderBlocked
+/** Whether a new message counts as unread: not while it is being read (`isBeingRead`), never from someone blocked. */
+export function countsAsUnread(beingRead: boolean, senderBlocked: boolean): boolean {
+    return !beingRead && !senderBlocked
 }

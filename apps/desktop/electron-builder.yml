@@ -15,9 +15,11 @@ directories:
 files:
   - out/**
   - package.json
-# The Linux window's icon (src/main/index.ts), read from a plain file, not through the archive.
+# The Linux window's icon and the tray's (src/main/index.ts), read from plain files, not through
+# the archive: Windows loads the .ico by its path.
 asarUnpack:
   - out/main/chunks/*.png
+  - out/main/chunks/*.ico
 # Where electron-updater looks; CI uploads the files itself (--publish never).
 publish:
   provider: github

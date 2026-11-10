@@ -586,6 +586,35 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `ports/notification-sound.port.ts` — `INotificationSoundPort.playDmReceived()`:
   the sound itself, Tō‘ere, is each platform's (`apps/web/src/adapters/sound/`).
 
+### models/attention.ts + ports/app-badge.port.ts
+- The count in the window's title and on the app's icon starts from the
+  numbers the UI already holds — the sidebar's unread, the bell's — rather
+  than counting messages, so the three never disagree. It drops what the user
+  chose not to hear (a muted conversation, "mute all") and, by its own rule, a
+  group the user was removed from: the sidebar may still show that pill, but
+  nothing there waits for them.
+- Being read (`isBeingRead`) is open **and** on an attended window: a message
+  in the open conversation of a hidden or unfocused window counts as unread
+  (`countsAsUnread`), and the IdP isn't told until the user is back
+  (`settleIncomingReadUseCase`, `markConversationReadUseCase` — the list read
+  again only once the marker landed, or it would still count the messages).
+  Opening a conversation reads it through its history `GET`, so
+  `openConversationUseCase` reads the list again once that answered.
+- The bell's read mark is the ids seen at its last opening, not a count:
+  accepting or declining a request takes it out of the list, and a count would
+  then hide the next one to arrive.
+- The badge is a port because only the desktop app has an icon of its own; a
+  browser's tab has the title alone.
+- `APP_TITLE` — the name the title and the desktop tray's tooltip count on, one
+  constant for both apps.
+
+### ports/keep-running.port.ts
+- Whether closing the desktop app's window keeps it running. A port, like the
+  badge, because only the desktop app has a window to close; the web's IoC
+  gives `null`, so the setting is absent rather than a switch that does nothing.
+- `comesBackBy` comes with it from the platform (the tray, the Dock, launching
+  again where no tray shows): only the main process can tell a GNOME session.
+
 ### models/block.ts + ports/privacy.port.ts + usecases/privacy/
 - The IdP enforces blocks and the contact setting; the client only keeps
   what still reaches it quiet. A group message from someone blocked arrives

@@ -24,6 +24,7 @@ import { editorFrame } from "./editor-styles"
 import { IdentityTile } from "./IdentityTile/IdentityTile"
 import { InstanceBand } from "./InstanceBand/InstanceBand"
 import { InstanceEditor } from "./InstanceEditor/InstanceEditor"
+import { NotificationsEditor } from "./NotificationsEditor/NotificationsEditor"
 import { PlaceholderEditor } from "./PlaceholderEditor/PlaceholderEditor"
 import { PrivacyEditor } from "./PrivacyEditor/PrivacyEditor"
 import { CONTACT_POLICY_CHOICES, DEFAULT_CONTACT_POLICY } from "./PrivacyEditor/PrivacyEditor.viewmodel"
@@ -147,7 +148,8 @@ const SECTIONS: SectionDescriptor[] = [
 ]
 
 export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModalProps) {
-    const { selectSection, instance, shownSection, isAnswering, waitingCount } = useSettingsModalViewModel()
+    const { selectSection, instance, shownSection, isAnswering, waitingCount, offersKeepRunning } =
+        useSettingsModalViewModel()
 
     const displayName = user.display_name ?? user.preferred_username
     const initials = displayName.slice(0, 2).toUpperCase()
@@ -213,6 +215,8 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
                                                 <span className={`${FACT_PREVIEW} text-on`}>● {contactPolicyLabel}</span>
                                             ) : s.id === "devices" && waitingCount > 0 ? (
                                                 <span className={`${FACT_PREVIEW} text-idle-ink`}>● {waitingCount} waiting</span>
+                                            ) : s.id === "notifications" && offersKeepRunning ? (
+                                                <span className={`${FACT_PREVIEW} text-muted-foreground`}>messages while closed</span>
                                             ) : (
                                                 s.preview
                                             )
@@ -253,6 +257,11 @@ export function SettingsModal({ isOpen, onClose, user, onLogout }: SettingsModal
                         <AppearanceEditor />
                     ) : activeDescriptor.id === "privacy" ? (
                         <PrivacyEditor />
+                    ) : activeDescriptor.id === "notifications" ? (
+                        <NotificationsEditor
+                            sectionLabel={activeDescriptor.label}
+                            sectionTitle={activeDescriptor.title}
+                        />
                     ) : (
                         <PlaceholderEditor
                             sectionLabel={activeDescriptor.label}

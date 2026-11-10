@@ -10,6 +10,8 @@ import { Popover, PopoverCaret } from "@/presentation/molecules/Popover/Popover"
 import { popoverSurface } from "@/presentation/molecules/Popover/popover-surface"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import { cn } from "@/presentation/_libs/utils"
+import { useBell } from "@/presentation/providers/BellProvider/Bell.context"
+import { unseenNotifications } from "@pinai/domain/models/attention"
 import { actorUriToAddress } from "@pinai/domain/models/identity"
 import type { WsNotification, WsNotificationEventType } from "@pinai/domain/models/ws"
 
@@ -183,21 +185,20 @@ export function NotificationsPopover() {
 
     const queryClient = useQueryClient()
 
-    const [seenCount, setSeenCount] = useState(0)
+    const { seenIds, setSeenIds } = useBell()
     const [unreadInPanel, setUnreadInPanel] = useState<Set<string>>(new Set())
     const [filter, setFilter] = useState<FilterPill>("all")
     const [isOpen, setIsOpen] = useState(false)
 
-    const unreadCount = Math.max(0, notifications.length - seenCount)
+    const unread = unseenNotifications(notifications, seenIds)
+    const unreadCount = unread.length
 
     function handleOpenChange(open: boolean) {
         if (open) {
-            // Snapshot unread ids BEFORE updating seenCount, so the in-panel
+            // Snapshot unread ids BEFORE updating seenIds, so the in-panel
             // dot/highlight survives even after the bell badge clears.
-            const cutoff = Math.max(0, notifications.length - seenCount)
-            const ids = new Set(notifications.slice(0, cutoff).map((n) => n.id))
-            setUnreadInPanel(ids)
-            setSeenCount(notifications.length)
+            setUnreadInPanel(new Set(unread.map((n) => n.id)))
+            setSeenIds(new Set(notifications.map((n) => n.id)))
         }
         setIsOpen(open)
     }
@@ -227,7 +228,7 @@ export function NotificationsPopover() {
 
     function handleMarkAllRead() {
         clearNotifications()
-        setSeenCount(0)
+        setSeenIds(new Set())
         setUnreadInPanel(new Set())
     }
 

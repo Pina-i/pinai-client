@@ -15,7 +15,39 @@ window loads the web app's dev server, :5173 like the web app; built
   A packaged app ignores `ELECTRON_RENDERER_URL`. Whether a URL is the app's is `isApp`
   (`navigation.ts`): protocol, no userinfo, and host — never `URL.origin`, which Node gives as
   `"null"` for `app:` as for `data:` and `about:`. Navigation, IPC and the preload all ask it.
-- **One instance**: `requestSingleInstanceLock`; a second launch focuses the first.
+- **One instance**: `requestSingleInstanceLock`; a second launch shows the first, hidden or not
+  (`showApp`), and exits — where no tray host exists (GNOME without the AppIndicator extension),
+  the way back to a hidden window. The sign-in never comes that way: its callback is caught in the
+  window, no scheme is registered. On Wayland, what lets KWin give the shown window focus is an
+  activation token: Electron passes the second launch's `XDG_ACTIVATION_TOKEN` on to the first,
+  and Plasma hands the tray's click one (`ProvideXdgActivationToken`). A launch from a terminal
+  has none: the taskbar entry may only flash.
+- **Closing the window** (`keep-running.ts`, `tray.ts`): while this device's choice is on
+  (`KeepRunningChoice`, `userData/keep-running.json`, written aside then renamed; a write that
+  fails is refused to the page, which says so), `close` hides the window (`AppLifecycle`,
+  `closeAction`) and the app runs on, its socket connected. On by default, but off on GNOME
+  (`XDG_CURRENT_DESKTOP`, `keepRunningByDefault`), which shows no tray icon without the
+  AppIndicator extension; a saved choice wins. Windows and Linux get a tray icon (`AppTray`): left
+  click shows the window, its menu "Show Pīna'i" / "Quit", its tooltip and dot the badge's count
+  (`AppBadge`'s `onCount`, `trayLook`). macOS has no icon: the Dock's `activate` shows the window;
+  a macOS full screen is left before hiding. `window:keep-running` also answers how the window
+  comes back (`comesBackBy`: the tray, the Dock, or launching again on GNOME), for Settings'
+  wording. Off, closing quits, and on macOS leaves the app in the Dock as before. A quit under way
+  lets the window go: `before-quit` (Ctrl+Q / ⌘Q, the tray's Quit, `app.quit()`, SIGTERM —
+  Electron's handler calls `Browser::Quit` —, a macOS logout) and `before-quit-for-update` set
+  `quitting`, which never resets; it only stops a new window opening (`showApp`), so a quit a
+  future `beforeunload` cancelled leaves the tray, the Dock and a second launch working. A
+  sign-in started while hidden — a session ended elsewhere — shows the window without focus
+  (`showForSignIn`). A renderer gone for any reason but `clean-exit` reloads the app's page, once
+  a minute at most (`reloadsAfterCrash`). Windows' session end needs nothing: Electron ends the
+  process on `WM_ENDSESSION` unless a quit is under way, and answers `WM_QUERYENDSESSION` yes;
+  starting a quit there would cancel that, and could run the updater's installer as the session
+  ends. Nothing listens to `powerMonitor`'s `shutdown`, which
+  would take a logind delay lock. The tray is destroyed and the badge cleared at `will-quit`.
+  Ctrl+Q: `appMenu` is Electron's default menu, which the window never shows on Windows and Linux,
+  with Quit on Ctrl+Q there too ("Exit" has none on Windows). The window keeps Chromium's
+  background throttling: hidden, the 30 s heartbeat slows to one a minute at worst, well inside the
+  IdP's 10 minutes before `away`, and the page reports itself hidden, so messages count.
 - **Signing in, in the window** (`navigation.ts`): the IdP's pages load in the app's own window,
   as they do in the web app's tab. The renderer asks (`sign-in`) and the main process loads the
   `/authorize` URL itself, remembering that IdP. `will-navigate` / `will-redirect` let the window
@@ -42,14 +74,30 @@ window loads the web app's dev server, :5173 like the web app; built
   pages draw no bar: `dom-ready` inserts the same one into theirs (`IDP_TITLE_BAR`, pseudo-elements
   coloured by their tokens — the IdP's palettes are the app's — the mark as masks from
   `title-bar-mark.ts`) and steps their `body` down by its height. Keep it like `.pn-titlebar`.
+- **The badge** (`badge.ts`): the page's attention count (`apps/web`'s `hooks/use-attention.ts`;
+  the window's title is the page's `document.title`, which nothing here overrides) on the app's
+  icon. `window:badge` takes a non-negative integer, capped at `MAX_BADGE_COUNT`, and a PNG data URL
+  or null (`badgeOf`); `badgeAction` decides per system: `app.setBadgeCount` on macOS (the Dock)
+  and Linux, where Electron 44 emits the
+  `com.canonical.Unity.LauncherEntry` `Update` signal itself, no libunity, for
+  `application://<desktopName>` — `pinai.desktop` packaged, the menu entry's; in dev
+  `pinai-desktop.desktop`, which no entry matches, so no badge. Windows takes the page's picture
+  as the taskbar button's overlay (`setOverlayIcon`). Shown on change only, never throwing;
+  cleared at 0, at each page load (`did-navigate`), when the renderer crashes
+  (`render-process-gone`), at sign-out, when the window closes and at quit (`clearWhenPageGoes`);
+  Windows' overlay laid again at the window's `show` and `focus` (`repaint`): Windows drops a
+  hidden window's overlay with its taskbar button, which may not be back yet at `show`.
+  Unverified on a Mac: Electron's docs say the Dock badge needs the notification permission, which
+  the app never asks for — deliberately, no prompt for it.
 - **IPC** answers the app's own pages only (`isApp`): `session:hold`, `session:renew`,
   `session:sign-out`, `sign-in` (`http(s)` only), `updates:status`, `updates:restart`,
-  `updates:download`, `window:title-bar`.
+  `updates:download`, `window:title-bar`, `window:badge`, `window:keep-running`,
+  `window:set-keep-running` (a boolean, `keepRunningOf`; a failed write refused).
 
 ## Preload (`src/preload`)
 
 `window.pinaiDesktop` — `session.{store, renew, clear}`, `signIn`,
-`window.paintTitleBar`, `updates.{status, onChange, restart, download}` (`onChange` listens to `updates:changed`, which
+`window.{paintTitleBar, setBadge, keepRunning, setKeepRunning}`, `updates.{status, onChange, restart, download}` (`onChange` listens to `updates:changed`, which
 the main process sends the window) — exposed to the app's own pages only (`--pinai-app`,
 `isApp`), never to the IdP's pages in the same window. CommonJS: sandboxed preloads can't be ES
 modules. Its shape is `apps/web/src/adapters/desktop/desktop-bridge.ts`, kept in step by hand.
@@ -68,6 +116,11 @@ modules. Its shape is `apps/web/src/adapters/desktop/desktop-bridge.ts`, kept in
   from there. Windows and macOS give the window the app's icon; Linux doesn't, so `index.ts`
   sets the window's (`512x512.png?asset&asarUnpack`, kept out of the archive by `asarUnpack`):
   the taskbar shows it where the desktop reads window icons (KDE does; GNOME needs a menu entry).
+- **The tray's icons** (`build/tray/`, made by its `make.sh` from `icon.svg`, ImageMagick with
+  librsvg): plain and with the dot. Windows takes the `.ico` (16–48 px, 32-bit), loaded by its
+  path at the DPI's size, so unpacked (`*.ico` in `asarUnpack`); only a PNG's 1x would reach it.
+  Linux takes the 48 px PNG: Electron sends the panel its largest picture as one pixmap
+  (StatusNotifierItem), which KDE scales to 22–24 px, or 44–48 on HiDPI.
 - **The AppImage**: `executableArgs: []`, since its AppRun adds `--no-sandbox` only where user
   namespaces are blocked and electron-builder's default would add it everywhere. Its runtime
   needs FUSE 2, which stock Ubuntu lacks; electron-builder's static runtime
@@ -99,7 +152,8 @@ modules. Its shape is `apps/web/src/adapters/desktop/desktop-bridge.ts`, kept in
   included); the packaged app ships `out/` alone, no `node_modules`.
 - `test/` (vitest): the navigation rule, the session store and `MainSession`, `electron`
   mocked; the menu entry (`menu-entry.spec.ts`, temp dirs); the startup refusal
-  (`startup.spec.ts`) and `AppUpdates` (`updates.spec.ts`, a fake updater).
+  (`startup.spec.ts`), `AppUpdates` (`updates.spec.ts`, a fake updater), the badge
+  (`badge.spec.ts`), closing and quitting (`keep-running.spec.ts`) and the tray (`tray.spec.ts`).
 - To drive the app without a screen: a headless sway (`WLR_BACKENDS=headless sway`) and
   `--ozone-platform=wayland`; Ozone's own headless platform crashes Electron.
 - The renderer is `apps/web`'s build without its `/oauth-client.json` (`electron.vite.config.ts`

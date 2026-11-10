@@ -32,7 +32,7 @@ describe("countsAsUnread", () => {
         expect(countsAsUnread(false, false)).toBe(true)
     })
 
-    it("never counts one the user is reading, nor one from someone they blocked", () => {
+    it("never counts one being read — open, the window attended — nor one from someone they blocked", () => {
         expect(countsAsUnread(true, false)).toBe(false)
         expect(countsAsUnread(false, true)).toBe(false)
     })

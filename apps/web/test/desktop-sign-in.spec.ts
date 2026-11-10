@@ -40,6 +40,9 @@ function bridge() {
         },
         window: {
             paintTitleBar: vi.fn(async () => {}),
+            setBadge: vi.fn(async () => {}),
+            keepRunning: vi.fn(async () => ({ keepRunning: true, comesBackBy: "tray" as const })),
+            setKeepRunning: vi.fn(async () => {}),
         },
     }
     return { bridge: value, handedOver }
