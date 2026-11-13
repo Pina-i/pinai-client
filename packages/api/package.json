@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@pinai/domain": "workspace:*",
-    "ky": "^1.14.3"
+    "ky": "^2.2.0"
   },
   "devDependencies": {
     "typescript": "~5.9.3"
