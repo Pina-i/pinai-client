@@ -21,6 +21,7 @@
  */
 
 import { beforeAll, describe, expect, it, vi } from "vitest"
+import { ed25519 } from "@noble/curves/ed25519.js"
 
 import { loadWasmModule } from "./setup/wasm"
 import { generateMnemonic } from "@scure/bip39"
@@ -39,11 +40,11 @@ import {
 } from "./setup/issuers"
 
 import { verifyLeafCredential, verifyStrict } from "@pinai/crypto/attestation-chain.adapter"
-import { bytesToBase64 } from "@pinai/domain/lib/bytes"
+import { base64ToBytes, bytesToBase64 } from "@pinai/domain/lib/bytes"
 import { KeyPackageUnavailable } from "@pinai/domain/models/group"
 import { GroupToJoin, WELCOME_WAIT_MS } from "@pinai/domain/models/conversation-join"
 import { ConversationJoins, enterConversationUseCase } from "@pinai/domain/usecases/e2ee/join-conversations.usecase"
-import { deviceHpkeKeyBytes } from "@pinai/crypto/canonical-bytes"
+import { approvalBytes, deviceHpkeKeyBytes } from "@pinai/crypto/canonical-bytes"
 import type { LeafCredential, UntrustedLeaf } from "@pinai/domain/models/leaf-trust"
 
 import { decryptDownloaded, encryptForUpload } from "@pinai/crypto/attachment-crypto"
@@ -554,13 +555,13 @@ async function buildAdapter(
     return { e2ee, mls, storage, history }
 }
 
-/** The account's history key, generation 1: a device given its words (`hold`) acts on approval. */
-async function accountKey(history: FakeHistoryIdp) {
+/** The account's history key, generation 1 unless said: a device given its words (`hold`) acts on approval. */
+async function accountKey(history: FakeHistoryIdp, generation = 1) {
     const sealer = new FastSealer()
     const words = generateMnemonic(wordlist, 256).split(" ")
     const salt = crypto.getRandomValues(new Uint8Array(16))
     const hak = await sealer.deriveKey(words, salt)
-    const key = { generation: 1, salt, ...sealer.derive(hak) }
+    const key = { generation, salt, ...sealer.derive(hak) }
     history.key = { ...key, setByDevice: null }
     return { hak, hold: (ctx: AdapterCtx) => ctx.e2ee.keepPassphrase(words, key) }
 }
@@ -1639,6 +1640,106 @@ describe("MLS E2EE — a leaf is trusted on its attestation and its leaf binding
     })
 })
 
+describe("MLS E2EE — a device's leaves say how it was approved", () => {
+    const conversationId: ConversationId = "eeee1111-2222-3333-4444-555566667777"
+    const issuer = "https://idp.shared.example"
+    const [bobActor, danActor] = ["bob", "dan"].map((name) => asActorUri(`${issuer}/users/${name}_x1y2z`))
+    const text = (t: string): ApplicationMessage<TextBody> => ({ version: 1, kind: "text", body: { text: t } })
+
+    async function registered(directory: InMemoryKeyDirectory, token: string, actor: ActorUri, history: FakeHistoryIdp | null = null) {
+        const ctx = await buildAdapter(directory, token, actor, history)
+        await ctx.e2ee.register(issuer, token, actor)
+        return ctx
+    }
+
+    /** Bob's conversation with Dan's device, which registered and joined before it held his words. */
+    async function bobWithDan() {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const history = new FakeHistoryIdp()
+        const bob = await registered(directory, "bob-token", bobActor)
+        const dan = await registered(directory, "dan-token", danActor, history)
+        await bob.e2ee.addContactToGroup(issuer, "bob-token", conversationId, danActor)
+        await dan.e2ee.consumePendingWelcomes(issuer, "dan-token", danActor)
+        return { directory, history, bob, dan }
+    }
+
+    /** Dan's leaf as Bob's tree holds it once caught up. */
+    async function dansLeafAtBob(bob: AdapterCtx, dan: AdapterCtx) {
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+        const danId = await dan.storage.getOrCreateDeviceId()
+        return (await bob.mls.groupLeaves(conversationId)).find((leaf) => leaf.credential?.device_id === danId)!
+    }
+
+    /** The words approval of the key in force, its signature verifying over `ctx`'s device and root key. */
+    async function wordsApprovalOf(history: FakeHistoryIdp, ctx: AdapterCtx, approvals: LeafCredential["approvals"]) {
+        const key = history.key!
+        const words = approvals?.find((a) => a.by === "passphrase")
+        expect(words).toMatchObject({ generation: key.generation, approval_public_key: bytesToBase64(key.approvalPublicKey) })
+        const bytes = approvalBytes(danActor, await ctx.storage.getOrCreateDeviceId(), (await ctx.storage.loadDeviceAttestation())!.drk_public)
+        expect(verifyStrict(base64ToBytes(words!.signature), bytes, key.approvalPublicKey)).toBe(true)
+    }
+
+    it("commits the words' approval into the group it holds once it has them, and Bob reads the leaf verified", async () => {
+        const { history, bob, dan } = await bobWithDan()
+        expect((await dansLeafAtBob(bob, dan)).credential?.approvals).toBeUndefined()
+
+        await (await accountKey(history)).hold(dan)
+
+        expect(await dan.e2ee.refreshOwnLeaf(issuer, "dan-token", conversationId)).toEqual({ refreshed: true })
+        expect(await dan.e2ee.refreshOwnLeaf(issuer, "dan-token", conversationId)).toEqual({ refreshed: false })
+        const leaf = await dansLeafAtBob(bob, dan)
+        expect(leaf.credential?.approvals).toHaveLength(1)
+        await wordsApprovalOf(history, dan, leaf.credential?.approvals)
+        expect((await verifyLeafCredential(leaf, issuers.jwks)).ok).toBe(true)
+        expect(await bob.e2ee.decryptInbound(conversationId, await dan.e2ee.encryptOutbound(conversationId, text("approved")), {
+            idpUrl: issuer,
+            accessToken: "bob-token",
+        })).toMatchObject({ body: { text: "approved" } })
+    })
+
+    it("takes a new generation's approval in place of the old one, then its partner's beside it", async () => {
+        const { history, bob, dan } = await bobWithDan()
+        await (await accountKey(history)).hold(dan)
+        await dan.e2ee.refreshOwnLeaf(issuer, "dan-token", conversationId)
+
+        await (await accountKey(history, 2)).hold(dan)
+        expect(await dan.e2ee.refreshOwnLeaf(issuer, "dan-token", conversationId)).toEqual({ refreshed: true })
+        await wordsApprovalOf(history, dan, (await dansLeafAtBob(bob, dan)).credential?.approvals)
+
+        const danId = await dan.storage.getOrCreateDeviceId()
+        const partnerKey = ed25519.keygen()
+        const partner = { deviceId: crypto.randomUUID(), rootKey: partnerKey.publicKey, hpkeKey: new Uint8Array(32).fill(3) }
+        const signature = ed25519.sign(approvalBytes(danActor, danId, (await dan.storage.loadDeviceAttestation())!.drk_public), partnerKey.secretKey)
+        await dan.e2ee.rememberHandshakePartner(partner, { actorUri: danActor, signature })
+
+        expect(await dan.e2ee.refreshOwnLeaf(issuer, "dan-token", conversationId)).toEqual({ refreshed: true })
+        const approvals = (await dansLeafAtBob(bob, dan)).credential?.approvals
+        expect(approvals).toEqual([
+            expect.objectContaining({ by: "passphrase", generation: 2 }),
+            { by: "device", device_id: partner.deviceId, signature: bytesToBase64(signature) },
+        ])
+        await wordsApprovalOf(history, dan, approvals)
+    })
+
+    it("publishes KeyPackages carrying the approvals it holds from then on", async () => {
+        const directory = new InMemoryKeyDirectory()
+        const history = new FakeHistoryIdp()
+        const dan = await registered(directory, "dan-token", danActor, history)
+        const danId = await dan.storage.getOrCreateDeviceId()
+        const claim = async () => dan.mls.inspectKeyPackage((await directory.claimKeyPackage(issuer, "bob-token", danActor, danId)).key_package)
+        expect((await claim()).credential?.approvals).toBeUndefined()
+
+        await (await accountKey(history)).hold(dan)
+        directory.forgetPackages(danActor)
+        await dan.e2ee.replenishKeyPackages(issuer, "dan-token", danActor)
+
+        const leaf = await claim()
+        await wordsApprovalOf(history, dan, leaf.credential?.approvals)
+        expect((await verifyLeafCredential(leaf, issuers.jwks)).ok).toBe(true)
+    })
+})
+
 describe("MLS E2EE — a device acting on approval judges its account's leaves", () => {
     const conversationId: ConversationId = "abab1111-2222-3333-4444-555566667777"
     const issuer = "https://idp.shared.example"
@@ -2323,6 +2424,45 @@ describe("MLS E2EE — a device with none of its siblings in a conversation join
         expect(await read(bob, "bob-token", dm, await laptop.e2ee.encryptOutbound(dm, text("new start")))).toBe("new start")
     })
 
+    it("joins carrying its words' approval, though it registered before it held them", async () => {
+        const history = new FakeHistoryIdp()
+        const account = await accountKey(history)
+        const { directory, bob } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor, history)
+        await account.hold(laptop)
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).toEqual({ kind: "joined" })
+
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+        const [leaf] = await leavesOf(bob, dm, laptop)
+        const approvals = leaf.credential?.approvals
+        expect(approvals).toEqual([
+            { by: "passphrase", generation: 1, approval_public_key: bytesToBase64(history.key!.approvalPublicKey), signature: expect.any(String) },
+        ])
+        const bytes = approvalBytes(aliceActor, await laptop.storage.getOrCreateDeviceId(), (await laptop.storage.loadDeviceAttestation())!.drk_public)
+        expect(verifyStrict(base64ToBytes(approvals![0].signature), bytes, history.key!.approvalPublicKey)).toBe(true)
+        expect((await verifyLeafCredential(leaf, issuers.jwks)).ok).toBe(true)
+    })
+
+    it("joins carrying the approval of the device that approved it with the code, which Bob checks by that device's leaf", async () => {
+        const { directory, lost, bob } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        const laptopId = await laptop.storage.getOrCreateDeviceId()
+        const laptopRoot = (await laptop.storage.loadDeviceAttestation())!.drk_public
+        const lostDevice = { ...(await known(lost)), hpkeKey: (await lost.storage.loadDeviceAttestation())!.hpke!.public_key }
+        const signature = await lost.e2ee.signDeviceApproval(aliceActor, laptopId, laptopRoot)
+        await laptop.e2ee.rememberHandshakePartner(lostDevice, { actorUri: aliceActor, signature })
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).toEqual({ kind: "joined" })
+
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+        const [leaf] = await leavesOf(bob, dm, laptop)
+        expect(leaf.credential?.approvals).toEqual([{ by: "device", device_id: lostDevice.deviceId, signature: bytesToBase64(signature) }])
+        const [approver] = await leavesOf(bob, dm, lost)
+        const approverRoot = base64ToBytes(approver.credential!.drk_pub)
+        expect(verifyStrict(signature, approvalBytes(aliceActor, laptopId, laptopRoot), approverRoot)).toBe(true)
+    })
+
     it("stops for good on a device the instance doesn't count approved, and its waiting message fails", async () => {
         const { directory } = await lostAlice()
         const laptop = await registered(directory, "laptop-token", aliceActor)
@@ -2462,6 +2602,49 @@ describe("MLS E2EE — a device with none of its siblings in a conversation join
             const hello = await laptop.e2ee.encryptOutbound(group, text("past the lifetime"))
             expect(await read(bob, "bob-token", group, hello)).toBe("past the lifetime")
             expect(await read(dave, "dave-token", group, hello)).toBe("past the lifetime")
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+})
+
+describe("MLS E2EE — a KeyPackage lives a year", () => {
+    const group: ConversationId = "f3f3f3f3-2222-3333-4444-555566667777"
+    const issuer = "https://idp.shared.example"
+    const [aliceActor, bobActor, carolActor] = ["alice", "bob", "carol"].map((name) => asActorUri(`${issuer}/users/${name}_x1y2z`))
+    const day = 86_400_000
+    const text = (t: string): ApplicationMessage<TextBody> => ({ version: 1, kind: "text", body: { text: t } })
+
+    async function registered(directory: InMemoryKeyDirectory, token: string, actor: ActorUri) {
+        const ctx = await buildAdapter(directory, token, actor)
+        await ctx.e2ee.register(issuer, token, actor)
+        return ctx
+    }
+
+    it("has a member away 13 weeks apply an add made meanwhile with a KeyPackage from before it left", async () => {
+        vi.useFakeTimers({ toFake: ["Date"] })
+        vi.setSystemTime(Date.now())
+        try {
+            const directory = new InMemoryKeyDirectory()
+            directory.senderIssuer = issuer
+            const alice = await registered(directory, "alice-token", aliceActor)
+            const bob = await registered(directory, "bob-token", bobActor)
+            const carol = await registered(directory, "carol-token", carolActor)
+            await alice.e2ee.addContactToGroup(issuer, "alice-token", group, bobActor)
+            await bob.e2ee.consumePendingWelcomes(issuer, "bob-token", bobActor)
+
+            // Bob goes away; Carol's KeyPackage, made as he left, is claimed 29 days on.
+            vi.setSystemTime(Date.now() + 29 * day)
+            await alice.e2ee.addContactToGroup(issuer, "alice-token", group, carolActor)
+            await carol.e2ee.consumePendingWelcomes(issuer, "carol-token", carolActor)
+            const hello = await carol.e2ee.encryptOutbound(group, text("hello Bob"))
+
+            // Past openmls's default of 12 weeks, the add would stop Bob reading the group.
+            vi.setSystemTime(Date.now() + (13 * 7 - 29) * day)
+            await bob.e2ee.catchUp(issuer, "bob-token", group)
+
+            const read = await bob.e2ee.decryptInbound(group, hello, { idpUrl: issuer, accessToken: "bob-token" })
+            expect((read?.body as TextBody).text).toBe("hello Bob")
         } finally {
             vi.useRealTimers()
         }

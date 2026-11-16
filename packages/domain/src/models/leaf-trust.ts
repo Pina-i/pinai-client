@@ -3,9 +3,9 @@ import type { ActorUri, ConversationId, DeviceId } from "./e2ee"
 
 /**
  * An MLS leaf's credential, decoded (`identity-provider/specs/e2ee.md § 3.4`): the device, its
- * root key, the IdP's attestation of that key, and the root key's signature over the leaf's
- * signature key. Keys and signatures as the credential writes them, in standard base64. The bytes
- * are `@pinai/mls/leaf-credential`'s to write and read.
+ * root key, the IdP's attestation of that key, the root key's signature over the leaf's
+ * signature key, and how the device was approved. Keys and signatures as the credential writes
+ * them, in standard base64. The bytes are `@pinai/mls/leaf-credential`'s to write and read.
  */
 export interface LeafCredential {
     v: 2
@@ -14,6 +14,36 @@ export interface LeafCredential {
     drk_pub: string
     idp_att: { issuer: string; kid: string; expires_at: string; signature: string }
     leaf_binding: string
+    /** Absent: none. */
+    approvals?: LeafApproval[]
+}
+
+/**
+ * An approval of the leaf's device a credential carries (§ 3.4, § 3.9), over the
+ * `PINAI-DEVICE-APPROVAL-v1` bytes of its device id and root key: by the words — the generation's
+ * approval key —, or by the root key of the device that approved it in a code handshake.
+ */
+export type LeafApproval =
+    | { by: "passphrase"; generation: number; approval_public_key: string; signature: string }
+    | { by: "device"; device_id: DeviceId; signature: string }
+
+/**
+ * What a device's leaves carry of its approvals: the words' first, then its partners' by device
+ * id, each once — one order, so the credential it would make compares with the one its leaf holds.
+ */
+export function leafApprovals(
+    words: Omit<Extract<LeafApproval, { by: "passphrase" }>, "by"> | null,
+    partners: readonly Omit<Extract<LeafApproval, { by: "device" }>, "by">[],
+): LeafApproval[] {
+    const byDevice = [...partners]
+        .sort((a, b) => compare(a.device_id, b.device_id) || compare(a.signature, b.signature))
+        .filter((p, i, sorted) => i === 0 || p.device_id !== sorted[i - 1].device_id || p.signature !== sorted[i - 1].signature)
+        .map((p): LeafApproval => ({ by: "device", device_id: p.device_id, signature: p.signature }))
+    return [...(words ? [{ by: "passphrase" as const, ...words }] : []), ...byDevice]
+}
+
+function compare(a: string, b: string): number {
+    return a < b ? -1 : a > b ? 1 : 0
 }
 
 /** What a leaf, or a claimed KeyPackage's, claims: its credential when it is one, and its signature key. */
@@ -104,6 +134,8 @@ export function untrustedLeaf(conversationId: ConversationId, leaf: MlsLeaf, rea
 
 /** Whether a leaf carries `wanted` already: a device's own leaf against the credential it would make now. */
 export function sameCredential(held: LeafCredential | null, wanted: LeafCredential): boolean {
+    const heldApprovals = held?.approvals ?? []
+    const wantedApprovals = wanted.approvals ?? []
     return (
         held !== null &&
         held.v === wanted.v &&
@@ -114,6 +146,15 @@ export function sameCredential(held: LeafCredential | null, wanted: LeafCredenti
         held.idp_att.kid === wanted.idp_att.kid &&
         held.idp_att.expires_at === wanted.idp_att.expires_at &&
         held.idp_att.signature === wanted.idp_att.signature &&
-        held.leaf_binding === wanted.leaf_binding
+        held.leaf_binding === wanted.leaf_binding &&
+        heldApprovals.length === wantedApprovals.length &&
+        heldApprovals.every((approval, i) => sameApproval(approval, wantedApprovals[i]))
     )
+}
+
+function sameApproval(a: LeafApproval, b: LeafApproval): boolean {
+    if (a.by === "passphrase" && b.by === "passphrase") {
+        return a.generation === b.generation && a.approval_public_key === b.approval_public_key && a.signature === b.signature
+    }
+    return a.by === "device" && b.by === "device" && a.device_id === b.device_id && a.signature === b.signature
 }

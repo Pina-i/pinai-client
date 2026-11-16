@@ -210,17 +210,19 @@ describe("sealed rows", () => {
 
     it("adds to what it keeps of the account's devices, and starts with nothing", async () => {
         expect(await storage.loadDeviceTrust()).toEqual({
-            trust: { seen: [], approved: [], revoked: [], partners: [], baselines: [], before: [] },
+            trust: { seen: [], approved: [], revoked: [], partners: [], partnerApprovals: [], baselines: [], before: [] },
             unreadable: [],
         })
 
         await storage.addToDeviceTrust({ seen: [{ deviceId: "phone", rootKey: bytes(30) }], approved: [{ deviceId: "phone", rootKey: bytes(30) }] })
         const partner = { deviceId: "laptop", rootKey: bytes(32), hpkeKey: bytes(33) }
         const before = { generation: 2, cause: "start-over" as const, devices: [{ deviceId: "phone", rootKey: bytes(30) }], refused: [{ deviceId: "watch", rootKey: bytes(34) }] }
+        const partnerApproval = { partner: { deviceId: "laptop", rootKey: bytes(32) }, rootKey: bytes(35), signature: bytes(36, 64) }
         const added = await storage.addToDeviceTrust({
             approved: [{ deviceId: "tablet", rootKey: bytes(31) }],
             revoked: ["watch"],
             partners: [partner],
+            partnerApprovals: [partnerApproval],
             baselines: [2],
             before: [before],
         })
@@ -234,6 +236,7 @@ describe("sealed rows", () => {
             ],
             revoked: ["watch"],
             partners: [partner],
+            partnerApprovals: [partnerApproval],
             baselines: [2],
             before: [before],
         }
@@ -241,9 +244,12 @@ describe("sealed rows", () => {
         expect(await storage.loadDeviceTrust()).toEqual({ trust, unreadable: [] })
         expect((await storage.loadDeviceTrust()).trust.approved[1].rootKey).toBeInstanceOf(Uint8Array)
         expect((await storage.loadDeviceTrust()).trust.partners[0].hpkeKey).toBeInstanceOf(Uint8Array)
+        expect((await storage.loadDeviceTrust()).trust.partnerApprovals[0].signature).toBeInstanceOf(Uint8Array)
         expect((await storage.loadDeviceTrust()).trust.before[0].devices[0].rootKey).toBeInstanceOf(Uint8Array)
         expect((await storage.loadDeviceTrust()).trust.before[0].refused[0].rootKey).toBeInstanceOf(Uint8Array)
-        expect(await rowsOf("device_attestation")).toEqual(expect.arrayContaining(["trust:partners", "trust:baselines", "trust:before"]))
+        expect(await rowsOf("device_attestation")).toEqual(
+            expect.arrayContaining(["trust:partners", "trust:partner-approvals", "trust:baselines", "trust:before"]),
+        )
     })
 
     it("keeps what another tab added meanwhile: each row read again just before it is written", async () => {
@@ -267,7 +273,15 @@ describe("sealed rows", () => {
         await kv.put("device_attestation", "trust:revoked", bytes(42, 64))
 
         expect(await storage.loadDeviceTrust()).toEqual({
-            trust: { seen: [{ deviceId: "phone", rootKey: bytes(30) }], approved: [], revoked: [], partners: [], baselines: [], before: [] },
+            trust: {
+                seen: [{ deviceId: "phone", rootKey: bytes(30) }],
+                approved: [],
+                revoked: [],
+                partners: [],
+                partnerApprovals: [],
+                baselines: [],
+                before: [],
+            },
             unreadable: ["approved", "revoked", "before"],
         })
 
@@ -370,7 +384,15 @@ describe("clear", () => {
 
         await storage.clear()
 
-        expect((await storage.loadDeviceTrust()).trust).toEqual({ seen: [], approved: [], revoked: [], partners: [], baselines: [], before: [] })
+        expect((await storage.loadDeviceTrust()).trust).toEqual({
+            seen: [],
+            approved: [],
+            revoked: [],
+            partners: [],
+            partnerApprovals: [],
+            baselines: [],
+            before: [],
+        })
         expect(await storage.loadIdentityKeypair()).toBeNull()
         expect(await storage.loadMlsSnapshot()).toBeNull()
         expect(await storage.loadDeviceAttestation()).toBeNull()

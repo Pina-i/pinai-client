@@ -40,7 +40,7 @@ use openmls::{
     credentials::{BasicCredential, CredentialWithKey},
     framing::{MlsMessageBodyIn, MlsMessageIn, MlsMessageOut, ProcessedMessageContent},
     group::{CommitBuilder, GroupId, Initial, MlsGroup, MlsGroupJoinConfig, StagedWelcome},
-    key_packages::{KeyPackage as OpenMlsKeyPackage, KeyPackageIn},
+    key_packages::{KeyPackage as OpenMlsKeyPackage, KeyPackageIn, Lifetime},
     messages::{group_info::VerifiableGroupInfo, Welcome},
     prelude::{LeafNodeIndex, LeafNodeParameters, ProtocolVersion, SignatureScheme},
     treesync::RatchetTreeIn,
@@ -91,6 +91,10 @@ pub fn start() {
 /// the openmls reference WASM example pins.
 const CIPHERSUITE: Ciphersuite =
     Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519;
+
+/// A year: a member applies an add only within the added KeyPackage's lifetime, and openmls's
+/// 12 weeks would leave one away a few weeks unable to read on (`README.md`).
+const KEY_PACKAGE_LIFETIME_SECONDS: u64 = 365 * 24 * 60 * 60;
 
 // ─── Provider ────────────────────────────────────────────────────────────────
 
@@ -237,6 +241,20 @@ impl Identity {
                 )
             })
     }
+
+    fn key_package_living(&self, provider: &Provider, lifetime: Lifetime) -> Result<KeyPackage, JsError> {
+        let signer = self.signer(provider)?;
+        let kp = OpenMlsKeyPackage::builder()
+            .key_package_lifetime(lifetime)
+            .build(
+                CIPHERSUITE,
+                &provider.0,
+                &signer,
+                self.credential_with_key.clone(),
+            )
+            .map_err(|e| JsError::new(&format!("KeyPackage build failed: {e}")))?;
+        Ok(KeyPackage(kp.key_package().clone()))
+    }
 }
 
 #[wasm_bindgen]
@@ -277,19 +295,10 @@ impl Identity {
     }
 
     /// Build a fresh single-use KeyPackage for upload to the IdP key
-    /// directory. Caller is responsible for batching these into the
-    /// `POST /api/keys/packages` payload.
+    /// directory, living [`KEY_PACKAGE_LIFETIME_SECONDS`]. Caller is
+    /// responsible for batching these into the `POST /api/keys/packages` payload.
     pub fn key_package(&self, provider: &Provider) -> Result<KeyPackage, JsError> {
-        let signer = self.signer(provider)?;
-        let kp = OpenMlsKeyPackage::builder()
-            .build(
-                CIPHERSUITE,
-                &provider.0,
-                &signer,
-                self.credential_with_key.clone(),
-            )
-            .map_err(|e| JsError::new(&format!("KeyPackage build failed: {e}")))?;
-        Ok(KeyPackage(kp.key_package().clone()))
+        self.key_package_living(provider, Lifetime::new(KEY_PACKAGE_LIFETIME_SECONDS))
     }
 
     /// The Ed25519 public key bytes — used for fingerprinting in the UI.
@@ -990,7 +999,7 @@ fn serialize_message(msg: &MlsMessageOut) -> Result<Vec<u8>, JsError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use openmls::key_packages::{errors::KeyPackageVerifyError, Lifetime};
+    use openmls::key_packages::errors::KeyPackageVerifyError;
     use openmls::messages::external_proposals::JoinProposal;
 
     /// A fresh signature key bound to `credential`, as a device binds its leaf credential.
@@ -1317,16 +1326,7 @@ mod tests {
 
     /// A KeyPackage of `identity`'s whose leaf lives `seconds` more.
     fn short_lived_key_package(provider: &Provider, identity: &Identity, seconds: u64) -> KeyPackage {
-        let bundle = OpenMlsKeyPackage::builder()
-            .key_package_lifetime(Lifetime::new(seconds))
-            .build(
-                CIPHERSUITE,
-                &provider.0,
-                &identity.signer(provider).unwrap(),
-                identity.credential_with_key.clone(),
-            )
-            .unwrap();
-        KeyPackage(bundle.key_package().clone())
+        identity.key_package_living(provider, Lifetime::new(seconds)).unwrap()
     }
 
     /// Alice's group with Bob, whose leaf — never updated — outlived the KeyPackage it came in by.
@@ -1404,6 +1404,61 @@ mod tests {
             .validate(&openmls_rust_crypto::RustCrypto::default(), ProtocolVersion::Mls10);
 
         assert!(matches!(validated, Err(KeyPackageVerifyError::InvalidLifetime)));
+    }
+
+    const WEEK: u64 = 7 * 24 * 60 * 60;
+
+    /// A KeyPackage of `identity`'s made `ago` seconds back and living `seconds` from then — the
+    /// clock moved on by `ago` since it was made, as far as its lifetime tells.
+    fn key_package_made_ago(provider: &Provider, identity: &Identity, ago: u64, seconds: u64) -> KeyPackage {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let made = now - ago;
+        identity
+            .key_package_living(provider, Lifetime::init(made - 60 * 60, made + seconds))
+            .unwrap()
+    }
+
+    /// Charles's KeyPackage was made 13 weeks ago: Bob, away since, still applies the add that used
+    /// it, and reads Charles. Under openmls's default of 12 weeks, the check an add goes through —
+    /// Bob's as he applies it, Alice's as she makes it — refuses it by then.
+    #[test]
+    fn a_member_applies_an_add_thirteen_weeks_after_the_key_package_was_made() {
+        let (mut alice_p, mut alice_group, mut bob_p, mut bob_group) = alice_with_bob(b"conv-032");
+        let charles_p = Provider::new();
+        let charles = identity(&charles_p, b"charles");
+        let made = key_package_made_ago(&charles_p, &charles, 13 * WEEK, KEY_PACKAGE_LIFETIME_SECONDS);
+        let add = alice_group.add_member(&alice_p, &made).unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+
+        bob_group.process_message(&mut bob_p, &add.commit).unwrap();
+        let mut charles_group = Group::join(&charles_p, &add.welcome, None).unwrap();
+        let hello = charles_group.encrypt_application(&charles_p, b"hello Bob").unwrap();
+        assert_eq!(bob_group.process_message(&mut bob_p, &hello).unwrap().application(), b"hello Bob");
+
+        let twelve_weeks = key_package_made_ago(&charles_p, &charles, 13 * WEEK, 12 * WEEK);
+        let signer = alice_group.signer(&alice_p).unwrap();
+        let refused = alice_group
+            .mls_group
+            .commit_builder()
+            .propose_adds([twelve_weeks.0])
+            .load_psks(alice_p.0.storage())
+            .unwrap()
+            .build(alice_p.0.rand(), alice_p.0.crypto(), &signer, |_| true);
+        assert!(refused.is_err(), "openmls checks an added KeyPackage's lifetime");
+    }
+
+    /// What every KeyPackage carries: a year, from an hour back for clocks running late.
+    #[test]
+    fn a_key_package_lives_a_year() {
+        let provider = Provider::new();
+        let bob = identity(&provider, b"bob");
+
+        let lifetime = *bob.key_package(&provider).unwrap().0.life_time();
+
+        assert_eq!(lifetime.not_after() - lifetime.not_before(), KEY_PACKAGE_LIFETIME_SECONDS + 60 * 60);
     }
 
     /// A join by external commit the provider still holds, neither kept nor deleted — a reload came

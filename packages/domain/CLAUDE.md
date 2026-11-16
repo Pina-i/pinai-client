@@ -161,7 +161,14 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   an own-account one not trusted (`OwnLeafRefusal`), named by its
   credential's unverified word (`IE2eePort.onTrustEvent`, `trustSnapshot`).
   `sameCredential` — whether a device's own leaf carries the credential it
-  would make now (`refreshOwnLeaf`).
+  would make now (`refreshOwnLeaf`), its approvals included (none and an empty
+  list the same).
+- `LeafApproval` — how the leaf's device was approved, as its credential carries it
+  (`identity-provider/specs/e2ee.md § 3.4`): by the words (`generation`,
+  `approval_public_key`) or by a partner's root key (`device_id`), both over
+  `PINAI-DEVICE-APPROVAL-v1`. `leafApprovals` — the one order a device writes them in:
+  the words' first, then its partners' by device id, each once, so the credential it
+  would make compares with its leaf's. Members checking them is not here.
 
 ### models/device.ts
 - `DeviceListEntry` carries what another device needs to check the chain JWKS
@@ -218,6 +225,10 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `HandshakePartner` — a device approved both ways in a code handshake, with the
   root key and HPKE key the exchange gave, never the list's: the `partners` row
   (`DEVICE_TRUST_ROWS`), which 18h shares by.
+- `PartnerApproval` — the partner's approval of this device the asker kept as the
+  exchange ended, over the root key it held then (`partnerApprovals` row; one per
+  partner and signature). `partnerApprovalsOver` — those of its root key as it is now:
+  what its leaves carry.
 - `unapprovedListed` — the listed rows an `unapproved-device` event stands for, by id
   and the root key listed now (Settings → Devices).
 
@@ -316,6 +327,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   approves it — an ambiguous failure posted again (`204` to a repeat), one
   refused for good ending the run — then closes. The asker approves back only
   once the list shows that approval verified under the key the exchange gave.
+  The asker keeps the answerer's approval of it with the partner
+  (`rememberHandshakePartner(partner, approval)`): its leaves carry it from then on.
   The answerer times out (`ANSWER_TIMEOUT_MS`); `cancel` and an answerer's
   `abandon` after it took part end the request. The session's secrets go when it
   settles; the last token held still closes after a sign-out. Approved, the answerer
@@ -709,6 +722,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   generation's key under another number; the words are kept, nothing uploaded), `no-key`,
   `no-passphrase` (with the key's generation). Generations only move forward; words give the one
   generation they were kept for. `newestGenerationSeen`, `approvalCarriedOver`, `buffersForArchive`;
+  `carriesWordsApproval` — the leaves carry the words' approval while the standing holds the
+  generation the words were kept for: words a later generation replaced approve nothing any more.
   `savesToArchive` — entries go only once `holds` is `settled`: the device approved itself with its
   words and reported. The instance takes uploads from any device approved under the key, by its
   words or by a device so approved, and refuses the rest (`approval_required`); waiting for its own

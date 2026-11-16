@@ -33,6 +33,7 @@ import {
     judgeDevices,
     judgeLeaf,
     keyChangedUnder,
+    partnerApprovalsOver,
     resetByUnapproved,
     resetSince,
     sameDevice,
@@ -60,9 +61,11 @@ import { KeyPackageUnavailable, devicesToAdd, leavesToRemove } from "@pinai/doma
 import { instanceOrigin } from "@pinai/domain/models/identity"
 import {
     admitsClaim,
+    leafApprovals,
     leafOrigin,
     sameCredential,
     untrustedLeaf,
+    type LeafApproval,
     type LeafClaim,
     type LeafCredential,
     type LeafVerdict,
@@ -81,6 +84,7 @@ import {
 import {
     approvalCarriedOver,
     buffersForArchive,
+    carriesWordsApproval,
     isSettled,
     newestGenerationSeen,
     opensSaves,
@@ -323,6 +327,7 @@ export class E2eeAdapter implements IE2eePort {
         deviceId: DeviceId,
         attestation: DeviceAttestation,
         signatureKey: Uint8Array,
+        approvals: LeafApproval[],
     ): LeafCredential {
         const issuer = instanceOrigin(actorUri)
         if (!issuer) throw new Error(`Not an actor URI: ${actorUri}`)
@@ -339,7 +344,36 @@ export class E2eeAdapter implements IE2eePort {
                 signature: bytesToBase64(attestation.signature),
             },
             leaf_binding: bytesToBase64(binding),
+            approvals,
         }
+    }
+
+    /**
+     * How this device was approved, as its leaves carry it (§ 3.4): its words' approval, made
+     * again from the words it keeps while they give the key last found in force, and its partners'
+     * approvals of its root key as it is now — from what it keeps, never the list. The standing is
+     * the one recorded, so every tab makes the same credential.
+     */
+    private async ownApprovals(actorUri: ActorUri, deviceId: DeviceId, rootKey: Uint8Array): Promise<LeafApproval[]> {
+        const kept = await this.storage.loadKeptPassphrase()
+        const standing = await this.storage.loadHistoryKeyStanding()
+        const sealer = this.historyCrypto
+        const words =
+            kept && sealer && carriesWordsApproval(standing, kept.generation)
+                ? {
+                      generation: kept.generation,
+                      approval_public_key: bytesToBase64(sealer.derive(kept.derived.hak).approvalPublicKey),
+                      signature: bytesToBase64(sealer.signApproval(kept.derived.hak, approvalBytes(actorUri, deviceId, rootKey))),
+                  }
+                : null
+        const read = this.trustTurn.then(() => this.storage.loadDeviceTrust())
+        this.trustTurn = read.catch(() => undefined)
+        const { trust } = await read
+        const partners = partnerApprovalsOver(trust, rootKey).map((approval) => ({
+            device_id: approval.partner.deviceId,
+            signature: bytesToBase64(approval.signature),
+        }))
+        return leafApprovals(words, partners)
     }
 
     // ─── Leaf checks ──────────────────────────────────────────────────
@@ -1306,7 +1340,8 @@ export class E2eeAdapter implements IE2eePort {
         }
         await this.providerInitPromise
 
-        if (this.identityBound || !localActorUri) return
+        if (!localActorUri) return
+        if (this.identityBound && !(await this.approvalsMoved(localActorUri))) return
         if (!this.identityBindPromise) {
             const binding: Promise<void> = this.doBindIdentity(localActorUri).finally(() => {
                 // A wipe may have dropped this bind for another meanwhile.
@@ -1315,6 +1350,22 @@ export class E2eeAdapter implements IE2eePort {
             this.identityBindPromise = binding
         }
         await this.identityBindPromise
+    }
+
+    /** The approvals this device would carry now aren't the bound credential's; one that can't be read keeps it. */
+    private async approvalsMoved(actorUri: ActorUri): Promise<boolean> {
+        try {
+            const attestation = await this.storage.loadDeviceAttestation()
+            if (!attestation) return false
+            const approvals = await this.ownApprovals(actorUri, await this.storage.getOrCreateDeviceId(), attestation.drk_public)
+            if (JSON.stringify(approvals) === this.boundApprovals) return false
+            this.identityBound = false
+            return true
+        } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn("[e2ee] reading this device's approvals failed; its credential stays as bound", e)
+            return false
+        }
     }
 
     private async doProviderInit(): Promise<void> {
@@ -1351,7 +1402,9 @@ export class E2eeAdapter implements IE2eePort {
             // A key one of the restored groups' leaves carries, so a reload doesn't mint one for
             // the next KeyPackages. Groups sign with their own leaf's key either way.
             const signatureKey = (await this.mls.ownLeafSignatureKey()) ?? (await this.mls.generateSignatureKey())
-            await this.mls.setIdentity(this.leafCredential(localActorUri, deviceId, attestation, signatureKey), signatureKey)
+            const approvals = await this.ownApprovals(localActorUri, deviceId, attestation.drk_public)
+            await this.mls.setIdentity(this.leafCredential(localActorUri, deviceId, attestation, signatureKey, approvals), signatureKey)
+            this.boundApprovals = JSON.stringify(approvals)
             // A fresh key lives in the provider's storage only: the next reload must find it.
             await this.persistMlsState()
             if (version === this.attestationVersion) {
@@ -1362,6 +1415,8 @@ export class E2eeAdapter implements IE2eePort {
     }
 
     private identityBound = false
+    /** The approvals the bound credential carries, as written: other ones bind it again. */
+    private boundApprovals: string | null = null
     /** Moved by each registration: a bind that read the attestation before it is bound again. */
     private attestationVersion = 0
     private snapshotRestored = false
@@ -2064,8 +2119,21 @@ export class E2eeAdapter implements IE2eePort {
         return verifyStrict(signature, approvalBytes(actorUri, deviceId, attestation.drk_public), approverRootKey)
     }
 
-    async rememberHandshakePartner(partner: HandshakePartner): Promise<void> {
-        const run = this.trustTurn.then(() => this.storage.addToDeviceTrust({ partners: [partner] }))
+    async rememberHandshakePartner(
+        partner: HandshakePartner,
+        approvalOfThisDevice?: { actorUri: ActorUri; signature: Uint8Array },
+    ): Promise<void> {
+        const change: Partial<DeviceTrust> = { partners: [partner] }
+        const attestation = approvalOfThisDevice && (await this.storage.loadDeviceAttestation())
+        if (approvalOfThisDevice && attestation) {
+            const { actorUri, signature } = approvalOfThisDevice
+            const bytes = approvalBytes(actorUri, await this.storage.getOrCreateDeviceId(), attestation.drk_public)
+            if (verifyStrict(signature, bytes, partner.rootKey)) {
+                const approver = { deviceId: partner.deviceId, rootKey: partner.rootKey }
+                change.partnerApprovals = [{ partner: approver, rootKey: attestation.drk_public, signature }]
+            }
+        }
+        const run = this.trustTurn.then(() => this.storage.addToDeviceTrust(change))
         this.trustTurn = run.catch(() => undefined)
         await run
     }
@@ -2419,10 +2487,11 @@ export class E2eeAdapter implements IE2eePort {
             const attestation = await this.storage.loadDeviceAttestation()
             if (!me || !attestation || !(await this.mls.hasGroup(conversationId))) return { refreshed: false }
             const deviceId = await this.storage.getOrCreateDeviceId()
+            const approvals = await this.ownApprovals(me, deviceId, attestation.drk_public)
             const commits = await this.commitEach(idpUrl, accessToken, conversationId, async () => {
                 const own = (await this.mls.groupLeaves(conversationId)).find((leaf) => leaf.own)
                 if (!own) return null
-                const wanted = this.leafCredential(me, deviceId, attestation, own.signatureKey)
+                const wanted = this.leafCredential(me, deviceId, attestation, own.signatureKey, approvals)
                 if (sameCredential(own.credential, wanted)) return null
                 return this.mls.updateOwnCredential(conversationId, wanted)
             })

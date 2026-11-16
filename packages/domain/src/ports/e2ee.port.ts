@@ -283,7 +283,8 @@ export interface IE2eePort {
 
     /**
      * Puts in this device's own leaf the credential it would make now for the key the leaf
-     * carries — a leaf from before the leaf binding, or before the attestation was renewed —, one
+     * carries — a leaf from before the leaf binding, before the attestation was renewed, or before
+     * the device's approvals changed (its words, a new generation, its partner's approval) —, one
      * commit when it differs. An epoch race is handled as {@link IE2eePort.pruneGroup} does.
      */
     refreshOwnLeaf(
@@ -518,8 +519,15 @@ export interface IE2eePort {
     /** Whether `signature` is `approverRootKey` approving this very device over its own root key. */
     approvesThisDevice(actorUri: ActorUri, approverRootKey: Uint8Array, signature: Uint8Array): Promise<boolean>
 
-    /** Kept in `device_trust` for good, with the keys from the exchange. */
-    rememberHandshakePartner(partner: HandshakePartner): Promise<void>
+    /**
+     * Kept in `device_trust` for good, with the keys from the exchange; the device asking passes the
+     * partner's approval of it, kept too when it verifies over its root key under the partner's from
+     * the exchange — what its leaves carry from then on (`identity-provider/specs/e2ee.md § 3.4`).
+     */
+    rememberHandshakePartner(
+        partner: HandshakePartner,
+        approvalOfThisDevice?: { actorUri: ActorUri; signature: Uint8Array },
+    ): Promise<void>
 
     /** The devices this one approved, and was approved by, in a code handshake. */
     handshakePartners(): Promise<HandshakePartner[]>

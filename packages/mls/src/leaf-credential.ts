@@ -8,11 +8,11 @@
  * cannot identify each other, so this lives outside both of them.
  */
 
-import type { LeafCredential } from "@pinai/domain/models/leaf-trust"
+import type { LeafApproval, LeafCredential } from "@pinai/domain/models/leaf-trust"
 
-export type { LeafCredential }
+export type { LeafApproval, LeafCredential }
 
-/** UTF-8 JSON, its fields always in the order of § 3.4, whatever order they came in. */
+/** UTF-8 JSON, its fields always in the order of § 3.4, whatever order they came in; no `approvals` when there are none. */
 export function encodeLeafCredential(c: LeafCredential): Uint8Array {
     const ordered: LeafCredential = {
         v: 2,
@@ -27,10 +27,20 @@ export function encodeLeafCredential(c: LeafCredential): Uint8Array {
         },
         leaf_binding: c.leaf_binding,
     }
+    if (c.approvals && c.approvals.length > 0) ordered.approvals = c.approvals.map(orderedApproval)
     return new TextEncoder().encode(JSON.stringify(ordered))
 }
 
-/** A v2 credential, or null for anything else. */
+function orderedApproval(a: LeafApproval): LeafApproval {
+    return a.by === "passphrase"
+        ? { by: "passphrase", generation: a.generation, approval_public_key: a.approval_public_key, signature: a.signature }
+        : { by: "device", device_id: a.device_id, signature: a.signature }
+}
+
+/**
+ * A v2 credential, or null for anything else. An approval it can't read — another kind, a field
+ * missing — is left out: it proves nothing, and is no reason to refuse the leaf.
+ */
 export function decodeLeafCredential(bytes: Uint8Array): LeafCredential | null {
     let obj: unknown
     try {
@@ -42,6 +52,7 @@ export function decodeLeafCredential(bytes: Uint8Array): LeafCredential | null {
     const att = obj.idp_att
     const strings = [obj.actor_uri, obj.device_id, obj.drk_pub, obj.leaf_binding, att.issuer, att.kid, att.expires_at, att.signature]
     if (!strings.every((s) => typeof s === "string")) return null
+    const approvals = Array.isArray(obj.approvals) ? obj.approvals.flatMap(decodeApproval) : []
     return {
         v: 2,
         actor_uri: obj.actor_uri as LeafCredential["actor_uri"],
@@ -54,7 +65,21 @@ export function decodeLeafCredential(bytes: Uint8Array): LeafCredential | null {
             signature: att.signature as string,
         },
         leaf_binding: obj.leaf_binding as string,
+        ...(approvals.length > 0 ? { approvals } : {}),
     }
+}
+
+function decodeApproval(value: unknown): LeafApproval[] {
+    if (!isRecord(value) || typeof value.signature !== "string") return []
+    if (value.by === "passphrase") {
+        const { generation, approval_public_key } = value
+        if (!Number.isSafeInteger(generation) || (generation as number) < 1 || typeof approval_public_key !== "string") return []
+        return [{ by: "passphrase", generation: generation as number, approval_public_key, signature: value.signature }]
+    }
+    if (value.by === "device" && typeof value.device_id === "string") {
+        return [{ by: "device", device_id: value.device_id, signature: value.signature }]
+    }
+    return []
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -41,11 +41,19 @@ under that group id are deleted first, by it and by `Group::join`.
 
 ## Leaf lifetimes
 
+`Identity::key_package` builds KeyPackages that live a year (`KEY_PACKAGE_LIFETIME_SECONDS`),
+not openmls's default 12 weeks. openmls checks an added KeyPackage's lifetime when a member
+applies the add, with no way to skip it: with 12 weeks, a member away a few weeks — 12 weeks
+less the package's age when it was claimed, up to the instance's 30 days — could no longer apply
+an add made meanwhile, and would stop reading the group. openmls's `has_acceptable_range`
+(12 weeks) is never called, here nor in openmls. The instance still drops unclaimed packages
+after 30 days.
+
 No join — `Group::join`, `rejoin`, `join_by_external_commit` — checks the lifetime of the
 tree's leaves (`skip_lifetime_validation`). Only a leaf never updated has one, the
-KeyPackage's it came in by (openmls's default, 12 weeks), and nothing refreshes leaves on a
-schedule: past it, a member who never committed would keep every new device out of the
-group. A KeyPackage is still checked when it is added.
+KeyPackage's it came in by, and nothing refreshes leaves on a schedule: past it, a member who
+never committed would keep every new device out of the group. A KeyPackage is still checked
+when it is added.
 
 `process_message` drops every proposal (`ProcessedKind::Proposal`), a join proposal
 among them, and a commit never takes in the group's proposal store: a proposal kept

@@ -143,7 +143,15 @@ describe("what a review judges and keeps", () => {
     it("keeps only what is new, and is the very same record when nothing is", () => {
         const trust = withTrust(emptyDeviceTrust(), { seen: [{ deviceId: "a", rootKey: root(1) }], revoked: ["b", "b"] })
 
-        expect(trust).toEqual({ seen: [{ deviceId: "a", rootKey: root(1) }], approved: [], revoked: ["b"], partners: [], baselines: [], before: [] })
+        expect(trust).toEqual({
+            seen: [{ deviceId: "a", rootKey: root(1) }],
+            approved: [],
+            revoked: ["b"],
+            partners: [],
+            partnerApprovals: [],
+            baselines: [],
+            before: [],
+        })
         expect(withTrust(trust, { seen: [{ deviceId: "a", rootKey: root(1) }], revoked: ["b"] })).toBe(trust)
         expect(withTrust(trust, { seen: [{ deviceId: "a", rootKey: root(2) }] }).seen).toHaveLength(2)
 
@@ -151,6 +159,11 @@ describe("what a review judges and keeps", () => {
         const partnered = withTrust(trust, { partners: [partner] })
         expect(withTrust(partnered, { partners: [{ ...partner }] })).toBe(partnered)
         expect(withTrust(partnered, { partners: [{ ...partner, hpkeKey: root(5) }] }).partners).toHaveLength(2)
+
+        const approval = { partner: { deviceId: "c", rootKey: root(3) }, rootKey: root(1), signature: root(6) }
+        const approved = withTrust(trust, { partnerApprovals: [approval] })
+        expect(withTrust(approved, { partnerApprovals: [{ ...approval, partner: { ...approval.partner } }] })).toBe(approved)
+        expect(withTrust(approved, { partnerApprovals: [{ ...approval, rootKey: root(7), signature: root(8) }] }).partnerApprovals).toHaveLength(2)
 
         const entry = (generation: number, devices = [{ deviceId: "a", rootKey: root(1) }]): DevicesBefore => ({
             generation,

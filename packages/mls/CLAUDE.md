@@ -19,9 +19,14 @@ because Hermes has no WebAssembly.
   disagreed here would build groups whose members cannot identify each other.
   `apps/web/test/leaf-credential.spec.ts` pins the exact encoding.
   - v2 only: `{ v: 2, actor_uri, device_id, drk_pub, idp_att: { issuer, kid,
-    expires_at, signature }, leaf_binding }`, written in that order whatever
+    expires_at, signature }, leaf_binding, approvals }`, written in that order whatever
     order the object holds. Anything else decodes to `null` — a leaf without a
     credential, never trusted. The type is the domain's (`models/leaf-trust.ts`).
+  - `approvals` — how the device was approved: `{ by: "passphrase", generation,
+    approval_public_key, signature }` and `{ by: "device", device_id, signature }`, each
+    kind's fields in that order. None is written as no key at all, and read so. An
+    approval that doesn't read — another kind, a field missing or mistyped — is left
+    out, the credential kept: it proves nothing, and is no reason to refuse a leaf.
 - **`wasm.adapter.ts`** — `MlsAdapter`, the WASM `IMlsEngine`, and the
   bundle's HPKE (`IHpkePort`, one load for both). Owns one
   `Provider` + one `Identity` + a `Map<conversation_id, Group>`. The only
@@ -52,8 +57,9 @@ because Hermes has no WebAssembly.
     `{ kind: "proposal" }`: the wrapper keeps none.
   - No join — by Welcome, again by Welcome, by external commit — checks the
     tree's leaf lifetimes (`crypto/openmls-wasm/README.md`); a KeyPackage added
-    still is. `joinGroup` deletes first what a join never kept left in the
-    provider under that group id (a reload while it was pending).
+    still is, by every member applying the add: KeyPackages live a year.
+    `joinGroup` deletes first what a join never kept left in the provider under
+    that group id (a reload while it was pending).
 
 ## When to split this package
 

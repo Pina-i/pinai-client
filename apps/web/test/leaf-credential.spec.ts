@@ -25,6 +25,14 @@ const CREDENTIAL: LeafCredential = {
     leaf_binding: "YmluZGluZw==",
 }
 
+const APPROVED: LeafCredential = {
+    ...CREDENTIAL,
+    approvals: [
+        { by: "passphrase", generation: 2, approval_public_key: "YXBwcm92YWw=", signature: "d29yZHM=" },
+        { by: "device", device_id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", signature: "cGFydG5lcg==" },
+    ],
+}
+
 const utf8 = (s: string) => new TextEncoder().encode(s)
 
 describe("leaf credential", () => {
@@ -59,6 +67,47 @@ describe("leaf credential", () => {
 
     it("round-trips", () => {
         expect(decodeLeafCredential(encodeLeafCredential(CREDENTIAL))).toEqual(CREDENTIAL)
+    })
+
+    it("writes its approvals last, each kind's fields in the spec's order, whatever order they came in", () => {
+        const shuffled = {
+            ...APPROVED,
+            approvals: [
+                { signature: "d29yZHM=", approval_public_key: "YXBwcm92YWw=", generation: 2, by: "passphrase" },
+                { signature: "cGFydG5lcg==", device_id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", by: "device" },
+            ],
+        } as LeafCredential
+
+        expect(new TextDecoder().decode(encodeLeafCredential(shuffled))).toBe(
+            new TextDecoder().decode(encodeLeafCredential(CREDENTIAL)).slice(0, -1) +
+                ',"approvals":[{"by":"passphrase","generation":2,"approval_public_key":"YXBwcm92YWw=","signature":"d29yZHM="},' +
+                '{"by":"device","device_id":"6ba7b810-9dad-11d1-80b4-00c04fd430c8","signature":"cGFydG5lcg=="}]}',
+        )
+        expect(decodeLeafCredential(encodeLeafCredential(shuffled))).toEqual(APPROVED)
+    })
+
+    it("writes no approvals at all for a device that has none, and reads their absence as none", () => {
+        expect(encodeLeafCredential({ ...CREDENTIAL, approvals: [] })).toEqual(encodeLeafCredential(CREDENTIAL))
+        expect(decodeLeafCredential(encodeLeafCredential(CREDENTIAL))?.approvals).toBeUndefined()
+        expect(decodeLeafCredential(utf8(JSON.stringify({ ...CREDENTIAL, approvals: [] })))).toEqual(CREDENTIAL)
+    })
+
+    it("leaves out an approval it can't read, never the credential: another kind, a field missing or mistyped", () => {
+        const [words, partner] = APPROVED.approvals!
+        const unreadable = [
+            { by: "instance", signature: "c2ln" },
+            { by: "passphrase", generation: 0, approval_public_key: "a2V5", signature: "c2ln" },
+            { by: "passphrase", generation: 1.5, approval_public_key: "a2V5", signature: "c2ln" },
+            { by: "passphrase", generation: 2, signature: "c2ln" },
+            { by: "device", device_id: 7, signature: "c2ln" },
+            { by: "device", device_id: "d" },
+            "device",
+        ]
+        const bytes = utf8(JSON.stringify({ ...CREDENTIAL, approvals: [unreadable[0], words, ...unreadable.slice(1), partner] }))
+
+        expect(decodeLeafCredential(bytes)).toEqual(APPROVED)
+        expect(decodeLeafCredential(utf8(JSON.stringify({ ...CREDENTIAL, approvals: "all of them" })))).toEqual(CREDENTIAL)
+        expect(decodeLeafCredential(utf8(JSON.stringify({ ...CREDENTIAL, approvals: unreadable })))).toEqual(CREDENTIAL)
     })
 
     it("returns null rather than throwing on bytes that are not a credential", () => {
