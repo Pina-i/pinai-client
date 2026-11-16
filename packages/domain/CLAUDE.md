@@ -137,6 +137,10 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   the leaf checks need: `inspectKeyPackage`, `groupLeaves` (`MlsLeaf`, `own`
   marked), a commit's `leavesMet`; `updateOwnCredential` for the device's own
   leaf.
+- Every commit answers `CommitOutput`: the commit and the GroupInfo of the
+  epoch it opens, posted together. `joinByExternalCommit` is pending as a
+  commit is — `mergePendingCommit` holds the group, `clearPendingCommit` drops
+  it. A proposal received is ignored (`kind: "proposal"`).
 
 ### ports/hpke.port.ts
 - `IHpkePort` — RFC 9180 base mode, one suite (DHKEM(X25519, HKDF-SHA256),
@@ -365,7 +369,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 ### ports/key-directory.port.ts
 - `IKeyDirectoryPort` — the IdP key directory + MLS Delivery Service as the
   E2EE core needs it: register the device, claim key packages, post commits
-  and welcomes
+  (each with its GroupInfo) and welcomes, read a group's newest GroupInfo
+  (`getGroupInfo`, `null` while it has no group)
 - Plus the wire DTOs (`CommitView`, `WelcomeView`, `IdentityKeysResponse`,
   `RegisterDeviceResponse`), base64 already decoded to bytes
 - Lives here, not beside its REST implementation, so the crypto core does not

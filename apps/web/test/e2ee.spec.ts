@@ -199,7 +199,7 @@ describe("mls adapter — what a device checks of a leaf", () => {
         const [own] = await alice.groupLeaves(conversationId)
         const renewed = credentialFor(testDevice(issuers, asActorUri("https://idp.example.com/users/alice")), own.signatureKey)
 
-        const commit = await alice.updateOwnCredential(conversationId, renewed)
+        const { commit } = await alice.updateOwnCredential(conversationId, renewed)
         await alice.mergePendingCommit(conversationId)
         const outcome = await bob.processMessage(conversationId, commit)
 
@@ -212,5 +212,88 @@ describe("mls adapter — what a device checks of a leaf", () => {
             await alice.encryptApplication(conversationId, new TextEncoder().encode("same key")),
         )
         expect(after.kind).toBe("application")
+    })
+})
+
+describe("mls adapter — a device joining by external commit", () => {
+    const conversationId = "00112233-4455-6677-8899-aabbccddeeff"
+    const otherConversation = "ffeeddcc-bbaa-9988-7766-554433221100"
+
+    /** Alice's group with Bob, and the GroupInfo its last commit came with. */
+    async function aliceWithBob() {
+        const alice = await makeAdapter("https://idp.example.com/users/alice")
+        const bob = await makeAdapter("https://idp.example.com/users/bob")
+        await alice.createGroup(conversationId)
+        const add = await alice.addMember(conversationId, await bob.createKeyPackage())
+        await alice.mergePendingCommit(conversationId)
+        await bob.joinGroup(conversationId, add.welcome, null)
+        return { alice, bob, groupInfo: add.group_info }
+    }
+
+    it("comes with every commit: the GroupInfo of the epoch it opens", async () => {
+        const { alice, bob } = await aliceWithBob()
+        const carol = await makeAdapter("https://idp.example.com/users/carol")
+        const laptop = await makeAdapter("https://idp.example.com/users/alice")
+
+        for (const commit of [
+            async () => alice.addMember(conversationId, await carol.createKeyPackage()),
+            () => alice.removeMember(conversationId, 2),
+            () => alice.update(conversationId),
+        ]) {
+            const out = await commit()
+            await alice.mergePendingCommit(conversationId)
+            await bob.processMessage(conversationId, out.commit)
+
+            const join = await laptop.joinByExternalCommit(conversationId, out.group_info)
+            expect(join.epoch).toBe((await alice.getEpoch(conversationId)) + 1n)
+            await laptop.clearPendingCommit(conversationId)
+        }
+    })
+
+    it("is pending until the DS took it, and then reads and is read", async () => {
+        const { alice, bob, groupInfo } = await aliceWithBob()
+        const laptop = await makeAdapter("https://idp.example.com/users/alice")
+
+        const join = await laptop.joinByExternalCommit(conversationId, groupInfo)
+
+        expect(await laptop.hasGroup(conversationId)).toBe(false)
+        expect(await laptop.knownGroupIds()).toEqual([])
+        const outcome = await bob.processMessage(conversationId, join.commit)
+        await alice.processMessage(conversationId, join.commit)
+        await laptop.mergePendingCommit(conversationId)
+        expect(await laptop.hasGroup(conversationId)).toBe(true)
+        expect(await laptop.getEpoch(conversationId)).toBe(join.epoch)
+        const own = (await laptop.groupLeaves(conversationId)).find((leaf) => leaf.own)!
+        expect(outcome).toEqual({ kind: "commit", leavesMet: [{ ...own, own: false }] })
+        expect(own.credential?.actor_uri).toBe("https://idp.example.com/users/alice")
+        const hello = await laptop.encryptApplication(conversationId, new TextEncoder().encode("back"))
+        expect(await bob.processMessage(conversationId, hello)).toMatchObject({ kind: "application" })
+        const reply = await bob.encryptApplication(conversationId, new TextEncoder().encode("welcome back"))
+        expect(await laptop.processMessage(conversationId, reply)).toMatchObject({ kind: "application" })
+    })
+
+    it("leaves nothing once refused, and can be tried again", async () => {
+        const { bob, groupInfo } = await aliceWithBob()
+        const laptop = await makeAdapter("https://idp.example.com/users/alice")
+        await laptop.joinByExternalCommit(conversationId, groupInfo)
+
+        await laptop.clearPendingCommit(conversationId)
+
+        expect(await laptop.hasGroup(conversationId)).toBe(false)
+        const again = await laptop.joinByExternalCommit(conversationId, groupInfo)
+        await bob.processMessage(conversationId, again.commit)
+        await laptop.mergePendingCommit(conversationId)
+        expect(await laptop.getEpoch(conversationId)).toBe(await bob.getEpoch(conversationId))
+    })
+
+    it("refuses a GroupInfo of another group, and a group it holds or is joining", async () => {
+        const { alice, groupInfo } = await aliceWithBob()
+        const laptop = await makeAdapter("https://idp.example.com/users/alice")
+
+        await expect(laptop.joinByExternalCommit(otherConversation, groupInfo)).rejects.toThrow()
+        await expect(laptop.joinByExternalCommit(conversationId, new Uint8Array([1, 2, 3]))).rejects.toThrow()
+        await expect(alice.joinByExternalCommit(conversationId, groupInfo)).rejects.toThrow()
+        await laptop.joinByExternalCommit(conversationId, groupInfo)
+        await expect(laptop.joinByExternalCommit(conversationId, groupInfo)).rejects.toThrow()
     })
 })

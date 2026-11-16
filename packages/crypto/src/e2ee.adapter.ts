@@ -122,7 +122,7 @@ import { HISTORY_SALT_BYTES, type HistoryArchiveAdapter } from "./history-archiv
 import type { IdentityAdapter } from "./identity.adapter"
 import { openKeyShare, sealKeyShare } from "./key-share"
 import type { IKeyDirectoryPort } from "@pinai/domain/ports/key-directory.port"
-import type { IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
+import type { CommitOutput, IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
 import type { DeviceAttestation, E2eeStorage, KeptPassphrase, RestoreDue } from "./sealed-storage"
 
 /** Renew the Device Root Key attestation silently when within this window of expiry. */
@@ -690,7 +690,7 @@ export class E2eeAdapter implements IE2eePort {
                         }
                         this.recordUntrusted(conversationId, next.leaf, next.judgement.reason)
                         trying = `${conversationId}:${leafFingerprint(next.leaf)}`
-                        return { commit: await this.mls.removeMember(conversationId, next.leaf.leafIndex) }
+                        return this.mls.removeMember(conversationId, next.leaf.leafIndex)
                     }
                 })
                 return { removed }
@@ -1748,7 +1748,7 @@ export class E2eeAdapter implements IE2eePort {
         const out = await this.mls.addMember(conversationId, claimed.key_package)
         const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
         try {
-            await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, out.commit)
+            await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, out.commit, out.group_info)
         } catch (e) {
             // A commit left pending would block the group's next one, this add tried again included.
             await this.mls.clearPendingCommit(conversationId)
@@ -2106,7 +2106,7 @@ export class E2eeAdapter implements IE2eePort {
                     leaves.push({ leafIndex: leaf.leafIndex, actorUri: leaf.credential?.actor_uri ?? null, origin: leafOrigin(verdict) })
                 }
                 const [leaf] = leavesToRemove(leaves, roster, me)
-                return leaf === undefined ? null : { commit: await this.mls.removeMember(conversationId, leaf) }
+                return leaf === undefined ? null : this.mls.removeMember(conversationId, leaf)
             })
             return { removed }
         })
@@ -2123,7 +2123,7 @@ export class E2eeAdapter implements IE2eePort {
         idpUrl: string,
         accessToken: string,
         conversationId: ConversationId,
-        next: () => Promise<{ commit: Uint8Array; merged?: () => Promise<unknown> } | null>,
+        next: () => Promise<(CommitOutput & { merged?: () => Promise<unknown> }) | null>,
     ): Promise<number> {
         let merged = 0
         let conflicts = 0
@@ -2132,7 +2132,7 @@ export class E2eeAdapter implements IE2eePort {
             if (!step) return merged
             const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
             try {
-                await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, step.commit)
+                await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, step.commit, step.group_info)
             } catch (e) {
                 await this.mls.clearPendingCommit(conversationId)
                 if (!(e instanceof IdpError && e.status === 409) || ++conflicts > MAX_EPOCH_CONFLICTS) {
@@ -2231,6 +2231,7 @@ export class E2eeAdapter implements IE2eePort {
                 const out = await this.mls.addMember(conversationId, claimed.key_package)
                 return {
                     commit: out.commit,
+                    group_info: out.group_info,
                     merged: () =>
                         this.directory.postWelcome(idpUrl, accessToken, {
                             recipient_actor_uri: me,
@@ -2262,7 +2263,7 @@ export class E2eeAdapter implements IE2eePort {
                 if (!own) return null
                 const wanted = this.leafCredential(me, deviceId, attestation, own.signatureKey)
                 if (sameCredential(own.credential, wanted)) return null
-                return { commit: await this.mls.updateOwnCredential(conversationId, wanted) }
+                return this.mls.updateOwnCredential(conversationId, wanted)
             })
             return { refreshed: commits > 0 }
         })
@@ -2309,9 +2310,9 @@ export class E2eeAdapter implements IE2eePort {
                     const leafIndex = await this.mls.findLeafByDeviceId(conversationId, actorUri, deviceId)
                     if (leafIndex == null) return
                     try {
-                        const commit = await this.mls.removeMember(conversationId, leafIndex)
+                        const out = await this.mls.removeMember(conversationId, leafIndex)
                         const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
-                        await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, commit)
+                        await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, out.commit, out.group_info)
                         await this.mls.mergePendingCommit(conversationId)
                         if (!removed.includes(conversationId)) removed.push(conversationId)
                         await this.persistMlsState()

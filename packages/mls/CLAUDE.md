@@ -44,6 +44,11 @@ because Hermes has no WebAssembly.
     credential and signature key), `groupLeaves` (every leaf, `own` marked),
     a commit's `leavesMet`; `updateOwnCredential` commits a new credential into
     the device's own leaf over the key it carries.
+  - Every commit answers its GroupInfo (`CommitOutput.group_info`), posted with
+    it. `joinByExternalCommit` joins from a GroupInfo with the bound identity's
+    leaf; the group waits apart, out of `hasGroup`, until `mergePendingCommit`
+    holds it or `clearPendingCommit` deletes it from the provider. A proposal
+    comes out as `{ kind: "proposal" }`: the wrapper keeps none.
 
 ## When to split this package
 

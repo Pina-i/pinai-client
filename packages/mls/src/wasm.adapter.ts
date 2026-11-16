@@ -11,7 +11,8 @@
  * - One {@link Provider} per session (in-memory keystore + RNG;
  *   `storage.adapter.ts` will checkpoint to IndexedDB).
  * - The bound {@link Identity}: the leaf credential this device's KeyPackages carry.
- * - A `Map<conversationId, Group>` of live group handles.
+ * - A `Map<conversationId, Group>` of live group handles, and the groups joined by external
+ *   commit whose commit the DS hasn't taken yet.
  *
  * It is the bundle's HPKE too ({@link IHpkePort}), so one load serves both.
  *
@@ -22,6 +23,7 @@
  */
 
 import init, {
+    type CommitOutput as WasmCommitOutput,
     Group,
     type GroupMember,
     Identity,
@@ -40,12 +42,14 @@ import type { HpkeKeyPair, HpkeSealed, IHpkePort } from "@pinai/domain/ports/hpk
 import { decodeLeafCredential, encodeLeafCredential } from "./leaf-credential"
 import type {
     AddMemberOutput,
+    CommitOutput,
+    ExternalJoinOutput,
     IMlsEngine,
     MlsCiphertext,
     ProcessOutcome,
 } from "@pinai/domain/ports/mls-engine.port"
 
-export type { AddMemberOutput, MlsCiphertext, ProcessOutcome }
+export type { AddMemberOutput, CommitOutput, ExternalJoinOutput, MlsCiphertext, ProcessOutcome }
 
 export class MlsAdapter implements IMlsEngine, IHpkePort {
     /** Set after {@link MlsAdapter.init}. */
@@ -54,6 +58,8 @@ export class MlsAdapter implements IMlsEngine, IHpkePort {
     private identity: Identity | null = null
     /** Open MLS groups, keyed by `conversation_id`. */
     private readonly groups = new Map<ConversationId, Group>()
+    /** Groups joined by external commit, held once the DS takes the commit. */
+    private readonly pendingJoins = new Map<ConversationId, Group>()
     /**
      * Cached in-flight `initialize()` promise. Guards against two
      * concurrent callers (e.g. React strict-mode double-fire of the
@@ -85,6 +91,7 @@ export class MlsAdapter implements IMlsEngine, IHpkePort {
         this.provider = null
         this.identity = null
         this.groups.clear()
+        this.pendingJoins.clear()
         this.initPromise = null
     }
 
@@ -200,6 +207,24 @@ export class MlsAdapter implements IMlsEngine, IHpkePort {
         return true
     }
 
+    async joinByExternalCommit(conversationId: ConversationId, groupInfo: Uint8Array): Promise<ExternalJoinOutput> {
+        if (this.groups.has(conversationId)) {
+            throw new Error(`MLS group already exists for ${conversationId}`)
+        }
+        if (this.pendingJoins.has(conversationId)) {
+            throw new Error(`A join of ${conversationId} is already pending`)
+        }
+        const join = Group.join_by_external_commit(
+            this.requireProvider(),
+            this.requireIdentity(),
+            encodeGroupId(conversationId),
+            groupInfo,
+        )
+        const out = { commit: join.commit, group_info: join.group_info, epoch: join.epoch }
+        this.pendingJoins.set(conversationId, join.into_group())
+        return out
+    }
+
     async deleteGroup(conversationId: ConversationId): Promise<void> {
         const group = this.groups.get(conversationId)
         if (!group) return
@@ -240,6 +265,7 @@ export class MlsAdapter implements IMlsEngine, IHpkePort {
         provider.deserialize_storage(snapshot)
 
         this.groups.clear()
+        this.pendingJoins.clear()
         for (const conversationId of knownGroupIds) {
             const groupId = encodeGroupId(conversationId)
             const group = Group.load_from_provider(provider, groupId)
@@ -265,14 +291,15 @@ export class MlsAdapter implements IMlsEngine, IHpkePort {
         const out = group.add_member(this.requireProvider(), keyPackage)
         return {
             commit: out.commit,
+            group_info: out.group_info,
             welcome: out.welcome,
             ratchet_tree: group.export_ratchet_tree(),
         }
     }
 
-    async removeMember(conversationId: ConversationId, memberIndex: number): Promise<Uint8Array> {
+    async removeMember(conversationId: ConversationId, memberIndex: number): Promise<CommitOutput> {
         const group = this.requireGroup(conversationId)
-        return group.remove_member(this.requireProvider(), memberIndex).commit
+        return commitOutput(group.remove_member(this.requireProvider(), memberIndex))
     }
 
     /**
@@ -302,22 +329,36 @@ export class MlsAdapter implements IMlsEngine, IHpkePort {
     }
 
     async clearPendingCommit(conversationId: ConversationId): Promise<void> {
+        const joined = this.pendingJoins.get(conversationId)
+        if (joined) {
+            this.pendingJoins.delete(conversationId)
+            joined.delete(this.requireProvider())
+            joined.free()
+            return
+        }
         this.requireGroup(conversationId).clear_pending_commit(this.requireProvider())
     }
 
     /** Self-update — rotates this device's leaf key for PCS. */
-    async update(conversationId: ConversationId): Promise<Uint8Array> {
+    async update(conversationId: ConversationId): Promise<CommitOutput> {
         const group = this.requireGroup(conversationId)
-        return group.update(this.requireProvider()).commit
+        return commitOutput(group.update(this.requireProvider()))
     }
 
-    async updateOwnCredential(conversationId: ConversationId, credential: LeafCredential): Promise<Uint8Array> {
+    async updateOwnCredential(conversationId: ConversationId, credential: LeafCredential): Promise<CommitOutput> {
         const group = this.requireGroup(conversationId)
-        return group.update_credential(this.requireProvider(), encodeLeafCredential(credential)).commit
+        return commitOutput(group.update_credential(this.requireProvider(), encodeLeafCredential(credential)))
     }
 
     /** After the IdP DS confirms our commit landed, advance our local copy. */
     async mergePendingCommit(conversationId: ConversationId): Promise<void> {
+        const joined = this.pendingJoins.get(conversationId)
+        if (joined) {
+            // openmls merged the join's commit as it made it.
+            this.pendingJoins.delete(conversationId)
+            this.groups.set(conversationId, joined)
+            return
+        }
         this.requireGroup(conversationId).merge_pending_commit(this.requireProvider())
     }
 
@@ -330,8 +371,8 @@ export class MlsAdapter implements IMlsEngine, IHpkePort {
 
     /**
      * Process any inbound MLS message — application, commit, or
-     * proposal — for the named group. Returns a discriminated union
-     * the caller can switch on.
+     * proposal, which is ignored — for the named group. Returns a
+     * discriminated union the caller can switch on.
      */
     async processMessage(conversationId: ConversationId, msgBytes: Uint8Array): Promise<ProcessOutcome> {
         const group = this.requireGroup(conversationId)
@@ -410,6 +451,14 @@ export class MlsAdapter implements IMlsEngine, IHpkePort {
         const group = this.groups.get(conversationId)
         if (!group) throw new Error(`No MLS group state for conversation ${conversationId}`)
         return group
+    }
+}
+
+function commitOutput(out: WasmCommitOutput): CommitOutput {
+    try {
+        return { commit: out.commit, group_info: out.group_info }
+    } finally {
+        out.free()
     }
 }
 

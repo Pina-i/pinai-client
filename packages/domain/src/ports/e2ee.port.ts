@@ -101,9 +101,9 @@ export interface IE2eePort {
     /**
      * Decrypt an inbound `mls_ciphertext` blob. Returns the
      * `ApplicationMessage` plaintext on success; advances the local
-     * group epoch on commits; appends to pending proposals on
-     * proposals (returns `null` for both — caller treats it as "no
-     * UI plaintext to render").
+     * group epoch on commits; ignores proposals, keeping none for a
+     * commit to carry (returns `null` for both — caller treats it as
+     * "no UI plaintext to render").
      *
      * When `catchUp` is supplied, decrypt failures (e.g. we're behind
      * by one or more commits) trigger a one-shot

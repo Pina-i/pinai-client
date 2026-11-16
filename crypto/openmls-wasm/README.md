@@ -27,6 +27,22 @@ leaves it brought in or replaced (this device's own left out), checked as they a
 met. `Group::update_credential` commits a new credential into the device's own leaf
 over the key it carries.
 
+## Commits, GroupInfos and proposals
+
+Each commit a `Group` makes — `add_member`, `remove_member`, `update`,
+`update_credential` — stays pending until the DS takes it (`merge_pending_commit`,
+`clear_pending_commit`), and comes with `group_info`: the GroupInfo of the epoch it
+opens, as an `MlsMessage`, the ratchet tree and `external_pub` in it — what the client
+posts beside the commit, and all a device needs to join alone
+(`identity-provider/specs/e2ee.md § 5`). `Group::join_by_external_commit` joins from
+one: an external commit adding the bound `Identity`'s leaf, its group already merged by
+openmls — kept once the DS took the commit, `delete`d once refused; rows a join left
+under that group id are deleted first.
+
+`process_message` drops every proposal (`ProcessedKind::Proposal`), a join proposal
+among them, and a commit never takes in the group's proposal store: a proposal kept
+would ride a member's next commit (§ 6.3).
+
 ## HPKE (`src/hpke.rs`)
 
 RFC 9180 base mode with the suite key shares use — DHKEM(X25519, HKDF-SHA256),

@@ -231,6 +231,10 @@ Three collaborators could not come, and the shape of each is the mobile work:
   - `commitEach` — the one loop for a run of commits (`pruneGroup`,
     `addOwnDevices`, `refreshOwnLeaf`, `removeUntrustedLeaves`): one a commit,
     looked at again after each, an epoch race caught up and tried again, five at most.
+  - Every commit posted goes with the GroupInfo the engine made for its epoch
+    (`postCommit`), what a device with no sibling in the group joins by. A
+    proposal is dropped by the engine: `decryptInbound` answers `null`, as for
+    a commit.
   - **`refreshOwnLeaf`** — a commit putting the credential the device makes now
     into its own leaf when the leaf carries another: one from before the leaf
     binding, or before a renewal — a registration under way is waited for. Run by
@@ -663,7 +667,8 @@ vitest setup, so a package's specs sit there until it needs its own.
   relay keeping the IdP's rules (`test/setup/approval-relay.ts`).
 - `apps/web/test/e2ee-integration.spec.ts` — Alice+Bob full-loop register →
   add → text → reaction → edit → attachment, plus a same-IdP
-  routing case.
+  routing case; a device with no sibling in a DM or a group joining from the
+  GroupInfo a commit posted, its leaf checked as any leaf met.
 - `apps/web/test/key-share.spec.ts` — the share's bytes against the IdP's vectors, its rules, and
   real engines with the bundle's HPKE over fakes keeping the IdP's rules (`test/setup/key-shares.ts`):
   § 6.10 end to end, each of the four checks failing, the sender's refusals, the instance's

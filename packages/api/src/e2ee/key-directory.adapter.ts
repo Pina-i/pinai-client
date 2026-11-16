@@ -1,12 +1,13 @@
 /**
  * REST implementation of {@link IKeyDirectoryPort}.
  *
- * Wraps the eight `/api/keys/*` and three `/api/mls/*` endpoints from
+ * Wraps the eight `/api/keys/*` and four `/api/mls/*` endpoints from
  * `identity-provider/specs/e2ee.md`. Bytes-in / bytes-out — base64
  * is the wire format for every binary blob (matches the server's JSON
  * shape).
  */
 
+import { HTTPError } from "ky"
 import { idp } from "../http"
 import { idpErrorFrom } from "../idp-error"
 
@@ -20,6 +21,7 @@ import type {
 } from "@pinai/domain/models/e2ee"
 import type {
     CommitView,
+    GroupInfoView,
     IdentityKeysResponse,
     IKeyDirectoryPort,
     RegisterDeviceResponse,
@@ -179,6 +181,7 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
         conversationId: ConversationId,
         epoch: number,
         commitBlob: Uint8Array,
+        groupInfo: Uint8Array,
     ): Promise<CommitView> {
         const url = `${trimSlash(idpUrl)}/api/mls/groups/${encodeURIComponent(
             conversationId,
@@ -187,11 +190,29 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
             idp
                 .post(url, {
                     headers: authHeader(accessToken),
-                    json: { epoch, commit_blob: b64(commitBlob) },
+                    json: { epoch, commit_blob: b64(commitBlob), group_info: b64(groupInfo) },
                 })
                 .json<RawCommitView>(),
         )
         return parseCommitView(json)
+    }
+
+    async getGroupInfo(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+    ): Promise<GroupInfoView | null> {
+        const url = `${trimSlash(idpUrl)}/api/mls/groups/${encodeURIComponent(
+            conversationId,
+        )}/group-info`
+        let json: { epoch: number; group_info: string }
+        try {
+            json = await idp.get(url, { headers: authHeader(accessToken) }).json()
+        } catch (error) {
+            if (error instanceof HTTPError && error.response.status === 404) return null
+            throw await idpErrorFrom(error, "Key directory request failed")
+        }
+        return { epoch: json.epoch, group_info: unb64(json.group_info) }
     }
 
     async getCommitsSince(

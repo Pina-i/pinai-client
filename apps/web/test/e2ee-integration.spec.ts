@@ -49,11 +49,13 @@ import { E2eeAdapter } from "@pinai/crypto/e2ee.adapter"
 import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
 import type {
     CommitView,
+    GroupInfoView,
     IdentityKeysResponse,
     IKeyDirectoryPort,
     RegisterDeviceResponse,
     WelcomeView,
 } from "@pinai/domain/ports/key-directory.port"
+import type { CommitOutput, IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
 import { MlsAdapter } from "@pinai/mls/wasm.adapter"
 import type {
     DeviceAttestation,
@@ -144,6 +146,7 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
     private readonly identityByActor = new Map<ActorUri, IdentityKeysResponse>()
     private readonly packagesByActor = new Map<ActorUri, PackageEntry[]>()
     private readonly commitsByConversation = new Map<ConversationId, CommitView[]>()
+    private readonly groupInfos = new Map<ConversationId, GroupInfoView>()
     private readonly welcomesByDevice = new Map<DeviceId, WelcomeView[]>()
     private readonly senderByToken = new Map<string, ActorUri>()
     /** attachment-id → ciphertext bytes (the IdP's RustFS, stubbed). */
@@ -264,7 +267,9 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
         conversationId: ConversationId,
         epoch: number,
         commitBlob: Uint8Array,
+        groupInfo: Uint8Array,
     ): Promise<CommitView> {
+        if (groupInfo.length === 0) throw new IdpError(400, "invalid_request", "`group_info` is empty")
         if (this.failNextCommit) {
             this.failNextCommit = false
             throw new Error("connection reset")
@@ -285,8 +290,20 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
         const log = this.commitsByConversation.get(conversationId) ?? []
         log.push(view)
         this.commitsByConversation.set(conversationId, log)
+        // The newest, as the DS keeps it.
+        if (epoch > (this.groupInfos.get(conversationId)?.epoch ?? 0)) {
+            this.groupInfos.set(conversationId, { epoch, group_info: groupInfo })
+        }
         await this.afterCommitStored?.()
         return view
+    }
+
+    async getGroupInfo(
+        _idpUrl: string,
+        _accessToken: string,
+        conversationId: ConversationId,
+    ): Promise<GroupInfoView | null> {
+        return this.groupInfos.get(conversationId) ?? null
     }
 
     async getCommitsSince(
@@ -1243,9 +1260,9 @@ describe("MLS E2EE — a message overtaken by a commit", () => {
     /** `n` commits by `by`, each moving the group on an epoch, as an add or a removal does. */
     async function commits(directory: InMemoryKeyDirectory, by: AdapterCtx, token: string, n: number) {
         for (let i = 0; i < n; i++) {
-            const commit = await by.mls.update(conversationId)
+            const out = await by.mls.update(conversationId)
             const epoch = Number(await by.mls.getEpoch(conversationId)) + 1
-            await directory.postCommit(issuer, token, conversationId, epoch, commit)
+            await directory.postCommit(issuer, token, conversationId, epoch, out.commit, out.group_info)
             await by.mls.mergePendingCommit(conversationId)
         }
     }
@@ -1322,9 +1339,9 @@ describe("MLS E2EE — a leaf is trusted on its attestation and its leaf binding
     }
 
     /** A commit made with the engine alone, as a client that checks nothing would make it. */
-    async function commitUnchecked(directory: InMemoryKeyDirectory, by: AdapterCtx, token: string, commit: Uint8Array) {
+    async function commitUnchecked(directory: InMemoryKeyDirectory, by: AdapterCtx, token: string, out: CommitOutput) {
         const epoch = Number(await by.mls.getEpoch(conversationId)) + 1
-        await directory.postCommit(issuer, token, conversationId, epoch, commit)
+        await directory.postCommit(issuer, token, conversationId, epoch, out.commit, out.group_info)
         await by.mls.mergePendingCommit(conversationId)
     }
 
@@ -1406,7 +1423,7 @@ describe("MLS E2EE — a leaf is trusted on its attestation and its leaf binding
         const eveId = await eve.storage.getOrCreateDeviceId()
         const metByDan = untrustedLeavesOf(dan)
         const forged = await bob.mls.addMember(conversationId, await forgedPackage(eve))
-        await commitUnchecked(directory, bob, "bob-token", forged.commit)
+        await commitUnchecked(directory, bob, "bob-token", forged)
 
         await dan.e2ee.catchUp(issuer, "dan-token", conversationId)
 
@@ -1554,7 +1571,7 @@ describe("MLS E2EE — a leaf is trusted on its attestation and its leaf binding
         // Its own, and one an instance put under its credential with a key of its own.
         for (const keyPackage of [await dan2.mls.createKeyPackage(), await forgedPackage(dan2)]) {
             const add = await bob.mls.addMember(conversationId, keyPackage)
-            await commitUnchecked(directory, bob, "bob-token", add.commit)
+            await commitUnchecked(directory, bob, "bob-token", add)
         }
         await dan.e2ee.catchUp(issuer, "dan-token", conversationId)
 
@@ -1577,7 +1594,7 @@ describe("MLS E2EE — a leaf is trusted on its attestation and its leaf binding
         const unreadable = { ...credential!, idp_att: { ...credential!.idp_att, kid: 7 } } as unknown as LeafCredential
         await forger.setIdentity(unreadable, key)
         const add = await bob.mls.addMember(conversationId, await forger.createKeyPackage())
-        await commitUnchecked(directory, bob, "bob-token", add.commit)
+        await commitUnchecked(directory, bob, "bob-token", add)
         expect((await bob.mls.groupLeaves(conversationId)).map((leaf) => leaf.credential === null)).toEqual([
             false,
             false,
@@ -1630,9 +1647,9 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
     }
 
     /** A commit made with the engine alone, as a client that checks nothing would make it. */
-    async function commitUnchecked(directory: InMemoryKeyDirectory, by: AdapterCtx, token: string, commit: Uint8Array) {
+    async function commitUnchecked(directory: InMemoryKeyDirectory, by: AdapterCtx, token: string, out: CommitOutput) {
         const epoch = Number(await by.mls.getEpoch(conversationId)) + 1
-        await directory.postCommit(issuer, token, conversationId, epoch, commit)
+        await directory.postCommit(issuer, token, conversationId, epoch, out.commit, out.group_info)
         await by.mls.mergePendingCommit(conversationId)
     }
 
@@ -1668,7 +1685,7 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
     /** Bob adds a KeyPackage of `device` as a client that checks nothing would, its Welcome sent. */
     async function bobAdds(directory: InMemoryKeyDirectory, bob: AdapterCtx, keyPackage: Uint8Array, deviceId?: DeviceId) {
         const add = await bob.mls.addMember(conversationId, keyPackage)
-        await commitUnchecked(directory, bob, "bob-token", add.commit)
+        await commitUnchecked(directory, bob, "bob-token", add)
         if (deviceId) {
             await directory.postWelcome(issuer, "bob-token", {
                 recipient_actor_uri: danActor,
@@ -1732,7 +1749,7 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         const phoneRow = await asListed(phone, danActor)
         rows.push(listedDevice(phoneRow, [approvedBy(self, phoneRow)]))
         const stranger = testDevice(issuers, danActor)
-        await commitUnchecked(directory, bob, "bob-token", (await bob.mls.addMember(conversationId, await packageOf(stranger))).commit)
+        await commitUnchecked(directory, bob, "bob-token", await bob.mls.addMember(conversationId, await packageOf(stranger)))
         await laptop.e2ee.catchUp(issuer, "laptop-token", conversationId)
 
         expect(await sync()).toEqual({ added: 0, removed: 0, unclaimed: [], failed: [] })
@@ -1800,7 +1817,7 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         rows.push(listedDevice(phoneRow, [approvedBy(self, phoneRow)]))
         // The instance attests a root key of its own under the approved phone's id.
         const rogue = testDevice(issuers, danActor, phoneRow.deviceId)
-        await commitUnchecked(directory, bob, "bob-token", (await bob.mls.addMember(conversationId, await packageOf(rogue))).commit)
+        await commitUnchecked(directory, bob, "bob-token", await bob.mls.addMember(conversationId, await packageOf(rogue)))
         await laptop.e2ee.catchUp(issuer, "laptop-token", conversationId)
         const heard = untrustedLeavesOf(laptop)
 
@@ -1821,7 +1838,7 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         const tabletRow = await asListed(tablet, danActor)
         rows.push(listedDevice(tabletRow))
         const claimed = await directory.claimKeyPackage(issuer, "bob-token", danActor, tabletRow.deviceId)
-        await commitUnchecked(directory, bob, "bob-token", (await bob.mls.addMember(conversationId, claimed.key_package)).commit)
+        await commitUnchecked(directory, bob, "bob-token", await bob.mls.addMember(conversationId, claimed.key_package))
         await laptop.e2ee.catchUp(issuer, "laptop-token", conversationId)
         const heard = untrustedLeavesOf(laptop)
 
@@ -1839,7 +1856,7 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         const phoneRow = await asListed(phone, danActor)
         rows.push(listedDevice(phoneRow, [approvedBy(self, phoneRow)]))
         const rogue = testDevice(issuers, danActor, phoneRow.deviceId)
-        await commitUnchecked(directory, bob, "bob-token", (await bob.mls.addMember(conversationId, await packageOf(rogue))).commit)
+        await commitUnchecked(directory, bob, "bob-token", await bob.mls.addMember(conversationId, await packageOf(rogue)))
         await laptop.e2ee.catchUp(issuer, "laptop-token", conversationId)
         const trust = await laptop.e2ee.reviewDevices(issuer, "laptop-token", danActor, rows)
         // Meanwhile Bob takes the rogue leaf out and adds the real phone, which lands at its index.
@@ -1847,7 +1864,7 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         await commitUnchecked(directory, bob, "bob-token", await bob.mls.removeMember(conversationId, rogueIndex))
         const claimed = await directory.claimKeyPackage(issuer, "bob-token", danActor, phoneRow.deviceId)
         const add = await bob.mls.addMember(conversationId, claimed.key_package)
-        await commitUnchecked(directory, bob, "bob-token", add.commit)
+        await commitUnchecked(directory, bob, "bob-token", add)
         await directory.postWelcome(issuer, "bob-token", {
             recipient_actor_uri: danActor,
             recipient_device_id: phoneRow.deviceId,
@@ -2028,5 +2045,121 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         expect(await reloaded.e2ee.removeUntrustedLeaves(issuer, "laptop-token", conversationId, null)).toEqual({ removed: 1 })
         await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
         expect(await read(bob, "bob-token", await reloaded.e2ee.encryptOutbound(conversationId, text("clean")))).toBe("clean")
+    })
+})
+
+describe("MLS E2EE — a device with no sibling in a group joins it by external commit", () => {
+    const conversationId: ConversationId = "e1e1e1e1-2222-3333-4444-555566667777"
+    const issuer = "https://idp.shared.example"
+    const [aliceActor, bobActor, carolActor] = ["alice", "bob", "carol"].map((name) =>
+        asActorUri(`${issuer}/users/${name}_x1y2z`),
+    )
+    const text = (t: string): ApplicationMessage<TextBody> => ({ version: 1, kind: "text", body: { text: t } })
+    const read = async (ctx: AdapterCtx, token: string, ciphertext: Uint8Array) =>
+        ((await ctx.e2ee.decryptInbound(conversationId, ciphertext, { idpUrl: issuer, accessToken: token }))
+            ?.body as TextBody).text
+
+    async function registered(directory: InMemoryKeyDirectory, token: string, actor: ActorUri) {
+        const ctx = await buildAdapter(directory, token, actor)
+        await ctx.e2ee.register(issuer, token, actor)
+        return ctx
+    }
+
+    /** Alice's only device founded the conversation with `others`; then it was lost. */
+    async function lostAlice(...others: [token: string, actor: ActorUri][]) {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const lost = await registered(directory, "alice-token", aliceActor)
+        const members = []
+        for (const [token, actor] of others) {
+            const member = await registered(directory, token, actor)
+            await lost.e2ee.addContactToGroup(issuer, "alice-token", conversationId, actor)
+            await member.e2ee.consumePendingWelcomes(issuer, token, actor)
+            members.push(member)
+        }
+        return { directory, lost, members }
+    }
+
+    /** A device joining from the GroupInfo the DS holds: its commit posted at the epoch it opens, the group kept once taken. */
+    async function joinFromGroupInfo(directory: InMemoryKeyDirectory, by: { mls: IMlsEngine }, token: string) {
+        const held = await directory.getGroupInfo(issuer, token, conversationId)
+        const join = await by.mls.joinByExternalCommit(conversationId, held!.group_info)
+        expect(join.epoch).toBe(BigInt(held!.epoch + 1))
+        await directory.postCommit(issuer, token, conversationId, Number(join.epoch), join.commit, join.group_info)
+        await by.mls.mergePendingCommit(conversationId)
+    }
+
+    it("brings Alice's new device into the DM her lost one held: Bob meets it, reads it and is read", async () => {
+        const { directory, members: [bob] } = await lostAlice(["bob-token", bobActor])
+        const metByBob = untrustedLeavesOf(bob)
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+
+        await joinFromGroupInfo(directory, laptop, "laptop-token")
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+
+        const laptopId = await laptop.storage.getOrCreateDeviceId()
+        expect((await bob.mls.groupLeaves(conversationId)).map((leaf) => leaf.credential?.device_id)).toContain(laptopId)
+        expect(metByBob).toEqual([])
+        expect(await read(bob, "bob-token", await laptop.e2ee.encryptOutbound(conversationId, text("back")))).toBe("back")
+        expect(await read(laptop, "laptop-token", await bob.e2ee.encryptOutbound(conversationId, text("welcome")))).toBe(
+            "welcome",
+        )
+    })
+
+    it("joins from the GroupInfo a later member's commit came with", async () => {
+        const { directory, lost, members: [bob] } = await lostAlice(["bob-token", bobActor])
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        await joinFromGroupInfo(directory, laptop, "laptop-token")
+        const lostId = await lost.storage.getOrCreateDeviceId()
+        await laptop.e2ee.revokeDevice(issuer, "laptop-token", aliceActor, lostId, [conversationId])
+        expect((await directory.getGroupInfo(issuer, "bob-token", conversationId))?.epoch).toBe(
+            Number(await laptop.mls.getEpoch(conversationId)),
+        )
+        const tablet = await registered(directory, "tablet-token", aliceActor)
+
+        await joinFromGroupInfo(directory, tablet, "tablet-token")
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+        await laptop.e2ee.catchUp(issuer, "laptop-token", conversationId)
+
+        const fromTablet = await tablet.e2ee.encryptOutbound(conversationId, text("me again"))
+        expect(await read(bob, "bob-token", fromTablet)).toBe("me again")
+        expect(await read(laptop, "laptop-token", fromTablet)).toBe("me again")
+        expect(await read(tablet, "tablet-token", await bob.e2ee.encryptOutbound(conversationId, text("hi")))).toBe("hi")
+    })
+
+    it("brings it into a group: every member applies the commit and reads it", async () => {
+        const {
+            directory,
+            members: [bob, carol],
+        } = await lostAlice(["bob-token", bobActor], ["carol-token", carolActor])
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+
+        await joinFromGroupInfo(directory, laptop, "laptop-token")
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+        await carol.e2ee.catchUp(issuer, "carol-token", conversationId)
+
+        const fromLaptop = await laptop.e2ee.encryptOutbound(conversationId, text("hello both"))
+        expect(await read(bob, "bob-token", fromLaptop)).toBe("hello both")
+        expect(await read(carol, "carol-token", fromLaptop)).toBe("hello both")
+        expect(await read(laptop, "laptop-token", await carol.e2ee.encryptOutbound(conversationId, text("hey")))).toBe("hey")
+    })
+
+    it("puts the newcomer's leaf through the checks of any leaf met: a forged one is announced", async () => {
+        const { directory, members: [bob] } = await lostAlice(["bob-token", bobActor])
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        const metByBob = untrustedLeavesOf(bob)
+        // What an instance could do: the laptop's credential, attested and all, over a leaf key of its own.
+        const { credential } = await laptop.mls.inspectKeyPackage(await laptop.mls.createKeyPackage())
+        const forger = new MlsAdapter()
+        await forger.initialize({ module_or_path: wasmModule } as never)
+        const key = await forger.generateSignatureKey()
+        await forger.setIdentity(credential!, key)
+
+        await joinFromGroupInfo(directory, { mls: forger }, "laptop-token")
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+
+        expect(metByBob).toMatchObject([
+            { conversationId, actorUri: aliceActor, deviceId: await laptop.storage.getOrCreateDeviceId(), reason: "binding" },
+        ])
     })
 })
