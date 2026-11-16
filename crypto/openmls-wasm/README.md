@@ -37,7 +37,15 @@ posts beside the commit, and all a device needs to join alone
 (`identity-provider/specs/e2ee.md § 5`). `Group::join_by_external_commit` joins from
 one: an external commit adding the bound `Identity`'s leaf, its group already merged by
 openmls — kept once the DS took the commit, `delete`d once refused; rows a join left
-under that group id are deleted first.
+under that group id are deleted first, by it and by `Group::join`.
+
+## Leaf lifetimes
+
+No join — `Group::join`, `rejoin`, `join_by_external_commit` — checks the lifetime of the
+tree's leaves (`skip_lifetime_validation`). Only a leaf never updated has one, the
+KeyPackage's it came in by (openmls's default, 12 weeks), and nothing refreshes leaves on a
+schedule: past it, a member who never committed would keep every new device out of the
+group. A KeyPackage is still checked when it is added.
 
 `process_message` drops every proposal (`ProcessedKind::Proposal`), a join proposal
 among them, and a commit never takes in the group's proposal store: a proposal kept

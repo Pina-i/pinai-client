@@ -46,9 +46,14 @@ because Hermes has no WebAssembly.
     the device's own leaf over the key it carries.
   - Every commit answers its GroupInfo (`CommitOutput.group_info`), posted with
     it. `joinByExternalCommit` joins from a GroupInfo with the bound identity's
-    leaf; the group waits apart, out of `hasGroup`, until `mergePendingCommit`
-    holds it or `clearPendingCommit` deletes it from the provider. A proposal
-    comes out as `{ kind: "proposal" }`: the wrapper keeps none.
+    leaf and answers the tree it makes (`leaves`, the new leaf `own`); the group
+    waits apart, out of `hasGroup`, until `mergePendingCommit` holds it or
+    `clearPendingCommit` deletes it from the provider. A proposal comes out as
+    `{ kind: "proposal" }`: the wrapper keeps none.
+  - No join — by Welcome, again by Welcome, by external commit — checks the
+    tree's leaf lifetimes (`crypto/openmls-wasm/README.md`); a KeyPackage added
+    still is. `joinGroup` deletes first what a join never kept left in the
+    provider under that group id (a reload while it was pending).
 
 ## When to split this package
 

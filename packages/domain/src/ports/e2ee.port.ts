@@ -10,6 +10,7 @@ import type { Admission, CheckedPartner, ResetSetter } from "../models/admission
 import type { ExchangedKeys, HandshakeRole } from "../models/approval-handshake"
 import type { DeviceListEntry } from "../models/device"
 import type { BaselineIntent, DeviceTrustVerdict, HandshakeKeysRefusal, HandshakePartner, TrustEvent } from "../models/device-trust"
+import type { ConversationJoin } from "../models/conversation-join"
 import type { ArchiveEnvelope, ArchivedEntry } from "../models/history-archive"
 import type { DerivedHistoryKey, HistoryKey, HistoryKeyStanding, PendingHistoryKey } from "../models/history-key"
 import type { RearchiveDue, RearchiveEntry, RearchivePosition } from "../models/history-rearchive"
@@ -137,9 +138,12 @@ export interface IE2eePort {
      * "I am about to send a message to `recipientActorUri` in
      * `conversationId` — make sure I have an MLS group state for it."
      * Idempotent: if the group already exists, returns immediately;
-     * otherwise calls {@link IE2eePort.addContactToGroup} to claim a
-     * KeyPackage, build the founding commit + welcome, and dispatch
-     * them.
+     * otherwise, while the conversation has no GroupInfo, calls
+     * {@link IE2eePort.addContactToGroup} to claim a KeyPackage, build the
+     * founding commit + welcome, and dispatch them. A conversation with a
+     * group already — its GroupInfo held, or epoch 1 taken by another
+     * founding — throws `GroupToJoin`: the device joins it instead
+     * ({@link IE2eePort.joinConversation}).
      */
     ensureGroupExists(
         idpUrl: string,
@@ -159,6 +163,27 @@ export interface IE2eePort {
         accessToken: string,
         actorUri: ActorUri,
     ): Promise<{ joined: number }>
+
+    /**
+     * Join a conversation this device holds no group for, by an external commit from the group's
+     * newest GroupInfo (`identity-provider/specs/e2ee.md § 6.14`): posted at the epoch it opens, the
+     * group kept once taken — its leaves checked as a Welcome's, then `onGroupHeld`. A lost epoch
+     * reads the newer GroupInfo and builds again, five times at most (`MAX_JOIN_CONFLICTS`),
+     * then throws; a commit left without an answer is looked up in the log before anything is built
+     * again, and merged when it is there, or posted again as it was at the next call. Nothing is
+     * posted while the tree names no device of the account (`not-added`), nor, unless
+     * `welcomeOverdue`, while it names this one (`welcome-due`), nor while `siblingMayAdd`
+     * (`left-to-sibling`). A refusal for good is answered `refused`; any other failure is thrown.
+     */
+    joinConversation(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        options: { welcomeOverdue: boolean; siblingMayAdd: boolean },
+    ): Promise<ConversationJoin>
+
+    /** The conversations this device holds a group for. */
+    heldGroups(): Promise<ConversationId[]>
 
     /**
      * Revoke another device of this user: the revocation is kept for good, then one MLS Remove
@@ -189,9 +214,9 @@ export interface IE2eePort {
     ): Promise<{ removed: number }>
 
     /**
-     * Calls `listener` each time this device comes to hold a group — founded on a first send, or
-     * joined from a Welcome — the moment the user's other devices can be brought into it. Answers
-     * the unsubscribe.
+     * Calls `listener` each time this device comes to hold a group — founded on a first send,
+     * joined from a Welcome or by itself — the moment the user's other devices can be brought into
+     * it. Answers the unsubscribe.
      */
     onGroupHeld(listener: (conversationId: ConversationId) => void): () => void
 

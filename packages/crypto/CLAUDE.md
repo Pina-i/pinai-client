@@ -235,6 +235,24 @@ Three collaborators could not come, and the shape of each is the mobile work:
     (`postCommit`), what a device with no sibling in the group joins by. A
     proposal is dropped by the engine: `decryptInbound` answers `null`, as for
     a commit.
+  - **`joinConversation`** (`identity-provider/specs/e2ee.md § 6.14`) — in the
+    group's queue: the newest GroupInfo (`null` → `no-group`; a refusal for good
+    → `refused`), the external commit built, then the tree it shows read
+    (`joinStanding`): no leaf of the account → `not-added`, a leaf of this device →
+    `welcome-due` unless `welcomeOverdue`, `left-to-sibling` while `siblingMayAdd`
+    — the pending join cleared each time. Posted at its epoch; taken → merged, the
+    whole tree checked (`checkLeavesMet`), saved, `onGroupHeld`. `joinFailure`
+    decides the rest: `refused` / `not-yet` clear it; a `409` or no answer looks
+    the log up at that epoch first — its own bytes there are merged (never built
+    twice), another commit is a lost epoch (the newer GroupInfo, five times at
+    most, then thrown), nothing there after no answer, or a log that can't be read,
+    keeps the pending join (`unansweredJoins`) to post as it is at the next call.
+    `consumePendingWelcomes` settles such a join first: the Welcome and it would
+    share the group's rows. `heldGroups` — the groups held.
+  - **`ensureGroupExists`** founds only while the conversation has no GroupInfo;
+    one held, or epoch 1 lost to another founding (`409`), is `GroupToJoin`: the
+    send waits for the join instead of using up a KeyPackage of each of the
+    contact's devices.
   - **`refreshOwnLeaf`** — a commit putting the credential the device makes now
     into its own leaf when the leaf carries another: one from before the leaf
     binding, or before a renewal — a registration under way is waited for. Run by
@@ -668,7 +686,14 @@ vitest setup, so a package's specs sit there until it needs its own.
 - `apps/web/test/e2ee-integration.spec.ts` — Alice+Bob full-loop register →
   add → text → reaction → edit → attachment, plus a same-IdP
   routing case; a device with no sibling in a DM or a group joining from the
-  GroupInfo a commit posted, its leaf checked as any leaf met.
+  GroupInfo a commit posted, its leaf checked as any leaf met; the self-join
+  with `ConversationJoins` over a directory keeping the server's join rules —
+  back in after the words or a start over (the lost leaf then committed out),
+  refused when not approved (its waiting message failing), two joins racing, an
+  online sibling's Welcome preferred, a message written before the join, a lost
+  answer (and a failed log read) merged with no second leaf, leaves past their
+  KeyPackage's lifetime (the clock moved by `vi.setSystemTime`, which the bundle
+  reads).
 - `apps/web/test/key-share.spec.ts` — the share's bytes against the IdP's vectors, its rules, and
   real engines with the bundle's HPKE over fakes keeping the IdP's rules (`test/setup/key-shares.ts`):
   § 6.10 end to end, each of the four checks failing, the sender's refusals, the instance's

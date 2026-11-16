@@ -221,8 +221,10 @@ export class MlsAdapter implements IMlsEngine, IHpkePort {
             groupInfo,
         )
         const out = { commit: join.commit, group_info: join.group_info, epoch: join.epoch }
-        this.pendingJoins.set(conversationId, join.into_group())
-        return out
+        const group = join.into_group()
+        this.pendingJoins.set(conversationId, group)
+        const own = group.own_leaf_index()
+        return { ...out, leaves: group.list_members().map((m) => mlsLeaf(m, m.leaf_index === own)) }
     }
 
     async deleteGroup(conversationId: ConversationId): Promise<void> {

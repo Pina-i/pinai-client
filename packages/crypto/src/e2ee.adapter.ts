@@ -15,6 +15,13 @@ import { wordlist } from "@scure/bip39/wordlists/english.js"
 import { bytesToBase64 } from "@pinai/domain/lib/bytes"
 import type { Admission, CheckedPartner, ResetSetter } from "@pinai/domain/models/admission"
 import { peerAgainstList, type HandshakeRole } from "@pinai/domain/models/approval-handshake"
+import {
+    GroupToJoin,
+    MAX_JOIN_CONFLICTS,
+    joinFailure,
+    joinStanding,
+    type ConversationJoin,
+} from "@pinai/domain/models/conversation-join"
 import type { DeviceListEntry } from "@pinai/domain/models/device"
 import {
     actsOnApproval,
@@ -121,8 +128,8 @@ import {
 import { HISTORY_SALT_BYTES, type HistoryArchiveAdapter } from "./history-archive.adapter"
 import type { IdentityAdapter } from "./identity.adapter"
 import { openKeyShare, sealKeyShare } from "./key-share"
-import type { IKeyDirectoryPort } from "@pinai/domain/ports/key-directory.port"
-import type { CommitOutput, IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
+import type { CommitView, IKeyDirectoryPort } from "@pinai/domain/ports/key-directory.port"
+import type { CommitOutput, ExternalJoinOutput, IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
 import type { DeviceAttestation, E2eeStorage, KeptPassphrase, RestoreDue } from "./sealed-storage"
 
 /** Renew the Device Root Key attestation silently when within this window of expiry. */
@@ -1472,6 +1479,7 @@ export class E2eeAdapter implements IE2eePort {
         this.leafVerdicts.clear()
         this.rootChecks.clear()
         this.refusedCommitOuts.clear()
+        this.unansweredJoins.clear()
         await this.mls.resetProvider()
     }
 
@@ -1778,7 +1786,14 @@ export class E2eeAdapter implements IE2eePort {
         // Checked in the same run as the founding, so two sends at once found it once.
         await this.inGroup(conversationId, async () => {
             if (await this.mls.hasGroup(conversationId)) return
-            await this.doAddContactToGroup(idpUrl, accessToken, conversationId, recipientActorUri)
+            // Founded again, it would lose epoch 1 and use up a KeyPackage of each of their devices.
+            if (await this.directory.getGroupInfo(idpUrl, accessToken, conversationId)) throw new GroupToJoin(conversationId)
+            try {
+                await this.doAddContactToGroup(idpUrl, accessToken, conversationId, recipientActorUri)
+            } catch (e) {
+                if (e instanceof IdpError && e.status === 409) throw new GroupToJoin(conversationId, e)
+                throw e
+            }
         })
     }
 
@@ -1794,6 +1809,7 @@ export class E2eeAdapter implements IE2eePort {
         for (const w of welcomes) {
             try {
                 const held = await this.inGroup(w.conversation_id, async () => {
+                    const kept = await this.settleUnansweredJoin(idpUrl, accessToken, w.conversation_id)
                     let joined = true
                     if (await this.mls.hasGroup(w.conversation_id)) {
                         joined = await this.mls.rejoinGroup(w.conversation_id, w.welcome_blob)
@@ -1803,7 +1819,7 @@ export class E2eeAdapter implements IE2eePort {
                         await this.mls.joinGroup(w.conversation_id, w.welcome_blob, null)
                     }
                     if (joined) await this.checkLeavesMet(w.conversation_id, await this.mls.groupLeaves(w.conversation_id))
-                    return joined
+                    return joined || kept
                 })
                 if (held) joined.push(w.conversation_id)
             } catch (e) {
@@ -1814,6 +1830,151 @@ export class E2eeAdapter implements IE2eePort {
         if (joined.length > 0) await this.persistMlsState()
         for (const id of joined) this.announceGroupHeld(id)
         return { joined: joined.length }
+    }
+
+    /** Joins posted without an answer, by conversation: looked up in the log before anything is built again. */
+    private readonly unansweredJoins = new Map<ConversationId, ExternalJoinOutput>()
+
+    async joinConversation(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        options: { welcomeOverdue: boolean; siblingMayAdd: boolean },
+    ): Promise<ConversationJoin> {
+        const me = await this.storage.getBoundActorUri()
+        await this.ensureInitialized(me)
+        const outcome = await this.inGroup(conversationId, () =>
+            this.doJoinConversation(idpUrl, accessToken, conversationId, me, options),
+        )
+        if (outcome.kind === "joined") this.announceGroupHeld(conversationId)
+        return outcome
+    }
+
+    private async doJoinConversation(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        me: ActorUri | null,
+        { welcomeOverdue, siblingMayAdd }: { welcomeOverdue: boolean; siblingMayAdd: boolean },
+    ): Promise<ConversationJoin> {
+        if (await this.mls.hasGroup(conversationId)) return { kind: "held" }
+        if (!me) throw new Error("joinConversation: this device's storage is bound to no account")
+        const deviceId = await this.storage.getOrCreateDeviceId()
+        let join = this.unansweredJoins.get(conversationId) ?? null
+        this.unansweredJoins.delete(conversationId)
+        let conflicts = 0
+        for (;;) {
+            if (!join) {
+                let held
+                try {
+                    held = await this.directory.getGroupInfo(idpUrl, accessToken, conversationId)
+                } catch (error) {
+                    if (joinFailure(error) === "refused") return { kind: "refused", error }
+                    throw error
+                }
+                if (!held) return { kind: "no-group" }
+                join = await this.mls.joinByExternalCommit(conversationId, held.group_info)
+                const standing = joinStanding(join.leaves, me, deviceId)
+                const waits =
+                    standing === "not-added" ||
+                    (standing === "welcome-due" && !welcomeOverdue) ||
+                    (standing === "join" && siblingMayAdd)
+                if (waits) {
+                    await this.mls.clearPendingCommit(conversationId)
+                    return { kind: standing === "join" ? "left-to-sibling" : standing }
+                }
+            }
+            const posted = await this.postJoin(idpUrl, accessToken, conversationId, join)
+            if (posted.kind === "taken") {
+                await this.keepJoin(conversationId)
+                return { kind: "joined" }
+            }
+            if (posted.kind === "refused") return { kind: "refused", error: posted.error }
+            if (++conflicts > MAX_JOIN_CONFLICTS) throw posted.error
+            join = null
+        }
+    }
+
+    /**
+     * The join's commit posted at the epoch it opens. A lost epoch or no answer is looked up in the
+     * log there: a blind retry would bring this device in twice, were the first commit taken.
+     * Nothing there after no answer keeps the join, to post as it is at the next call.
+     */
+    private async postJoin(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        join: ExternalJoinOutput,
+    ): Promise<{ kind: "taken" } | { kind: "lost"; error: unknown } | { kind: "refused"; error: unknown }> {
+        const epoch = Number(join.epoch)
+        try {
+            await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, join.commit, join.group_info)
+            return { kind: "taken" }
+        } catch (error) {
+            const failure = joinFailure(error)
+            if (failure === "refused" || failure === "not-yet") {
+                await this.mls.clearPendingCommit(conversationId)
+                if (failure === "refused") return { kind: "refused", error }
+                throw error
+            }
+            let there: CommitView | null
+            try {
+                there = await this.commitAt(idpUrl, accessToken, conversationId, epoch)
+            } catch {
+                this.unansweredJoins.set(conversationId, join)
+                throw error
+            }
+            if (there && equalBytes(there.commit_blob, join.commit)) return { kind: "taken" }
+            if (!there && failure === "unanswered") {
+                this.unansweredJoins.set(conversationId, join)
+                throw error
+            }
+            await this.mls.clearPendingCommit(conversationId)
+            return { kind: "lost", error }
+        }
+    }
+
+    private async commitAt(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        epoch: number,
+    ): Promise<CommitView | null> {
+        const { commits } = await this.directory.getCommitsSince(idpUrl, accessToken, conversationId, epoch - 1)
+        return commits.find((c) => c.epoch === epoch) ?? null
+    }
+
+    /** As a join from a Welcome is kept: every leaf of the tree checked, the state saved. */
+    private async keepJoin(conversationId: ConversationId): Promise<void> {
+        await this.mls.mergePendingCommit(conversationId)
+        await this.checkLeavesMet(conversationId, await this.mls.groupLeaves(conversationId))
+        await this.persistMlsState()
+    }
+
+    /**
+     * A join left unanswered, before a Welcome to its group is applied: kept when the log holds its
+     * commit, else dropped — the two would share the group's rows. True when kept.
+     */
+    private async settleUnansweredJoin(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+    ): Promise<boolean> {
+        const join = this.unansweredJoins.get(conversationId)
+        if (!join) return false
+        this.unansweredJoins.delete(conversationId)
+        const there = await this.commitAt(idpUrl, accessToken, conversationId, Number(join.epoch)).catch(() => null)
+        if (there && equalBytes(there.commit_blob, join.commit)) {
+            await this.keepJoin(conversationId)
+            return true
+        }
+        await this.mls.clearPendingCommit(conversationId)
+        return false
+    }
+
+    async heldGroups(): Promise<ConversationId[]> {
+        await this.ensureInitialized(null)
+        return this.mls.knownGroupIds()
     }
 
     private readonly groupHeldListeners = new Set<(conversationId: ConversationId) => void>()

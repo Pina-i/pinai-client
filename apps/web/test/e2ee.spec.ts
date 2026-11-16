@@ -250,7 +250,7 @@ describe("mls adapter — a device joining by external commit", () => {
         }
     })
 
-    it("is pending until the DS took it, and then reads and is read", async () => {
+    it("is pending until the DS took it, shows the tree it makes, and then reads and is read", async () => {
         const { alice, bob, groupInfo } = await aliceWithBob()
         const laptop = await makeAdapter("https://idp.example.com/users/alice")
 
@@ -263,6 +263,7 @@ describe("mls adapter — a device joining by external commit", () => {
         await laptop.mergePendingCommit(conversationId)
         expect(await laptop.hasGroup(conversationId)).toBe(true)
         expect(await laptop.getEpoch(conversationId)).toBe(join.epoch)
+        expect(join.leaves).toEqual(await laptop.groupLeaves(conversationId))
         const own = (await laptop.groupLeaves(conversationId)).find((leaf) => leaf.own)!
         expect(outcome).toEqual({ kind: "commit", leavesMet: [{ ...own, own: false }] })
         expect(own.credential?.actor_uri).toBe("https://idp.example.com/users/alice")

@@ -41,6 +41,8 @@ import {
 import { verifyLeafCredential, verifyStrict } from "@pinai/crypto/attestation-chain.adapter"
 import { bytesToBase64 } from "@pinai/domain/lib/bytes"
 import { KeyPackageUnavailable } from "@pinai/domain/models/group"
+import { GroupToJoin, WELCOME_WAIT_MS } from "@pinai/domain/models/conversation-join"
+import { ConversationJoins, enterConversationUseCase } from "@pinai/domain/usecases/e2ee/join-conversations.usecase"
 import { deviceHpkeKeyBytes } from "@pinai/crypto/canonical-bytes"
 import type { LeafCredential, UntrustedLeaf } from "@pinai/domain/models/leaf-trust"
 
@@ -258,6 +260,17 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
 
     /** The next commit posted is lost on its way, as a dropped connection would lose it. */
     failNextCommit = false
+    /** The next commit posted is stored, and its answer lost on the way back. */
+    loseNextAnswer = false
+    /** The next read of the commit log fails, as with the network down. */
+    failNextLogRead = false
+    /** Commits refused for an epoch already taken. */
+    epochConflicts = 0
+    /**
+     * Sessions of devices the instance doesn't count approved: it refuses their external commits
+     * (`403 approval_required`), and such a device holds no group, so every commit it posts is one.
+     */
+    readonly unapproved = new Set<string>()
     /** Runs once a commit is stored, before its sender hears back: the window the DS pushes it in. */
     afterCommitStored: (() => Promise<void>) | null = null
 
@@ -274,8 +287,12 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
             this.failNextCommit = false
             throw new Error("connection reset")
         }
+        if (this.unapproved.has(accessToken)) {
+            throw new IdpError(403, "approval_required", "Only an approved device can do this")
+        }
         // The DS's unique (conversation, epoch): the first commit at an epoch wins.
         if ((this.commitsByConversation.get(conversationId) ?? []).some((c) => c.epoch === epoch)) {
+            this.epochConflicts++
             throw new IdpError(409, "conflict", "That epoch is taken")
         }
         const actorUri = this.resolveSender(accessToken)
@@ -295,6 +312,10 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
             this.groupInfos.set(conversationId, { epoch, group_info: groupInfo })
         }
         await this.afterCommitStored?.()
+        if (this.loseNextAnswer) {
+            this.loseNextAnswer = false
+            throw new TypeError("Failed to fetch")
+        }
         return view
     }
 
@@ -312,6 +333,10 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
         conversationId: ConversationId,
         sinceEpoch: number,
     ): Promise<{ commits: CommitView[]; has_more: boolean }> {
+        if (this.failNextLogRead) {
+            this.failNextLogRead = false
+            throw new TypeError("Failed to fetch")
+        }
         const log = this.commitsByConversation.get(conversationId) ?? []
         return { commits: log.filter((c) => c.epoch > sinceEpoch), has_more: false }
     }
@@ -1136,18 +1161,20 @@ describe("MLS E2EE — a user's devices bring each other into their groups", () 
         expect(held).toEqual([`bob ${conversationId}`, `dan ${conversationId}`])
     })
 
-    it("keeps no group on a device that lost the race to found one, and joins the real one", async () => {
-        const { bob, dan1, dan2 } = await secondDevice()
+    it("founds no group over the one a GroupInfo shows, using up none of the contact's KeyPackages", async () => {
+        const { directory, bob, dan1, dan2 } = await secondDevice()
+        const packages = directory.packagesOf(bobActor)
 
         await expect(
             dan2.e2ee.ensureGroupExists(issuer, "dan2-token", conversationId, bobActor),
-        ).rejects.toThrow()
+        ).rejects.toBeInstanceOf(GroupToJoin)
 
         expect(await dan2.mls.hasGroup(conversationId)).toBe(false)
+        expect(directory.packagesOf(bobActor)).toBe(packages)
         // Tried again, it fails again rather than send into a group nobody else is in.
         await expect(
             dan2.e2ee.ensureGroupExists(issuer, "dan2-token", conversationId, bobActor),
-        ).rejects.toThrow()
+        ).rejects.toBeInstanceOf(GroupToJoin)
         await dan1.e2ee.addOwnDevices(issuer, "dan1-token", conversationId, await trusting(dan1, dan2))
         await dan2.e2ee.consumePendingWelcomes(issuer, "dan2-token", danActor)
         expect(await read(bob, "bob-token", await dan2.e2ee.encryptOutbound(conversationId, text("in at last"))))
@@ -2161,5 +2188,282 @@ describe("MLS E2EE — a device with no sibling in a group joins it by external 
         expect(metByBob).toMatchObject([
             { conversationId, actorUri: aliceActor, deviceId: await laptop.storage.getOrCreateDeviceId(), reason: "binding" },
         ])
+    })
+})
+
+describe("MLS E2EE — a device with none of its siblings in a conversation joins it by itself", () => {
+    const dm: ConversationId = "f1f1f1f1-2222-3333-4444-555566667777"
+    const group: ConversationId = "f2f2f2f2-2222-3333-4444-555566667777"
+    const issuer = "https://idp.shared.example"
+    const [aliceActor, bobActor, carolActor] = ["alice", "bob", "carol"].map((name) =>
+        asActorUri(`${issuer}/users/${name}_x1y2z`),
+    )
+    const both = [dm, group].map((id) => ({ id, removedAt: null }))
+    const join = { welcomeOverdue: false, siblingMayAdd: false }
+    const text = (t: string): ApplicationMessage<TextBody> => ({ version: 1, kind: "text", body: { text: t } })
+    const read = async (ctx: AdapterCtx, token: string, conversationId: ConversationId, ciphertext: Uint8Array) =>
+        ((await ctx.e2ee.decryptInbound(conversationId, ciphertext, { idpUrl: issuer, accessToken: token }))
+            ?.body as TextBody).text
+
+    async function registered(directory: InMemoryKeyDirectory, token: string, actor: ActorUri, history: FakeHistoryIdp | null = null) {
+        const ctx = await buildAdapter(directory, token, actor, history)
+        await ctx.e2ee.register(issuer, token, actor)
+        return ctx
+    }
+
+    /** Alice's only device held her DM with Bob and her group with Bob and Carol; then it was lost. */
+    async function lostAlice(history: FakeHistoryIdp | null = null) {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const lost = await registered(directory, "alice-token", aliceActor, history)
+        const bob = await registered(directory, "bob-token", bobActor)
+        const carol = await registered(directory, "carol-token", carolActor)
+        await lost.e2ee.addContactToGroup(issuer, "alice-token", dm, bobActor)
+        await lost.e2ee.addContactToGroup(issuer, "alice-token", group, bobActor)
+        await lost.e2ee.addContactToGroup(issuer, "alice-token", group, carolActor)
+        await bob.e2ee.consumePendingWelcomes(issuer, "bob-token", bobActor)
+        await bob.e2ee.catchUp(issuer, "bob-token", group)
+        await carol.e2ee.consumePendingWelcomes(issuer, "carol-token", carolActor)
+        return { directory, lost, bob, carol }
+    }
+
+    /** A row of Alice's device list: approved, signed in, last used `ago` ms back. */
+    function row(deviceId: DeviceId, ago: number): DeviceListEntry {
+        return {
+            device_id: deviceId,
+            display_name: deviceId,
+            kind: "phone",
+            paired_at: "2026-11-01T00:00:00Z",
+            last_seen_at: new Date(Date.now() - ago).toISOString(),
+            revoked_at: null,
+            signed_in: true,
+            last_active_at: new Date(Date.now() - ago).toISOString(),
+            drk_public_key: null,
+            attestation_signature: null,
+            attestation_kid: null,
+            attestation_expires_at: null,
+            hpke_public_key: null,
+            hpke_key_signature: null,
+            history_generation: 1,
+            approvals: [{ by: "passphrase", generation: 1, signature: new Uint8Array(64), created_at: "2026-11-01T00:00:00Z" }],
+        }
+    }
+
+    /** The page load's joins of `ctx`, on a clock moved by hand; `devices` the account's list as the IdP shows it. */
+    function joinsOf(ctx: AdapterCtx, token: string, devices: DeviceListEntry[] = []) {
+        let clock = Date.now()
+        const timers: { at: number; run: () => void; live: boolean }[] = []
+        const joins = new ConversationJoins({
+            e2ee: ctx.e2ee,
+            deviceDirectory: { listDevices: async () => ({ devices }) },
+            now: () => clock,
+            after: (ms, run) => {
+                const timer = { at: clock + ms, run, live: true }
+                timers.push(timer)
+                return () => (timer.live = false)
+            },
+        })
+        const context = { idpUrl: issuer, accessToken: () => token }
+        const pass = (ms: number) => {
+            clock += ms
+            for (const timer of timers.filter((t) => t.live && t.at <= clock)) {
+                timer.live = false
+                timer.run()
+            }
+        }
+        return { joins, context, pass }
+    }
+
+    async function leavesOf(ctx: AdapterCtx, conversationId: ConversationId, device: AdapterCtx) {
+        const id = await device.storage.getOrCreateDeviceId()
+        return (await ctx.mls.groupLeaves(conversationId)).filter((leaf) => leaf.credential?.device_id === id)
+    }
+
+    const commitsIn = async (directory: InMemoryKeyDirectory, conversationId: ConversationId) =>
+        (await directory.getCommitsSince(issuer, "bob-token", conversationId, 0)).commits.length
+
+    it("brings Alice's laptop, typed her words, back into her DM and her group: Bob reads it and it reads Bob", async () => {
+        const { directory, lost, bob, carol } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        const lostRow = row(await lost.storage.getOrCreateDeviceId(), 3 * 86_400_000)
+        const { joins, context } = joinsOf(laptop, "laptop-token", [lostRow, row(await laptop.storage.getOrCreateDeviceId(), 0)])
+        const held: ConversationId[] = []
+        laptop.e2ee.onGroupHeld((id) => held.push(id))
+
+        await joins.sync(context, both)
+
+        expect(held.sort()).toEqual([dm, group].sort())
+        expect(await read(bob, "bob-token", dm, await laptop.e2ee.encryptOutbound(dm, text("back")))).toBe("back")
+        expect(await read(laptop, "laptop-token", dm, await bob.e2ee.encryptOutbound(dm, text("welcome back")))).toBe(
+            "welcome back",
+        )
+        const toGroup = await laptop.e2ee.encryptOutbound(group, text("hello both"))
+        expect(await read(bob, "bob-token", group, toGroup)).toBe("hello both")
+        expect(await read(carol, "carol-token", group, toGroup)).toBe("hello both")
+        expect(await read(laptop, "laptop-token", group, await carol.e2ee.encryptOutbound(group, text("hey")))).toBe("hey")
+        expect(await leavesOf(bob, dm, laptop)).toHaveLength(1)
+        expect(await leavesOf(carol, group, laptop)).toHaveLength(1)
+    })
+
+    it("comes back after a start over, and the existing rules commit the lost device's leaf out", async () => {
+        const history = new FakeHistoryIdp()
+        const account = await accountKey(history)
+        const { directory, lost, bob } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor, history)
+        await account.hold(laptop)
+        const { joins, context } = joinsOf(laptop, "laptop-token")
+
+        await joins.sync(context, both)
+
+        expect(await laptop.e2ee.removeUntrustedLeaves(issuer, "laptop-token", dm, await trusting(laptop))).toEqual({
+            removed: 1,
+        })
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+        expect(await leavesOf(bob, dm, lost)).toEqual([])
+        expect(await read(bob, "bob-token", dm, await laptop.e2ee.encryptOutbound(dm, text("new start")))).toBe("new start")
+    })
+
+    it("stops for good on a device the instance doesn't count approved, and its waiting message fails", async () => {
+        const { directory } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        directory.unapproved.add("laptop-token")
+        const { joins, context } = joinsOf(laptop, "laptop-token")
+        const commits = await commitsIn(directory, dm)
+
+        const entering = enterConversationUseCase(joins, laptop.e2ee, context, { id: dm, peer: bobActor })
+
+        await expect(entering).rejects.toMatchObject({ status: 403, code: "approval_required" })
+        await joins.sync(context, both)
+        await expect(enterConversationUseCase(joins, laptop.e2ee, context, { id: dm, peer: bobActor })).rejects.toMatchObject({
+            status: 403,
+        })
+        expect(await laptop.mls.hasGroup(dm)).toBe(false)
+        expect(await commitsIn(directory, dm)).toBe(commits)
+    })
+
+    it("has the second of two devices joining at once read the newer GroupInfo and join after the first", async () => {
+        const { directory, bob, carol } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        const tablet = await registered(directory, "tablet-token", aliceActor)
+
+        const joined = await Promise.all([
+            laptop.e2ee.joinConversation(issuer, "laptop-token", group, join),
+            tablet.e2ee.joinConversation(issuer, "tablet-token", group, join),
+        ])
+
+        expect(joined).toEqual([{ kind: "joined" }, { kind: "joined" }])
+        expect(directory.epochConflicts).toBe(1)
+        await laptop.e2ee.catchUp(issuer, "laptop-token", group)
+        const fromTablet = await tablet.e2ee.encryptOutbound(group, text("me too"))
+        for (const [ctx, token] of [[bob, "bob-token"], [carol, "carol-token"], [laptop, "laptop-token"]] as const) {
+            expect(await read(ctx, token, group, fromTablet)).toBe("me too")
+        }
+        expect(await read(tablet, "tablet-token", group, await bob.e2ee.encryptOutbound(group, text("hi")))).toBe("hi")
+    })
+
+    it("leaves a sibling online the minute to add it by Welcome, and commits nothing itself", async () => {
+        const history = new FakeHistoryIdp()
+        const account = await accountKey(history)
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const phone = await registered(directory, "phone-token", aliceActor, history)
+        const bob = await registered(directory, "bob-token", bobActor)
+        await phone.e2ee.addContactToGroup(issuer, "phone-token", dm, bobActor)
+        await bob.e2ee.consumePendingWelcomes(issuer, "bob-token", bobActor)
+        const laptop = await registered(directory, "laptop-token", aliceActor, history)
+        await account.hold(phone)
+        await account.hold(laptop)
+        const rows = [row(await phone.storage.getOrCreateDeviceId(), 60_000), row(await laptop.storage.getOrCreateDeviceId(), 0)]
+        const { joins, context, pass } = joinsOf(laptop, "laptop-token", rows)
+        await joins.sync(context, [{ id: dm, removedAt: null }])
+        const entering = joins.whenIn(context, dm)
+
+        await phone.e2ee.addOwnDevices(issuer, "phone-token", dm, await trusting(phone, laptop))
+        await laptop.e2ee.consumePendingWelcomes(issuer, "laptop-token", aliceActor)
+
+        await expect(entering).resolves.toBe("in")
+        const commits = await commitsIn(directory, dm)
+        pass(WELCOME_WAIT_MS)
+        await joins.sync(context, [{ id: dm, removedAt: null }])
+        expect(await commitsIn(directory, dm)).toBe(commits)
+        expect(await read(bob, "bob-token", dm, await laptop.e2ee.encryptOutbound(dm, text("by Welcome")))).toBe("by Welcome")
+    })
+
+    it("sends a message written before it joined once it is in", async () => {
+        const { directory, lost, bob } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        // Lost ten minutes ago: still shown active, it never adds anyone.
+        const rows = [row(await lost.storage.getOrCreateDeviceId(), 10 * 60_000)]
+        const { joins, context, pass } = joinsOf(laptop, "laptop-token", rows)
+        await joins.sync(context, both)
+        let entered = false
+
+        const entering = enterConversationUseCase(joins, laptop.e2ee, context, { id: dm, peer: bobActor }).then(
+            () => (entered = true),
+        )
+        pass(WELCOME_WAIT_MS - 1_000)
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        expect(entered).toBe(false)
+        expect(await laptop.mls.hasGroup(dm)).toBe(false)
+        pass(1_000)
+        await entering
+
+        const written = await laptop.e2ee.encryptOutbound(dm, text("written before"))
+        expect(await read(bob, "bob-token", dm, written)).toBe("written before")
+    })
+
+    it("merges a join whose answer was lost when the log holds its commit, never adding a second leaf", async () => {
+        const { directory, bob } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        directory.loseNextAnswer = true
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).toEqual({ kind: "joined" })
+
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+        expect(await leavesOf(bob, dm, laptop)).toHaveLength(1)
+        expect(await read(bob, "bob-token", dm, await laptop.e2ee.encryptOutbound(dm, text("once")))).toBe("once")
+    })
+
+    it("keeps a join whose answer and log read both failed, and merges it at the next try", async () => {
+        const { directory, bob } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        const commits = await commitsIn(directory, dm)
+        directory.loseNextAnswer = true
+        directory.failNextLogRead = true
+
+        await expect(laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).rejects.toThrow("Failed to fetch")
+        expect(await laptop.mls.hasGroup(dm)).toBe(false)
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).toEqual({ kind: "joined" })
+        expect(await commitsIn(directory, dm)).toBe(commits + 1)
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+        expect(await leavesOf(bob, dm, laptop)).toHaveLength(1)
+        expect(await read(bob, "bob-token", dm, await laptop.e2ee.encryptOutbound(dm, text("still once")))).toBe("still once")
+    })
+
+    it("takes a new device, by itself or by Welcome, into a group whose leaves outlived their KeyPackages", async () => {
+        vi.useFakeTimers({ toFake: ["Date"] })
+        vi.setSystemTime(Date.now())
+        try {
+            const { directory, bob } = await lostAlice()
+            // Bob's leaf, never updated, carries the lifetime of the KeyPackage it came in by: 12 weeks.
+            vi.setSystemTime(Date.now() + 13 * 7 * 86_400_000)
+            const laptop = await registered(directory, "laptop-token", aliceActor)
+            const dave = await registered(directory, "dave-token", asActorUri(`${issuer}/users/dave_x1y2z`))
+
+            expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", group, join)).toEqual({ kind: "joined" })
+            await bob.e2ee.catchUp(issuer, "bob-token", group)
+            await bob.e2ee.addContactToGroup(issuer, "bob-token", group, asActorUri(`${issuer}/users/dave_x1y2z`))
+            expect(await dave.e2ee.consumePendingWelcomes(issuer, "dave-token", asActorUri(`${issuer}/users/dave_x1y2z`))).toEqual({
+                joined: 1,
+            })
+
+            await laptop.e2ee.catchUp(issuer, "laptop-token", group)
+            const hello = await laptop.e2ee.encryptOutbound(group, text("past the lifetime"))
+            expect(await read(bob, "bob-token", group, hello)).toBe("past the lifetime")
+            expect(await read(dave, "dave-token", group, hello)).toBe("past the lifetime")
+        } finally {
+            vi.useRealTimers()
+        }
     })
 })

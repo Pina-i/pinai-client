@@ -29,6 +29,8 @@ export interface AddMemberOutput extends CommitOutput {
 export interface ExternalJoinOutput extends CommitOutput {
     /** The epoch the commit opens, which it is posted at. */
     epoch: bigint
+    /** The group's leaves as the join makes them, this device's new one `own`. */
+    leaves: MlsLeaf[]
 }
 
 /**

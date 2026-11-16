@@ -508,6 +508,19 @@ pub struct Group {
 /// deletes each key once used.
 const MAX_PAST_EPOCHS: usize = 5;
 
+/// Rows the provider holds under `id` that no group held stands for — a join by external commit
+/// never kept: deleted, or a join over them would find a group already there.
+fn delete_stale(provider: &Provider, id: &GroupId) -> Result<(), JsError> {
+    if let Some(mut stale) = MlsGroup::load(provider.0.storage(), id)
+        .map_err(|e| JsError::new(&format!("Group::load failed: {e:?}")))?
+    {
+        stale
+            .delete(provider.0.storage())
+            .map_err(|e| JsError::new(&format!("Group delete failed: {e:?}")))?;
+    }
+    Ok(())
+}
+
 /// How a device runs a group it joined. Its Welcomes carry the ratchet tree, as a founder's do: a
 /// user's other devices and later members are added by whoever is at hand, not only the founder.
 /// It keeps the last `MAX_PAST_EPOCHS` epochs' keys for messages it hasn't read.
@@ -572,7 +585,9 @@ impl Group {
 
     /// Build a group from a Welcome we received. The ratchet tree must
     /// match what the inviter committed — Phase 4b passes the bytes
-    /// alongside the welcome.
+    /// alongside the welcome. Rows the provider still holds under that group id — a join by
+    /// external commit never kept — are deleted first. Like every join, it checks no leaf's
+    /// lifetime (`README.md`).
     pub fn join(
         provider: &Provider,
         welcome_bytes: &[u8],
@@ -589,9 +604,17 @@ impl Group {
             None => None,
         };
 
-        let staged = StagedWelcome::new_from_welcome(&provider.0, &join_config(), welcome, ratchet_tree)
-            .map_err(|e| JsError::new(&format!("StagedWelcome failed: {e}")))?;
-        let mls_group = staged
+        let mut join = StagedWelcome::build_from_welcome(&provider.0, &join_config(), welcome)
+            .map_err(|e| JsError::new(&format!("StagedWelcome failed: {e}")))?
+            .skip_lifetime_validation();
+        if let Some(tree) = ratchet_tree {
+            join = join.with_ratchet_tree(tree);
+        }
+        let group_id = join.processed_welcome().unverified_group_info().group_id().clone();
+        delete_stale(provider, &group_id)?;
+        let mls_group = join
+            .build()
+            .map_err(|e| JsError::new(&format!("StagedWelcome failed: {e}")))?
             .into_group(&provider.0)
             .map_err(|e| JsError::new(&format!("Group join failed: {e}")))?;
 
@@ -602,7 +625,7 @@ impl Group {
     /// `identity`'s credential over its key, as its KeyPackages carry. openmls merges the commit as
     /// it makes it, so the group is the caller's to keep once the DS took the commit, or to
     /// [`Group::delete`] once refused. Rows the provider still holds under that id — a join never
-    /// kept — are deleted first.
+    /// kept — are deleted first. Like every join, it checks no leaf's lifetime (`README.md`).
     pub fn join_by_external_commit(
         provider: &Provider,
         identity: &Identity,
@@ -614,16 +637,11 @@ impl Group {
         if group_info.group_id() != &id {
             return Err(JsError::new("The GroupInfo is another group's"));
         }
-        if let Some(mut stale) = MlsGroup::load(provider.0.storage(), &id)
-            .map_err(|e| JsError::new(&format!("Group::load failed: {e:?}")))?
-        {
-            stale
-                .delete(provider.0.storage())
-                .map_err(|e| JsError::new(&format!("Group delete failed: {e:?}")))?;
-        }
+        delete_stale(provider, &id)?;
         let signer = identity.signer(provider)?;
         let (mls_group, bundle) = MlsGroup::external_commit_builder()
             .with_config(join_config())
+            .skip_lifetime_validation()
             .build_group(&provider.0, group_info, identity.credential_with_key.clone())
             .map_err(|e| JsError::new(&format!("External commit failed: {e}")))?
             .load_psks(provider.0.storage())
@@ -645,7 +663,8 @@ impl Group {
 
     /// Join again from a Welcome for this group — the device was committed out and added back.
     /// The group held is replaced only when the Welcome brings a later epoch; `None` keeps it, as
-    /// for a Welcome from a group both sides founded at once.
+    /// for a Welcome from a group both sides founded at once. Like every join, it checks no leaf's
+    /// lifetime (`README.md`).
     pub fn rejoin(
         &mut self,
         provider: &Provider,
@@ -653,7 +672,7 @@ impl Group {
     ) -> Result<Option<Group>, JsError> {
         let welcome = welcome_in(welcome_bytes)?;
         let staged = StagedWelcome::build_from_welcome(&provider.0, &join_config(), welcome)
-            .and_then(|join| join.replace_old_group().build())
+            .and_then(|join| join.replace_old_group().skip_lifetime_validation().build())
             .map_err(|e| JsError::new(&format!("StagedWelcome failed: {e}")))?;
         if staged.group_context().group_id() != self.mls_group.group_id()
             || staged.group_context().epoch() <= self.mls_group.epoch()
@@ -971,6 +990,7 @@ fn serialize_message(msg: &MlsMessageOut) -> Result<Vec<u8>, JsError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use openmls::key_packages::{errors::KeyPackageVerifyError, Lifetime};
     use openmls::messages::external_proposals::JoinProposal;
 
     /// A fresh signature key bound to `credential`, as a device binds its leaf credential.
@@ -1293,6 +1313,119 @@ mod tests {
             .unwrap();
         let processed = bob_group.process_message(&mut bob_p, &ciphertext).unwrap();
         assert_eq!(processed.application(), b"still in step");
+    }
+
+    /// A KeyPackage of `identity`'s whose leaf lives `seconds` more.
+    fn short_lived_key_package(provider: &Provider, identity: &Identity, seconds: u64) -> KeyPackage {
+        let bundle = OpenMlsKeyPackage::builder()
+            .key_package_lifetime(Lifetime::new(seconds))
+            .build(
+                CIPHERSUITE,
+                &provider.0,
+                &identity.signer(provider).unwrap(),
+                identity.credential_with_key.clone(),
+            )
+            .unwrap();
+        KeyPackage(bundle.key_package().clone())
+    }
+
+    /// Alice's group with Bob, whose leaf — never updated — outlived the KeyPackage it came in by.
+    fn bob_past_his_leafs_lifetime(group_id: &[u8]) -> (Provider, Group, Provider, Group) {
+        let (alice_p, alice, bob_p, bob) = make_alice_and_bob();
+        let mut alice_p = alice_p;
+        let mut alice_group = Group::create_new(&alice_p, &alice, group_id).unwrap();
+        let add = alice_group
+            .add_member(&alice_p, &short_lived_key_package(&bob_p, &bob, 1))
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        let bob_group = Group::join(&bob_p, &add.welcome, None).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(2_100));
+        (alice_p, alice_group, bob_p, bob_group)
+    }
+
+    /// Charles comes in by Welcome, Dave by external commit, and Charles again by Welcome once
+    /// removed — all over Bob's leaf, past its lifetime, which openmls's default refuses.
+    #[test]
+    fn a_leaf_past_its_lifetime_keeps_no_device_out() {
+        let (mut alice_p, mut alice_group, mut bob_p, mut bob_group) = bob_past_his_leafs_lifetime(b"conv-030");
+        let mut charles_p = Provider::new();
+        let charles = identity(&charles_p, b"charles");
+
+        let add = alice_group
+            .add_member(&alice_p, &charles.key_package(&charles_p).unwrap())
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        bob_group.process_message(&mut bob_p, &add.commit).unwrap();
+        let mut charles_group = Group::join(&charles_p, &add.welcome, None).unwrap();
+
+        let refused = MlsGroup::external_commit_builder()
+            .with_config(join_config())
+            .build_group(&charles_p.0, group_info_in(&add.group_info).unwrap(), charles.credential_with_key.clone());
+        assert!(refused.is_err(), "openmls's default checks the leaves' lifetimes");
+        let mut dave_p = Provider::new();
+        let dave = identity(&dave_p, b"dave");
+        let join = Group::join_by_external_commit(&dave_p, &dave, b"conv-030", &add.group_info).unwrap();
+        let commit = join.commit();
+        let mut dave_group = join.into_group();
+        for (group, provider) in [
+            (&mut alice_group, &mut alice_p),
+            (&mut bob_group, &mut bob_p),
+            (&mut charles_group, &mut charles_p),
+        ] {
+            group.process_message(provider, &commit).unwrap();
+        }
+        let hello = bob_group.encrypt_application(&bob_p, b"still here").unwrap();
+        for (group, provider) in [(&mut charles_group, &mut charles_p), (&mut dave_group, &mut dave_p)] {
+            assert_eq!(group.process_message(provider, &hello).unwrap().application(), b"still here");
+        }
+
+        let remove = alice_group.remove_member(&alice_p, charles_group.own_leaf_index()).unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        charles_group.process_message(&mut charles_p, &remove.commit).unwrap();
+        let back = alice_group
+            .add_member(&alice_p, &charles.key_package(&charles_p).unwrap())
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        let mut charles_group = charles_group.rejoin(&charles_p, &back.welcome).unwrap().unwrap();
+        let again = alice_group.encrypt_application(&alice_p, b"welcome back").unwrap();
+        assert_eq!(charles_group.process_message(&mut charles_p, &again).unwrap().application(), b"welcome back");
+    }
+
+    /// The lifetime still counts when a KeyPackage is added: `KeyPackage::from_bytes` validates it so.
+    #[test]
+    fn a_key_package_past_its_lifetime_is_still_refused() {
+        let provider = Provider::new();
+        let bob = identity(&provider, b"bob");
+        let bytes = short_lived_key_package(&provider, &bob, 1).to_bytes().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(2_100));
+
+        let validated = KeyPackageIn::tls_deserialize(&mut bytes.as_slice())
+            .unwrap()
+            .validate(&openmls_rust_crypto::RustCrypto::default(), ProtocolVersion::Mls10);
+
+        assert!(matches!(validated, Err(KeyPackageVerifyError::InvalidLifetime)));
+    }
+
+    /// A join by external commit the provider still holds, neither kept nor deleted — a reload came
+    /// while it was pending — doesn't stand in the way of a Welcome.
+    #[test]
+    fn a_welcome_joins_over_a_join_never_kept() {
+        let (mut alice_p, mut alice_group, _, _) = alice_with_bob(b"conv-031");
+        let update = alice_group.update(&alice_p).unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        let mut laptop_p = Provider::new();
+        let laptop = identity(&laptop_p, b"alice's laptop");
+        drop(Group::join_by_external_commit(&laptop_p, &laptop, b"conv-031", &update.group_info).unwrap());
+        assert!(Group::load_from_provider(&laptop_p, b"conv-031").unwrap().is_some());
+
+        let add = alice_group
+            .add_member(&alice_p, &laptop.key_package(&laptop_p).unwrap())
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        let mut laptop_group = Group::join(&laptop_p, &add.welcome, None).unwrap();
+
+        let hello = alice_group.encrypt_application(&alice_p, b"in").unwrap();
+        assert_eq!(laptop_group.process_message(&mut laptop_p, &hello).unwrap().application(), b"in");
     }
 
     /// Bob joined Alice's group; Charles, whom Bob adds, joins from Bob's Welcome alone, as a

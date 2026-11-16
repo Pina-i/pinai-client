@@ -140,7 +140,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - Every commit answers `CommitOutput`: the commit and the GroupInfo of the
   epoch it opens, posted together. `joinByExternalCommit` is pending as a
   commit is — `mergePendingCommit` holds the group, `clearPendingCommit` drops
-  it. A proposal received is ignored (`kind: "proposal"`).
+  it — and shows the tree it makes (`leaves`). A proposal received is ignored
+  (`kind: "proposal"`).
 
 ### ports/hpke.port.ts
 - `IHpkePort` — RFC 9180 base mode, one suite (DHKEM(X25519, HKDF-SHA256),
@@ -660,6 +661,35 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   acting review shares the passphrase over the list it read, after the adds
   (`shareFailure`).
   See `identity-provider/specs/e2ee.md § 6.2`, § 3.9.
+
+### models/conversation-join.ts + usecases/e2ee/join-conversations.usecase.ts
+- A device holding no group for a conversation of its list joins it by itself, by
+  external commit (`identity-provider/specs/e2ee.md § 6.14`). The rules:
+  `conversationsToJoin` (the list but what it holds and the groups the user was
+  removed from); `siblingOnline` / `siblingWait` — another device approved (the
+  list's word: it only decides a wait), unrevoked, signed in and used within the
+  hour (`SIBLING_ACTIVE_MS`: the list knows a session's last sign-in or renewal,
+  every 48 minutes in an open app) is left what remains of a minute
+  (`WELCOME_WAIT_MS`) to add this device by Welcome; `joinStanding` — what the
+  group's tree says: `join` (the account's devices there, not this one),
+  `welcome-due` (a leaf names this device: its Welcome is on its way — a minute,
+  then the join goes over it), `not-added` (no device of the account: a member's
+  add brings it in, never a join); `joinFailure` — `epoch-lost` (`409`), `refused`
+  (for good: `403`, `404`, `400`), `not-yet` (`device_required`, `401`, `408`,
+  `429`), `unanswered` (no answer, `5xx`: the commit may be in); `joinRetryDelay`
+  (5 s → 15 s → 60 s → 5 min, then every 15 min); `MAX_JOIN_CONFLICTS`.
+- `IE2eePort.joinConversation` is the protocol (`@pinai/crypto`), answering a
+  `ConversationJoin`; `ensureGroupExists` throws `GroupToJoin` where a group is
+  there to join.
+- `ConversationJoins` — the page load's coordinator: `sync` (at start, on
+  reconnect, when the list changes: nothing sent while none is missing), one join
+  of a conversation at a time, the sibling's minute from when it was found missing,
+  the Welcome's from when the tree first named the device, a failure tried again
+  on `joinRetryDelay` (waiting sends with it), a refusal for good kept for the page
+  load; `onGroupHeld` settles a conversation whoever brought the device in.
+  `whenIn` — what a send waits on: `in`, `no-group`, or the refusal.
+  `enterConversationUseCase` — before a send: in, or a DM founded while it has no
+  group, `GroupToJoin` sending it back to the wait; a group without one fails.
 
 ### models/own-messages.ts
 - `isHeldHere` — a message from the user's own account is this device's
