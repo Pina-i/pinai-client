@@ -1,4 +1,4 @@
-import { Bell, BellOff, ListX, LogOut, Phone, Video } from "lucide-react"
+import { Bell, BellOff, ListX, LogOut, Pencil, Phone, Video } from "lucide-react"
 import { ContextMenuList, type ContextMenuItem } from "@/presentation/molecules/ContextMenu/ContextMenuList"
 
 const iconClass = "h-4 w-4"
@@ -9,8 +9,11 @@ interface GroupContextMenuProps {
     isMuted: boolean
     /** Absent while there is no conversation to mute: the item is then disabled. */
     onToggleMute?: () => void
+    /** Absent when the user may not rename the group: the item is then left out. */
+    onRename?: () => void
     /** Set for a group the user was removed from: clearing it is all that is left to do. */
     onRemoveFromList?: () => void
+    onQuit?: () => void
     onClose: () => void
 }
 
@@ -21,7 +24,9 @@ export function GroupContextMenu({
     displayName,
     isMuted,
     onToggleMute,
+    onRename,
     onRemoveFromList,
+    onQuit,
     onClose,
 }: GroupContextMenuProps) {
     const items: ContextMenuItem[] = onRemoveFromList ? [
@@ -36,6 +41,9 @@ export function GroupContextMenu({
         { key: "call", label: "Start a call", icon: <Phone className={iconClass} /> },
         { key: "video", label: "Start a video call", icon: <Video className={iconClass} /> },
         { type: "separator", key: "sep-talk" },
+        ...(onRename
+            ? [{ key: "rename", label: "Rename group", icon: <Pencil className={iconClass} />, hint: "F2", onAction: onRename }]
+            : []),
         {
             key: "mute",
             label: isMuted ? "Unmute notifications" : "Mute notifications",
@@ -44,7 +52,7 @@ export function GroupContextMenu({
             onAction: onToggleMute,
         },
         { type: "separator", key: "sep-manage" },
-        { key: "quit", label: "Quit conversation", icon: <LogOut className={iconClass} />, variant: "destructive" },
+        { key: "quit", label: "Quit conversation", icon: <LogOut className={iconClass} />, variant: "destructive", onAction: onQuit },
     ]
 
     return <ContextMenuList items={items} label={`Actions for ${displayName}`} onClose={onClose} />

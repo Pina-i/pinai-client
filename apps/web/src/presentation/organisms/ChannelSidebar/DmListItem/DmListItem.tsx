@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { Bell, BellOff } from "lucide-react"
 import { useNavigate } from "@tanstack/react-router"
 import { Button } from "react-aria-components"
@@ -12,7 +12,9 @@ import { PersonProfileModal } from "@/presentation/organisms/PersonProfileModal/
 import { useIsFriend, useRemoveFriend } from "@/presentation/hooks/useRemoveFriend"
 import { useBlockUser, useBlocks } from "@/presentation/hooks/useBlocks"
 import { useDismissGroup } from "@/presentation/hooks/useDismissGroup"
+import { useLeaveGroup } from "@/presentation/hooks/useLeaveGroup"
 import { isBlocked } from "@pinai/domain/models/block"
+import { mayRenameGroup } from "@pinai/domain/models/group"
 import { GroupContextMenu } from "@/presentation/molecules/GroupContextMenu/GroupContextMenu"
 import { cn } from "@/presentation/_libs/utils"
 import { presenceToUserStatus, userStatusLabel } from "@pinai/domain/models/presence"
@@ -23,6 +25,7 @@ import type { DmConversation } from "@/lib/types"
 import { lastMessagePreview } from "../_helpers/last-message-preview.helper"
 import { groupFact } from "../_helpers/group-fact.helper"
 import { UnreadPill } from "../UnreadPill/UnreadPill"
+import { RenameGroupPopover } from "../RenameGroupPopover/RenameGroupPopover"
 import { sidebarRowClass, sidebarRowHotClass, sidebarRowOnClass } from "../sidebar-row.styles"
 
 export function DmListItem({ dm }: { dm: DmConversation }) {
@@ -54,7 +57,11 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
     const [isConfirmingBlock, setIsConfirmingBlock] = useState(false)
     const [isShowingProfile, setIsShowingProfile] = useState(false)
     const { dismiss, isPending: isDismissing } = useDismissGroup()
+    const { leave } = useLeaveGroup()
     const [isConfirmingDismiss, setIsConfirmingDismiss] = useState(false)
+    const rowRef = useRef<HTMLButtonElement>(null)
+    const canRename = mayRenameGroup(dm)
+    const [isRenaming, setIsRenaming] = useState(false)
 
     function openConversation() {
         navigate({ to: "/dm/$name", params: { name: dm.id } })
@@ -79,10 +86,15 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
                 <ContextMenu
                     trigger={(isOpen) => (
                         <Button
+                            ref={rowRef}
                             onPress={openConversation}
+                            onKeyDown={(e) => {
+                                if (e.key === "F2" && canRename) setIsRenaming(true)
+                                else e.continuePropagation()
+                            }}
                             className={cn(
                                 sidebarRowClass,
-                                isActive ? sidebarRowOnClass : isOpen && sidebarRowHotClass,
+                                isActive ? sidebarRowOnClass : (isOpen || isRenaming) && sidebarRowHotClass,
                                 isRemoved && "opacity-60",
                             )}
                         >
@@ -130,7 +142,9 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
                                 displayName={dm.displayName}
                                 isMuted={isMuted}
                                 onToggleMute={toggleMute}
+                                onRename={canRename ? () => setIsRenaming(true) : undefined}
                                 onRemoveFromList={isRemoved ? () => setIsConfirmingDismiss(true) : undefined}
+                                onQuit={() => void leave(dm.id)}
                                 onClose={close}
                             />
                         ) : (
@@ -161,6 +175,7 @@ export function DmListItem({ dm }: { dm: DmConversation }) {
                 </button>
                 )}
             </div>
+            {isRenaming && <RenameGroupPopover group={dm} anchorRef={rowRef} onClose={() => setIsRenaming(false)} />}
             <RemoveFriendModal
                 friendName={isConfirmingRemove ? dm.displayName : null}
                 isPending={isRemoving}

@@ -18,7 +18,7 @@ import {
     startsConversation,
     type DirectMessage,
 } from "@pinai/domain/models/dm"
-import { describeGroupEvent, type GroupEvent } from "@pinai/domain/models/group-event"
+import { describeGroupEvent, groupEventActor, type GroupEvent } from "@pinai/domain/models/group-event"
 import { useDismissGroup } from "@/presentation/hooks/useDismissGroup"
 import { useReadOnReturn } from "@/presentation/hooks/use-read-on-return"
 import type {
@@ -483,6 +483,7 @@ export function useConversationPageViewModel(name: string) {
                 createdAt: e.createdAt,
                 text: describeGroupEvent(e, myActorUri),
                 timestamp: timeOfDay(e.createdAt),
+                rename: e.event === "renamed" ? { by: groupEventActor(e, myActorUri), name: e.name ?? "" } : undefined,
             })),
         [events, myActorUri],
     )

@@ -31,7 +31,7 @@ export interface IGroupPort {
     ): Promise<void>
     /** Clear a group the caller was removed from off their list; the IdP refuses it to a member. */
     dismissGroup(idpUrl: string, accessToken: string, conversationId: string): Promise<void>
-    /** Rename a group (admin only). */
+    /** Rename a group (any member). */
     renameGroup(
         idpUrl: string,
         accessToken: string,

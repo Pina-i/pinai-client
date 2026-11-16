@@ -6,7 +6,7 @@ import { getE2eePort, getGroupPort } from "@/ioc"
 import { distributeGroupKeysUseCase } from "@pinai/domain/usecases/e2ee/distribute-group-keys.usecase"
 import { MAX_GROUP_MEMBERS, seatsLeft } from "@pinai/domain/models/group"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
-import { groupMembersQueryKey } from "@/presentation/pages/home/GroupMembersPanel/GroupMembersPanel.viewmodel"
+import { groupMembersQueryKey } from "@/presentation/hooks/useGroupMembers"
 import { useFriendsPanelViewModel, type Friend } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import type { GroupComposerState } from "@/store/slices/ui.slice"
 import { droppedNotice, inviteRefusal } from "./_helpers/invite-refusal.helper"
@@ -58,12 +58,6 @@ export function useGroupComposerViewModel(composer: GroupComposerState, onClose:
 
     // The creator counts, and so does everyone already in the group being added to.
     const isFull = seatsLeft((isAddMode ? (existingMembers?.length ?? 0) : 1) + selectedIds.size) === 0
-
-    /** True when any selected member lives on a different instance. */
-    const hasFederatedSelection = useMemo(
-        () => selectedFriends.some((f) => f.address.split("@")[1] !== idpUrl?.replace(/^https?:\/\//, "")),
-        [selectedFriends, idpUrl],
-    )
 
     function toggle(friend: Friend) {
         if (excludedIds.has(friend.id)) return
@@ -149,7 +143,6 @@ export function useGroupComposerViewModel(composer: GroupComposerState, onClose:
         excludedIds,
         isFull,
         maxMembers: MAX_GROUP_MEMBERS,
-        hasFederatedSelection,
         toggle,
         submit,
         isSubmitting,

@@ -926,6 +926,21 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `describeGroupEvent(event, me)` — the line the conversation shows, worded
   for the reader: "Alice removed you", "You added Dave", "Alice stepped down
   as admin". The handle stands in for a name only when the IdP has none.
+- `groupEventActor(event, me)` — who made it, "You" or their name: the rename
+  card (`GroupRenameNotice`) sets it apart from the line.
+
+### Renaming a group (`models/group.ts`)
+- `mayRenameGroup(conversation)` — any member of a group, as the IdP lets
+  them (`PATCH /api/groups/:id`); never one removed from it, never a DM.
+- `groupRename(draft, current)` — the name to send: trimmed, or `null` when
+  blank, over `MAX_GROUP_NAME_LENGTH` (50, the IdP's limit at creation too),
+  or the name it has. An unnamed group (`current` null) takes any name.
+
+### Leaving a group (`models/group.ts`)
+- `mayLeaveGroup(members, actorUri)` — the IdP's rule (`409` on
+  `DELETE /api/groups/:id/members/:me`): the last admin stays while anyone
+  else is left; another admin, or nobody else, lets them go. Checked before
+  the request so the refusal is said in plain words.
 
 ### A group the user was removed from
 - `DmConversationSummary.removed_at` — the group stays listed as it stood,

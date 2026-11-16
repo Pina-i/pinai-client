@@ -42,6 +42,8 @@ export interface TimelineNotice {
     text: string
     /** Pre-formatted "HH:MM". */
     timestamp: string
+    /** Set for a rename, which shows as a card rather than a line. */
+    rename?: { by: string; name: string }
 }
 
 export interface Server {

@@ -7,6 +7,7 @@ import {
 } from "react-aria-components"
 import { DateDivider } from "@/presentation/molecules/DateDivider/DateDivider"
 import { GroupEventLine } from "@/presentation/molecules/GroupEventLine/GroupEventLine"
+import { GroupRenameNotice } from "@/presentation/molecules/GroupRenameNotice/GroupRenameNotice"
 import { MessageThreadContext, ReactionPickerContext, type LinkedMessage } from "./MessageList.context"
 import { formatDateDividerLabel } from "@/presentation/molecules/DateDivider/DateDivider.helper"
 import { EmojiPickerPopover } from "@/presentation/molecules/EmojiPickerPopover/EmojiPickerPopover"
@@ -325,6 +326,12 @@ export const MessageList = memo(function MessageList({
                             >
                                 {item.kind === "divider" ? (
                                     <DateDivider label={item.label} />
+                                ) : item.kind === "notice" && item.notice.rename ? (
+                                    <GroupRenameNotice
+                                        by={item.notice.rename.by}
+                                        name={item.notice.rename.name}
+                                        timestamp={item.notice.timestamp}
+                                    />
                                 ) : item.kind === "notice" ? (
                                     <GroupEventLine text={item.notice.text} timestamp={item.notice.timestamp} />
                                 ) : (

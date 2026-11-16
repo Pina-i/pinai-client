@@ -1,13 +1,16 @@
+import { useState } from "react"
 import { cn } from "@/presentation/_libs/utils"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { Tooltip } from "@/presentation/atoms/Tooltip/Tooltip"
 import { Navbar } from "@/presentation/organisms/Navbar/Navbar"
 import { findConversation } from "@pinai/domain/models/dm"
+import { mayRenameGroup } from "@pinai/domain/models/group"
 import { presenceToUserStatus } from "@pinai/domain/models/presence"
 import { useOpenConversationRef } from "@/presentation/hooks/useOpenConversationRef"
 import { useAppStore } from "@/store/store"
-import { Hash, MessageSquare, UserPlus, Users, Volume2 } from "lucide-react"
+import { Hash, MessageSquare, Pencil, UserPlus, Users, Volume2 } from "lucide-react"
+import { GroupTitleEditor } from "./GroupTitleEditor/GroupTitleEditor"
 
 export function AppHeader() {
     const view = useAppStore((s) => s.view)
@@ -29,6 +32,10 @@ export function AppHeader() {
     )
 
     const activeDmAddress = activeDmData?.address ?? dmRef ?? ""
+    const [renamingId, setRenamingId] = useState<string | null>(null)
+    const renamable = view === "dms" && activeDmData && mayRenameGroup(activeDmData) ? activeDmData : null
+    // Opening another conversation drops the edit, rather than keeping it for the way back.
+    if (renamingId !== null && renamingId !== renamable?.id) setRenamingId(null)
 
     const title = view === "dms"
         ? (dmRef ? (activeDmData?.displayName ?? activeDmAddress.split("@")[0] ?? activeDmAddress) : "Friends")
@@ -108,7 +115,30 @@ export function AppHeader() {
             </span>
 
             <div className="flex min-w-0 flex-1 flex-col">
-                <span className="title truncate text-[19px] font-semibold text-foreground">{title}</span>
+                {renamable && renamingId === renamable.id ? (
+                    <GroupTitleEditor
+                        conversationId={renamable.id}
+                        groupName={renamable.groupName}
+                        placeholder={renamable.displayName}
+                        onDone={() => setRenamingId(null)}
+                    />
+                ) : (
+                    <span className="flex min-w-0 items-center gap-1">
+                        <span className="title truncate text-[19px] font-semibold text-foreground">{title}</span>
+                        {renamable && (
+                            <Tooltip content="Rename group" placement="bottom" delay={300}>
+                                <IconButton
+                                    variant="ghost"
+                                    aria-label="Rename group"
+                                    onPress={() => setRenamingId(renamable.id)}
+                                    className="h-[26px] w-[26px] opacity-55 hover:opacity-100 focus-visible:opacity-100"
+                                >
+                                    <Pencil className="h-[13px] w-[13px]" />
+                                </IconButton>
+                            </Tooltip>
+                        )}
+                    </span>
+                )}
                 {description && (
                     <span
                         className={cn(

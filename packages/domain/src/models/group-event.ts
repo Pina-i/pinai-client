@@ -24,10 +24,14 @@ export interface GroupEvent {
     createdAt: string
 }
 
+/** Who made a change, as the reader `me` reads it: "You", or their name. */
+export function groupEventActor(event: GroupEvent, me: string): string {
+    return event.actorUri === me ? "You" : personName(event.actorUri, event.actorDisplayName)
+}
+
 /** The line a group's conversation shows for one of its changes, to the reader `me`. */
 export function describeGroupEvent(event: GroupEvent, me: string): string {
-    const byMe = event.actorUri === me
-    const by = byMe ? "You" : personName(event.actorUri, event.actorDisplayName)
+    const by = groupEventActor(event, me)
     const subject = event.subjectUri ?? event.actorUri
     const whom = subject === me ? "you" : personName(subject, event.subjectDisplayName ?? null)
     switch (event.event) {
