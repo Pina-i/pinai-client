@@ -34,7 +34,7 @@ export interface Message extends SendState, Decryption {
     attachmentKeys?: Record<string, AttachmentBlobKey>
 }
 
-/** A line of the timeline nobody wrote: a change to the group, worded for the reader. */
+/** A line of the timeline nobody wrote: a change to the group, or someone's new device, worded for the reader. */
 export interface TimelineNotice {
     id: string
     /** ISO 8601 instant. */
@@ -44,6 +44,8 @@ export interface TimelineNotice {
     timestamp: string
     /** Set for a rename, which shows as a card rather than a line. */
     rename?: { by: string; name: string }
+    /** Set for a line that explains itself when pressed: someone else's new device. */
+    explanation?: string
 }
 
 export interface Server {

@@ -7,6 +7,8 @@ import { useDeviceFanout } from "@/presentation/hooks/useDeviceFanout"
 import { useHistoryArchiveFlusher } from "@/presentation/hooks/useHistoryArchiveFlusher"
 import { useHistoryShare } from "@/presentation/hooks/use-history-share"
 import { useHistoryRearchive } from "@/presentation/hooks/use-history-rearchive"
+import { useRejoinConversations } from "@/presentation/hooks/use-rejoin-conversations"
+import { useNewDeviceLines } from "@/presentation/hooks/use-new-device-lines"
 import { useIdentityOnboardingGate } from "@/presentation/hooks/useIdentityOnboardingGate"
 import {
     registerDeviceFanoutHandler,
@@ -38,6 +40,8 @@ function AppRuntime() {
     useLoadDmConversations()
     useLoadPresence()
     useConsumeMlsWelcomes()
+    useRejoinConversations()
+    useNewDeviceLines()
     useHistoryArchiveFlusher()
     useHistoryShare()
     useHistoryRearchive()

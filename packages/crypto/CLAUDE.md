@@ -67,9 +67,12 @@ Three collaborators could not come, and the shape of each is the mobile work:
   key — `hpke` null in a row from before it, which registers again — and,
   beside it, `device_trust`'s rows `trust:seen`, `trust:approved` (device ids
   with root keys), `trust:revoked` (device ids), `trust:partners` (device ids
-  with the root and HPKE keys a code handshake gave), `trust:baselines` (the
-  generations a baseline was taken under) and `trust:before` (per generation this
-  device set over others: its cause, the devices from before, the one refused).
+  with the root and HPKE keys a code handshake gave), `trust:partner-approvals`
+  (a partner's approval of this device as the device asking: the partner by id
+  and root key, the root key of this device it binds, the signature),
+  `trust:baselines` (the generations a baseline was taken under) and
+  `trust:before` (per generation this device set over others: its cause, the
+  devices from before, the one refused).
   A store of their own would take an IndexedDB upgrade; a new row takes none.
   Read as the passphrase's are, an unreadable row set aside and named
   (`unreadable`); `addToDeviceTrust` reads each row again just before writing
@@ -178,6 +181,14 @@ Three collaborators could not come, and the shape of each is the mobile work:
     key into `leaf_binding` before `setIdentity`. Nothing is bound without an
     attestation, and a registration landing during a bind binds again; a refill
     whose binding a renewal dropped binds again before it makes KeyPackages.
+  - **Its approvals** (`ownApprovals`, § 3.4), from what the device keeps, never the
+    list: the words' approval signed again with the approval key of the words kept while
+    the **recorded** standing holds their generation (`carriesWordsApproval` — the
+    recorded one, so every tab makes the same credential), and the partners' approvals of
+    its root key as it is now (`partnerApprovalsOver`), in `leafApprovals`' order.
+    `ensureInitialized` with an actor binds again once they differ from the bound
+    credential's (`approvalsMoved`; one that can't be read keeps it): the next KeyPackages,
+    a founding and an external join carry them.
   - **Leaves checked**: a claimed KeyPackage before it is added
     (`addContactToGroup` — the contact's devices whose leaves verify, none
     verifying is `KeyPackageUnavailable` —, `addOwnDevices`), each as the very
@@ -231,10 +242,43 @@ Three collaborators could not come, and the shape of each is the mobile work:
   - `commitEach` — the one loop for a run of commits (`pruneGroup`,
     `addOwnDevices`, `refreshOwnLeaf`, `removeUntrustedLeaves`): one a commit,
     looked at again after each, an epoch race caught up and tried again, five at most.
+  - Every commit posted goes with the GroupInfo the engine made for its epoch
+    (`postCommit`), what a device with no sibling in the group joins by. A
+    proposal is dropped by the engine: `decryptInbound` answers `null`, as for
+    a commit.
+  - **`joinConversation`** (`identity-provider/specs/e2ee.md § 6.14`) — in the
+    group's queue: the newest GroupInfo (`null` → `no-group`; a refusal for good
+    → `refused`), the external commit built, then the tree it shows read
+    (`joinStanding`): no leaf of the account → `not-added`, a leaf of this device →
+    `welcome-due` unless `welcomeOverdue`, `left-to-sibling` while `siblingMayAdd`
+    — the pending join cleared each time. Posted at its epoch; taken → merged, the
+    whole tree checked (`checkLeavesMet`), saved, `onGroupHeld`. `joinFailure`
+    decides the rest: `refused` / `not-yet` clear it; a `409` or no answer looks
+    the log up at that epoch first — its own bytes there are merged (never built
+    twice), another commit is a lost epoch (the newer GroupInfo, five times at
+    most, then thrown), nothing there after no answer, or a log that can't be read,
+    keeps the pending join (`unansweredJoins`) to post as it is at the next call.
+    `consumePendingWelcomes` settles such a join first: the Welcome and it would
+    share the group's rows. `heldGroups` — the groups held.
+  - **A device joining by itself, as a member sees it** (§ 6.14): the engine refuses an
+    external commit removing a leaf of another account (`refusesExternalCommit`); one applied
+    — in `decryptInbound` or the catch-up — answers its `joiner`, met after the leaf checks
+    (`meetNewcomer`): another account's, its leaf not shown forged and not proven
+    (`newcomerProven` over the tree as the commit left it, the signatures checked by
+    `credentialApproved`), goes to `onNewDevice` with the commit's epoch and `created_at` — the
+    line. One applied before any listener waits for the first. Never thrown: the commit is in.
+  - **`ensureGroupExists`** founds only while the conversation has no GroupInfo;
+    one held, or epoch 1 lost to another founding (`409`), is `GroupToJoin`: the
+    send waits for the join instead of using up a KeyPackage of each of the
+    contact's devices.
   - **`refreshOwnLeaf`** — a commit putting the credential the device makes now
     into its own leaf when the leaf carries another: one from before the leaf
-    binding, or before a renewal — a registration under way is waited for. Run by
-    `syncOwnGroupsUseCase` after the catch-up.
+    binding, before a renewal — a registration under way is waited for —, or
+    before its approvals changed. Run by `syncOwnGroupsUseCase` after the
+    catch-up: the words kept, a new generation and a code's approval each end in
+    an approval posted, whose `device_approved` refreshes the list and runs the
+    sync; words a generation set elsewhere replaced wait for the list's next
+    refresh.
   - **The code handshake** (§ 3.10): `startApprovalHandshake` with this device's
     root and HPKE keys; `checkHandshakePeer` — the peer's keys from the exchange
     against its one listed row, no revocation seen, its root chain
@@ -242,7 +286,9 @@ Three collaborators could not come, and the shape of each is the mobile work:
     latest reason and withdrawn once the device passes; a list naming an id
     twice (`device-list-refused`), an issuer out of reach or an expiry
     `unsettled`; `signDeviceApproval`, `approvesThisDevice`; partners kept, and
-    the rows read, in the trust rows' turn. `checkHandshakePartners` — for the
+    the rows read, in the trust rows' turn — with the asker's, the partner's approval
+    of it, kept only when it verifies over its root key under the partner's from the
+    exchange. `checkHandshakePartners` — for the
     domain's `deviceAdmission`: the list's revocations kept for good first (not
     from a list naming an id twice), then each partner's `by: device` approvals
     listed for this device, verified over its current root key under the
@@ -669,7 +715,25 @@ vitest setup, so a package's specs sit there until it needs its own.
   relay keeping the IdP's rules (`test/setup/approval-relay.ts`).
 - `apps/web/test/e2ee-integration.spec.ts` — Alice+Bob full-loop register →
   add → text → reaction → edit → attachment, plus a same-IdP
-  routing case.
+  routing case; a device with no sibling in a DM or a group joining from the
+  GroupInfo a commit posted, its leaf checked as any leaf met; the self-join
+  with `ConversationJoins` over a directory keeping the server's join rules —
+  back in after the words or a start over (the lost leaf then committed out),
+  refused when not approved (its waiting message failing), two joins racing, an
+  online sibling's Welcome preferred, a message written before the join, a lost
+  answer (and a failed log read) merged with no second leaf, leaves past their
+  KeyPackage's lifetime (the clock moved by `vi.setSystemTime`, which the bundle
+  reads); the approvals a leaf carries, committed into a group held, in the
+  KeyPackages published and in a join, and a member away 13 weeks applying an add
+  of a KeyPackage from before; the members of a conversation a device joins by
+  itself — no line after the words or a code, the line after a start over, one per
+  member of a group, none on the account's own devices nor for a sibling's Welcome,
+  an external commit removing another account's leaf refused. `new-device.spec.ts` —
+  the proof rule's table; `new-device-line-cache.spec.ts` and `new-device-line.spec.ts`
+  — the line in the persisted cache and on screen.
+- `apps/web/test/leaf-approvals.spec.ts` — what a device's leaves would carry, over the
+  real handshake and share flows: the words typed or set, a new generation, a code's
+  approval alone then beside the shared words, a start over, a root key changed.
 - `apps/web/test/key-share.spec.ts` — the share's bytes against the IdP's vectors, its rules, and
   real engines with the bundle's HPKE over fakes keeping the IdP's rules (`test/setup/key-shares.ts`):
   § 6.10 end to end, each of the four checks failing, the sender's refusals, the instance's

@@ -21,6 +21,7 @@
  */
 
 import { beforeAll, describe, expect, it, vi } from "vitest"
+import { ed25519 } from "@noble/curves/ed25519.js"
 
 import { loadWasmModule } from "./setup/wasm"
 import { generateMnemonic } from "@scure/bip39"
@@ -39,21 +40,26 @@ import {
 } from "./setup/issuers"
 
 import { verifyLeafCredential, verifyStrict } from "@pinai/crypto/attestation-chain.adapter"
-import { bytesToBase64 } from "@pinai/domain/lib/bytes"
+import { base64ToBytes, bytesToBase64 } from "@pinai/domain/lib/bytes"
 import { KeyPackageUnavailable } from "@pinai/domain/models/group"
-import { deviceHpkeKeyBytes } from "@pinai/crypto/canonical-bytes"
+import { GroupToJoin, WELCOME_WAIT_MS } from "@pinai/domain/models/conversation-join"
+import { ConversationJoins, enterConversationUseCase } from "@pinai/domain/usecases/e2ee/join-conversations.usecase"
+import { approvalBytes, deviceHpkeKeyBytes } from "@pinai/crypto/canonical-bytes"
 import type { LeafCredential, UntrustedLeaf } from "@pinai/domain/models/leaf-trust"
+import type { NewDeviceSeen } from "@pinai/domain/models/new-device"
 
 import { decryptDownloaded, encryptForUpload } from "@pinai/crypto/attachment-crypto"
 import { E2eeAdapter } from "@pinai/crypto/e2ee.adapter"
 import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
 import type {
     CommitView,
+    GroupInfoView,
     IdentityKeysResponse,
     IKeyDirectoryPort,
     RegisterDeviceResponse,
     WelcomeView,
 } from "@pinai/domain/ports/key-directory.port"
+import type { CommitOutput, IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
 import { MlsAdapter } from "@pinai/mls/wasm.adapter"
 import type {
     DeviceAttestation,
@@ -144,6 +150,7 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
     private readonly identityByActor = new Map<ActorUri, IdentityKeysResponse>()
     private readonly packagesByActor = new Map<ActorUri, PackageEntry[]>()
     private readonly commitsByConversation = new Map<ConversationId, CommitView[]>()
+    private readonly groupInfos = new Map<ConversationId, GroupInfoView>()
     private readonly welcomesByDevice = new Map<DeviceId, WelcomeView[]>()
     private readonly senderByToken = new Map<string, ActorUri>()
     /** attachment-id → ciphertext bytes (the IdP's RustFS, stubbed). */
@@ -255,6 +262,17 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
 
     /** The next commit posted is lost on its way, as a dropped connection would lose it. */
     failNextCommit = false
+    /** The next commit posted is stored, and its answer lost on the way back. */
+    loseNextAnswer = false
+    /** The next read of the commit log fails, as with the network down. */
+    failNextLogRead = false
+    /** Commits refused for an epoch already taken. */
+    epochConflicts = 0
+    /**
+     * Sessions of devices the instance doesn't count approved: it refuses their external commits
+     * (`403 approval_required`), and such a device holds no group, so every commit it posts is one.
+     */
+    readonly unapproved = new Set<string>()
     /** Runs once a commit is stored, before its sender hears back: the window the DS pushes it in. */
     afterCommitStored: (() => Promise<void>) | null = null
 
@@ -264,13 +282,19 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
         conversationId: ConversationId,
         epoch: number,
         commitBlob: Uint8Array,
+        groupInfo: Uint8Array,
     ): Promise<CommitView> {
+        if (groupInfo.length === 0) throw new IdpError(400, "invalid_request", "`group_info` is empty")
         if (this.failNextCommit) {
             this.failNextCommit = false
             throw new Error("connection reset")
         }
+        if (this.unapproved.has(accessToken)) {
+            throw new IdpError(403, "approval_required", "Only an approved device can do this")
+        }
         // The DS's unique (conversation, epoch): the first commit at an epoch wins.
         if ((this.commitsByConversation.get(conversationId) ?? []).some((c) => c.epoch === epoch)) {
+            this.epochConflicts++
             throw new IdpError(409, "conflict", "That epoch is taken")
         }
         const actorUri = this.resolveSender(accessToken)
@@ -285,8 +309,24 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
         const log = this.commitsByConversation.get(conversationId) ?? []
         log.push(view)
         this.commitsByConversation.set(conversationId, log)
+        // The newest, as the DS keeps it.
+        if (epoch > (this.groupInfos.get(conversationId)?.epoch ?? 0)) {
+            this.groupInfos.set(conversationId, { epoch, group_info: groupInfo })
+        }
         await this.afterCommitStored?.()
+        if (this.loseNextAnswer) {
+            this.loseNextAnswer = false
+            throw new TypeError("Failed to fetch")
+        }
         return view
+    }
+
+    async getGroupInfo(
+        _idpUrl: string,
+        _accessToken: string,
+        conversationId: ConversationId,
+    ): Promise<GroupInfoView | null> {
+        return this.groupInfos.get(conversationId) ?? null
     }
 
     async getCommitsSince(
@@ -295,6 +335,10 @@ class InMemoryKeyDirectory implements IKeyDirectoryPort {
         conversationId: ConversationId,
         sinceEpoch: number,
     ): Promise<{ commits: CommitView[]; has_more: boolean }> {
+        if (this.failNextLogRead) {
+            this.failNextLogRead = false
+            throw new TypeError("Failed to fetch")
+        }
         const log = this.commitsByConversation.get(conversationId) ?? []
         return { commits: log.filter((c) => c.epoch > sinceEpoch), has_more: false }
     }
@@ -512,13 +556,13 @@ async function buildAdapter(
     return { e2ee, mls, storage, history }
 }
 
-/** The account's history key, generation 1: a device given its words (`hold`) acts on approval. */
-async function accountKey(history: FakeHistoryIdp) {
+/** The account's history key, generation 1 unless said: a device given its words (`hold`) acts on approval. */
+async function accountKey(history: FakeHistoryIdp, generation = 1) {
     const sealer = new FastSealer()
     const words = generateMnemonic(wordlist, 256).split(" ")
     const salt = crypto.getRandomValues(new Uint8Array(16))
     const hak = await sealer.deriveKey(words, salt)
-    const key = { generation: 1, salt, ...sealer.derive(hak) }
+    const key = { generation, salt, ...sealer.derive(hak) }
     history.key = { ...key, setByDevice: null }
     return { hak, hold: (ctx: AdapterCtx) => ctx.e2ee.keepPassphrase(words, key) }
 }
@@ -1119,18 +1163,20 @@ describe("MLS E2EE — a user's devices bring each other into their groups", () 
         expect(held).toEqual([`bob ${conversationId}`, `dan ${conversationId}`])
     })
 
-    it("keeps no group on a device that lost the race to found one, and joins the real one", async () => {
-        const { bob, dan1, dan2 } = await secondDevice()
+    it("founds no group over the one a GroupInfo shows, using up none of the contact's KeyPackages", async () => {
+        const { directory, bob, dan1, dan2 } = await secondDevice()
+        const packages = directory.packagesOf(bobActor)
 
         await expect(
             dan2.e2ee.ensureGroupExists(issuer, "dan2-token", conversationId, bobActor),
-        ).rejects.toThrow()
+        ).rejects.toBeInstanceOf(GroupToJoin)
 
         expect(await dan2.mls.hasGroup(conversationId)).toBe(false)
+        expect(directory.packagesOf(bobActor)).toBe(packages)
         // Tried again, it fails again rather than send into a group nobody else is in.
         await expect(
             dan2.e2ee.ensureGroupExists(issuer, "dan2-token", conversationId, bobActor),
-        ).rejects.toThrow()
+        ).rejects.toBeInstanceOf(GroupToJoin)
         await dan1.e2ee.addOwnDevices(issuer, "dan1-token", conversationId, await trusting(dan1, dan2))
         await dan2.e2ee.consumePendingWelcomes(issuer, "dan2-token", danActor)
         expect(await read(bob, "bob-token", await dan2.e2ee.encryptOutbound(conversationId, text("in at last"))))
@@ -1243,9 +1289,9 @@ describe("MLS E2EE — a message overtaken by a commit", () => {
     /** `n` commits by `by`, each moving the group on an epoch, as an add or a removal does. */
     async function commits(directory: InMemoryKeyDirectory, by: AdapterCtx, token: string, n: number) {
         for (let i = 0; i < n; i++) {
-            const commit = await by.mls.update(conversationId)
+            const out = await by.mls.update(conversationId)
             const epoch = Number(await by.mls.getEpoch(conversationId)) + 1
-            await directory.postCommit(issuer, token, conversationId, epoch, commit)
+            await directory.postCommit(issuer, token, conversationId, epoch, out.commit, out.group_info)
             await by.mls.mergePendingCommit(conversationId)
         }
     }
@@ -1322,9 +1368,9 @@ describe("MLS E2EE — a leaf is trusted on its attestation and its leaf binding
     }
 
     /** A commit made with the engine alone, as a client that checks nothing would make it. */
-    async function commitUnchecked(directory: InMemoryKeyDirectory, by: AdapterCtx, token: string, commit: Uint8Array) {
+    async function commitUnchecked(directory: InMemoryKeyDirectory, by: AdapterCtx, token: string, out: CommitOutput) {
         const epoch = Number(await by.mls.getEpoch(conversationId)) + 1
-        await directory.postCommit(issuer, token, conversationId, epoch, commit)
+        await directory.postCommit(issuer, token, conversationId, epoch, out.commit, out.group_info)
         await by.mls.mergePendingCommit(conversationId)
     }
 
@@ -1406,7 +1452,7 @@ describe("MLS E2EE — a leaf is trusted on its attestation and its leaf binding
         const eveId = await eve.storage.getOrCreateDeviceId()
         const metByDan = untrustedLeavesOf(dan)
         const forged = await bob.mls.addMember(conversationId, await forgedPackage(eve))
-        await commitUnchecked(directory, bob, "bob-token", forged.commit)
+        await commitUnchecked(directory, bob, "bob-token", forged)
 
         await dan.e2ee.catchUp(issuer, "dan-token", conversationId)
 
@@ -1554,7 +1600,7 @@ describe("MLS E2EE — a leaf is trusted on its attestation and its leaf binding
         // Its own, and one an instance put under its credential with a key of its own.
         for (const keyPackage of [await dan2.mls.createKeyPackage(), await forgedPackage(dan2)]) {
             const add = await bob.mls.addMember(conversationId, keyPackage)
-            await commitUnchecked(directory, bob, "bob-token", add.commit)
+            await commitUnchecked(directory, bob, "bob-token", add)
         }
         await dan.e2ee.catchUp(issuer, "dan-token", conversationId)
 
@@ -1577,7 +1623,7 @@ describe("MLS E2EE — a leaf is trusted on its attestation and its leaf binding
         const unreadable = { ...credential!, idp_att: { ...credential!.idp_att, kid: 7 } } as unknown as LeafCredential
         await forger.setIdentity(unreadable, key)
         const add = await bob.mls.addMember(conversationId, await forger.createKeyPackage())
-        await commitUnchecked(directory, bob, "bob-token", add.commit)
+        await commitUnchecked(directory, bob, "bob-token", add)
         expect((await bob.mls.groupLeaves(conversationId)).map((leaf) => leaf.credential === null)).toEqual([
             false,
             false,
@@ -1592,6 +1638,106 @@ describe("MLS E2EE — a leaf is trusted on its attestation and its leaf binding
         expect(await read(dan, "dan-token", await bob.e2ee.encryptOutbound(conversationId, text("pruned")))).toBe(
             "pruned",
         )
+    })
+})
+
+describe("MLS E2EE — a device's leaves say how it was approved", () => {
+    const conversationId: ConversationId = "eeee1111-2222-3333-4444-555566667777"
+    const issuer = "https://idp.shared.example"
+    const [bobActor, danActor] = ["bob", "dan"].map((name) => asActorUri(`${issuer}/users/${name}_x1y2z`))
+    const text = (t: string): ApplicationMessage<TextBody> => ({ version: 1, kind: "text", body: { text: t } })
+
+    async function registered(directory: InMemoryKeyDirectory, token: string, actor: ActorUri, history: FakeHistoryIdp | null = null) {
+        const ctx = await buildAdapter(directory, token, actor, history)
+        await ctx.e2ee.register(issuer, token, actor)
+        return ctx
+    }
+
+    /** Bob's conversation with Dan's device, which registered and joined before it held his words. */
+    async function bobWithDan() {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const history = new FakeHistoryIdp()
+        const bob = await registered(directory, "bob-token", bobActor)
+        const dan = await registered(directory, "dan-token", danActor, history)
+        await bob.e2ee.addContactToGroup(issuer, "bob-token", conversationId, danActor)
+        await dan.e2ee.consumePendingWelcomes(issuer, "dan-token", danActor)
+        return { directory, history, bob, dan }
+    }
+
+    /** Dan's leaf as Bob's tree holds it once caught up. */
+    async function dansLeafAtBob(bob: AdapterCtx, dan: AdapterCtx) {
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+        const danId = await dan.storage.getOrCreateDeviceId()
+        return (await bob.mls.groupLeaves(conversationId)).find((leaf) => leaf.credential?.device_id === danId)!
+    }
+
+    /** The words approval of the key in force, its signature verifying over `ctx`'s device and root key. */
+    async function wordsApprovalOf(history: FakeHistoryIdp, ctx: AdapterCtx, approvals: LeafCredential["approvals"]) {
+        const key = history.key!
+        const words = approvals?.find((a) => a.by === "passphrase")
+        expect(words).toMatchObject({ generation: key.generation, approval_public_key: bytesToBase64(key.approvalPublicKey) })
+        const bytes = approvalBytes(danActor, await ctx.storage.getOrCreateDeviceId(), (await ctx.storage.loadDeviceAttestation())!.drk_public)
+        expect(verifyStrict(base64ToBytes(words!.signature), bytes, key.approvalPublicKey)).toBe(true)
+    }
+
+    it("commits the words' approval into the group it holds once it has them, and Bob reads the leaf verified", async () => {
+        const { history, bob, dan } = await bobWithDan()
+        expect((await dansLeafAtBob(bob, dan)).credential?.approvals).toBeUndefined()
+
+        await (await accountKey(history)).hold(dan)
+
+        expect(await dan.e2ee.refreshOwnLeaf(issuer, "dan-token", conversationId)).toEqual({ refreshed: true })
+        expect(await dan.e2ee.refreshOwnLeaf(issuer, "dan-token", conversationId)).toEqual({ refreshed: false })
+        const leaf = await dansLeafAtBob(bob, dan)
+        expect(leaf.credential?.approvals).toHaveLength(1)
+        await wordsApprovalOf(history, dan, leaf.credential?.approvals)
+        expect((await verifyLeafCredential(leaf, issuers.jwks)).ok).toBe(true)
+        expect(await bob.e2ee.decryptInbound(conversationId, await dan.e2ee.encryptOutbound(conversationId, text("approved")), {
+            idpUrl: issuer,
+            accessToken: "bob-token",
+        })).toMatchObject({ body: { text: "approved" } })
+    })
+
+    it("takes a new generation's approval in place of the old one, then its partner's beside it", async () => {
+        const { history, bob, dan } = await bobWithDan()
+        await (await accountKey(history)).hold(dan)
+        await dan.e2ee.refreshOwnLeaf(issuer, "dan-token", conversationId)
+
+        await (await accountKey(history, 2)).hold(dan)
+        expect(await dan.e2ee.refreshOwnLeaf(issuer, "dan-token", conversationId)).toEqual({ refreshed: true })
+        await wordsApprovalOf(history, dan, (await dansLeafAtBob(bob, dan)).credential?.approvals)
+
+        const danId = await dan.storage.getOrCreateDeviceId()
+        const partnerKey = ed25519.keygen()
+        const partner = { deviceId: crypto.randomUUID(), rootKey: partnerKey.publicKey, hpkeKey: new Uint8Array(32).fill(3) }
+        const signature = ed25519.sign(approvalBytes(danActor, danId, (await dan.storage.loadDeviceAttestation())!.drk_public), partnerKey.secretKey)
+        await dan.e2ee.rememberHandshakePartner(partner, { actorUri: danActor, signature })
+
+        expect(await dan.e2ee.refreshOwnLeaf(issuer, "dan-token", conversationId)).toEqual({ refreshed: true })
+        const approvals = (await dansLeafAtBob(bob, dan)).credential?.approvals
+        expect(approvals).toEqual([
+            expect.objectContaining({ by: "passphrase", generation: 2 }),
+            { by: "device", device_id: partner.deviceId, signature: bytesToBase64(signature) },
+        ])
+        await wordsApprovalOf(history, dan, approvals)
+    })
+
+    it("publishes KeyPackages carrying the approvals it holds from then on", async () => {
+        const directory = new InMemoryKeyDirectory()
+        const history = new FakeHistoryIdp()
+        const dan = await registered(directory, "dan-token", danActor, history)
+        const danId = await dan.storage.getOrCreateDeviceId()
+        const claim = async () => dan.mls.inspectKeyPackage((await directory.claimKeyPackage(issuer, "bob-token", danActor, danId)).key_package)
+        expect((await claim()).credential?.approvals).toBeUndefined()
+
+        await (await accountKey(history)).hold(dan)
+        directory.forgetPackages(danActor)
+        await dan.e2ee.replenishKeyPackages(issuer, "dan-token", danActor)
+
+        const leaf = await claim()
+        await wordsApprovalOf(history, dan, leaf.credential?.approvals)
+        expect((await verifyLeafCredential(leaf, issuers.jwks)).ok).toBe(true)
     })
 })
 
@@ -1630,9 +1776,9 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
     }
 
     /** A commit made with the engine alone, as a client that checks nothing would make it. */
-    async function commitUnchecked(directory: InMemoryKeyDirectory, by: AdapterCtx, token: string, commit: Uint8Array) {
+    async function commitUnchecked(directory: InMemoryKeyDirectory, by: AdapterCtx, token: string, out: CommitOutput) {
         const epoch = Number(await by.mls.getEpoch(conversationId)) + 1
-        await directory.postCommit(issuer, token, conversationId, epoch, commit)
+        await directory.postCommit(issuer, token, conversationId, epoch, out.commit, out.group_info)
         await by.mls.mergePendingCommit(conversationId)
     }
 
@@ -1668,7 +1814,7 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
     /** Bob adds a KeyPackage of `device` as a client that checks nothing would, its Welcome sent. */
     async function bobAdds(directory: InMemoryKeyDirectory, bob: AdapterCtx, keyPackage: Uint8Array, deviceId?: DeviceId) {
         const add = await bob.mls.addMember(conversationId, keyPackage)
-        await commitUnchecked(directory, bob, "bob-token", add.commit)
+        await commitUnchecked(directory, bob, "bob-token", add)
         if (deviceId) {
             await directory.postWelcome(issuer, "bob-token", {
                 recipient_actor_uri: danActor,
@@ -1732,7 +1878,7 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         const phoneRow = await asListed(phone, danActor)
         rows.push(listedDevice(phoneRow, [approvedBy(self, phoneRow)]))
         const stranger = testDevice(issuers, danActor)
-        await commitUnchecked(directory, bob, "bob-token", (await bob.mls.addMember(conversationId, await packageOf(stranger))).commit)
+        await commitUnchecked(directory, bob, "bob-token", await bob.mls.addMember(conversationId, await packageOf(stranger)))
         await laptop.e2ee.catchUp(issuer, "laptop-token", conversationId)
 
         expect(await sync()).toEqual({ added: 0, removed: 0, unclaimed: [], failed: [] })
@@ -1800,7 +1946,7 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         rows.push(listedDevice(phoneRow, [approvedBy(self, phoneRow)]))
         // The instance attests a root key of its own under the approved phone's id.
         const rogue = testDevice(issuers, danActor, phoneRow.deviceId)
-        await commitUnchecked(directory, bob, "bob-token", (await bob.mls.addMember(conversationId, await packageOf(rogue))).commit)
+        await commitUnchecked(directory, bob, "bob-token", await bob.mls.addMember(conversationId, await packageOf(rogue)))
         await laptop.e2ee.catchUp(issuer, "laptop-token", conversationId)
         const heard = untrustedLeavesOf(laptop)
 
@@ -1821,7 +1967,7 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         const tabletRow = await asListed(tablet, danActor)
         rows.push(listedDevice(tabletRow))
         const claimed = await directory.claimKeyPackage(issuer, "bob-token", danActor, tabletRow.deviceId)
-        await commitUnchecked(directory, bob, "bob-token", (await bob.mls.addMember(conversationId, claimed.key_package)).commit)
+        await commitUnchecked(directory, bob, "bob-token", await bob.mls.addMember(conversationId, claimed.key_package))
         await laptop.e2ee.catchUp(issuer, "laptop-token", conversationId)
         const heard = untrustedLeavesOf(laptop)
 
@@ -1839,7 +1985,7 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         const phoneRow = await asListed(phone, danActor)
         rows.push(listedDevice(phoneRow, [approvedBy(self, phoneRow)]))
         const rogue = testDevice(issuers, danActor, phoneRow.deviceId)
-        await commitUnchecked(directory, bob, "bob-token", (await bob.mls.addMember(conversationId, await packageOf(rogue))).commit)
+        await commitUnchecked(directory, bob, "bob-token", await bob.mls.addMember(conversationId, await packageOf(rogue)))
         await laptop.e2ee.catchUp(issuer, "laptop-token", conversationId)
         const trust = await laptop.e2ee.reviewDevices(issuer, "laptop-token", danActor, rows)
         // Meanwhile Bob takes the rogue leaf out and adds the real phone, which lands at its index.
@@ -1847,7 +1993,7 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         await commitUnchecked(directory, bob, "bob-token", await bob.mls.removeMember(conversationId, rogueIndex))
         const claimed = await directory.claimKeyPackage(issuer, "bob-token", danActor, phoneRow.deviceId)
         const add = await bob.mls.addMember(conversationId, claimed.key_package)
-        await commitUnchecked(directory, bob, "bob-token", add.commit)
+        await commitUnchecked(directory, bob, "bob-token", add)
         await directory.postWelcome(issuer, "bob-token", {
             recipient_actor_uri: danActor,
             recipient_device_id: phoneRow.deviceId,
@@ -2028,5 +2174,665 @@ describe("MLS E2EE — a device acting on approval judges its account's leaves",
         expect(await reloaded.e2ee.removeUntrustedLeaves(issuer, "laptop-token", conversationId, null)).toEqual({ removed: 1 })
         await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
         expect(await read(bob, "bob-token", await reloaded.e2ee.encryptOutbound(conversationId, text("clean")))).toBe("clean")
+    })
+})
+
+describe("MLS E2EE — a device with no sibling in a group joins it by external commit", () => {
+    const conversationId: ConversationId = "e1e1e1e1-2222-3333-4444-555566667777"
+    const issuer = "https://idp.shared.example"
+    const [aliceActor, bobActor, carolActor] = ["alice", "bob", "carol"].map((name) =>
+        asActorUri(`${issuer}/users/${name}_x1y2z`),
+    )
+    const text = (t: string): ApplicationMessage<TextBody> => ({ version: 1, kind: "text", body: { text: t } })
+    const read = async (ctx: AdapterCtx, token: string, ciphertext: Uint8Array) =>
+        ((await ctx.e2ee.decryptInbound(conversationId, ciphertext, { idpUrl: issuer, accessToken: token }))
+            ?.body as TextBody).text
+
+    async function registered(directory: InMemoryKeyDirectory, token: string, actor: ActorUri) {
+        const ctx = await buildAdapter(directory, token, actor)
+        await ctx.e2ee.register(issuer, token, actor)
+        return ctx
+    }
+
+    /** Alice's only device founded the conversation with `others`; then it was lost. */
+    async function lostAlice(...others: [token: string, actor: ActorUri][]) {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const lost = await registered(directory, "alice-token", aliceActor)
+        const members = []
+        for (const [token, actor] of others) {
+            const member = await registered(directory, token, actor)
+            await lost.e2ee.addContactToGroup(issuer, "alice-token", conversationId, actor)
+            await member.e2ee.consumePendingWelcomes(issuer, token, actor)
+            members.push(member)
+        }
+        return { directory, lost, members }
+    }
+
+    /** A device joining from the GroupInfo the DS holds: its commit posted at the epoch it opens, the group kept once taken. */
+    async function joinFromGroupInfo(directory: InMemoryKeyDirectory, by: { mls: IMlsEngine }, token: string) {
+        const held = await directory.getGroupInfo(issuer, token, conversationId)
+        const join = await by.mls.joinByExternalCommit(conversationId, held!.group_info)
+        expect(join.epoch).toBe(BigInt(held!.epoch + 1))
+        await directory.postCommit(issuer, token, conversationId, Number(join.epoch), join.commit, join.group_info)
+        await by.mls.mergePendingCommit(conversationId)
+    }
+
+    it("brings Alice's new device into the DM her lost one held: Bob meets it, reads it and is read", async () => {
+        const { directory, members: [bob] } = await lostAlice(["bob-token", bobActor])
+        const metByBob = untrustedLeavesOf(bob)
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+
+        await joinFromGroupInfo(directory, laptop, "laptop-token")
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+
+        const laptopId = await laptop.storage.getOrCreateDeviceId()
+        expect((await bob.mls.groupLeaves(conversationId)).map((leaf) => leaf.credential?.device_id)).toContain(laptopId)
+        expect(metByBob).toEqual([])
+        expect(await read(bob, "bob-token", await laptop.e2ee.encryptOutbound(conversationId, text("back")))).toBe("back")
+        expect(await read(laptop, "laptop-token", await bob.e2ee.encryptOutbound(conversationId, text("welcome")))).toBe(
+            "welcome",
+        )
+    })
+
+    it("joins from the GroupInfo a later member's commit came with", async () => {
+        const { directory, lost, members: [bob] } = await lostAlice(["bob-token", bobActor])
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        await joinFromGroupInfo(directory, laptop, "laptop-token")
+        const lostId = await lost.storage.getOrCreateDeviceId()
+        await laptop.e2ee.revokeDevice(issuer, "laptop-token", aliceActor, lostId, [conversationId])
+        expect((await directory.getGroupInfo(issuer, "bob-token", conversationId))?.epoch).toBe(
+            Number(await laptop.mls.getEpoch(conversationId)),
+        )
+        const tablet = await registered(directory, "tablet-token", aliceActor)
+
+        await joinFromGroupInfo(directory, tablet, "tablet-token")
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+        await laptop.e2ee.catchUp(issuer, "laptop-token", conversationId)
+
+        const fromTablet = await tablet.e2ee.encryptOutbound(conversationId, text("me again"))
+        expect(await read(bob, "bob-token", fromTablet)).toBe("me again")
+        expect(await read(laptop, "laptop-token", fromTablet)).toBe("me again")
+        expect(await read(tablet, "tablet-token", await bob.e2ee.encryptOutbound(conversationId, text("hi")))).toBe("hi")
+    })
+
+    it("brings it into a group: every member applies the commit and reads it", async () => {
+        const {
+            directory,
+            members: [bob, carol],
+        } = await lostAlice(["bob-token", bobActor], ["carol-token", carolActor])
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+
+        await joinFromGroupInfo(directory, laptop, "laptop-token")
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+        await carol.e2ee.catchUp(issuer, "carol-token", conversationId)
+
+        const fromLaptop = await laptop.e2ee.encryptOutbound(conversationId, text("hello both"))
+        expect(await read(bob, "bob-token", fromLaptop)).toBe("hello both")
+        expect(await read(carol, "carol-token", fromLaptop)).toBe("hello both")
+        expect(await read(laptop, "laptop-token", await carol.e2ee.encryptOutbound(conversationId, text("hey")))).toBe("hey")
+    })
+
+    it("puts the newcomer's leaf through the checks of any leaf met: a forged one is announced", async () => {
+        const { directory, members: [bob] } = await lostAlice(["bob-token", bobActor])
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        const metByBob = untrustedLeavesOf(bob)
+        // What an instance could do: the laptop's credential, attested and all, over a leaf key of its own.
+        const { credential } = await laptop.mls.inspectKeyPackage(await laptop.mls.createKeyPackage())
+        const forger = new MlsAdapter()
+        await forger.initialize({ module_or_path: wasmModule } as never)
+        const key = await forger.generateSignatureKey()
+        await forger.setIdentity(credential!, key)
+
+        await joinFromGroupInfo(directory, { mls: forger }, "laptop-token")
+        await bob.e2ee.catchUp(issuer, "bob-token", conversationId)
+
+        expect(metByBob).toMatchObject([
+            { conversationId, actorUri: aliceActor, deviceId: await laptop.storage.getOrCreateDeviceId(), reason: "binding" },
+        ])
+    })
+})
+
+describe("MLS E2EE — a device with none of its siblings in a conversation joins it by itself", () => {
+    const dm: ConversationId = "f1f1f1f1-2222-3333-4444-555566667777"
+    const group: ConversationId = "f2f2f2f2-2222-3333-4444-555566667777"
+    const issuer = "https://idp.shared.example"
+    const [aliceActor, bobActor, carolActor] = ["alice", "bob", "carol"].map((name) =>
+        asActorUri(`${issuer}/users/${name}_x1y2z`),
+    )
+    const both = [dm, group].map((id) => ({ id, removedAt: null }))
+    const join = { welcomeOverdue: false, siblingMayAdd: false }
+    const text = (t: string): ApplicationMessage<TextBody> => ({ version: 1, kind: "text", body: { text: t } })
+    const read = async (ctx: AdapterCtx, token: string, conversationId: ConversationId, ciphertext: Uint8Array) =>
+        ((await ctx.e2ee.decryptInbound(conversationId, ciphertext, { idpUrl: issuer, accessToken: token }))
+            ?.body as TextBody).text
+
+    async function registered(directory: InMemoryKeyDirectory, token: string, actor: ActorUri, history: FakeHistoryIdp | null = null) {
+        const ctx = await buildAdapter(directory, token, actor, history)
+        await ctx.e2ee.register(issuer, token, actor)
+        return ctx
+    }
+
+    /** Alice's only device held her DM with Bob and her group with Bob and Carol; then it was lost. */
+    async function lostAlice(history: FakeHistoryIdp | null = null) {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const lost = await registered(directory, "alice-token", aliceActor, history)
+        const bob = await registered(directory, "bob-token", bobActor)
+        const carol = await registered(directory, "carol-token", carolActor)
+        await lost.e2ee.addContactToGroup(issuer, "alice-token", dm, bobActor)
+        await lost.e2ee.addContactToGroup(issuer, "alice-token", group, bobActor)
+        await lost.e2ee.addContactToGroup(issuer, "alice-token", group, carolActor)
+        await bob.e2ee.consumePendingWelcomes(issuer, "bob-token", bobActor)
+        await bob.e2ee.catchUp(issuer, "bob-token", group)
+        await carol.e2ee.consumePendingWelcomes(issuer, "carol-token", carolActor)
+        return { directory, lost, bob, carol }
+    }
+
+    /** A row of Alice's device list: approved, signed in, last used `ago` ms back. */
+    function row(deviceId: DeviceId, ago: number): DeviceListEntry {
+        return {
+            device_id: deviceId,
+            display_name: deviceId,
+            kind: "phone",
+            paired_at: "2026-11-01T00:00:00Z",
+            last_seen_at: new Date(Date.now() - ago).toISOString(),
+            revoked_at: null,
+            signed_in: true,
+            last_active_at: new Date(Date.now() - ago).toISOString(),
+            drk_public_key: null,
+            attestation_signature: null,
+            attestation_kid: null,
+            attestation_expires_at: null,
+            hpke_public_key: null,
+            hpke_key_signature: null,
+            history_generation: 1,
+            approvals: [{ by: "passphrase", generation: 1, signature: new Uint8Array(64), created_at: "2026-11-01T00:00:00Z" }],
+        }
+    }
+
+    /** The page load's joins of `ctx`, on a clock moved by hand; `devices` the account's list as the IdP shows it. */
+    function joinsOf(ctx: AdapterCtx, token: string, devices: DeviceListEntry[] = []) {
+        let clock = Date.now()
+        const timers: { at: number; run: () => void; live: boolean }[] = []
+        const joins = new ConversationJoins({
+            e2ee: ctx.e2ee,
+            deviceDirectory: { listDevices: async () => ({ devices }) },
+            now: () => clock,
+            after: (ms, run) => {
+                const timer = { at: clock + ms, run, live: true }
+                timers.push(timer)
+                return () => (timer.live = false)
+            },
+        })
+        const context = { idpUrl: issuer, accessToken: () => token }
+        const pass = (ms: number) => {
+            clock += ms
+            for (const timer of timers.filter((t) => t.live && t.at <= clock)) {
+                timer.live = false
+                timer.run()
+            }
+        }
+        return { joins, context, pass }
+    }
+
+    async function leavesOf(ctx: AdapterCtx, conversationId: ConversationId, device: AdapterCtx) {
+        const id = await device.storage.getOrCreateDeviceId()
+        return (await ctx.mls.groupLeaves(conversationId)).filter((leaf) => leaf.credential?.device_id === id)
+    }
+
+    const commitsIn = async (directory: InMemoryKeyDirectory, conversationId: ConversationId) =>
+        (await directory.getCommitsSince(issuer, "bob-token", conversationId, 0)).commits.length
+
+    it("brings Alice's laptop, typed her words, back into her DM and her group: Bob reads it and it reads Bob", async () => {
+        const { directory, lost, bob, carol } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        const lostRow = row(await lost.storage.getOrCreateDeviceId(), 3 * 86_400_000)
+        const { joins, context } = joinsOf(laptop, "laptop-token", [lostRow, row(await laptop.storage.getOrCreateDeviceId(), 0)])
+        const held: ConversationId[] = []
+        laptop.e2ee.onGroupHeld((id) => held.push(id))
+
+        await joins.sync(context, both)
+
+        expect(held.sort()).toEqual([dm, group].sort())
+        expect(await read(bob, "bob-token", dm, await laptop.e2ee.encryptOutbound(dm, text("back")))).toBe("back")
+        expect(await read(laptop, "laptop-token", dm, await bob.e2ee.encryptOutbound(dm, text("welcome back")))).toBe(
+            "welcome back",
+        )
+        const toGroup = await laptop.e2ee.encryptOutbound(group, text("hello both"))
+        expect(await read(bob, "bob-token", group, toGroup)).toBe("hello both")
+        expect(await read(carol, "carol-token", group, toGroup)).toBe("hello both")
+        expect(await read(laptop, "laptop-token", group, await carol.e2ee.encryptOutbound(group, text("hey")))).toBe("hey")
+        expect(await leavesOf(bob, dm, laptop)).toHaveLength(1)
+        expect(await leavesOf(carol, group, laptop)).toHaveLength(1)
+    })
+
+    it("comes back after a start over, and the existing rules commit the lost device's leaf out", async () => {
+        const history = new FakeHistoryIdp()
+        const account = await accountKey(history)
+        const { directory, lost, bob } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor, history)
+        await account.hold(laptop)
+        const { joins, context } = joinsOf(laptop, "laptop-token")
+
+        await joins.sync(context, both)
+
+        expect(await laptop.e2ee.removeUntrustedLeaves(issuer, "laptop-token", dm, await trusting(laptop))).toEqual({
+            removed: 1,
+        })
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+        expect(await leavesOf(bob, dm, lost)).toEqual([])
+        expect(await read(bob, "bob-token", dm, await laptop.e2ee.encryptOutbound(dm, text("new start")))).toBe("new start")
+    })
+
+    it("joins carrying its words' approval, though it registered before it held them", async () => {
+        const history = new FakeHistoryIdp()
+        const account = await accountKey(history)
+        const { directory, bob } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor, history)
+        await account.hold(laptop)
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).toEqual({ kind: "joined" })
+
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+        const [leaf] = await leavesOf(bob, dm, laptop)
+        const approvals = leaf.credential?.approvals
+        expect(approvals).toEqual([
+            { by: "passphrase", generation: 1, approval_public_key: bytesToBase64(history.key!.approvalPublicKey), signature: expect.any(String) },
+        ])
+        const bytes = approvalBytes(aliceActor, await laptop.storage.getOrCreateDeviceId(), (await laptop.storage.loadDeviceAttestation())!.drk_public)
+        expect(verifyStrict(base64ToBytes(approvals![0].signature), bytes, history.key!.approvalPublicKey)).toBe(true)
+        expect((await verifyLeafCredential(leaf, issuers.jwks)).ok).toBe(true)
+    })
+
+    it("joins carrying the approval of the device that approved it with the code, which Bob checks by that device's leaf", async () => {
+        const { directory, lost, bob } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        const laptopId = await laptop.storage.getOrCreateDeviceId()
+        const laptopRoot = (await laptop.storage.loadDeviceAttestation())!.drk_public
+        const lostDevice = { ...(await known(lost)), hpkeKey: (await lost.storage.loadDeviceAttestation())!.hpke!.public_key }
+        const signature = await lost.e2ee.signDeviceApproval(aliceActor, laptopId, laptopRoot)
+        await laptop.e2ee.rememberHandshakePartner(lostDevice, { actorUri: aliceActor, signature })
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).toEqual({ kind: "joined" })
+
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+        const [leaf] = await leavesOf(bob, dm, laptop)
+        expect(leaf.credential?.approvals).toEqual([{ by: "device", device_id: lostDevice.deviceId, signature: bytesToBase64(signature) }])
+        const [approver] = await leavesOf(bob, dm, lost)
+        const approverRoot = base64ToBytes(approver.credential!.drk_pub)
+        expect(verifyStrict(signature, approvalBytes(aliceActor, laptopId, laptopRoot), approverRoot)).toBe(true)
+    })
+
+    it("stops for good on a device the instance doesn't count approved, and its waiting message fails", async () => {
+        const { directory } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        directory.unapproved.add("laptop-token")
+        const { joins, context } = joinsOf(laptop, "laptop-token")
+        const commits = await commitsIn(directory, dm)
+
+        const entering = enterConversationUseCase(joins, laptop.e2ee, context, { id: dm, peer: bobActor })
+
+        await expect(entering).rejects.toMatchObject({ status: 403, code: "approval_required" })
+        await joins.sync(context, both)
+        await expect(enterConversationUseCase(joins, laptop.e2ee, context, { id: dm, peer: bobActor })).rejects.toMatchObject({
+            status: 403,
+        })
+        expect(await laptop.mls.hasGroup(dm)).toBe(false)
+        expect(await commitsIn(directory, dm)).toBe(commits)
+    })
+
+    it("has the second of two devices joining at once read the newer GroupInfo and join after the first", async () => {
+        const { directory, bob, carol } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        const tablet = await registered(directory, "tablet-token", aliceActor)
+
+        const joined = await Promise.all([
+            laptop.e2ee.joinConversation(issuer, "laptop-token", group, join),
+            tablet.e2ee.joinConversation(issuer, "tablet-token", group, join),
+        ])
+
+        expect(joined).toEqual([{ kind: "joined" }, { kind: "joined" }])
+        expect(directory.epochConflicts).toBe(1)
+        await laptop.e2ee.catchUp(issuer, "laptop-token", group)
+        const fromTablet = await tablet.e2ee.encryptOutbound(group, text("me too"))
+        for (const [ctx, token] of [[bob, "bob-token"], [carol, "carol-token"], [laptop, "laptop-token"]] as const) {
+            expect(await read(ctx, token, group, fromTablet)).toBe("me too")
+        }
+        expect(await read(tablet, "tablet-token", group, await bob.e2ee.encryptOutbound(group, text("hi")))).toBe("hi")
+    })
+
+    it("leaves a sibling online the minute to add it by Welcome, and commits nothing itself", async () => {
+        const history = new FakeHistoryIdp()
+        const account = await accountKey(history)
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const phone = await registered(directory, "phone-token", aliceActor, history)
+        const bob = await registered(directory, "bob-token", bobActor)
+        await phone.e2ee.addContactToGroup(issuer, "phone-token", dm, bobActor)
+        await bob.e2ee.consumePendingWelcomes(issuer, "bob-token", bobActor)
+        const laptop = await registered(directory, "laptop-token", aliceActor, history)
+        await account.hold(phone)
+        await account.hold(laptop)
+        const rows = [row(await phone.storage.getOrCreateDeviceId(), 60_000), row(await laptop.storage.getOrCreateDeviceId(), 0)]
+        const { joins, context, pass } = joinsOf(laptop, "laptop-token", rows)
+        await joins.sync(context, [{ id: dm, removedAt: null }])
+        const entering = joins.whenIn(context, dm)
+
+        await phone.e2ee.addOwnDevices(issuer, "phone-token", dm, await trusting(phone, laptop))
+        await laptop.e2ee.consumePendingWelcomes(issuer, "laptop-token", aliceActor)
+
+        await expect(entering).resolves.toBe("in")
+        const commits = await commitsIn(directory, dm)
+        pass(WELCOME_WAIT_MS)
+        await joins.sync(context, [{ id: dm, removedAt: null }])
+        expect(await commitsIn(directory, dm)).toBe(commits)
+        expect(await read(bob, "bob-token", dm, await laptop.e2ee.encryptOutbound(dm, text("by Welcome")))).toBe("by Welcome")
+    })
+
+    it("sends a message written before it joined once it is in", async () => {
+        const { directory, lost, bob } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        // Lost ten minutes ago: still shown active, it never adds anyone.
+        const rows = [row(await lost.storage.getOrCreateDeviceId(), 10 * 60_000)]
+        const { joins, context, pass } = joinsOf(laptop, "laptop-token", rows)
+        await joins.sync(context, both)
+        let entered = false
+
+        const entering = enterConversationUseCase(joins, laptop.e2ee, context, { id: dm, peer: bobActor }).then(
+            () => (entered = true),
+        )
+        pass(WELCOME_WAIT_MS - 1_000)
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        expect(entered).toBe(false)
+        expect(await laptop.mls.hasGroup(dm)).toBe(false)
+        pass(1_000)
+        await entering
+
+        const written = await laptop.e2ee.encryptOutbound(dm, text("written before"))
+        expect(await read(bob, "bob-token", dm, written)).toBe("written before")
+    })
+
+    it("merges a join whose answer was lost when the log holds its commit, never adding a second leaf", async () => {
+        const { directory, bob } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        directory.loseNextAnswer = true
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).toEqual({ kind: "joined" })
+
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+        expect(await leavesOf(bob, dm, laptop)).toHaveLength(1)
+        expect(await read(bob, "bob-token", dm, await laptop.e2ee.encryptOutbound(dm, text("once")))).toBe("once")
+    })
+
+    it("keeps a join whose answer and log read both failed, and merges it at the next try", async () => {
+        const { directory, bob } = await lostAlice()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        const commits = await commitsIn(directory, dm)
+        directory.loseNextAnswer = true
+        directory.failNextLogRead = true
+
+        await expect(laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).rejects.toThrow("Failed to fetch")
+        expect(await laptop.mls.hasGroup(dm)).toBe(false)
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).toEqual({ kind: "joined" })
+        expect(await commitsIn(directory, dm)).toBe(commits + 1)
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+        expect(await leavesOf(bob, dm, laptop)).toHaveLength(1)
+        expect(await read(bob, "bob-token", dm, await laptop.e2ee.encryptOutbound(dm, text("still once")))).toBe("still once")
+    })
+
+    it("takes a new device, by itself or by Welcome, into a group whose leaves outlived their KeyPackages", async () => {
+        vi.useFakeTimers({ toFake: ["Date"] })
+        vi.setSystemTime(Date.now())
+        try {
+            const { directory, bob } = await lostAlice()
+            // Bob's leaf, never updated, carries the lifetime of the KeyPackage it came in by: 12 weeks.
+            vi.setSystemTime(Date.now() + 13 * 7 * 86_400_000)
+            const laptop = await registered(directory, "laptop-token", aliceActor)
+            const dave = await registered(directory, "dave-token", asActorUri(`${issuer}/users/dave_x1y2z`))
+
+            expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", group, join)).toEqual({ kind: "joined" })
+            await bob.e2ee.catchUp(issuer, "bob-token", group)
+            await bob.e2ee.addContactToGroup(issuer, "bob-token", group, asActorUri(`${issuer}/users/dave_x1y2z`))
+            expect(await dave.e2ee.consumePendingWelcomes(issuer, "dave-token", asActorUri(`${issuer}/users/dave_x1y2z`))).toEqual({
+                joined: 1,
+            })
+
+            await laptop.e2ee.catchUp(issuer, "laptop-token", group)
+            const hello = await laptop.e2ee.encryptOutbound(group, text("past the lifetime"))
+            expect(await read(bob, "bob-token", group, hello)).toBe("past the lifetime")
+            expect(await read(dave, "dave-token", group, hello)).toBe("past the lifetime")
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+})
+
+describe("MLS E2EE — a KeyPackage lives a year", () => {
+    const group: ConversationId = "f3f3f3f3-2222-3333-4444-555566667777"
+    const issuer = "https://idp.shared.example"
+    const [aliceActor, bobActor, carolActor] = ["alice", "bob", "carol"].map((name) => asActorUri(`${issuer}/users/${name}_x1y2z`))
+    const day = 86_400_000
+    const text = (t: string): ApplicationMessage<TextBody> => ({ version: 1, kind: "text", body: { text: t } })
+
+    async function registered(directory: InMemoryKeyDirectory, token: string, actor: ActorUri) {
+        const ctx = await buildAdapter(directory, token, actor)
+        await ctx.e2ee.register(issuer, token, actor)
+        return ctx
+    }
+
+    it("has a member away 13 weeks apply an add made meanwhile with a KeyPackage from before it left", async () => {
+        vi.useFakeTimers({ toFake: ["Date"] })
+        vi.setSystemTime(Date.now())
+        try {
+            const directory = new InMemoryKeyDirectory()
+            directory.senderIssuer = issuer
+            const alice = await registered(directory, "alice-token", aliceActor)
+            const bob = await registered(directory, "bob-token", bobActor)
+            const carol = await registered(directory, "carol-token", carolActor)
+            await alice.e2ee.addContactToGroup(issuer, "alice-token", group, bobActor)
+            await bob.e2ee.consumePendingWelcomes(issuer, "bob-token", bobActor)
+
+            // Bob goes away; Carol's KeyPackage, made as he left, is claimed 29 days on.
+            vi.setSystemTime(Date.now() + 29 * day)
+            await alice.e2ee.addContactToGroup(issuer, "alice-token", group, carolActor)
+            await carol.e2ee.consumePendingWelcomes(issuer, "carol-token", carolActor)
+            const hello = await carol.e2ee.encryptOutbound(group, text("hello Bob"))
+
+            // Past openmls's default of 12 weeks, the add would stop Bob reading the group.
+            vi.setSystemTime(Date.now() + (13 * 7 - 29) * day)
+            await bob.e2ee.catchUp(issuer, "bob-token", group)
+
+            const read = await bob.e2ee.decryptInbound(group, hello, { idpUrl: issuer, accessToken: "bob-token" })
+            expect((read?.body as TextBody).text).toBe("hello Bob")
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+})
+
+describe("MLS E2EE — the members of a conversation a device joins by itself", () => {
+    const dm: ConversationId = "f5f5f5f5-2222-3333-4444-555566667777"
+    const group: ConversationId = "f6f6f6f6-2222-3333-4444-555566667777"
+    const issuer = "https://idp.shared.example"
+    const [aliceActor, bobActor, carolActor, malloryActor] = ["alice", "bob", "carol", "mallory"].map((name) =>
+        asActorUri(`${issuer}/users/${name}_x1y2z`),
+    )
+    const join = { welcomeOverdue: false, siblingMayAdd: false }
+
+    async function registered(directory: InMemoryKeyDirectory, token: string, actor: ActorUri, history: FakeHistoryIdp | null = null) {
+        const ctx = await buildAdapter(directory, token, actor, history)
+        await ctx.e2ee.register(issuer, token, actor)
+        return ctx
+    }
+
+    /** The new devices `ctx` tells of from now on. */
+    function linesOf(ctx: AdapterCtx): NewDeviceSeen[] {
+        const seen: NewDeviceSeen[] = []
+        ctx.e2ee.onNewDevice((line) => seen.push(line))
+        return seen
+    }
+
+    async function leavesOf(ctx: AdapterCtx, conversationId: ConversationId, device: AdapterCtx) {
+        const id = await device.storage.getOrCreateDeviceId()
+        return (await ctx.mls.groupLeaves(conversationId)).filter((leaf) => leaf.credential?.device_id === id)
+    }
+
+    /**
+     * Alice's phone, holding generation 1's words — its leaves carrying their approval —, in her DM
+     * with Bob and her group with Bob and Carol; then lost.
+     */
+    async function alicesPhoneLost() {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const history = new FakeHistoryIdp()
+        const account = await accountKey(history)
+        const phone = await registered(directory, "phone-token", aliceActor, history)
+        await account.hold(phone)
+        const bob = await registered(directory, "bob-token", bobActor)
+        const carol = await registered(directory, "carol-token", carolActor)
+        await phone.e2ee.addContactToGroup(issuer, "phone-token", dm, bobActor)
+        await phone.e2ee.addContactToGroup(issuer, "phone-token", group, bobActor)
+        await phone.e2ee.addContactToGroup(issuer, "phone-token", group, carolActor)
+        for (const conversation of [dm, group]) await phone.e2ee.refreshOwnLeaf(issuer, "phone-token", conversation)
+        await bob.e2ee.consumePendingWelcomes(issuer, "bob-token", bobActor)
+        await carol.e2ee.consumePendingWelcomes(issuer, "carol-token", carolActor)
+        for (const conversation of [dm, group]) await bob.e2ee.catchUp(issuer, "bob-token", conversation)
+        await carol.e2ee.catchUp(issuer, "carol-token", group)
+        expect((await leavesOf(bob, dm, phone))[0].credential?.approvals).toEqual([expect.objectContaining({ by: "passphrase", generation: 1 })])
+        return { directory, history, account, phone, bob, carol }
+    }
+
+    it("shows Bob no line for Alice's laptop that her words brought back", async () => {
+        const { directory, history, account, bob } = await alicesPhoneLost()
+        const laptop = await registered(directory, "laptop-token", aliceActor, history)
+        await account.hold(laptop)
+        const bobSees = linesOf(bob)
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).toEqual({ kind: "joined" })
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+
+        expect(await leavesOf(bob, dm, laptop)).toHaveLength(1)
+        expect(bobSees).toEqual([])
+    })
+
+    it("shows Bob no line for a laptop approved by the phone's code before it got the words", async () => {
+        const { directory, phone, bob } = await alicesPhoneLost()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        const laptopId = await laptop.storage.getOrCreateDeviceId()
+        const laptopRoot = (await laptop.storage.loadDeviceAttestation())!.drk_public
+        const phoneDevice = { ...(await known(phone)), hpkeKey: (await phone.storage.loadDeviceAttestation())!.hpke!.public_key }
+        const signature = await phone.e2ee.signDeviceApproval(aliceActor, laptopId, laptopRoot)
+        await laptop.e2ee.rememberHandshakePartner(phoneDevice, { actorUri: aliceActor, signature })
+        const bobSees = linesOf(bob)
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).toEqual({ kind: "joined" })
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+
+        expect(await leavesOf(bob, dm, laptop)).toHaveLength(1)
+        expect(bobSees).toEqual([])
+    })
+
+    it("shows Bob the line, once and dated by the commit, for a laptop that started over", async () => {
+        const { directory, history, bob } = await alicesPhoneLost()
+        const laptop = await registered(directory, "laptop-token", aliceActor, history)
+        await (await accountKey(history, 2)).hold(laptop)
+        const bobSees = linesOf(bob)
+        const laptopSees = linesOf(laptop)
+        const epoch = Number(await bob.mls.getEpoch(dm)) + 1
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).toEqual({ kind: "joined" })
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+
+        const [commit] = (await directory.getCommitsSince(issuer, "bob-token", dm, epoch - 1)).commits
+        expect(bobSees).toEqual([
+            {
+                conversationId: dm,
+                epoch,
+                actorUri: aliceActor,
+                deviceId: await laptop.storage.getOrCreateDeviceId(),
+                createdAt: commit.created_at,
+            },
+        ])
+        expect(laptopSees).toEqual([])
+    })
+
+    it("has every member of a group see exactly one line", async () => {
+        const { directory, bob, carol } = await alicesPhoneLost()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        const [bobSees, carolSees] = [linesOf(bob), linesOf(carol)]
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", group, join)).toEqual({ kind: "joined" })
+        for (let i = 0; i < 2; i++) {
+            await bob.e2ee.catchUp(issuer, "bob-token", group)
+            await carol.e2ee.catchUp(issuer, "carol-token", group)
+        }
+
+        const laptopId = await laptop.storage.getOrCreateDeviceId()
+        expect(bobSees).toEqual([expect.objectContaining({ conversationId: group, actorUri: aliceActor, deviceId: laptopId })])
+        expect(carolSees).toEqual(bobSees)
+    })
+
+    it("tells a line applied before anyone listened to the first listener", async () => {
+        const { directory, bob } = await alicesPhoneLost()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+
+        await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+
+        expect(linesOf(bob)).toHaveLength(1)
+        expect(linesOf(bob)).toEqual([])
+    })
+
+    /** The phone brings Alice's tablet into the DM by Welcome, as an approved sibling. */
+    async function withTablet() {
+        const lost = await alicesPhoneLost()
+        const tablet = await registered(lost.directory, "tablet-token", aliceActor)
+        const bobSees = linesOf(lost.bob)
+        await lost.phone.e2ee.addOwnDevices(issuer, "phone-token", dm, await trusting(lost.phone, tablet))
+        await tablet.e2ee.consumePendingWelcomes(issuer, "tablet-token", aliceActor)
+        await lost.bob.e2ee.catchUp(issuer, "bob-token", dm)
+        expect(await leavesOf(lost.bob, dm, tablet)).toHaveLength(1)
+        return { ...lost, tablet, bobSees }
+    }
+
+    it("shows Bob no line for a sibling's add by Welcome", async () => {
+        const { bobSees } = await withTablet()
+
+        expect(bobSees).toEqual([])
+    })
+
+    it("shows no line on Alice's own devices for a device of hers that joined unproven", async () => {
+        const { directory, bob, tablet, bobSees } = await withTablet()
+        const tabletSees = linesOf(tablet)
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).toEqual({ kind: "joined" })
+        await tablet.e2ee.catchUp(issuer, "tablet-token", dm)
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+
+        expect(await leavesOf(tablet, dm, laptop)).toHaveLength(1)
+        expect(tabletSees).toEqual([])
+        expect(bobSees).toHaveLength(1)
+    })
+
+    it("refuses an external commit removing a leaf of another account, as any invalid commit", async () => {
+        const { directory, bob, carol } = await alicesPhoneLost()
+        const bobSees = linesOf(bob)
+        const epoch = await bob.mls.getEpoch(group)
+        // Mallory commits herself in over the key of Carol's leaf, which openmls removes for it.
+        const key = (await carol.mls.ownLeafSignatureKey())!
+        await carol.mls.deleteGroup(group)
+        await carol.mls.setIdentity(credentialFor(testDevice(issuers, malloryActor), key), key)
+        const intrusion = await carol.mls.joinByExternalCommit(group, (await directory.getGroupInfo(issuer, "carol-token", group))!.group_info)
+        await directory.postCommit(issuer, "carol-token", group, Number(intrusion.epoch), intrusion.commit, intrusion.group_info)
+
+        await bob.e2ee.catchUp(issuer, "bob-token", group)
+
+        expect(await bob.mls.getEpoch(group)).toBe(epoch)
+        expect(await leavesOf(bob, group, carol)).toHaveLength(1)
+        expect(bobSees).toEqual([])
     })
 })

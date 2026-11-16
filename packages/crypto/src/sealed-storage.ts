@@ -8,6 +8,7 @@ import {
     type DevicesBefore,
     type HandshakePartner,
     type KnownDevice,
+    type PartnerApproval,
 } from "@pinai/domain/models/device-trust"
 import type { ActorUri, DeviceId, IdentityKeypair, ConversationId } from "@pinai/domain/models/e2ee"
 import { parseAdmission, type Admission } from "@pinai/domain/models/admission"
@@ -68,6 +69,7 @@ const TRUST_ROWS: Record<DeviceTrustRow, string> = {
     approved: "trust:approved",
     revoked: "trust:revoked",
     partners: "trust:partners",
+    partnerApprovals: "trust:partner-approvals",
     baselines: "trust:baselines",
     before: "trust:before",
 }
@@ -572,6 +574,14 @@ function trustRowToJson(row: DeviceTrustRow, trust: DeviceTrust): object {
             return { device_ids: [...trust.revoked] }
         case "partners":
             return { partners: trust.partners.map((p) => ({ ...knownDeviceToJson(p), hpke_key: Array.from(p.hpkeKey) })) }
+        case "partnerApprovals":
+            return {
+                approvals: trust.partnerApprovals.map((a) => ({
+                    ...knownDeviceToJson(a.partner),
+                    approved_root_key: Array.from(a.rootKey),
+                    signature: Array.from(a.signature),
+                })),
+            }
         case "baselines":
             return { generations: [...trust.baselines] }
         case "before":
@@ -594,6 +604,7 @@ const TRUST_ROW_PARSERS: { [R in DeviceTrustRow]: (value: unknown) => DeviceTrus
     approved: knownDevicesFromJson,
     revoked: revokedFromJson,
     partners: partnersFromJson,
+    partnerApprovals: partnerApprovalsFromJson,
     baselines: baselinesFromJson,
     before: beforeFromJson,
 }
@@ -627,6 +638,20 @@ function partnersFromJson(value: unknown): HandshakePartner[] | null {
         partners.push({ deviceId: row.device_id, rootKey, hpkeKey })
     }
     return partners
+}
+
+function partnerApprovalsFromJson(value: unknown): PartnerApproval[] | null {
+    if (!isRow(value) || !Array.isArray(value.approvals)) return null
+    const approvals: PartnerApproval[] = []
+    for (const row of value.approvals as unknown[]) {
+        if (!isRow(row)) return null
+        const partnerKey = bytesOf(row.root_key, 32)
+        const rootKey = bytesOf(row.approved_root_key, 32)
+        const signature = bytesOf(row.signature, 64)
+        if (typeof row.device_id !== "string" || !partnerKey || !rootKey || !signature) return null
+        approvals.push({ partner: { deviceId: row.device_id, rootKey: partnerKey }, rootKey, signature })
+    }
+    return approvals
 }
 
 function revokedFromJson(value: unknown): DeviceId[] | null {

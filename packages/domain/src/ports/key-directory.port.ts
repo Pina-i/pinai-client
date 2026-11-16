@@ -29,6 +29,14 @@ export interface CommitView {
     created_at: string
 }
 
+/** `GET /api/mls/groups/:id/group-info`: the group's newest GroupInfo. */
+export interface GroupInfoView {
+    /** The epoch of the commit it came with. */
+    epoch: number
+    /** TLS-encoded MLS GroupInfo. */
+    group_info: Uint8Array
+}
+
 export interface WelcomeView {
     id: string
     conversation_id: ConversationId
@@ -112,13 +120,22 @@ export interface IKeyDirectoryPort {
 
     // ─── MLS Delivery Service ────────────────────────────────────────
 
+    /** `groupInfo`: the GroupInfo of the epoch the commit opens, which the DS keeps for a device joining on its own. */
     postCommit(
         idpUrl: string,
         accessToken: string,
         conversationId: ConversationId,
         epoch: number,
         commitBlob: Uint8Array,
+        groupInfo: Uint8Array,
     ): Promise<CommitView>
+
+    /** The group's newest GroupInfo, what a device joins it by on its own; `null` while it has no group (`404`). */
+    getGroupInfo(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+    ): Promise<GroupInfoView | null>
 
     getCommitsSince(
         idpUrl: string,

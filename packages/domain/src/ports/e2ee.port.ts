@@ -10,10 +10,12 @@ import type { Admission, CheckedPartner, ResetSetter } from "../models/admission
 import type { ExchangedKeys, HandshakeRole } from "../models/approval-handshake"
 import type { DeviceListEntry } from "../models/device"
 import type { BaselineIntent, DeviceTrustVerdict, HandshakeKeysRefusal, HandshakePartner, TrustEvent } from "../models/device-trust"
+import type { ConversationJoin } from "../models/conversation-join"
 import type { ArchiveEnvelope, ArchivedEntry } from "../models/history-archive"
 import type { DerivedHistoryKey, HistoryKey, HistoryKeyStanding, PendingHistoryKey } from "../models/history-key"
 import type { RearchiveDue, RearchiveEntry, RearchivePosition } from "../models/history-rearchive"
 import type { KeyShare, KeyShareRefusal, OutgoingKeyShare } from "../models/key-share"
+import type { NewDeviceSeen } from "../models/new-device"
 import type { ArchiveEntry } from "./history-archive.port"
 
 /**
@@ -101,9 +103,9 @@ export interface IE2eePort {
     /**
      * Decrypt an inbound `mls_ciphertext` blob. Returns the
      * `ApplicationMessage` plaintext on success; advances the local
-     * group epoch on commits; appends to pending proposals on
-     * proposals (returns `null` for both — caller treats it as "no
-     * UI plaintext to render").
+     * group epoch on commits; ignores proposals, keeping none for a
+     * commit to carry (returns `null` for both — caller treats it as
+     * "no UI plaintext to render").
      *
      * When `catchUp` is supplied, decrypt failures (e.g. we're behind
      * by one or more commits) trigger a one-shot
@@ -137,9 +139,12 @@ export interface IE2eePort {
      * "I am about to send a message to `recipientActorUri` in
      * `conversationId` — make sure I have an MLS group state for it."
      * Idempotent: if the group already exists, returns immediately;
-     * otherwise calls {@link IE2eePort.addContactToGroup} to claim a
-     * KeyPackage, build the founding commit + welcome, and dispatch
-     * them.
+     * otherwise, while the conversation has no GroupInfo, calls
+     * {@link IE2eePort.addContactToGroup} to claim a KeyPackage, build the
+     * founding commit + welcome, and dispatch them. A conversation with a
+     * group already — its GroupInfo held, or epoch 1 taken by another
+     * founding — throws `GroupToJoin`: the device joins it instead
+     * ({@link IE2eePort.joinConversation}).
      */
     ensureGroupExists(
         idpUrl: string,
@@ -159,6 +164,27 @@ export interface IE2eePort {
         accessToken: string,
         actorUri: ActorUri,
     ): Promise<{ joined: number }>
+
+    /**
+     * Join a conversation this device holds no group for, by an external commit from the group's
+     * newest GroupInfo (`identity-provider/specs/e2ee.md § 6.14`): posted at the epoch it opens, the
+     * group kept once taken — its leaves checked as a Welcome's, then `onGroupHeld`. A lost epoch
+     * reads the newer GroupInfo and builds again, five times at most (`MAX_JOIN_CONFLICTS`),
+     * then throws; a commit left without an answer is looked up in the log before anything is built
+     * again, and merged when it is there, or posted again as it was at the next call. Nothing is
+     * posted while the tree names no device of the account (`not-added`), nor, unless
+     * `welcomeOverdue`, while it names this one (`welcome-due`), nor while `siblingMayAdd`
+     * (`left-to-sibling`). A refusal for good is answered `refused`; any other failure is thrown.
+     */
+    joinConversation(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        options: { welcomeOverdue: boolean; siblingMayAdd: boolean },
+    ): Promise<ConversationJoin>
+
+    /** The conversations this device holds a group for. */
+    heldGroups(): Promise<ConversationId[]>
 
     /**
      * Revoke another device of this user: the revocation is kept for good, then one MLS Remove
@@ -189,11 +215,19 @@ export interface IE2eePort {
     ): Promise<{ removed: number }>
 
     /**
-     * Calls `listener` each time this device comes to hold a group — founded on a first send, or
-     * joined from a Welcome — the moment the user's other devices can be brought into it. Answers
-     * the unsubscribe.
+     * Calls `listener` each time this device comes to hold a group — founded on a first send,
+     * joined from a Welcome or by itself — the moment the user's other devices can be brought into
+     * it. Answers the unsubscribe.
      */
     onGroupHeld(listener: (conversationId: ConversationId) => void): () => void
+
+    /**
+     * Calls `listener` for each external commit this device applies that brings in a device of
+     * another account, not proven by what the conversation holds (`newcomerProven`,
+     * `identity-provider/specs/e2ee.md § 6.14`): the line its timeline shows. One applied before any
+     * listener is told to the first. Answers the unsubscribe.
+     */
+    onNewDevice(listener: (seen: NewDeviceSeen) => void): () => void
 
     /**
      * Applies the commits the DS holds past this device's epoch, for a group it holds keys for:
@@ -258,7 +292,8 @@ export interface IE2eePort {
 
     /**
      * Puts in this device's own leaf the credential it would make now for the key the leaf
-     * carries — a leaf from before the leaf binding, or before the attestation was renewed —, one
+     * carries — a leaf from before the leaf binding, before the attestation was renewed, or before
+     * the device's approvals changed (its words, a new generation, its partner's approval) —, one
      * commit when it differs. An epoch race is handled as {@link IE2eePort.pruneGroup} does.
      */
     refreshOwnLeaf(
@@ -493,8 +528,15 @@ export interface IE2eePort {
     /** Whether `signature` is `approverRootKey` approving this very device over its own root key. */
     approvesThisDevice(actorUri: ActorUri, approverRootKey: Uint8Array, signature: Uint8Array): Promise<boolean>
 
-    /** Kept in `device_trust` for good, with the keys from the exchange. */
-    rememberHandshakePartner(partner: HandshakePartner): Promise<void>
+    /**
+     * Kept in `device_trust` for good, with the keys from the exchange; the device asking passes the
+     * partner's approval of it, kept too when it verifies over its root key under the partner's from
+     * the exchange — what its leaves carry from then on (`identity-provider/specs/e2ee.md § 3.4`).
+     */
+    rememberHandshakePartner(
+        partner: HandshakePartner,
+        approvalOfThisDevice?: { actorUri: ActorUri; signature: Uint8Array },
+    ): Promise<void>
 
     /** The devices this one approved, and was approved by, in a code handshake. */
     handshakePartners(): Promise<HandshakePartner[]>

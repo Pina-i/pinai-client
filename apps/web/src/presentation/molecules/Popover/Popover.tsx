@@ -19,6 +19,8 @@ interface PopoverProps {
     onOpenChange?: (isOpen: boolean) => void
     /** Tailwind className applied to the visible popover panel (use for width, radius, shadow…). */
     className?: string
+    /** The dialog's accessible name, when nothing in it is its title. */
+    label?: string
 }
 
 interface PopoverCaretProps {
@@ -67,6 +69,7 @@ export function Popover({
     isOpen,
     onOpenChange,
     className,
+    label,
 }: PopoverProps) {
     return (
         <DialogTrigger isOpen={isOpen} onOpenChange={onOpenChange}>
@@ -76,7 +79,7 @@ export function Popover({
                 offset={offset}
                 className="outline-none"
             >
-                <Dialog className="outline-none">
+                <Dialog aria-label={label} className="outline-none">
                     <motion.div
                         initial={{ opacity: 0, scale: 0.96 }}
                         animate={{ opacity: 1, scale: 1 }}

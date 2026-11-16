@@ -3,9 +3,18 @@ import type { LeafClaim, LeafCredential, MlsLeaf } from "../models/leaf-trust"
 
 export type MlsCiphertext = Uint8Array
 
-export interface AddMemberOutput {
-    /** TLS-encoded MLS Commit — POST to `/api/mls/groups/:id/commits`. */
+/** A commit this device made, and the GroupInfo of the epoch it opens: both POSTed to `/api/mls/groups/:id/commits`. */
+export interface CommitOutput {
+    /** TLS-encoded MLS Commit. */
     commit: Uint8Array
+    /**
+     * TLS-encoded MLS GroupInfo, with the ratchet tree and the `external_pub` key: all a device needs
+     * to join on its own ({@link IMlsEngine.joinByExternalCommit}).
+     */
+    group_info: Uint8Array
+}
+
+export interface AddMemberOutput extends CommitOutput {
     /**
      * TLS-encoded MLS Welcome — deliver to the new member's IdP
      * (local: REST insert; cross-IdP: AP `Create{Note}` with
@@ -16,14 +25,26 @@ export interface AddMemberOutput {
     ratchet_tree: Uint8Array
 }
 
+/** A join by external commit, pending until the DS takes the commit. */
+export interface ExternalJoinOutput extends CommitOutput {
+    /** The epoch the commit opens, which it is posted at. */
+    epoch: bigint
+    /** The group's leaves as the join makes them, this device's new one `own`. */
+    leaves: MlsLeaf[]
+}
+
 /**
  * Categorises the result of {@link IMlsEngine.processMessage} so the
  * caller can route without poking at MLS internals.
  */
 export type ProcessOutcome =
     | { kind: "application"; plaintext: Uint8Array }
-    /** `leavesMet`: the leaves it brought in or replaced, this device's own left out. */
-    | { kind: "commit"; leavesMet: MlsLeaf[] }
+    /**
+     * `leavesMet`: the leaves it brought in or replaced, this device's own left out. `joiner`: for an
+     * external commit — a device committing itself in —, the leaf it brought in; `null` for a member's.
+     */
+    | { kind: "commit"; leavesMet: MlsLeaf[]; joiner: MlsLeaf | null }
+    /** A proposal, ignored: never kept, so no commit of this device's carries it. */
     | { kind: "proposal" }
 
 /**
@@ -93,6 +114,15 @@ export interface IMlsEngine {
      */
     rejoinGroup(conversationId: ConversationId, welcomeBytes: Uint8Array): Promise<boolean>
 
+    /**
+     * Join a group this device doesn't hold from its GroupInfo, by an external commit adding its
+     * leaf: the credential bound with {@link IMlsEngine.setIdentity}, as its KeyPackages carry.
+     * Refused for a GroupInfo of another group. The group stays pending, out of
+     * {@link IMlsEngine.hasGroup}: {@link IMlsEngine.mergePendingCommit} keeps it once the DS took
+     * the commit, {@link IMlsEngine.clearPendingCommit} drops it.
+     */
+    joinByExternalCommit(conversationId: ConversationId, groupInfo: Uint8Array): Promise<ExternalJoinOutput>
+
     /** Drop a group's state from this device. */
     deleteGroup(conversationId: ConversationId): Promise<void>
 
@@ -112,7 +142,7 @@ export interface IMlsEngine {
         peerKeyPackageBytes: Uint8Array,
     ): Promise<AddMemberOutput>
 
-    removeMember(conversationId: ConversationId, memberIndex: number): Promise<Uint8Array>
+    removeMember(conversationId: ConversationId, memberIndex: number): Promise<CommitOutput>
 
     findLeafByDeviceId(
         conversationId: ConversationId,
@@ -125,15 +155,16 @@ export interface IMlsEngine {
 
     /**
      * Drop the commit built and not merged — one the DS refused or never acknowledged: the group
-     * builds no other commit while one is pending.
+     * builds no other commit while one is pending. A pending join goes with its group.
      */
     clearPendingCommit(conversationId: ConversationId): Promise<void>
 
-    update(conversationId: ConversationId): Promise<Uint8Array>
+    update(conversationId: ConversationId): Promise<CommitOutput>
 
     /** A commit putting `credential` in this device's own leaf, over the signature key it carries. */
-    updateOwnCredential(conversationId: ConversationId, credential: LeafCredential): Promise<Uint8Array>
+    updateOwnCredential(conversationId: ConversationId, credential: LeafCredential): Promise<CommitOutput>
 
+    /** Once the DS took the commit; a pending join's group is then held. */
     mergePendingCommit(conversationId: ConversationId): Promise<void>
 
     encryptApplication(
@@ -141,6 +172,10 @@ export interface IMlsEngine {
         plaintext: Uint8Array,
     ): Promise<MlsCiphertext>
 
+    /**
+     * An external commit removing a leaf of another account than its joiner's
+     * (`refusesExternalCommit`) is refused as an invalid commit is — thrown, nothing merged.
+     */
     processMessage(
         conversationId: ConversationId,
         msgBytes: Uint8Array,

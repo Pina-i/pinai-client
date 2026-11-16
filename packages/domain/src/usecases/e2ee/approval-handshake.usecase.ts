@@ -298,7 +298,7 @@ export class HandshakeRun {
         const byPartner = (own?.approvals ?? []).flatMap((a) => (a.by === "device" && a.device_id === partner.deviceId ? [a] : []))
         for (const approval of byPartner) {
             if (!(await this.deps.e2ee.approvesThisDevice(this.context.actorUri, partner.rootKey, approval.signature))) continue
-            if (!(await this.approveBack(partner))) return
+            if (!(await this.approveBack(partner, approval.signature))) return
             await this.closeRequest()
             return this.settle({ kind: "approved", partner })
         }
@@ -307,12 +307,13 @@ export class HandshakeRun {
     /**
      * Kept first, then approved: the approval's route answers `204` to a repeat, so an ambiguous
      * failure is sent again; one refused for good ends the run. Otherwise it throws and the next
-     * call tries again.
+     * call tries again. The asker keeps the answerer's approval of it with it: its leaves carry it.
      */
-    private async approveBack(partner: HandshakePartner): Promise<boolean> {
+    private async approveBack(partner: HandshakePartner, approvalOfThisDevice?: Uint8Array): Promise<boolean> {
         const { idpUrl, actorUri } = this.context
         try {
-            if (!this.kept) await this.deps.e2ee.rememberHandshakePartner(partner)
+            const approval = approvalOfThisDevice && { actorUri, signature: approvalOfThisDevice }
+            if (!this.kept) await this.deps.e2ee.rememberHandshakePartner(partner, approval)
             this.kept = true
         } catch (error) {
             this.context.report?.("keeping the partner", error)

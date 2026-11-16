@@ -20,6 +20,7 @@ import {
 } from "@pinai/domain/models/history-archive"
 import {
     approvalCarriedOver,
+    carriesWordsApproval,
     parseHistoryKeyStanding,
     passphraseVerdict,
     sameHistoryKey,
@@ -158,6 +159,15 @@ describe("the history key's rules", () => {
         expect(approvalCarriedOver(previous, ["a", "b"], 2)).toEqual(root)
         expect(approvalCarriedOver(previous, ["a", "c"], 2)).toBeNull()
         expect(approvalCarriedOver(previous, ["a", "b"], 3)).toBeNull()
+    })
+
+    it("has the leaves carry the words' approval only while the words kept give the key in force", () => {
+        expect(carriesWordsApproval({ kind: "holds", generation: 2, settled: false }, 2)).toBe(true)
+        expect(carriesWordsApproval({ kind: "holds", generation: 2, settled: true }, 1)).toBe(false)
+        expect(carriesWordsApproval(standingAgainst({ ...key, generation: 3, salt: new Uint8Array(16).fill(5) }, kept(), 2, root), 2)).toBe(false)
+        expect(carriesWordsApproval({ kind: "no-passphrase", generation: 2 }, null)).toBe(false)
+        expect(carriesWordsApproval({ kind: "unchecked" }, 2)).toBe(false)
+        expect(carriesWordsApproval(null, 2)).toBe(false)
     })
 
     it("reads back a standing as recorded, and nothing else", () => {

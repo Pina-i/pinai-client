@@ -137,6 +137,13 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   the leaf checks need: `inspectKeyPackage`, `groupLeaves` (`MlsLeaf`, `own`
   marked), a commit's `leavesMet`; `updateOwnCredential` for the device's own
   leaf.
+- Every commit answers `CommitOutput`: the commit and the GroupInfo of the
+  epoch it opens, posted together. `joinByExternalCommit` is pending as a
+  commit is — `mergePendingCommit` holds the group, `clearPendingCommit` drops
+  it — and shows the tree it makes (`leaves`). A proposal received is ignored
+  (`kind: "proposal"`). A commit received answers its `joiner` when it is an
+  external one; one removing a leaf of another account is refused
+  (`refusesExternalCommit`, `models/new-device.ts`).
 
 ### ports/hpke.port.ts
 - `IHpkePort` — RFC 9180 base mode, one suite (DHKEM(X25519, HKDF-SHA256),
@@ -156,7 +163,14 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   an own-account one not trusted (`OwnLeafRefusal`), named by its
   credential's unverified word (`IE2eePort.onTrustEvent`, `trustSnapshot`).
   `sameCredential` — whether a device's own leaf carries the credential it
-  would make now (`refreshOwnLeaf`).
+  would make now (`refreshOwnLeaf`), its approvals included (none and an empty
+  list the same).
+- `LeafApproval` — how the leaf's device was approved, as its credential carries it
+  (`identity-provider/specs/e2ee.md § 3.4`): by the words (`generation`,
+  `approval_public_key`) or by a partner's root key (`device_id`), both over
+  `PINAI-DEVICE-APPROVAL-v1`. `leafApprovals` — the one order a device writes them in:
+  the words' first, then its partners' by device id, each once, so the credential it
+  would make compares with its leaf's. Members checking them: `models/new-device.ts`.
 
 ### models/device.ts
 - `DeviceListEntry` carries what another device needs to check the chain JWKS
@@ -213,6 +227,10 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `HandshakePartner` — a device approved both ways in a code handshake, with the
   root key and HPKE key the exchange gave, never the list's: the `partners` row
   (`DEVICE_TRUST_ROWS`), which 18h shares by.
+- `PartnerApproval` — the partner's approval of this device the asker kept as the
+  exchange ended, over the root key it held then (`partnerApprovals` row; one per
+  partner and signature). `partnerApprovalsOver` — those of its root key as it is now:
+  what its leaves carry.
 - `unapprovedListed` — the listed rows an `unapproved-device` event stands for, by id
   and the root key listed now (Settings → Devices).
 
@@ -311,6 +329,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   approves it — an ambiguous failure posted again (`204` to a repeat), one
   refused for good ending the run — then closes. The asker approves back only
   once the list shows that approval verified under the key the exchange gave.
+  The asker keeps the answerer's approval of it with the partner
+  (`rememberHandshakePartner(partner, approval)`): its leaves carry it from then on.
   The answerer times out (`ANSWER_TIMEOUT_MS`); `cancel` and an answerer's
   `abandon` after it took part end the request. The session's secrets go when it
   settles; the last token held still closes after a sign-out. Approved, the answerer
@@ -365,7 +385,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 ### ports/key-directory.port.ts
 - `IKeyDirectoryPort` — the IdP key directory + MLS Delivery Service as the
   E2EE core needs it: register the device, claim key packages, post commits
-  and welcomes
+  (each with its GroupInfo) and welcomes, read a group's newest GroupInfo
+  (`getGroupInfo`, `null` while it has no group)
 - Plus the wire DTOs (`CommitView`, `WelcomeView`, `IdentityKeysResponse`,
   `RegisterDeviceResponse`), base64 already decoded to bytes
 - Lives here, not beside its REST implementation, so the crypto core does not
@@ -540,7 +561,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   shows as unavailable instead of minting a conversation for it.
 - `interleaveTimeline(messages, events)` — a group's changes between its
   messages: the messages keep their order, each change goes before the first
-  message from after it.
+  message from after it. `inTimeOrder` — the lines from several sources as one,
+  in time order.
 - `SendStatus` — an own message's lifecycle. `failed`: the IdP never accepted
   it, retried in place. `undelivered`: the IdP stored it but couldn't reach the
   recipient's IdP; the row stays as the record of that attempt and the retry
@@ -666,6 +688,51 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   (`shareFailure`).
   See `identity-provider/specs/e2ee.md § 6.2`, § 3.9.
 
+### models/conversation-join.ts + usecases/e2ee/join-conversations.usecase.ts
+- A device holding no group for a conversation of its list joins it by itself, by
+  external commit (`identity-provider/specs/e2ee.md § 6.14`). The rules:
+  `conversationsToJoin` (the list but what it holds and the groups the user was
+  removed from); `siblingOnline` / `siblingWait` — another device approved (the
+  list's word: it only decides a wait), unrevoked, signed in and used within the
+  hour (`SIBLING_ACTIVE_MS`: the list knows a session's last sign-in or renewal,
+  every 48 minutes in an open app) is left what remains of a minute
+  (`WELCOME_WAIT_MS`) to add this device by Welcome; `joinStanding` — what the
+  group's tree says: `join` (the account's devices there, not this one),
+  `welcome-due` (a leaf names this device: its Welcome is on its way — a minute,
+  then the join goes over it), `not-added` (no device of the account: a member's
+  add brings it in, never a join); `joinFailure` — `epoch-lost` (`409`), `refused`
+  (for good: `403`, `404`, `400`), `not-yet` (`device_required`, `401`, `408`,
+  `429`), `unanswered` (no answer, `5xx`: the commit may be in); `joinRetryDelay`
+  (5 s → 15 s → 60 s → 5 min, then every 15 min); `MAX_JOIN_CONFLICTS`.
+- `IE2eePort.joinConversation` is the protocol (`@pinai/crypto`), answering a
+  `ConversationJoin`; `ensureGroupExists` throws `GroupToJoin` where a group is
+  there to join.
+- `ConversationJoins` — the page load's coordinator: `sync` (at start, on
+  reconnect, when the list changes: nothing sent while none is missing), one join
+  of a conversation at a time, the sibling's minute from when it was found missing,
+  the Welcome's from when the tree first named the device, a failure tried again
+  on `joinRetryDelay` (waiting sends with it), a refusal for good kept for the page
+  load; `onGroupHeld` settles a conversation whoever brought the device in.
+  `whenIn` — what a send waits on: `in`, `no-group`, or the refusal.
+  `enterConversationUseCase` — before a send: in, or a DM founded while it has no
+  group, `GroupToJoin` sending it back to the wait; a group without one fails.
+
+### models/new-device.ts
+- What the members make of a device that committed itself in (`identity-provider/specs/e2ee.md
+  § 3.4`, § 6.14). `refusesExternalCommit` — its removals reach only its joiner's account.
+  `newcomerProven(newcomer, tree, approves)` — proven by what the conversation holds: a words
+  approval under the key another leaf of its account carries in its own verifying words
+  approval, at the newest generation those leaves carry; or a code approval by another device
+  of its account with a leaf there, under that leaf's `drk_pub` (never one the newcomer
+  carries). The signatures go through `ApprovalCheck` (`@pinai/crypto`'s `credentialApproved`):
+  credentials decode leniently, so the rule checks every one itself.
+- `NewDeviceSeen` (`IE2eePort.onNewDevice`) → `NewDeviceLine`: this device's own timeline entry,
+  one per commit (`newDeviceLine`'s id: the epoch and the device), dated by the commit,
+  `withNewDeviceLine` (the same list when held). `readNewDeviceLines` — what the cache holds read
+  leniently, an entry of another shape passed over. `memberName` — the name the conversation
+  list gives. `describeNewDevice` — "⚠ Alice is now writing from a new device." and its
+  explanation; singular "they": the instance knows nobody's pronouns.
+
 ### models/own-messages.ts
 - `isHeldHere` — a message from the user's own account is this device's
   echo only when it holds a copy of it (optimistic id, server id, or an
@@ -684,6 +751,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   generation's key under another number; the words are kept, nothing uploaded), `no-key`,
   `no-passphrase` (with the key's generation). Generations only move forward; words give the one
   generation they were kept for. `newestGenerationSeen`, `approvalCarriedOver`, `buffersForArchive`;
+  `carriesWordsApproval` — the leaves carry the words' approval while the standing holds the
+  generation the words were kept for: words a later generation replaced approve nothing any more.
   `savesToArchive` — entries go only once `holds` is `settled`: the device approved itself with its
   words and reported. The instance takes uploads from any device approved under the key, by its
   words or by a device so approved, and refuses the rest (`approval_required`); waiting for its own
