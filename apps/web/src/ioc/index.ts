@@ -20,7 +20,8 @@ import { WebCryptoPkceAdapter } from "@/adapters/auth/pkce"
 import { ApprovalRelayApiAdapter } from "@pinai/api/device-directory/approval-relay-api.adapter"
 import { DeviceDirectoryApiAdapter } from "@pinai/api/device-directory/device-directory-api.adapter"
 import { SessionApiAdapter } from "@pinai/api/session/session-api.adapter"
-import { WebCryptoAttachmentCryptoAdapter } from "@pinai/crypto/attachment-crypto"
+import { WebCryptoAttachmentCryptoAdapter } from "@/adapters/e2ee/attachment-crypto.adapter"
+import { CanvasImageProbeAdapter } from "@/adapters/image/image-probe.adapter"
 import { E2eeAdapter } from "@pinai/crypto/e2ee.adapter"
 import { HistoryArchiveAdapter } from "@pinai/crypto/history-archive.adapter"
 import { HistoryArchiveApiAdapter } from "@pinai/api/e2ee/history-archive-api.adapter"
@@ -47,6 +48,7 @@ import { UserApiAdapter } from "@pinai/api/user/user-api.adapter"
 import { UserSettingsApiAdapter } from "@pinai/api/user-settings/user-settings-api.adapter"
 import { getAccountStorage, getSharedE2eeStorage } from "@/store/store"
 import type { IAttachmentCryptoPort } from "@pinai/domain/ports/attachment-crypto.port"
+import type { IImageProbePort } from "@pinai/domain/ports/image-probe.port"
 import type { IAccountStoragePort } from "@pinai/domain/ports/account-storage.port"
 import type { IAppBadgePort } from "@pinai/domain/ports/app-badge.port"
 import type { IAppUpdatesPort } from "@pinai/domain/ports/app-updates.port"
@@ -131,6 +133,7 @@ const deviceDirectoryPort: IDeviceDirectoryPort = new DeviceDirectoryApiAdapter(
 const approvalRelayPort: IApprovalRelayPort = new ApprovalRelayApiAdapter()
 const sessionPort: ISessionPort = new SessionApiAdapter()
 const attachmentCryptoPort: IAttachmentCryptoPort = new WebCryptoAttachmentCryptoAdapter()
+const imageProbePort: IImageProbePort = new CanvasImageProbeAdapter()
 
 // JWKS cache + history-archive singletons live alongside the other E2EE
 // plumbing — keeps the per-issuer JWKS and the in-memory History Archive
@@ -282,6 +285,10 @@ export function getApprovalRelayPort(): IApprovalRelayPort {
 
 export function getAttachmentCryptoPort(): IAttachmentCryptoPort {
     return attachmentCryptoPort
+}
+
+export function getImageProbePort(): IImageProbePort {
+    return imageProbePort
 }
 
 export function getUserSettingsStore(): IUserSettingsStorePort {

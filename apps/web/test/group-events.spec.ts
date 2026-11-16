@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { describeGroupEvent, type GroupEvent } from "@pinai/domain/models/group-event"
+import { describeGroupEvent, groupEventActor, type GroupEvent } from "@pinai/domain/models/group-event"
 
 const ALICE = "https://idp.alice.example/users/alice_k2m9x"
 const DAVE = "https://idp.dave.example/users/dave_p4q8r"
@@ -68,5 +68,13 @@ describe("describeGroupEvent", () => {
         const unnamed = { ...event("added", ALICE, { subjectUri: DAVE, subjectDisplayName: null }), actorDisplayName: null }
 
         expect(describeGroupEvent(unnamed, ME)).toBe("alice_k2m9x added dave_p4q8r")
+    })
+})
+
+describe("groupEventActor", () => {
+    it("is the reader's own You, or whoever made the change", () => {
+        expect(groupEventActor(event("renamed", ME, { name: "Weekend trip" }), ME)).toBe("You")
+        expect(groupEventActor(event("renamed", ALICE, { name: "Weekend trip" }), ME)).toBe("Alice")
+        expect(groupEventActor({ ...event("renamed", ALICE), actorDisplayName: null }, ME)).toBe("alice_k2m9x")
     })
 })

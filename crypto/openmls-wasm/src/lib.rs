@@ -38,10 +38,10 @@
 
 use openmls::{
     credentials::{BasicCredential, CredentialWithKey},
-    framing::{MlsMessageBodyIn, MlsMessageIn, MlsMessageOut, ProcessedMessageContent},
-    group::{GroupId, MlsGroup, MlsGroupJoinConfig, StagedWelcome},
-    key_packages::{KeyPackage as OpenMlsKeyPackage, KeyPackageIn},
-    messages::Welcome,
+    framing::{MlsMessageBodyIn, MlsMessageIn, MlsMessageOut, ProcessedMessageContent, Sender},
+    group::{CommitBuilder, GroupId, Initial, MlsGroup, MlsGroupJoinConfig, StagedCommit, StagedWelcome},
+    key_packages::{KeyPackage as OpenMlsKeyPackage, KeyPackageIn, Lifetime},
+    messages::{group_info::VerifiableGroupInfo, Welcome},
     prelude::{LeafNodeIndex, LeafNodeParameters, ProtocolVersion, SignatureScheme},
     treesync::RatchetTreeIn,
 };
@@ -65,6 +65,18 @@ fn welcome_in(welcome_bytes: &[u8]) -> Result<Welcome, JsError> {
     }
 }
 
+fn group_info_in(group_info_bytes: &[u8]) -> Result<VerifiableGroupInfo, JsError> {
+    let mut s = group_info_bytes;
+    let msg = MlsMessageIn::tls_deserialize(&mut s)
+        .map_err(|e| JsError::new(&format!("GroupInfo deserialize failed: {e}")))?;
+    match msg.extract() {
+        MlsMessageBodyIn::GroupInfo(g) => Ok(g),
+        other => Err(JsError::new(&format!(
+            "Expected GroupInfo message, got {other:?}"
+        ))),
+    }
+}
+
 /// One-shot init. Mounts the panic hook so dev-tools see a real Rust
 /// stack trace instead of `unreachable executed`.
 #[wasm_bindgen(start)]
@@ -79,6 +91,10 @@ pub fn start() {
 /// the openmls reference WASM example pins.
 const CIPHERSUITE: Ciphersuite =
     Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519;
+
+/// A year: a member applies an add only within the added KeyPackage's lifetime, and openmls's
+/// 12 weeks would leave one away a few weeks unable to read on (`README.md`).
+const KEY_PACKAGE_LIFETIME_SECONDS: u64 = 365 * 24 * 60 * 60;
 
 // ─── Provider ────────────────────────────────────────────────────────────────
 
@@ -225,6 +241,20 @@ impl Identity {
                 )
             })
     }
+
+    fn key_package_living(&self, provider: &Provider, lifetime: Lifetime) -> Result<KeyPackage, JsError> {
+        let signer = self.signer(provider)?;
+        let kp = OpenMlsKeyPackage::builder()
+            .key_package_lifetime(lifetime)
+            .build(
+                CIPHERSUITE,
+                &provider.0,
+                &signer,
+                self.credential_with_key.clone(),
+            )
+            .map_err(|e| JsError::new(&format!("KeyPackage build failed: {e}")))?;
+        Ok(KeyPackage(kp.key_package().clone()))
+    }
 }
 
 #[wasm_bindgen]
@@ -265,19 +295,10 @@ impl Identity {
     }
 
     /// Build a fresh single-use KeyPackage for upload to the IdP key
-    /// directory. Caller is responsible for batching these into the
-    /// `POST /api/keys/packages` payload.
+    /// directory, living [`KEY_PACKAGE_LIFETIME_SECONDS`]. Caller is
+    /// responsible for batching these into the `POST /api/keys/packages` payload.
     pub fn key_package(&self, provider: &Provider) -> Result<KeyPackage, JsError> {
-        let signer = self.signer(provider)?;
-        let kp = OpenMlsKeyPackage::builder()
-            .build(
-                CIPHERSUITE,
-                &provider.0,
-                &signer,
-                self.credential_with_key.clone(),
-            )
-            .map_err(|e| JsError::new(&format!("KeyPackage build failed: {e}")))?;
-        Ok(KeyPackage(kp.key_package().clone()))
+        self.key_package_living(provider, Lifetime::new(KEY_PACKAGE_LIFETIME_SECONDS))
     }
 
     /// The Ed25519 public key bytes — used for fingerprinting in the UI.
@@ -329,13 +350,14 @@ impl KeyPackage {
 // ─── Outputs of group ops ────────────────────────────────────────────────────
 
 /// Result of an `add_member` call. JS routes:
-/// - `commit` → `POST /api/mls/groups/:id/commits`
+/// - `commit` and `group_info` → `POST /api/mls/groups/:id/commits`
 /// - `welcome` → cross-IdP `Create{Note}` with `mlsKind: welcome` (or local
 ///   `mls_welcomes` insert via the IdP REST surface).
 #[wasm_bindgen]
 pub struct AddOutput {
     commit: Vec<u8>,
     welcome: Vec<u8>,
+    group_info: Vec<u8>,
 }
 
 #[wasm_bindgen]
@@ -348,12 +370,19 @@ impl AddOutput {
     pub fn welcome(&self) -> Vec<u8> {
         self.welcome.clone()
     }
+    /// The GroupInfo of the epoch the commit opens, as an `MlsMessage`: what a device joins by on
+    /// its own ([`Group::join_by_external_commit`]).
+    #[wasm_bindgen(getter)]
+    pub fn group_info(&self) -> Vec<u8> {
+        self.group_info.clone()
+    }
 }
 
-/// Commit-only output for `remove_member` and `update`.
+/// Commit-only output for `remove_member`, `update` and `update_credential`.
 #[wasm_bindgen]
 pub struct CommitOutput {
     commit: Vec<u8>,
+    group_info: Vec<u8>,
 }
 
 #[wasm_bindgen]
@@ -362,11 +391,53 @@ impl CommitOutput {
     pub fn commit(&self) -> Vec<u8> {
         self.commit.clone()
     }
+    /// As [`AddOutput::group_info`].
+    #[wasm_bindgen(getter)]
+    pub fn group_info(&self) -> Vec<u8> {
+        self.group_info.clone()
+    }
+}
+
+/// A device's join by external commit, pending until the DS takes the commit: the group, the
+/// commit adding this device, and the GroupInfo of the epoch it opens.
+#[wasm_bindgen]
+pub struct ExternalJoin {
+    group: Group,
+    commit: Vec<u8>,
+    group_info: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl ExternalJoin {
+    #[wasm_bindgen(getter)]
+    pub fn commit(&self) -> Vec<u8> {
+        self.commit.clone()
+    }
+    /// As [`AddOutput::group_info`].
+    #[wasm_bindgen(getter)]
+    pub fn group_info(&self) -> Vec<u8> {
+        self.group_info.clone()
+    }
+    /// The epoch the commit opens, which it is posted at.
+    #[wasm_bindgen(getter)]
+    pub fn epoch(&self) -> u64 {
+        self.group.epoch()
+    }
+    pub fn into_group(self) -> Group {
+        self.group
+    }
+}
+
+/// What a commit of this device's produces.
+struct Committed {
+    commit: Vec<u8>,
+    welcome: Option<MlsMessageOut>,
+    group_info: Vec<u8>,
 }
 
 /// One leaf in the MLS tree: its index, its credential's identity bytes, its signature key.
 #[wasm_bindgen]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct GroupMember {
     leaf_index: u32,
     credential_bytes: Vec<u8>,
@@ -398,10 +469,10 @@ pub enum ProcessedKind {
     /// An application message decrypted to plaintext; bytes carried in
     /// [`ProcessedMessage::application`].
     Application,
-    /// A staged proposal was buffered into the group's pending state.
+    /// A proposal — a member's, or a join proposal from outside —, ignored: never stored.
     Proposal,
-    /// A staged commit was merged immediately. Group state advanced
-    /// to the next epoch.
+    /// A commit, checked and staged: [`Group::apply_commit`] merges it, and the group moves to
+    /// the next epoch. Dropped unapplied, it leaves the group as it was.
     Commit,
 }
 
@@ -410,6 +481,22 @@ pub struct ProcessedMessage {
     kind: ProcessedKind,
     application: Vec<u8>,
     leaves_met: Vec<GroupMember>,
+    joiner: Option<GroupMember>,
+    removed: Vec<GroupMember>,
+    staged: Option<Box<StagedCommit>>,
+}
+
+impl ProcessedMessage {
+    fn other(kind: ProcessedKind, application: Vec<u8>) -> Self {
+        ProcessedMessage {
+            kind,
+            application,
+            leaves_met: vec![],
+            joiner: None,
+            removed: vec![],
+            staged: None,
+        }
+    }
 }
 
 #[wasm_bindgen]
@@ -423,11 +510,24 @@ impl ProcessedMessage {
     pub fn application(&self) -> Vec<u8> {
         self.application.clone()
     }
-    /// For a commit: the leaves it brought in or replaced — added, or another member's updated by a
-    /// proposal or the commit's path —, this device's own left out. Empty otherwise.
+    /// For a commit once applied: the leaves it brought in or replaced — added, a device committing
+    /// itself in, or the committer's own changed by its path —, this device's own left out. Empty
+    /// otherwise.
     #[wasm_bindgen(getter)]
     pub fn leaves_met(&self) -> Vec<GroupMember> {
         self.leaves_met.clone()
+    }
+    /// For an external commit — a device committing itself in, its sender a `new_member_commit`:
+    /// the leaf it brings in, at the index it takes. `None` for any other message.
+    #[wasm_bindgen(getter)]
+    pub fn joiner(&self) -> Option<GroupMember> {
+        self.joiner.clone()
+    }
+    /// For a commit: the leaves it removes, as they stand before it. RFC 9420 § 12.4.3.2 leaves an
+    /// external commit's removals to the application to accept. Empty otherwise.
+    #[wasm_bindgen(getter)]
+    pub fn removed(&self) -> Vec<GroupMember> {
+        self.removed.clone()
     }
 }
 
@@ -445,6 +545,19 @@ pub struct Group {
 /// commit travel separately, and one sent just before a commit can arrive after it. openmls still
 /// deletes each key once used.
 const MAX_PAST_EPOCHS: usize = 5;
+
+/// Rows the provider holds under `id` that no group held stands for — a join by external commit
+/// never kept: deleted, or a join over them would find a group already there.
+fn delete_stale(provider: &Provider, id: &GroupId) -> Result<(), JsError> {
+    if let Some(mut stale) = MlsGroup::load(provider.0.storage(), id)
+        .map_err(|e| JsError::new(&format!("Group::load failed: {e:?}")))?
+    {
+        stale
+            .delete(provider.0.storage())
+            .map_err(|e| JsError::new(&format!("Group delete failed: {e:?}")))?;
+    }
+    Ok(())
+}
 
 /// How a device runs a group it joined. Its Welcomes carry the ratchet tree, as a founder's do: a
 /// user's other devices and later members are added by whoever is at hand, not only the founder.
@@ -510,7 +623,9 @@ impl Group {
 
     /// Build a group from a Welcome we received. The ratchet tree must
     /// match what the inviter committed — Phase 4b passes the bytes
-    /// alongside the welcome.
+    /// alongside the welcome. Rows the provider still holds under that group id — a join by
+    /// external commit never kept — are deleted first. Like every join, it checks no leaf's
+    /// lifetime (`README.md`).
     pub fn join(
         provider: &Provider,
         welcome_bytes: &[u8],
@@ -527,18 +642,67 @@ impl Group {
             None => None,
         };
 
-        let staged = StagedWelcome::new_from_welcome(&provider.0, &join_config(), welcome, ratchet_tree)
-            .map_err(|e| JsError::new(&format!("StagedWelcome failed: {e}")))?;
-        let mls_group = staged
+        let mut join = StagedWelcome::build_from_welcome(&provider.0, &join_config(), welcome)
+            .map_err(|e| JsError::new(&format!("StagedWelcome failed: {e}")))?
+            .skip_lifetime_validation();
+        if let Some(tree) = ratchet_tree {
+            join = join.with_ratchet_tree(tree);
+        }
+        let group_id = join.processed_welcome().unverified_group_info().group_id().clone();
+        delete_stale(provider, &group_id)?;
+        let mls_group = join
+            .build()
+            .map_err(|e| JsError::new(&format!("StagedWelcome failed: {e}")))?
             .into_group(&provider.0)
             .map_err(|e| JsError::new(&format!("Group join failed: {e}")))?;
 
         Ok(Group { mls_group })
     }
 
+    /// Join `group_id` from a GroupInfo of it, by an external commit adding this device's leaf:
+    /// `identity`'s credential over its key, as its KeyPackages carry. openmls merges the commit as
+    /// it makes it, so the group is the caller's to keep once the DS took the commit, or to
+    /// [`Group::delete`] once refused. Rows the provider still holds under that id — a join never
+    /// kept — are deleted first. Like every join, it checks no leaf's lifetime (`README.md`).
+    pub fn join_by_external_commit(
+        provider: &Provider,
+        identity: &Identity,
+        group_id: &[u8],
+        group_info_bytes: &[u8],
+    ) -> Result<ExternalJoin, JsError> {
+        let group_info = group_info_in(group_info_bytes)?;
+        let id = GroupId::from_slice(group_id);
+        if group_info.group_id() != &id {
+            return Err(JsError::new("The GroupInfo is another group's"));
+        }
+        delete_stale(provider, &id)?;
+        let signer = identity.signer(provider)?;
+        let (mls_group, bundle) = MlsGroup::external_commit_builder()
+            .with_config(join_config())
+            .skip_lifetime_validation()
+            .build_group(&provider.0, group_info, identity.credential_with_key.clone())
+            .map_err(|e| JsError::new(&format!("External commit failed: {e}")))?
+            .load_psks(provider.0.storage())
+            .map_err(|e| JsError::new(&format!("External commit failed: {e}")))?
+            .use_ratchet_tree_extension(true)
+            .build(provider.0.rand(), provider.0.crypto(), &signer, |_| true)
+            .map_err(|e| JsError::new(&format!("External commit failed: {e}")))?
+            .finalize(&provider.0)
+            .map_err(|e| JsError::new(&format!("External commit failed: {e}")))?;
+        let (commit, _, group_info) = bundle.into_messages();
+        Ok(ExternalJoin {
+            group: Group { mls_group },
+            commit: serialize_message(&commit)?,
+            group_info: serialize_message(
+                &group_info.ok_or_else(|| JsError::new("The external commit made no GroupInfo"))?,
+            )?,
+        })
+    }
+
     /// Join again from a Welcome for this group — the device was committed out and added back.
     /// The group held is replaced only when the Welcome brings a later epoch; `None` keeps it, as
-    /// for a Welcome from a group both sides founded at once.
+    /// for a Welcome from a group both sides founded at once. Like every join, it checks no leaf's
+    /// lifetime (`README.md`).
     pub fn rejoin(
         &mut self,
         provider: &Provider,
@@ -546,7 +710,7 @@ impl Group {
     ) -> Result<Option<Group>, JsError> {
         let welcome = welcome_in(welcome_bytes)?;
         let staged = StagedWelcome::build_from_welcome(&provider.0, &join_config(), welcome)
-            .and_then(|join| join.replace_old_group().build())
+            .and_then(|join| join.replace_old_group().skip_lifetime_validation().build())
             .map_err(|e| JsError::new(&format!("StagedWelcome failed: {e}")))?;
         if staged.group_context().group_id() != self.mls_group.group_id()
             || staged.group_context().epoch() <= self.mls_group.epoch()
@@ -632,14 +796,19 @@ impl Group {
         provider: &Provider,
         new_member_kp: &KeyPackage,
     ) -> Result<AddOutput, JsError> {
-        let signer = self.signer(provider)?;
-        let (commit_msg, welcome_msg, _group_info) = self
-            .mls_group
-            .add_members(&provider.0, &signer, &[new_member_kp.0.clone()])
-            .map_err(|e| JsError::new(&format!("add_members failed: {e}")))?;
+        let committed = self.commit(provider, |builder| {
+            builder
+                .propose_adds([new_member_kp.0.clone()])
+                .force_self_update(true)
+        })?;
         Ok(AddOutput {
-            commit: serialize_message(&commit_msg)?,
-            welcome: serialize_message(&welcome_msg)?,
+            commit: committed.commit,
+            welcome: serialize_message(
+                &committed
+                    .welcome
+                    .ok_or_else(|| JsError::new("The add made no Welcome"))?,
+            )?,
+            group_info: committed.group_info,
         })
     }
 
@@ -650,17 +819,12 @@ impl Group {
         provider: &Provider,
         member_index: u32,
     ) -> Result<CommitOutput, JsError> {
-        let signer = self.signer(provider)?;
-        let (commit_msg, _welcome, _group_info) = self
-            .mls_group
-            .remove_members(
-                &provider.0,
-                &signer,
-                &[LeafNodeIndex::new(member_index)],
-            )
-            .map_err(|e| JsError::new(&format!("remove_members failed: {e}")))?;
+        let committed = self.commit(provider, |builder| {
+            builder.propose_removals([LeafNodeIndex::new(member_index)])
+        })?;
         Ok(CommitOutput {
-            commit: serialize_message(&commit_msg)?,
+            commit: committed.commit,
+            group_info: committed.group_info,
         })
     }
 
@@ -670,13 +834,12 @@ impl Group {
         &mut self,
         provider: &Provider,
     ) -> Result<CommitOutput, JsError> {
-        let signer = self.signer(provider)?;
-        let commit_bundle = self
-            .mls_group
-            .self_update(&provider.0, &signer, LeafNodeParameters::default())
-            .map_err(|e| JsError::new(&format!("self_update failed: {e}")))?;
+        let committed = self.commit(provider, |builder| {
+            builder.leaf_node_parameters(LeafNodeParameters::default())
+        })?;
         Ok(CommitOutput {
-            commit: serialize_message(&commit_bundle.into_messages().0)?,
+            commit: committed.commit,
+            group_info: committed.group_info,
         })
     }
 
@@ -695,12 +858,44 @@ impl Group {
                 signature_key: signer.public().into(),
             })
             .build();
-        let commit_bundle = self
-            .mls_group
-            .self_update(&provider.0, &signer, parameters)
-            .map_err(|e| JsError::new(&format!("self_update failed: {e}")))?;
+        let committed = self.commit(provider, |builder| builder.leaf_node_parameters(parameters))?;
         Ok(CommitOutput {
-            commit: serialize_message(&commit_bundle.into_messages().0)?,
+            commit: committed.commit,
+            group_info: committed.group_info,
+        })
+    }
+
+    /// A commit of this device's own proposals, staged until the DS takes it, with the GroupInfo
+    /// of the epoch it opens, ratchet tree and `external_pub` in it. The proposal store is never
+    /// committed: whatever it holds, someone else proposed.
+    fn commit(
+        &mut self,
+        provider: &Provider,
+        build: impl for<'a> FnOnce(CommitBuilder<'a, Initial>) -> CommitBuilder<'a, Initial>,
+    ) -> Result<Committed, JsError> {
+        if !self.mls_group.is_active() {
+            return Err(JsError::new("This device is no longer in the group"));
+        }
+        if self.mls_group.pending_commit().is_some() {
+            return Err(JsError::new("A commit of this group is still pending"));
+        }
+        let signer = self.signer(provider)?;
+        let bundle = build(self.mls_group.commit_builder().consume_proposal_store(false))
+            .load_psks(provider.0.storage())
+            .map_err(|e| JsError::new(&format!("Commit failed: {e}")))?
+            .use_ratchet_tree_extension(true)
+            .build(provider.0.rand(), provider.0.crypto(), &signer, |_| true)
+            .map_err(|e| JsError::new(&format!("Commit failed: {e}")))?
+            .stage_commit(&provider.0)
+            .map_err(|e| JsError::new(&format!("Commit failed: {e}")))?;
+        let welcome = bundle.to_welcome_msg();
+        let (commit, _, group_info) = bundle.into_messages();
+        Ok(Committed {
+            commit: serialize_message(&commit)?,
+            welcome,
+            group_info: serialize_message(
+                &group_info.ok_or_else(|| JsError::new("The commit made no GroupInfo"))?,
+            )?,
         })
     }
 
@@ -736,10 +931,9 @@ impl Group {
         serialize_message(&msg)
     }
 
-    /// Process any inbound MLS message — application, proposal, or commit.
-    /// Application messages return their plaintext. Commits are merged
-    /// in-place and advance the group epoch. Proposals are staged into
-    /// pending state.
+    /// Process any inbound MLS message — application, proposal, or commit. Application messages
+    /// return their plaintext; proposals are ignored. A commit is checked and staged, not merged:
+    /// it shows its joiner and the leaves it removes, and [`Group::apply_commit`] merges it.
     pub fn process_message(
         &mut self,
         provider: &mut Provider,
@@ -764,44 +958,78 @@ impl Group {
                 )))
             }
         };
+        let external = matches!(processed.sender(), Sender::NewMemberCommit);
 
         match processed.into_content() {
-            ProcessedMessageContent::ApplicationMessage(app) => Ok(ProcessedMessage {
-                kind: ProcessedKind::Application,
-                application: app.into_bytes(),
-                leaves_met: vec![],
-            }),
-            ProcessedMessageContent::ProposalMessage(proposal)
-            | ProcessedMessageContent::ExternalJoinProposalMessage(proposal) => {
-                self.mls_group
-                    .store_pending_proposal(provider.0.storage(), *proposal)
-                    .map_err(|e| {
-                        JsError::new(&format!("store_pending_proposal failed: {e}"))
-                    })?;
-                Ok(ProcessedMessage {
-                    kind: ProcessedKind::Proposal,
-                    application: vec![],
-                    leaves_met: vec![],
-                })
+            ProcessedMessageContent::ApplicationMessage(app) => {
+                Ok(ProcessedMessage::other(ProcessedKind::Application, app.into_bytes()))
+            }
+            // Never stored: a stored proposal rides a member's next commit, so anyone holding only
+            // a user's password could ask in and be committed by a member. Our clients send none.
+            ProcessedMessageContent::ProposalMessage(_)
+            | ProcessedMessageContent::ExternalJoinProposalMessage(_) => {
+                Ok(ProcessedMessage::other(ProcessedKind::Proposal, vec![]))
             }
             ProcessedMessageContent::StagedCommitMessage(staged) => {
                 let before = self.list_members();
-                self.mls_group
-                    .merge_staged_commit(&provider.0, *staged)
-                    .map_err(|e| JsError::new(&format!("merge_staged_commit failed: {e}")))?;
-                let own = self.own_leaf_index();
-                let leaves_met = self
-                    .list_members()
-                    .into_iter()
-                    .filter(|leaf| leaf.leaf_index != own && !before.contains(leaf))
+                let gone: Vec<u32> = staged
+                    .remove_proposals()
+                    .map(|r| r.remove_proposal().removed().u32())
                     .collect();
+                let removed = before
+                    .iter()
+                    .filter(|m| gone.contains(&m.leaf_index))
+                    .cloned()
+                    .collect();
+                // The leftmost leaf no member holds once the removals are applied (RFC 9420 § 7.8).
+                let free = (0..).find(|i| {
+                    !before.iter().any(|m| m.leaf_index == *i && !gone.contains(i))
+                });
+                let joiner = match (external, staged.update_path_leaf_node(), free) {
+                    (true, Some(leaf), Some(leaf_index)) => Some(GroupMember {
+                        leaf_index,
+                        credential_bytes: leaf.credential().serialized_content().to_vec(),
+                        signature_public_key: leaf.signature_key().as_slice().to_vec(),
+                    }),
+                    _ => None,
+                };
                 Ok(ProcessedMessage {
                     kind: ProcessedKind::Commit,
                     application: vec![],
-                    leaves_met,
+                    leaves_met: vec![],
+                    joiner,
+                    removed,
+                    staged: Some(staged),
                 })
             }
         }
+    }
+
+    /// Merges the commit `processed` staged: the group moves to its epoch, and `processed` tells
+    /// the leaves the commit met and where its joiner sits.
+    pub fn apply_commit(
+        &mut self,
+        provider: &mut Provider,
+        processed: &mut ProcessedMessage,
+    ) -> Result<(), JsError> {
+        let staged = processed.staged.take().ok_or_else(|| JsError::new("No commit to apply"))?;
+        let before = self.list_members();
+        self.mls_group
+            .merge_staged_commit(&provider.0, *staged)
+            .map_err(|e| JsError::new(&format!("merge_staged_commit failed: {e}")))?;
+        let own = self.own_leaf_index();
+        let after = self.list_members();
+        if let Some(joiner) = processed.joiner.as_mut() {
+            let key = &joiner.signature_public_key;
+            if let Some(leaf) = after.iter().find(|m| &m.signature_public_key == key) {
+                joiner.leaf_index = leaf.leaf_index;
+            }
+        }
+        processed.leaves_met = after
+            .into_iter()
+            .filter(|leaf| leaf.leaf_index != own && !before.contains(leaf))
+            .collect();
+        Ok(())
     }
 
     /// Derive a `key_length`-byte secret bound to `(label, context)` from
@@ -839,6 +1067,19 @@ fn serialize_message(msg: &MlsMessageOut) -> Result<Vec<u8>, JsError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use openmls::key_packages::errors::KeyPackageVerifyError;
+    use openmls::messages::external_proposals::JoinProposal;
+
+    impl Group {
+        /// A message taken as the client takes it: a commit applied as it comes.
+        fn receive(&mut self, provider: &mut Provider, msg_bytes: &[u8]) -> Result<ProcessedMessage, JsError> {
+            let mut processed = self.process_message(provider, msg_bytes)?;
+            if processed.staged.is_some() {
+                self.apply_commit(provider, &mut processed)?;
+            }
+            Ok(processed)
+        }
+    }
 
     /// A fresh signature key bound to `credential`, as a device binds its leaf credential.
     fn identity(provider: &Provider, credential: &[u8]) -> Identity {
@@ -879,7 +1120,7 @@ mod tests {
             .unwrap();
         alice_group.merge_pending_commit(&mut alice_p).unwrap();
 
-        let processed = bob_group.process_message(&mut bob_p, &add.commit).unwrap();
+        let processed = bob_group.receive(&mut bob_p, &add.commit).unwrap();
 
         let met = processed.leaves_met();
         assert_eq!(met.len(), 1);
@@ -898,11 +1139,11 @@ mod tests {
             .add_member(&alice_p, &charles.key_package(&charles_p).unwrap())
             .unwrap();
         alice_group.merge_pending_commit(&mut alice_p).unwrap();
-        bob_group.process_message(&mut bob_p, &add.commit).unwrap();
+        bob_group.receive(&mut bob_p, &add.commit).unwrap();
         let remove = alice_group.remove_member(&alice_p, 2).unwrap();
         alice_group.merge_pending_commit(&mut alice_p).unwrap();
 
-        let processed = bob_group.process_message(&mut bob_p, &remove.commit).unwrap();
+        let processed = bob_group.receive(&mut bob_p, &remove.commit).unwrap();
 
         assert!(processed.leaves_met().is_empty());
         assert_eq!(bob_group.list_members().len(), 2);
@@ -917,7 +1158,7 @@ mod tests {
 
         let update = alice_group.update_credential(&alice_p, b"alice, bound").unwrap();
         alice_group.merge_pending_commit(&mut alice_p).unwrap();
-        let processed = bob_group.process_message(&mut bob_p, &update.commit).unwrap();
+        let processed = bob_group.receive(&mut bob_p, &update.commit).unwrap();
 
         let met = processed.leaves_met();
         assert_eq!(met.len(), 1);
@@ -926,27 +1167,19 @@ mod tests {
         assert_eq!(met[0].signature_public_key(), key);
         assert_eq!(alice_group.list_members()[0].credential_bytes(), b"alice, bound");
         let ciphertext = alice_group.encrypt_application(&alice_p, b"still me").unwrap();
-        let read = bob_group.process_message(&mut bob_p, &ciphertext).unwrap();
+        let read = bob_group.receive(&mut bob_p, &ciphertext).unwrap();
         assert_eq!(read.application(), b"still me");
     }
 
-    /// Bob proposes an Update carrying a new credential, Alice commits it: Charles meets Bob's leaf
-    /// as the commit changed it; Bob, whose own leaf it is, meets nothing.
-    #[test]
-    fn a_leaf_changed_by_an_update_proposal_is_met_once_committed() {
-        let (mut alice_p, mut alice_group, mut bob_p, mut bob_group) = alice_with_bob(b"conv-014");
-        let mut charles_p = Provider::new();
-        let charles = identity(&charles_p, b"charles@idp.bob.com");
-        let add = alice_group
-            .add_member(&alice_p, &charles.key_package(&charles_p).unwrap())
-            .unwrap();
-        alice_group.merge_pending_commit(&mut alice_p).unwrap();
-        bob_group.process_message(&mut bob_p, &add.commit).unwrap();
-        let mut charles_group = Group::join(&charles_p, &add.welcome, None).unwrap();
-        let bob_signer = bob_group.signer(&bob_p).unwrap();
+    /// One of the four commits a device makes, answering one of its outputs.
+    type MakeCommit<'a> = &'a dyn Fn(&mut Group, &Provider) -> Vec<u8>;
+
+    /// Bob's proposal of a new credential for his leaf, as a member's client could send it.
+    fn bobs_update_proposal(bob_p: &Provider, bob_group: &mut Group) -> Vec<u8> {
+        let bob_signer = bob_group.signer(bob_p).unwrap();
         let parameters = LeafNodeParameters::builder()
             .with_credential_with_key(CredentialWithKey {
-                credential: BasicCredential::new(b"bob, bound".to_vec()).into(),
+                credential: BasicCredential::new(b"bob, proposed".to_vec()).into(),
                 signature_key: bob_signer.public().into(),
             })
             .build();
@@ -954,28 +1187,261 @@ mod tests {
             .mls_group
             .propose_self_update(&bob_p.0, &bob_signer, parameters)
             .unwrap();
-        let proposal = serialize_message(&proposal).unwrap();
-        assert!(matches!(
-            alice_group.process_message(&mut alice_p, &proposal).unwrap().kind(),
-            ProcessedKind::Proposal
-        ));
-        charles_group.process_message(&mut charles_p, &proposal).unwrap();
-        let alice_signer = alice_group.signer(&alice_p).unwrap();
-        let (commit, _, _) = alice_group
-            .mls_group
-            .commit_to_pending_proposals(&alice_p.0, &alice_signer)
-            .unwrap();
-        alice_group.merge_pending_commit(&mut alice_p).unwrap();
-        let commit = serialize_message(&commit).unwrap();
+        serialize_message(&proposal).unwrap()
+    }
 
-        let met = charles_group.process_message(&mut charles_p, &commit).unwrap().leaves_met();
-        let own = bob_group.process_message(&mut bob_p, &commit).unwrap().leaves_met();
+    /// Mallory, in no group, asking to be added to `group`.
+    fn join_proposal(group: &Group, credential: &[u8]) -> Vec<u8> {
+        let provider = Provider::new();
+        let mallory = identity(&provider, credential);
+        let proposal = JoinProposal::new::<<OpenMlsRustCrypto as OpenMlsProvider>::StorageProvider>(
+            mallory.key_package(&provider).unwrap().0,
+            group.mls_group.group_id().clone(),
+            group.mls_group.epoch(),
+            &mallory.signer(&provider).unwrap(),
+        )
+        .unwrap();
+        serialize_message(&proposal).unwrap()
+    }
 
+    /// What the wrapper did with a proposal before: kept it, for the group's next commit to carry.
+    fn store_as_before(group: &mut Group, provider: &Provider, proposal: &[u8]) {
+        let processed = match MlsMessageIn::tls_deserialize(&mut &proposal[..]).unwrap().extract() {
+            MlsMessageBodyIn::PrivateMessage(m) => group.mls_group.process_message(&provider.0, m),
+            MlsMessageBodyIn::PublicMessage(m) => group.mls_group.process_message(&provider.0, m),
+            other => panic!("not a proposal: {other:?}"),
+        }
+        .unwrap();
+        match processed.into_content() {
+            ProcessedMessageContent::ProposalMessage(p)
+            | ProcessedMessageContent::ExternalJoinProposalMessage(p) => group
+                .mls_group
+                .store_pending_proposal(provider.0.storage(), *p)
+                .unwrap(),
+            _ => panic!("not a proposal"),
+        }
+    }
+
+    /// A member's proposal and a join proposal from outside are taken and dropped.
+    #[test]
+    fn a_proposal_received_is_never_kept() {
+        let (mut alice_p, mut alice_group, bob_p, mut bob_group) = alice_with_bob(b"conv-014");
+
+        for proposal in [
+            bobs_update_proposal(&bob_p, &mut bob_group),
+            join_proposal(&alice_group, b"mallory"),
+        ] {
+            let processed = alice_group.receive(&mut alice_p, &proposal).unwrap();
+
+            assert!(matches!(processed.kind(), ProcessedKind::Proposal));
+            assert!(!alice_group.mls_group.has_pending_proposals());
+        }
+    }
+
+    /// Whatever the group holds — proposals kept before they were ignored —, a commit carries only
+    /// what this device proposed: no leaf Bob or Mallory proposed comes in by Alice's add, removal,
+    /// update or new credential.
+    #[test]
+    fn a_commit_carries_no_proposal_it_did_not_make() {
+        let (mut alice_p, mut alice_group, mut bob_p, mut bob_group) = alice_with_bob(b"conv-017");
+        let charles_p = Provider::new();
+        let charles = identity(&charles_p, b"charles").key_package(&charles_p).unwrap();
+        let commits: [MakeCommit; 4] = [
+            &|group, provider| group.add_member(provider, &charles).unwrap().commit,
+            &|group, provider| group.remove_member(provider, 2).unwrap().commit,
+            &|group, provider| group.update(provider).unwrap().commit,
+            &|group, provider| group.update_credential(provider, b"alice, again").unwrap().commit,
+        ];
+
+        for commit in commits {
+            let mallory = join_proposal(&alice_group, b"mallory");
+            store_as_before(&mut alice_group, &alice_p, &mallory);
+            store_as_before(&mut bob_group, &bob_p, &mallory);
+            let update = bobs_update_proposal(&bob_p, &mut bob_group);
+            store_as_before(&mut alice_group, &alice_p, &update);
+            assert!(alice_group.mls_group.has_pending_proposals());
+
+            let commit = commit(&mut alice_group, &alice_p);
+            alice_group.merge_pending_commit(&mut alice_p).unwrap();
+            bob_group.receive(&mut bob_p, &commit).unwrap();
+
+            for group in [&alice_group, &bob_group] {
+                let credentials: Vec<_> = group.list_members().iter().map(|m| m.credential_bytes()).collect();
+                assert!(!credentials.contains(&b"mallory".to_vec()));
+                assert!(credentials.contains(&b"bob@idp.bob.com".to_vec()));
+                assert!(!credentials.contains(&b"bob, proposed".to_vec()));
+            }
+            assert!(!alice_group.mls_group.has_pending_proposals());
+        }
+    }
+
+    /// The epoch a GroupInfo is of, once it is shown to carry what a device joins by alone: the
+    /// ratchet tree and the `external_pub` key.
+    fn joinable_epoch(group_info: &[u8], group_id: &[u8]) -> u64 {
+        let info = group_info_in(group_info).unwrap();
+        assert_eq!(info.group_id().as_slice(), group_id);
+        assert!(info.extensions().ratchet_tree().is_some());
+        assert!(info.extensions().external_pub().is_some());
+        info.epoch().as_u64()
+    }
+
+    #[test]
+    fn every_commit_comes_with_the_group_info_of_the_epoch_it_opens() {
+        let (mut alice_p, mut alice_group, _, _) = alice_with_bob(b"conv-018");
+        let charles_p = Provider::new();
+        let charles = identity(&charles_p, b"charles").key_package(&charles_p).unwrap();
+        let commits: [MakeCommit; 4] = [
+            &|group, provider| group.add_member(provider, &charles).unwrap().group_info,
+            &|group, provider| group.remove_member(provider, 2).unwrap().group_info,
+            &|group, provider| group.update(provider).unwrap().group_info,
+            &|group, provider| group.update_credential(provider, b"alice, again").unwrap().group_info,
+        ];
+
+        for commit in commits {
+            let group_info = commit(&mut alice_group, &alice_p);
+            alice_group.merge_pending_commit(&mut alice_p).unwrap();
+
+            assert_eq!(joinable_epoch(&group_info, b"conv-018"), alice_group.epoch());
+        }
+    }
+
+    /// Alice's new laptop, holding no group, joins from the GroupInfo Bob's last commit came with;
+    /// Bob meets its leaf as he applies the commit, as he meets an added one, and they read each
+    /// other. Charles joins in turn from the GroupInfo the laptop's commit came with.
+    #[test]
+    fn a_device_joins_by_external_commit_from_a_commits_group_info() {
+        let (_, _, mut bob_p, mut bob_group) = alice_with_bob(b"conv-016");
+        let update = bob_group.update(&bob_p).unwrap();
+        bob_group.merge_pending_commit(&mut bob_p).unwrap();
+        let mut laptop_p = Provider::new();
+        let laptop = identity(&laptop_p, b"alice's laptop");
+
+        let join = Group::join_by_external_commit(&laptop_p, &laptop, b"conv-016", &update.group_info).unwrap();
+        let (commit, group_info) = (join.commit(), join.group_info());
+        assert_eq!(join.epoch(), bob_group.epoch() + 1);
+        let mut laptop_group = join.into_group();
+        let processed = bob_group.receive(&mut bob_p, &commit).unwrap();
+
+        assert!(matches!(processed.kind(), ProcessedKind::Commit));
+        let met = processed.leaves_met();
         assert_eq!(met.len(), 1);
-        assert_eq!(met[0].leaf_index(), 1);
-        assert_eq!(met[0].credential_bytes(), b"bob, bound");
-        assert_eq!(met[0].signature_public_key(), bob_signer.public());
-        assert!(own.is_empty());
+        assert_eq!(met[0].credential_bytes(), b"alice's laptop");
+        assert_eq!(met[0].signature_public_key(), laptop.signature_public_key());
+        assert_eq!(met[0].leaf_index(), laptop_group.own_leaf_index());
+        assert_eq!(bob_group.epoch(), laptop_group.epoch());
+        let to_bob = laptop_group.encrypt_application(&laptop_p, b"back").unwrap();
+        assert_eq!(bob_group.receive(&mut bob_p, &to_bob).unwrap().application(), b"back");
+        let to_laptop = bob_group.encrypt_application(&bob_p, b"welcome back").unwrap();
+        assert_eq!(
+            laptop_group.receive(&mut laptop_p, &to_laptop).unwrap().application(),
+            b"welcome back"
+        );
+        assert_eq!(joinable_epoch(&group_info, b"conv-016"), laptop_group.epoch());
+
+        let mut charles_p = Provider::new();
+        let charles = identity(&charles_p, b"charles");
+        let join = Group::join_by_external_commit(&charles_p, &charles, b"conv-016", &group_info).unwrap();
+        let commit = join.commit();
+        let mut charles_group = join.into_group();
+        bob_group.receive(&mut bob_p, &commit).unwrap();
+        laptop_group.receive(&mut laptop_p, &commit).unwrap();
+        let hello = bob_group.encrypt_application(&bob_p, b"hello both").unwrap();
+        for (group, provider) in [(&mut laptop_group, &mut laptop_p), (&mut charles_group, &mut charles_p)] {
+            assert_eq!(group.receive(provider, &hello).unwrap().application(), b"hello both");
+        }
+    }
+
+    /// Bob sees, before applying it, that the laptop's commit is a device committing itself in, which
+    /// leaf it brings and where; applied, it sits there.
+    #[test]
+    fn an_external_commit_shows_its_joiner_where_it_sits() {
+        let (_, _, mut bob_p, mut bob_group) = alice_with_bob(b"conv-030");
+        let update = bob_group.update(&bob_p).unwrap();
+        bob_group.merge_pending_commit(&mut bob_p).unwrap();
+        let laptop_p = Provider::new();
+        let laptop = identity(&laptop_p, b"alice's laptop");
+        let join = Group::join_by_external_commit(&laptop_p, &laptop, b"conv-030", &update.group_info).unwrap();
+        let commit = join.commit();
+        let laptop_group = join.into_group();
+        let epoch = bob_group.epoch();
+
+        let mut processed = bob_group.process_message(&mut bob_p, &commit).unwrap();
+
+        let joiner = processed.joiner().unwrap();
+        assert_eq!(joiner.credential_bytes(), b"alice's laptop");
+        assert_eq!(joiner.signature_public_key(), laptop.signature_public_key());
+        assert_eq!(joiner.leaf_index(), laptop_group.own_leaf_index());
+        assert!(processed.removed().is_empty());
+        assert_eq!(bob_group.epoch(), epoch);
+
+        bob_group.apply_commit(&mut bob_p, &mut processed).unwrap();
+        assert_eq!(bob_group.epoch(), epoch + 1);
+        assert_eq!(processed.joiner().unwrap().leaf_index(), laptop_group.own_leaf_index());
+        assert_eq!(processed.leaves_met(), vec![joiner]);
+    }
+
+    #[test]
+    fn a_members_commit_has_no_joiner() {
+        let (alice_p, mut alice_group, mut bob_p, mut bob_group) = alice_with_bob(b"conv-031");
+        let charles_p = Provider::new();
+        let charles = identity(&charles_p, b"charles");
+        let add = alice_group.add_member(&alice_p, &charles.key_package(&charles_p).unwrap()).unwrap();
+
+        let processed = bob_group.process_message(&mut bob_p, &add.commit).unwrap();
+
+        assert!(processed.joiner().is_none());
+        assert!(processed.removed().is_empty());
+    }
+
+    /// Mallory commits herself in over the key of Charles's leaf, which openmls then removes: Bob
+    /// sees the leaf it would remove, as it stands, and dropping the commit unapplied changes nothing.
+    #[test]
+    fn an_external_commit_shows_the_leaves_it_removes_and_dropped_changes_nothing() {
+        let (mut alice_p, mut alice_group, mut bob_p, mut bob_group) = alice_with_bob(b"conv-032");
+        let charles_p = Provider::new();
+        let charles = identity(&charles_p, b"charles");
+        let add = alice_group.add_member(&alice_p, &charles.key_package(&charles_p).unwrap()).unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        bob_group.receive(&mut bob_p, &add.commit).unwrap();
+        let charles_leaf = bob_group.list_members().into_iter().find(|m| m.credential_bytes() == b"charles").unwrap();
+        let mallory = Identity::bind(&charles_p, b"mallory", charles.signature_public_key()).unwrap();
+        let join = Group::join_by_external_commit(&charles_p, &mallory, b"conv-032", &add.group_info).unwrap();
+        let (members, epoch) = (bob_group.list_members(), bob_group.epoch());
+
+        let processed = bob_group.process_message(&mut bob_p, &join.commit()).unwrap();
+
+        assert_eq!(processed.removed(), vec![charles_leaf.clone()]);
+        let joiner = processed.joiner().unwrap();
+        assert_eq!(joiner.credential_bytes(), b"mallory");
+        assert_eq!(joiner.leaf_index(), charles_leaf.leaf_index());
+        drop(processed);
+        assert_eq!((bob_group.list_members(), bob_group.epoch()), (members, epoch));
+        let hello = alice_group.encrypt_application(&alice_p, b"still here").unwrap();
+        assert_eq!(bob_group.receive(&mut bob_p, &hello).unwrap().application(), b"still here");
+    }
+
+    /// A join's group is stored as it is made; one the DS refused is deleted, and a join after
+    /// it finds nothing in its way.
+    #[test]
+    fn a_refused_join_leaves_nothing_behind() {
+        let (_, _, mut bob_p, mut bob_group) = alice_with_bob(b"conv-019");
+        let update = bob_group.update(&bob_p).unwrap();
+        bob_group.merge_pending_commit(&mut bob_p).unwrap();
+        let laptop_p = Provider::new();
+        let laptop = identity(&laptop_p, b"alice's laptop");
+
+        let mut refused = Group::join_by_external_commit(&laptop_p, &laptop, b"conv-019", &update.group_info)
+            .unwrap()
+            .into_group();
+        assert!(Group::load_from_provider(&laptop_p, b"conv-019").unwrap().is_some());
+        refused.delete(&laptop_p).unwrap();
+        assert!(Group::load_from_provider(&laptop_p, b"conv-019").unwrap().is_none());
+
+        Group::join_by_external_commit(&laptop_p, &laptop, b"conv-019", &update.group_info).unwrap();
+        let again = Group::join_by_external_commit(&laptop_p, &laptop, b"conv-019", &update.group_info).unwrap();
+        let commit = again.commit();
+        bob_group.receive(&mut bob_p, &commit).unwrap();
+        assert_eq!(bob_group.list_members().len(), 3);
     }
 
     /// A commit the DS never acknowledged blocks the group's next commit; clearing it frees it.
@@ -998,12 +1464,171 @@ mod tests {
         assert!(alice_group.mls_group.pending_commit().is_none());
         let update = alice_group.update(&alice_p).unwrap();
         alice_group.merge_pending_commit(&mut alice_p).unwrap();
-        bob_group.process_message(&mut bob_p, &update.commit).unwrap();
+        bob_group.receive(&mut bob_p, &update.commit).unwrap();
         let ciphertext = alice_group
             .encrypt_application(&alice_p, b"still in step")
             .unwrap();
-        let processed = bob_group.process_message(&mut bob_p, &ciphertext).unwrap();
+        let processed = bob_group.receive(&mut bob_p, &ciphertext).unwrap();
         assert_eq!(processed.application(), b"still in step");
+    }
+
+    /// A KeyPackage of `identity`'s whose leaf lives `seconds` more.
+    fn short_lived_key_package(provider: &Provider, identity: &Identity, seconds: u64) -> KeyPackage {
+        identity.key_package_living(provider, Lifetime::new(seconds)).unwrap()
+    }
+
+    /// Alice's group with Bob, whose leaf — never updated — outlived the KeyPackage it came in by.
+    fn bob_past_his_leafs_lifetime(group_id: &[u8]) -> (Provider, Group, Provider, Group) {
+        let (alice_p, alice, bob_p, bob) = make_alice_and_bob();
+        let mut alice_p = alice_p;
+        let mut alice_group = Group::create_new(&alice_p, &alice, group_id).unwrap();
+        let add = alice_group
+            .add_member(&alice_p, &short_lived_key_package(&bob_p, &bob, 1))
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        let bob_group = Group::join(&bob_p, &add.welcome, None).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(2_100));
+        (alice_p, alice_group, bob_p, bob_group)
+    }
+
+    /// Charles comes in by Welcome, Dave by external commit, and Charles again by Welcome once
+    /// removed — all over Bob's leaf, past its lifetime, which openmls's default refuses.
+    #[test]
+    fn a_leaf_past_its_lifetime_keeps_no_device_out() {
+        let (mut alice_p, mut alice_group, mut bob_p, mut bob_group) = bob_past_his_leafs_lifetime(b"conv-030");
+        let mut charles_p = Provider::new();
+        let charles = identity(&charles_p, b"charles");
+
+        let add = alice_group
+            .add_member(&alice_p, &charles.key_package(&charles_p).unwrap())
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        bob_group.receive(&mut bob_p, &add.commit).unwrap();
+        let mut charles_group = Group::join(&charles_p, &add.welcome, None).unwrap();
+
+        let refused = MlsGroup::external_commit_builder()
+            .with_config(join_config())
+            .build_group(&charles_p.0, group_info_in(&add.group_info).unwrap(), charles.credential_with_key.clone());
+        assert!(refused.is_err(), "openmls's default checks the leaves' lifetimes");
+        let mut dave_p = Provider::new();
+        let dave = identity(&dave_p, b"dave");
+        let join = Group::join_by_external_commit(&dave_p, &dave, b"conv-030", &add.group_info).unwrap();
+        let commit = join.commit();
+        let mut dave_group = join.into_group();
+        for (group, provider) in [
+            (&mut alice_group, &mut alice_p),
+            (&mut bob_group, &mut bob_p),
+            (&mut charles_group, &mut charles_p),
+        ] {
+            group.receive(provider, &commit).unwrap();
+        }
+        let hello = bob_group.encrypt_application(&bob_p, b"still here").unwrap();
+        for (group, provider) in [(&mut charles_group, &mut charles_p), (&mut dave_group, &mut dave_p)] {
+            assert_eq!(group.receive(provider, &hello).unwrap().application(), b"still here");
+        }
+
+        let remove = alice_group.remove_member(&alice_p, charles_group.own_leaf_index()).unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        charles_group.receive(&mut charles_p, &remove.commit).unwrap();
+        let back = alice_group
+            .add_member(&alice_p, &charles.key_package(&charles_p).unwrap())
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        let mut charles_group = charles_group.rejoin(&charles_p, &back.welcome).unwrap().unwrap();
+        let again = alice_group.encrypt_application(&alice_p, b"welcome back").unwrap();
+        assert_eq!(charles_group.receive(&mut charles_p, &again).unwrap().application(), b"welcome back");
+    }
+
+    /// The lifetime still counts when a KeyPackage is added: `KeyPackage::from_bytes` validates it so.
+    #[test]
+    fn a_key_package_past_its_lifetime_is_still_refused() {
+        let provider = Provider::new();
+        let bob = identity(&provider, b"bob");
+        let bytes = short_lived_key_package(&provider, &bob, 1).to_bytes().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(2_100));
+
+        let validated = KeyPackageIn::tls_deserialize(&mut bytes.as_slice())
+            .unwrap()
+            .validate(&openmls_rust_crypto::RustCrypto::default(), ProtocolVersion::Mls10);
+
+        assert!(matches!(validated, Err(KeyPackageVerifyError::InvalidLifetime)));
+    }
+
+    const WEEK: u64 = 7 * 24 * 60 * 60;
+
+    /// A KeyPackage of `identity`'s made `ago` seconds back and living `seconds` from then — the
+    /// clock moved on by `ago` since it was made, as far as its lifetime tells.
+    fn key_package_made_ago(provider: &Provider, identity: &Identity, ago: u64, seconds: u64) -> KeyPackage {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let made = now - ago;
+        identity
+            .key_package_living(provider, Lifetime::init(made - 60 * 60, made + seconds))
+            .unwrap()
+    }
+
+    /// Charles's KeyPackage was made 13 weeks ago: Bob, away since, still applies the add that used
+    /// it, and reads Charles. Under openmls's default of 12 weeks, the check an add goes through —
+    /// Bob's as he applies it, Alice's as she makes it — refuses it by then.
+    #[test]
+    fn a_member_applies_an_add_thirteen_weeks_after_the_key_package_was_made() {
+        let (mut alice_p, mut alice_group, mut bob_p, mut bob_group) = alice_with_bob(b"conv-032");
+        let charles_p = Provider::new();
+        let charles = identity(&charles_p, b"charles");
+        let made = key_package_made_ago(&charles_p, &charles, 13 * WEEK, KEY_PACKAGE_LIFETIME_SECONDS);
+        let add = alice_group.add_member(&alice_p, &made).unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+
+        bob_group.receive(&mut bob_p, &add.commit).unwrap();
+        let mut charles_group = Group::join(&charles_p, &add.welcome, None).unwrap();
+        let hello = charles_group.encrypt_application(&charles_p, b"hello Bob").unwrap();
+        assert_eq!(bob_group.receive(&mut bob_p, &hello).unwrap().application(), b"hello Bob");
+
+        let twelve_weeks = key_package_made_ago(&charles_p, &charles, 13 * WEEK, 12 * WEEK);
+        let signer = alice_group.signer(&alice_p).unwrap();
+        let refused = alice_group
+            .mls_group
+            .commit_builder()
+            .propose_adds([twelve_weeks.0])
+            .load_psks(alice_p.0.storage())
+            .unwrap()
+            .build(alice_p.0.rand(), alice_p.0.crypto(), &signer, |_| true);
+        assert!(refused.is_err(), "openmls checks an added KeyPackage's lifetime");
+    }
+
+    /// What every KeyPackage carries: a year, from an hour back for clocks running late.
+    #[test]
+    fn a_key_package_lives_a_year() {
+        let provider = Provider::new();
+        let bob = identity(&provider, b"bob");
+
+        let lifetime = *bob.key_package(&provider).unwrap().0.life_time();
+
+        assert_eq!(lifetime.not_after() - lifetime.not_before(), KEY_PACKAGE_LIFETIME_SECONDS + 60 * 60);
+    }
+
+    /// A join by external commit the provider still holds, neither kept nor deleted — a reload came
+    /// while it was pending — doesn't stand in the way of a Welcome.
+    #[test]
+    fn a_welcome_joins_over_a_join_never_kept() {
+        let (mut alice_p, mut alice_group, _, _) = alice_with_bob(b"conv-031");
+        let update = alice_group.update(&alice_p).unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        let mut laptop_p = Provider::new();
+        let laptop = identity(&laptop_p, b"alice's laptop");
+        drop(Group::join_by_external_commit(&laptop_p, &laptop, b"conv-031", &update.group_info).unwrap());
+        assert!(Group::load_from_provider(&laptop_p, b"conv-031").unwrap().is_some());
+
+        let add = alice_group
+            .add_member(&alice_p, &laptop.key_package(&laptop_p).unwrap())
+            .unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        let mut laptop_group = Group::join(&laptop_p, &add.welcome, None).unwrap();
+
+        let hello = alice_group.encrypt_application(&alice_p, b"in").unwrap();
+        assert_eq!(laptop_group.receive(&mut laptop_p, &hello).unwrap().application(), b"in");
     }
 
     /// Bob joined Alice's group; Charles, whom Bob adds, joins from Bob's Welcome alone, as a
@@ -1029,7 +1654,7 @@ mod tests {
 
         let ciphertext = bob_group.encrypt_application(&bob_p, b"in").unwrap();
         let processed = charles_group
-            .process_message(&mut charles_p, &ciphertext)
+            .receive(&mut charles_p, &ciphertext)
             .unwrap();
         assert_eq!(processed.application(), b"in");
     }
@@ -1088,9 +1713,9 @@ mod tests {
         alice_group.merge_pending_commit(&mut alice_p).unwrap();
 
         bob_group
-            .process_message(&mut bob_p, &update.commit)
+            .receive(&mut bob_p, &update.commit)
             .unwrap();
-        let processed = bob_group.process_message(&mut bob_p, &sent).unwrap();
+        let processed = bob_group.receive(&mut bob_p, &sent).unwrap();
 
         assert_eq!(processed.application(), b"before the commit");
     }
@@ -1106,9 +1731,9 @@ mod tests {
         bob_group.merge_pending_commit(&mut bob_p).unwrap();
 
         alice_group
-            .process_message(&mut alice_p, &update.commit)
+            .receive(&mut alice_p, &update.commit)
             .unwrap();
-        let processed = alice_group.process_message(&mut alice_p, &sent).unwrap();
+        let processed = alice_group.receive(&mut alice_p, &sent).unwrap();
 
         assert_eq!(processed.application(), b"before the commit");
     }
@@ -1126,10 +1751,10 @@ mod tests {
             let update = alice_group.update(&alice_p).unwrap();
             alice_group.merge_pending_commit(&mut alice_p).unwrap();
             bob_group
-                .process_message(&mut bob_p, &update.commit)
+                .receive(&mut bob_p, &update.commit)
                 .unwrap();
         }
-        let processed = bob_group.process_message(&mut bob_p, &sent).unwrap();
+        let processed = bob_group.receive(&mut bob_p, &sent).unwrap();
 
         assert_eq!(processed.application(), b"five behind");
     }
@@ -1158,7 +1783,7 @@ mod tests {
         let ciphertext = alice_group
             .encrypt_application(&alice_p, b"welcome back")
             .unwrap();
-        let processed = rejoined.process_message(&mut bob_p, &ciphertext).unwrap();
+        let processed = rejoined.receive(&mut bob_p, &ciphertext).unwrap();
         assert_eq!(processed.application(), b"welcome back");
         let stored = Group::load_from_provider(&bob_p, b"conv-003").unwrap().unwrap();
         assert_eq!(stored.epoch(), rejoined.epoch());
@@ -1225,7 +1850,7 @@ mod tests {
         let ciphertext = alice_group
             .encrypt_application(&alice_p_mut, plaintext)
             .unwrap();
-        let processed = bob_group.process_message(&mut bob_p_mut, &ciphertext).unwrap();
+        let processed = bob_group.receive(&mut bob_p_mut, &ciphertext).unwrap();
         assert!(matches!(processed.kind(), ProcessedKind::Application));
         assert_eq!(processed.application(), plaintext);
     }
@@ -1268,7 +1893,7 @@ mod tests {
         alice_group.merge_pending_commit(&mut alice_p_mut).unwrap();
 
         let processed = bob_group
-            .process_message(&mut bob_p_mut, &add_charles.commit)
+            .receive(&mut bob_p_mut, &add_charles.commit)
             .unwrap();
         assert!(matches!(processed.kind(), ProcessedKind::Commit));
 
@@ -1288,7 +1913,7 @@ mod tests {
             (&mut bob_group, &mut bob_p_mut),
             (&mut charles_group, &mut charles_p_mut),
         ] {
-            let p = group.process_message(prov, &ct).unwrap();
+            let p = group.receive(prov, &ct).unwrap();
             assert!(matches!(p.kind(), ProcessedKind::Application));
             assert_eq!(p.application(), msg);
         }
@@ -1359,7 +1984,7 @@ mod tests {
         alice_group.merge_pending_commit(&mut alice_p_mut).unwrap();
 
         // Bob processes the update commit.
-        let processed = bob_group.process_message(&mut bob_p_mut, &upd.commit).unwrap();
+        let processed = bob_group.receive(&mut bob_p_mut, &upd.commit).unwrap();
         assert!(matches!(processed.kind(), ProcessedKind::Commit));
 
         let epoch_after = alice_group.epoch();
@@ -1377,7 +2002,7 @@ mod tests {
         let ct = alice_group
             .encrypt_application(&alice_p_mut, b"post-update")
             .unwrap();
-        let processed = bob_group.process_message(&mut bob_p_mut, &ct).unwrap();
+        let processed = bob_group.receive(&mut bob_p_mut, &ct).unwrap();
         assert_eq!(processed.application(), b"post-update");
     }
 
@@ -1452,7 +2077,7 @@ mod tests {
             .encrypt_application(&alice_p_mut, b"after-reload")
             .unwrap();
         let mut restored_p_mut = restored_p;
-        let processed = bob_loaded.process_message(&mut restored_p_mut, &ct).unwrap();
+        let processed = bob_loaded.receive(&mut restored_p_mut, &ct).unwrap();
         assert!(matches!(processed.kind(), ProcessedKind::Application));
         assert_eq!(processed.application(), b"after-reload");
     }

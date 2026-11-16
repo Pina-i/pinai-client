@@ -1,4 +1,4 @@
-import { Check, GitBranch, Globe, Search, X } from "lucide-react"
+import { Check, GitBranch, Search, X } from "lucide-react"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { Button } from "@/presentation/atoms/Button/Button"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
@@ -6,6 +6,7 @@ import { modalSurface } from "@/presentation/molecules/Modal/modal-surface"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { cn } from "@/presentation/_libs/utils"
 import { useAppStore } from "@/store/store"
+import { MAX_GROUP_NAME_LENGTH } from "@pinai/domain/models/group"
 import type { GroupComposerState } from "@/store/slices/ui.slice"
 import type { Friend } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import { useGroupComposerViewModel } from "./GroupComposer.viewmodel"
@@ -106,6 +107,7 @@ function GroupComposerContent({
                     <input
                         id="group-name"
                         value={vm.name}
+                        maxLength={MAX_GROUP_NAME_LENGTH}
                         onChange={(e) => vm.setName(e.target.value)}
                         placeholder="Leave blank to use members' names"
                         className="h-10 w-full rounded-[12px] border border-line2 bg-surf2 px-3.5 text-[13px] text-foreground placeholder:text-muted-foreground outline-none transition-colors duration-150 focus:border-acc"
@@ -115,12 +117,6 @@ function GroupComposerContent({
 
             <div className="border-t border-line px-6 py-4">
                 {vm.error && <p className="mb-3 text-[12px] text-dnd">{vm.error}</p>}
-                {vm.hasFederatedSelection && (
-                    <div className="mb-3 flex items-center gap-2 text-[11.5px] text-muted-foreground">
-                        <Globe className="h-3.5 w-3.5 shrink-0" />
-                        <span>Some members are on other servers — they'll join over federation.</span>
-                    </div>
-                )}
                 <div className="flex items-center justify-between gap-3">
                     <span className="text-[12px] text-muted-foreground">
                         <span className="font-mono">{vm.selectedFriends.length}</span> selected

@@ -1,7 +1,10 @@
+import { useState } from "react"
 import type { Attachment } from "@pinai/domain/models/dm"
 import type { AttachmentBlobKey } from "@pinai/domain/models/e2ee"
+import { imagePreviewOf } from "@pinai/domain/models/image-preview"
 import { useAttachmentBlobUrl } from "@/presentation/hooks/useAttachmentBlobUrl"
 import { extensionBadge, formatBytes, isImageAttachment } from "@/presentation/_libs/attachments"
+import { blurhashImage } from "@/presentation/_libs/blurhash-image"
 import { cn } from "@/presentation/_libs/utils"
 
 interface AttachmentFilmstripProps {
@@ -39,7 +42,6 @@ export function AttachmentFilmstrip({ attachments, attachmentKeys, onImageClick 
                         ? (
                             <ImageTile
                                 key={a.id}
-                                attachmentId={a.id}
                                 filename={realFilename}
                                 attachmentKey={key}
                                 onClick={() => onImageClick(a)}
@@ -48,7 +50,6 @@ export function AttachmentFilmstrip({ attachments, attachmentKeys, onImageClick 
                         : (
                             <FileTile
                                 key={a.id}
-                                attachmentId={a.id}
                                 filename={realFilename}
                                 byteSize={realSize}
                                 attachmentKey={key}
@@ -64,17 +65,19 @@ export function AttachmentFilmstrip({ attachments, attachmentKeys, onImageClick 
 }
 
 function ImageTile({
-    attachmentId,
     filename,
     attachmentKey,
     onClick,
 }: {
-    attachmentId: string
     filename: string
     attachmentKey: AttachmentBlobKey | undefined
     onClick: () => void
 }) {
-    const url = useAttachmentBlobUrl(attachmentId, attachmentKey)
+    const { url } = useAttachmentBlobUrl(attachmentKey)
+    const [loadedUrl, setLoadedUrl] = useState<string | null>(null)
+    const isShown = url !== null && loadedUrl === url
+    const blurhash = imagePreviewOf(attachmentKey)?.blurhash
+    const placeholder = blurhash ? blurhashImage(blurhash) : null
     return (
         <button
             type="button"
@@ -82,11 +85,26 @@ function ImageTile({
             aria-label={`Open ${filename}`}
             className="relative flex h-24 w-24 shrink-0 cursor-zoom-in flex-col justify-end overflow-hidden rounded-[14px] border border-line bg-surf2 p-0"
         >
+            {placeholder && (
+                <img
+                    src={placeholder}
+                    alt=""
+                    aria-hidden
+                    className={cn(
+                        "absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ease-out motion-reduce:transition-none",
+                        isShown && "opacity-0",
+                    )}
+                />
+            )}
             {url && (
                 <img
                     src={url}
                     alt={filename}
-                    className="absolute inset-0 h-full w-full object-cover"
+                    onLoad={() => setLoadedUrl(url)}
+                    className={cn(
+                        "absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ease-out motion-reduce:transition-none",
+                        !isShown && "opacity-0",
+                    )}
                 />
             )}
             <div
@@ -103,17 +121,15 @@ function ImageTile({
 }
 
 function FileTile({
-    attachmentId,
     filename,
     byteSize,
     attachmentKey,
 }: {
-    attachmentId: string
     filename: string
     byteSize: number
     attachmentKey: AttachmentBlobKey | undefined
 }) {
-    const url = useAttachmentBlobUrl(attachmentId, attachmentKey)
+    const { url } = useAttachmentBlobUrl(attachmentKey)
     const ext = extensionBadge(filename)
     return (
         <a

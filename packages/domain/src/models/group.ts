@@ -21,6 +21,34 @@ export function seatsLeft(members: number): number {
     return Math.max(0, MAX_GROUP_MEMBERS - members)
 }
 
+/** How many characters a group's name holds at most: the IdP refuses more. */
+export const MAX_GROUP_NAME_LENGTH = 50
+
+/** Whether the user may rename this conversation: any member of a group, not one removed from it. */
+export function mayRenameGroup(conversation: { kind: "dm" | "group"; removedAt: string | null }): boolean {
+    return conversation.kind === "group" && conversation.removedAt == null
+}
+
+/**
+ * The name to send when renaming a group named `current` (`null` while unnamed) to `draft`: the
+ * draft trimmed, or `null` when there is nothing to send — blank, too long, or the name it has.
+ */
+export function groupRename(draft: string, current: string | null): string | null {
+    const name = draft.trim()
+    if (!name || name.length > MAX_GROUP_NAME_LENGTH || name === current) return null
+    return name
+}
+
+/**
+ * Whether `actorUri` may leave the group of `members`: the IdP keeps its last admin while anyone
+ * else is left, so another member is made admin first.
+ */
+export function mayLeaveGroup(members: readonly Pick<GroupMember, "actorUri" | "role">[], actorUri: string): boolean {
+    const others = members.filter((m) => m.actorUri !== actorUri)
+    const stepsDown = members.some((m) => m.actorUri === actorUri && m.role === "admin")
+    return !stepsDown || others.length === 0 || others.some((m) => m.role === "admin")
+}
+
 /**
  * The leaves to commit out of a group's MLS state: every leaf not the device of someone its roster
  * holds — a device of someone it no longer holds, a leaf whose credential names nobody (`actorUri`

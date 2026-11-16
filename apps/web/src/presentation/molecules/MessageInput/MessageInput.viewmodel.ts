@@ -4,7 +4,7 @@ import type { Attachment } from "@pinai/domain/models/dm"
 import type { AttachmentBlobKey } from "@pinai/domain/models/e2ee"
 import { uploadEncryptedAttachmentUseCase } from "@pinai/domain/usecases/dm/upload-encrypted-attachment.usecase"
 import { fileToLocalFile } from "@/presentation/_libs/local-file"
-import { getAttachmentCryptoPort, getDmPort } from "@/ioc"
+import { getAttachmentCryptoPort, getDmPort, getImageProbePort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 
 /** Maximum files attached to a single message (mirrors the backend default). */
@@ -131,15 +131,20 @@ export function useMessageInputViewModel(args: UseMessageInputViewModelArgs): Me
                 const localId = row.localId
                 fileToLocalFile(row.file)
                     .then((file) =>
-                        uploadEncryptedAttachmentUseCase(getDmPort(), getAttachmentCryptoPort(), {
-                            idpUrl,
-                            accessToken,
-                            file,
-                            signal: row.controller.signal,
-                            onProgress: (loaded, total) => {
-                                patchPending(localId, { progress: total > 0 ? loaded / total : 0 })
+                        uploadEncryptedAttachmentUseCase(
+                            getDmPort(),
+                            getAttachmentCryptoPort(),
+                            {
+                                idpUrl,
+                                accessToken,
+                                file,
+                                signal: row.controller.signal,
+                                onProgress: (loaded, total) => {
+                                    patchPending(localId, { progress: total > 0 ? loaded / total : 0 })
+                                },
                             },
-                        }),
+                            getImageProbePort(),
+                        ),
                     )
                     .then(({ attachment, key }) => {
                         patchPending(localId, { attachment, key, progress: 1 })

@@ -10,6 +10,7 @@ import type { ContextMenuItem } from "@/presentation/molecules/ContextMenu/Conte
 import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { modalSurface } from "@/presentation/molecules/Modal/modal-surface"
 import { BlockUserModal } from "@/presentation/molecules/BlockUserModal/BlockUserModal"
+import { PersonProfileModal } from "@/presentation/organisms/PersonProfileModal/PersonProfileModal"
 import { cn } from "@/presentation/_libs/utils"
 import { actorUriToAddress } from "@pinai/domain/models/identity"
 import { presenceToUserStatus } from "@pinai/domain/models/presence"
@@ -32,6 +33,7 @@ function GroupMembersPanelContent({ conversationId }: { conversationId: string }
     const vm = useGroupMembersPanelViewModel(conversationId)
     const [removeTarget, setRemoveTarget] = useState<GroupMember | null>(null)
     const [blockTarget, setBlockTarget] = useState<GroupMember | null>(null)
+    const [profileTarget, setProfileTarget] = useState<GroupMember | null>(null)
 
     async function confirmBlock() {
         if (blockTarget && (await vm.block(blockTarget.actorUri, blockTarget.displayName ?? "This member"))) {
@@ -49,6 +51,8 @@ function GroupMembersPanelContent({ conversationId }: { conversationId: string }
                 pending={vm.pendingActor === member.actorUri}
                 localHost={vm.localHost}
                 onSetRole={vm.setRole}
+                onMessage={() => vm.messagePrivately(member.actorUri)}
+                onProfile={() => setProfileTarget(member)}
                 onRemove={() => setRemoveTarget(member)}
                 isBlocked={vm.isBlocked(member.actorUri)}
                 onBlock={() => setBlockTarget(member)}
@@ -92,7 +96,13 @@ function GroupMembersPanelContent({ conversationId }: { conversationId: string }
             </ScrollArea>
 
             <div className="border-t border-line p-3">
-                <Button variant="destructive" size="none" onPress={vm.leaveGroup} className="w-full py-2 text-[12.5px]">
+                <Button
+                    variant="destructive"
+                    size="none"
+                    onPress={vm.leaveGroup}
+                    isDisabled={vm.isLeaving}
+                    className="w-full py-2 text-[12.5px]"
+                >
                     <LogOut className="h-4 w-4" /> Leave group
                 </Button>
             </div>
@@ -140,6 +150,23 @@ function GroupMembersPanelContent({ conversationId }: { conversationId: string }
                 onCancel={() => setBlockTarget(null)}
                 onConfirm={confirmBlock}
             />
+            <PersonProfileModal
+                person={
+                    profileTarget
+                        ? {
+                              actorUri: profileTarget.actorUri,
+                              address: actorUriToAddress(profileTarget.actorUri),
+                              displayName: profileTarget.displayName ?? "Unknown",
+                              avatarUrl: profileTarget.avatarUrl,
+                          }
+                        : null
+                }
+                onClose={() => setProfileTarget(null)}
+                onMessage={() => {
+                    if (profileTarget) vm.messagePrivately(profileTarget.actorUri)
+                    setProfileTarget(null)
+                }}
+            />
         </aside>
     )
 }
@@ -147,13 +174,14 @@ function GroupMembersPanelContent({ conversationId }: { conversationId: string }
 function MemberServerTag({ host, federated }: { host: string; federated: boolean }) {
     return (
         <span
+            title={host}
             className={cn(
-                "inline-flex items-center gap-1 rounded-full border px-1.5 py-px font-mono text-[9px] tracking-[0.04em]",
+                "inline-flex max-w-full items-center gap-1 rounded-full border px-1.5 py-px font-mono text-[9px] tracking-[0.04em]",
                 federated ? "border-acc-line bg-acc-soft text-acc" : "border-line text-muted-foreground",
             )}
         >
-            {federated && <Globe className="h-2.5 w-2.5" />}
-            {host}
+            {federated && <Globe className="h-2.5 w-2.5 shrink-0" />}
+            <span className="min-w-0 truncate">{host}</span>
         </span>
     )
 }
@@ -165,6 +193,8 @@ function RosterRow({
     pending,
     localHost,
     onSetRole,
+    onMessage,
+    onProfile,
     onRemove,
     isBlocked,
     onBlock,
@@ -176,6 +206,8 @@ function RosterRow({
     pending: boolean
     localHost: string | null
     onSetRole: (actorUri: string, role: "admin" | "member") => void
+    onMessage: () => void
+    onProfile: () => void
     onRemove: () => void
     isBlocked: boolean
     onBlock: () => void
@@ -186,11 +218,11 @@ function RosterRow({
     const federated = !!localHost && !!host && host !== localHost
     const presence = useAppStore((s) => s.presenceByAddress[address])
 
-    // Comms actions (message/call/profile) aren't wired yet; admin actions are.
+    // Calls aren't wired yet.
     const menuItems: ContextMenuItem[] = [
-        { key: "message", label: "Message privately", icon: <MessageSquare className="h-4 w-4" /> },
+        { key: "message", label: "Message privately", icon: <MessageSquare className="h-4 w-4" />, onAction: onMessage },
         { key: "call", label: "Call", icon: <Video className="h-4 w-4" /> },
-        { key: "profile", label: "See profile", icon: <User className="h-4 w-4" /> },
+        { key: "profile", label: "See profile", icon: <User className="h-4 w-4" />, onAction: onProfile },
         isBlocked
             ? { key: "unblock", label: "Unblock", icon: <Ban className="h-4 w-4" />, onAction: onUnblock }
             : { key: "block", label: "Block", icon: <Ban className="h-4 w-4" />, variant: "destructive", onAction: onBlock },

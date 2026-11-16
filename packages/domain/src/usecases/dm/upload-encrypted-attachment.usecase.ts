@@ -3,6 +3,7 @@ import type { LocalFile } from "../../models/file"
 import type { AttachmentBlobKey } from "../../models/e2ee"
 import type { IAttachmentCryptoPort } from "../../ports/attachment-crypto.port"
 import type { IDmPort, UploadProgress } from "../../ports/dm.port"
+import type { IImageProbePort } from "../../ports/image-probe.port"
 
 export interface UploadEncryptedAttachmentParams {
     idpUrl: string
@@ -23,14 +24,29 @@ export interface UploadEncryptedAttachmentParams {
  *    sees the real metadata.
  * 4. Return the IdP's `Attachment` row (placeholder values) plus the
  *    `AttachmentBlobKey` bundle the sender will tuck into the MLS
- *    application body.
+ *    application body — with an image's size and blurhash, when
+ *    `imageProbe` reads them.
  */
 export async function uploadEncryptedAttachmentUseCase(
     dmPort: IDmPort,
     attachmentCrypto: IAttachmentCryptoPort,
     params: UploadEncryptedAttachmentParams,
+    imageProbe?: IImageProbePort,
 ): Promise<{ attachment: Attachment; key: AttachmentBlobKey }> {
-    const { ciphertext, key } = await attachmentCrypto.encryptForUpload(params.file)
+    const [sealed, preview] = await Promise.all([
+        attachmentCrypto.encryptForUpload(params.file),
+        // A preview is a nicety: the file goes without one.
+        imageProbe?.probe(params.file).catch(() => null) ?? null,
+    ])
+    const { ciphertext } = sealed
+    const key: AttachmentBlobKey = preview
+        ? {
+              ...sealed.key,
+              width: preview.width,
+              height: preview.height,
+              ...(preview.blurhash ? { blurhash: preview.blurhash } : {}),
+          }
+        : sealed.key
 
     // Server stores placeholder filename + MIME — the real values travel
     // inside the encrypted body. The literal name "encrypted" is what the

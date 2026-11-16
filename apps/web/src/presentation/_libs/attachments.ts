@@ -16,6 +16,20 @@ export function isImageAttachment(
     return mime.startsWith("image/")
 }
 
+/** The keys of the last `count` images among `messages`, newest first. */
+export function latestImageKeys(
+    messages: readonly { attachmentKeys?: Record<string, AttachmentBlobKey> }[],
+    count: number,
+): AttachmentBlobKey[] {
+    const keys: AttachmentBlobKey[] = []
+    for (let i = messages.length - 1; i >= 0 && keys.length < count; i--) {
+        for (const key of Object.values(messages[i].attachmentKeys ?? {})) {
+            if (keys.length < count && key.mime_type.startsWith("image/")) keys.push(key)
+        }
+    }
+    return keys
+}
+
 /**
  * Compact human-readable byte count.
  * Mirrors the prototype's "2.1 MB" / "620 KB" / "4.2 KB" style.

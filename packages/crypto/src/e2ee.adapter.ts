@@ -15,6 +15,13 @@ import { wordlist } from "@scure/bip39/wordlists/english.js"
 import { bytesToBase64 } from "@pinai/domain/lib/bytes"
 import type { Admission, CheckedPartner, ResetSetter } from "@pinai/domain/models/admission"
 import { peerAgainstList, type HandshakeRole } from "@pinai/domain/models/approval-handshake"
+import {
+    GroupToJoin,
+    MAX_JOIN_CONFLICTS,
+    joinFailure,
+    joinStanding,
+    type ConversationJoin,
+} from "@pinai/domain/models/conversation-join"
 import type { DeviceListEntry } from "@pinai/domain/models/device"
 import {
     actsOnApproval,
@@ -26,6 +33,7 @@ import {
     judgeDevices,
     judgeLeaf,
     keyChangedUnder,
+    partnerApprovalsOver,
     resetByUnapproved,
     resetSince,
     sameDevice,
@@ -53,9 +61,11 @@ import { KeyPackageUnavailable, devicesToAdd, leavesToRemove } from "@pinai/doma
 import { instanceOrigin } from "@pinai/domain/models/identity"
 import {
     admitsClaim,
+    leafApprovals,
     leafOrigin,
     sameCredential,
     untrustedLeaf,
+    type LeafApproval,
     type LeafClaim,
     type LeafCredential,
     type LeafVerdict,
@@ -74,6 +84,7 @@ import {
 import {
     approvalCarriedOver,
     buffersForArchive,
+    carriesWordsApproval,
     isSettled,
     newestGenerationSeen,
     opensSaves,
@@ -86,6 +97,7 @@ import {
     type PendingHistoryKey,
 } from "@pinai/domain/models/history-key"
 import type { RearchiveDue, RearchiveEntry, RearchivePosition } from "@pinai/domain/models/history-rearchive"
+import { newcomerProven, type NewDeviceSeen } from "@pinai/domain/models/new-device"
 import { IdpError, isApprovalRequired, isStaleHistoryKey } from "@pinai/domain/models/idp-error"
 import {
     shareCandidates,
@@ -103,6 +115,7 @@ import { ApprovalHandshake, newApprovalCode } from "./approval-handshake"
 import {
     attestedUntil,
     checkListedDevices,
+    credentialApproved,
     verifyApproval,
     verifyDeviceChain,
     verifyDeviceRoot,
@@ -121,8 +134,8 @@ import {
 import { HISTORY_SALT_BYTES, type HistoryArchiveAdapter } from "./history-archive.adapter"
 import type { IdentityAdapter } from "./identity.adapter"
 import { openKeyShare, sealKeyShare } from "./key-share"
-import type { IKeyDirectoryPort } from "@pinai/domain/ports/key-directory.port"
-import type { IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
+import type { CommitView, IKeyDirectoryPort } from "@pinai/domain/ports/key-directory.port"
+import type { CommitOutput, ExternalJoinOutput, IMlsEngine, ProcessOutcome } from "@pinai/domain/ports/mls-engine.port"
 import type { DeviceAttestation, E2eeStorage, KeptPassphrase, RestoreDue } from "./sealed-storage"
 
 /** Renew the Device Root Key attestation silently when within this window of expiry. */
@@ -316,6 +329,7 @@ export class E2eeAdapter implements IE2eePort {
         deviceId: DeviceId,
         attestation: DeviceAttestation,
         signatureKey: Uint8Array,
+        approvals: LeafApproval[],
     ): LeafCredential {
         const issuer = instanceOrigin(actorUri)
         if (!issuer) throw new Error(`Not an actor URI: ${actorUri}`)
@@ -332,7 +346,36 @@ export class E2eeAdapter implements IE2eePort {
                 signature: bytesToBase64(attestation.signature),
             },
             leaf_binding: bytesToBase64(binding),
+            approvals,
         }
+    }
+
+    /**
+     * How this device was approved, as its leaves carry it (§ 3.4): its words' approval, made
+     * again from the words it keeps while they give the key last found in force, and its partners'
+     * approvals of its root key as it is now — from what it keeps, never the list. The standing is
+     * the one recorded, so every tab makes the same credential.
+     */
+    private async ownApprovals(actorUri: ActorUri, deviceId: DeviceId, rootKey: Uint8Array): Promise<LeafApproval[]> {
+        const kept = await this.storage.loadKeptPassphrase()
+        const standing = await this.storage.loadHistoryKeyStanding()
+        const sealer = this.historyCrypto
+        const words =
+            kept && sealer && carriesWordsApproval(standing, kept.generation)
+                ? {
+                      generation: kept.generation,
+                      approval_public_key: bytesToBase64(sealer.derive(kept.derived.hak).approvalPublicKey),
+                      signature: bytesToBase64(sealer.signApproval(kept.derived.hak, approvalBytes(actorUri, deviceId, rootKey))),
+                  }
+                : null
+        const read = this.trustTurn.then(() => this.storage.loadDeviceTrust())
+        this.trustTurn = read.catch(() => undefined)
+        const { trust } = await read
+        const partners = partnerApprovalsOver(trust, rootKey).map((approval) => ({
+            device_id: approval.partner.deviceId,
+            signature: bytesToBase64(approval.signature),
+        }))
+        return leafApprovals(words, partners)
     }
 
     // ─── Leaf checks ──────────────────────────────────────────────────
@@ -448,6 +491,55 @@ export class E2eeAdapter implements IE2eePort {
                 continue
             }
             this.recordUntrusted(conversationId, leaf, verdict.reason)
+        }
+    }
+
+    /** A commit applied: the leaves it met checked, and the device an external one brought in met. */
+    private async commitApplied(
+        conversationId: ConversationId,
+        outcome: Extract<ProcessOutcome, { kind: "commit" }>,
+        createdAt: string,
+    ): Promise<void> {
+        await this.checkLeavesMet(conversationId, outcome.leavesMet)
+        if (outcome.joiner) await this.meetNewcomer(conversationId, outcome.joiner, createdAt)
+    }
+
+    private readonly newDeviceListeners = new Set<(seen: NewDeviceSeen) => void>()
+    // A commit is applied once: what came before any listener waits for the first.
+    private untoldNewDevices: NewDeviceSeen[] = []
+
+    onNewDevice(listener: (seen: NewDeviceSeen) => void): () => void {
+        this.newDeviceListeners.add(listener)
+        const untold = this.untoldNewDevices
+        this.untoldNewDevices = []
+        for (const seen of untold) tellNewDevice(listener, seen)
+        return () => this.newDeviceListeners.delete(listener)
+    }
+
+    /**
+     * A device that committed itself into the group (§ 6.14): told when it is another account's and
+     * neither the words nor a code the conversation can check prove it — nor when its leaf is shown
+     * forged. Never thrown: the commit is applied already.
+     */
+    private async meetNewcomer(conversationId: ConversationId, joiner: MlsLeaf, createdAt: string): Promise<void> {
+        try {
+            const credential = joiner.credential
+            if (!credential || credential.actor_uri === (await this.storage.getBoundActorUri())) return
+            const forged = leafOrigin(await this.verifyLeaf(joiner)) === "forged"
+            const tree = await this.mls.groupLeaves(conversationId)
+            if (!forged && newcomerProven({ ...joiner, credential }, tree, credentialApproved)) return
+            const seen: NewDeviceSeen = {
+                conversationId,
+                epoch: Number(await this.mls.getEpoch(conversationId)),
+                actorUri: credential.actor_uri,
+                deviceId: credential.device_id,
+                createdAt,
+            }
+            if (this.newDeviceListeners.size === 0) this.untoldNewDevices.push(seen)
+            for (const listener of this.newDeviceListeners) tellNewDevice(listener, seen)
+        } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn(`[e2ee] a device joining ${conversationId} by itself couldn't be looked at`, e)
         }
     }
 
@@ -690,7 +782,7 @@ export class E2eeAdapter implements IE2eePort {
                         }
                         this.recordUntrusted(conversationId, next.leaf, next.judgement.reason)
                         trying = `${conversationId}:${leafFingerprint(next.leaf)}`
-                        return { commit: await this.mls.removeMember(conversationId, next.leaf.leafIndex) }
+                        return this.mls.removeMember(conversationId, next.leaf.leafIndex)
                     }
                 })
                 return { removed }
@@ -1299,7 +1391,8 @@ export class E2eeAdapter implements IE2eePort {
         }
         await this.providerInitPromise
 
-        if (this.identityBound || !localActorUri) return
+        if (!localActorUri) return
+        if (this.identityBound && !(await this.approvalsMoved(localActorUri))) return
         if (!this.identityBindPromise) {
             const binding: Promise<void> = this.doBindIdentity(localActorUri).finally(() => {
                 // A wipe may have dropped this bind for another meanwhile.
@@ -1308,6 +1401,22 @@ export class E2eeAdapter implements IE2eePort {
             this.identityBindPromise = binding
         }
         await this.identityBindPromise
+    }
+
+    /** The approvals this device would carry now aren't the bound credential's; one that can't be read keeps it. */
+    private async approvalsMoved(actorUri: ActorUri): Promise<boolean> {
+        try {
+            const attestation = await this.storage.loadDeviceAttestation()
+            if (!attestation) return false
+            const approvals = await this.ownApprovals(actorUri, await this.storage.getOrCreateDeviceId(), attestation.drk_public)
+            if (JSON.stringify(approvals) === this.boundApprovals) return false
+            this.identityBound = false
+            return true
+        } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn("[e2ee] reading this device's approvals failed; its credential stays as bound", e)
+            return false
+        }
     }
 
     private async doProviderInit(): Promise<void> {
@@ -1344,7 +1453,9 @@ export class E2eeAdapter implements IE2eePort {
             // A key one of the restored groups' leaves carries, so a reload doesn't mint one for
             // the next KeyPackages. Groups sign with their own leaf's key either way.
             const signatureKey = (await this.mls.ownLeafSignatureKey()) ?? (await this.mls.generateSignatureKey())
-            await this.mls.setIdentity(this.leafCredential(localActorUri, deviceId, attestation, signatureKey), signatureKey)
+            const approvals = await this.ownApprovals(localActorUri, deviceId, attestation.drk_public)
+            await this.mls.setIdentity(this.leafCredential(localActorUri, deviceId, attestation, signatureKey, approvals), signatureKey)
+            this.boundApprovals = JSON.stringify(approvals)
             // A fresh key lives in the provider's storage only: the next reload must find it.
             await this.persistMlsState()
             if (version === this.attestationVersion) {
@@ -1355,6 +1466,8 @@ export class E2eeAdapter implements IE2eePort {
     }
 
     private identityBound = false
+    /** The approvals the bound credential carries, as written: other ones bind it again. */
+    private boundApprovals: string | null = null
     /** Moved by each registration: a bind that read the attestation before it is bound again. */
     private attestationVersion = 0
     private snapshotRestored = false
@@ -1472,6 +1585,7 @@ export class E2eeAdapter implements IE2eePort {
         this.leafVerdicts.clear()
         this.rootChecks.clear()
         this.refusedCommitOuts.clear()
+        this.unansweredJoins.clear()
         await this.mls.resetProvider()
     }
 
@@ -1621,7 +1735,7 @@ export class E2eeAdapter implements IE2eePort {
         ciphertext: Uint8Array,
     ): Promise<ApplicationMessage | null> {
         const outcome = await this.mls.processMessage(conversationId, ciphertext)
-        if (outcome.kind === "commit") await this.checkLeavesMet(conversationId, outcome.leavesMet)
+        if (outcome.kind === "commit") await this.commitApplied(conversationId, outcome, new Date().toISOString())
         if (outcome.kind !== "application") return null
         const text = new TextDecoder().decode(outcome.plaintext)
         return JSON.parse(text, applicationMessageReviver) as ApplicationMessage
@@ -1654,7 +1768,7 @@ export class E2eeAdapter implements IE2eePort {
         for (const c of commits) {
             try {
                 const outcome = await this.mls.processMessage(conversationId, c.commit_blob)
-                if (outcome.kind === "commit") await this.checkLeavesMet(conversationId, outcome.leavesMet)
+                if (outcome.kind === "commit") await this.commitApplied(conversationId, outcome, c.created_at)
             } catch (e) {
                 // eslint-disable-next-line no-console
                 console.warn(
@@ -1748,7 +1862,7 @@ export class E2eeAdapter implements IE2eePort {
         const out = await this.mls.addMember(conversationId, claimed.key_package)
         const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
         try {
-            await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, out.commit)
+            await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, out.commit, out.group_info)
         } catch (e) {
             // A commit left pending would block the group's next one, this add tried again included.
             await this.mls.clearPendingCommit(conversationId)
@@ -1778,7 +1892,14 @@ export class E2eeAdapter implements IE2eePort {
         // Checked in the same run as the founding, so two sends at once found it once.
         await this.inGroup(conversationId, async () => {
             if (await this.mls.hasGroup(conversationId)) return
-            await this.doAddContactToGroup(idpUrl, accessToken, conversationId, recipientActorUri)
+            // Founded again, it would lose epoch 1 and use up a KeyPackage of each of their devices.
+            if (await this.directory.getGroupInfo(idpUrl, accessToken, conversationId)) throw new GroupToJoin(conversationId)
+            try {
+                await this.doAddContactToGroup(idpUrl, accessToken, conversationId, recipientActorUri)
+            } catch (e) {
+                if (e instanceof IdpError && e.status === 409) throw new GroupToJoin(conversationId, e)
+                throw e
+            }
         })
     }
 
@@ -1794,6 +1915,7 @@ export class E2eeAdapter implements IE2eePort {
         for (const w of welcomes) {
             try {
                 const held = await this.inGroup(w.conversation_id, async () => {
+                    const kept = await this.settleUnansweredJoin(idpUrl, accessToken, w.conversation_id)
                     let joined = true
                     if (await this.mls.hasGroup(w.conversation_id)) {
                         joined = await this.mls.rejoinGroup(w.conversation_id, w.welcome_blob)
@@ -1803,7 +1925,7 @@ export class E2eeAdapter implements IE2eePort {
                         await this.mls.joinGroup(w.conversation_id, w.welcome_blob, null)
                     }
                     if (joined) await this.checkLeavesMet(w.conversation_id, await this.mls.groupLeaves(w.conversation_id))
-                    return joined
+                    return joined || kept
                 })
                 if (held) joined.push(w.conversation_id)
             } catch (e) {
@@ -1814,6 +1936,151 @@ export class E2eeAdapter implements IE2eePort {
         if (joined.length > 0) await this.persistMlsState()
         for (const id of joined) this.announceGroupHeld(id)
         return { joined: joined.length }
+    }
+
+    /** Joins posted without an answer, by conversation: looked up in the log before anything is built again. */
+    private readonly unansweredJoins = new Map<ConversationId, ExternalJoinOutput>()
+
+    async joinConversation(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        options: { welcomeOverdue: boolean; siblingMayAdd: boolean },
+    ): Promise<ConversationJoin> {
+        const me = await this.storage.getBoundActorUri()
+        await this.ensureInitialized(me)
+        const outcome = await this.inGroup(conversationId, () =>
+            this.doJoinConversation(idpUrl, accessToken, conversationId, me, options),
+        )
+        if (outcome.kind === "joined") this.announceGroupHeld(conversationId)
+        return outcome
+    }
+
+    private async doJoinConversation(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        me: ActorUri | null,
+        { welcomeOverdue, siblingMayAdd }: { welcomeOverdue: boolean; siblingMayAdd: boolean },
+    ): Promise<ConversationJoin> {
+        if (await this.mls.hasGroup(conversationId)) return { kind: "held" }
+        if (!me) throw new Error("joinConversation: this device's storage is bound to no account")
+        const deviceId = await this.storage.getOrCreateDeviceId()
+        let join = this.unansweredJoins.get(conversationId) ?? null
+        this.unansweredJoins.delete(conversationId)
+        let conflicts = 0
+        for (;;) {
+            if (!join) {
+                let held
+                try {
+                    held = await this.directory.getGroupInfo(idpUrl, accessToken, conversationId)
+                } catch (error) {
+                    if (joinFailure(error) === "refused") return { kind: "refused", error }
+                    throw error
+                }
+                if (!held) return { kind: "no-group" }
+                join = await this.mls.joinByExternalCommit(conversationId, held.group_info)
+                const standing = joinStanding(join.leaves, me, deviceId)
+                const waits =
+                    standing === "not-added" ||
+                    (standing === "welcome-due" && !welcomeOverdue) ||
+                    (standing === "join" && siblingMayAdd)
+                if (waits) {
+                    await this.mls.clearPendingCommit(conversationId)
+                    return { kind: standing === "join" ? "left-to-sibling" : standing }
+                }
+            }
+            const posted = await this.postJoin(idpUrl, accessToken, conversationId, join)
+            if (posted.kind === "taken") {
+                await this.keepJoin(conversationId)
+                return { kind: "joined" }
+            }
+            if (posted.kind === "refused") return { kind: "refused", error: posted.error }
+            if (++conflicts > MAX_JOIN_CONFLICTS) throw posted.error
+            join = null
+        }
+    }
+
+    /**
+     * The join's commit posted at the epoch it opens. A lost epoch or no answer is looked up in the
+     * log there: a blind retry would bring this device in twice, were the first commit taken.
+     * Nothing there after no answer keeps the join, to post as it is at the next call.
+     */
+    private async postJoin(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        join: ExternalJoinOutput,
+    ): Promise<{ kind: "taken" } | { kind: "lost"; error: unknown } | { kind: "refused"; error: unknown }> {
+        const epoch = Number(join.epoch)
+        try {
+            await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, join.commit, join.group_info)
+            return { kind: "taken" }
+        } catch (error) {
+            const failure = joinFailure(error)
+            if (failure === "refused" || failure === "not-yet") {
+                await this.mls.clearPendingCommit(conversationId)
+                if (failure === "refused") return { kind: "refused", error }
+                throw error
+            }
+            let there: CommitView | null
+            try {
+                there = await this.commitAt(idpUrl, accessToken, conversationId, epoch)
+            } catch {
+                this.unansweredJoins.set(conversationId, join)
+                throw error
+            }
+            if (there && equalBytes(there.commit_blob, join.commit)) return { kind: "taken" }
+            if (!there && failure === "unanswered") {
+                this.unansweredJoins.set(conversationId, join)
+                throw error
+            }
+            await this.mls.clearPendingCommit(conversationId)
+            return { kind: "lost", error }
+        }
+    }
+
+    private async commitAt(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+        epoch: number,
+    ): Promise<CommitView | null> {
+        const { commits } = await this.directory.getCommitsSince(idpUrl, accessToken, conversationId, epoch - 1)
+        return commits.find((c) => c.epoch === epoch) ?? null
+    }
+
+    /** As a join from a Welcome is kept: every leaf of the tree checked, the state saved. */
+    private async keepJoin(conversationId: ConversationId): Promise<void> {
+        await this.mls.mergePendingCommit(conversationId)
+        await this.checkLeavesMet(conversationId, await this.mls.groupLeaves(conversationId))
+        await this.persistMlsState()
+    }
+
+    /**
+     * A join left unanswered, before a Welcome to its group is applied: kept when the log holds its
+     * commit, else dropped — the two would share the group's rows. True when kept.
+     */
+    private async settleUnansweredJoin(
+        idpUrl: string,
+        accessToken: string,
+        conversationId: ConversationId,
+    ): Promise<boolean> {
+        const join = this.unansweredJoins.get(conversationId)
+        if (!join) return false
+        this.unansweredJoins.delete(conversationId)
+        const there = await this.commitAt(idpUrl, accessToken, conversationId, Number(join.epoch)).catch(() => null)
+        if (there && equalBytes(there.commit_blob, join.commit)) {
+            await this.keepJoin(conversationId)
+            return true
+        }
+        await this.mls.clearPendingCommit(conversationId)
+        return false
+    }
+
+    async heldGroups(): Promise<ConversationId[]> {
+        await this.ensureInitialized(null)
+        return this.mls.knownGroupIds()
     }
 
     private readonly groupHeldListeners = new Set<(conversationId: ConversationId) => void>()
@@ -1903,8 +2170,21 @@ export class E2eeAdapter implements IE2eePort {
         return verifyStrict(signature, approvalBytes(actorUri, deviceId, attestation.drk_public), approverRootKey)
     }
 
-    async rememberHandshakePartner(partner: HandshakePartner): Promise<void> {
-        const run = this.trustTurn.then(() => this.storage.addToDeviceTrust({ partners: [partner] }))
+    async rememberHandshakePartner(
+        partner: HandshakePartner,
+        approvalOfThisDevice?: { actorUri: ActorUri; signature: Uint8Array },
+    ): Promise<void> {
+        const change: Partial<DeviceTrust> = { partners: [partner] }
+        const attestation = approvalOfThisDevice && (await this.storage.loadDeviceAttestation())
+        if (approvalOfThisDevice && attestation) {
+            const { actorUri, signature } = approvalOfThisDevice
+            const bytes = approvalBytes(actorUri, await this.storage.getOrCreateDeviceId(), attestation.drk_public)
+            if (verifyStrict(signature, bytes, partner.rootKey)) {
+                const approver = { deviceId: partner.deviceId, rootKey: partner.rootKey }
+                change.partnerApprovals = [{ partner: approver, rootKey: attestation.drk_public, signature }]
+            }
+        }
+        const run = this.trustTurn.then(() => this.storage.addToDeviceTrust(change))
         this.trustTurn = run.catch(() => undefined)
         await run
     }
@@ -2106,7 +2386,7 @@ export class E2eeAdapter implements IE2eePort {
                     leaves.push({ leafIndex: leaf.leafIndex, actorUri: leaf.credential?.actor_uri ?? null, origin: leafOrigin(verdict) })
                 }
                 const [leaf] = leavesToRemove(leaves, roster, me)
-                return leaf === undefined ? null : { commit: await this.mls.removeMember(conversationId, leaf) }
+                return leaf === undefined ? null : this.mls.removeMember(conversationId, leaf)
             })
             return { removed }
         })
@@ -2123,7 +2403,7 @@ export class E2eeAdapter implements IE2eePort {
         idpUrl: string,
         accessToken: string,
         conversationId: ConversationId,
-        next: () => Promise<{ commit: Uint8Array; merged?: () => Promise<unknown> } | null>,
+        next: () => Promise<(CommitOutput & { merged?: () => Promise<unknown> }) | null>,
     ): Promise<number> {
         let merged = 0
         let conflicts = 0
@@ -2132,7 +2412,7 @@ export class E2eeAdapter implements IE2eePort {
             if (!step) return merged
             const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
             try {
-                await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, step.commit)
+                await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, step.commit, step.group_info)
             } catch (e) {
                 await this.mls.clearPendingCommit(conversationId)
                 if (!(e instanceof IdpError && e.status === 409) || ++conflicts > MAX_EPOCH_CONFLICTS) {
@@ -2231,6 +2511,7 @@ export class E2eeAdapter implements IE2eePort {
                 const out = await this.mls.addMember(conversationId, claimed.key_package)
                 return {
                     commit: out.commit,
+                    group_info: out.group_info,
                     merged: () =>
                         this.directory.postWelcome(idpUrl, accessToken, {
                             recipient_actor_uri: me,
@@ -2257,12 +2538,13 @@ export class E2eeAdapter implements IE2eePort {
             const attestation = await this.storage.loadDeviceAttestation()
             if (!me || !attestation || !(await this.mls.hasGroup(conversationId))) return { refreshed: false }
             const deviceId = await this.storage.getOrCreateDeviceId()
+            const approvals = await this.ownApprovals(me, deviceId, attestation.drk_public)
             const commits = await this.commitEach(idpUrl, accessToken, conversationId, async () => {
                 const own = (await this.mls.groupLeaves(conversationId)).find((leaf) => leaf.own)
                 if (!own) return null
-                const wanted = this.leafCredential(me, deviceId, attestation, own.signatureKey)
+                const wanted = this.leafCredential(me, deviceId, attestation, own.signatureKey, approvals)
                 if (sameCredential(own.credential, wanted)) return null
-                return { commit: await this.mls.updateOwnCredential(conversationId, wanted) }
+                return this.mls.updateOwnCredential(conversationId, wanted)
             })
             return { refreshed: commits > 0 }
         })
@@ -2309,9 +2591,9 @@ export class E2eeAdapter implements IE2eePort {
                     const leafIndex = await this.mls.findLeafByDeviceId(conversationId, actorUri, deviceId)
                     if (leafIndex == null) return
                     try {
-                        const commit = await this.mls.removeMember(conversationId, leafIndex)
+                        const out = await this.mls.removeMember(conversationId, leafIndex)
                         const epoch = Number(await this.mls.getEpoch(conversationId)) + 1
-                        await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, commit)
+                        await this.directory.postCommit(idpUrl, accessToken, conversationId, epoch, out.commit, out.group_info)
                         await this.mls.mergePendingCommit(conversationId)
                         if (!removed.includes(conversationId)) removed.push(conversationId)
                         await this.persistMlsState()
@@ -2356,6 +2638,15 @@ function tell(listener: (event: TrustEvent) => void, event: TrustEvent): void {
     } catch (e) {
         // eslint-disable-next-line no-console
         console.warn("onTrustEvent listener failed:", e)
+    }
+}
+
+function tellNewDevice(listener: (seen: NewDeviceSeen) => void, seen: NewDeviceSeen): void {
+    try {
+        listener(seen)
+    } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("onNewDevice listener failed:", e)
     }
 }
 

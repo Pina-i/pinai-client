@@ -7,6 +7,8 @@ import {
 } from "react-aria-components"
 import { DateDivider } from "@/presentation/molecules/DateDivider/DateDivider"
 import { GroupEventLine } from "@/presentation/molecules/GroupEventLine/GroupEventLine"
+import { GroupRenameNotice } from "@/presentation/molecules/GroupRenameNotice/GroupRenameNotice"
+import { NewDeviceLine } from "@/presentation/molecules/NewDeviceLine/NewDeviceLine"
 import { MessageThreadContext, ReactionPickerContext, type LinkedMessage } from "./MessageList.context"
 import { formatDateDividerLabel } from "@/presentation/molecules/DateDivider/DateDivider.helper"
 import { EmojiPickerPopover } from "@/presentation/molecules/EmojiPickerPopover/EmojiPickerPopover"
@@ -14,14 +16,14 @@ import type { Message, TimelineNotice } from "@/lib/types"
 import { interleaveTimeline, resentCopies } from "@pinai/domain/models/dm"
 import { cn } from "@/presentation/_libs/utils"
 import { MessageItem } from "../MessageItem/MessageItem"
-import { useStickToBottom } from "./MessageList.scroll"
+import { useSettled, useStickToBottom } from "./MessageList.scroll"
 
 /** Imperative scroll surface — page calls `scrollToBottom()` after a local send. */
 export interface MessageListHandle {
     scrollToBottom: () => void
 }
 
-interface MessageListProps {
+export interface MessageListProps {
     messages: Message[]
     /** Lines between the messages, in the timeline's order. */
     notices: TimelineNotice[]
@@ -32,6 +34,8 @@ interface MessageListProps {
     onRetry: (messageId: string) => void
     canResend: (message: Message) => boolean
     handleRef?: RefObject<MessageListHandle | null>
+    /** Called once the first rows are laid out, measured and pinned to the end. */
+    onSettle?: () => void
 }
 
 /** Gap above which we restart a sequence even when the author is the same. */
@@ -134,6 +138,7 @@ export const MessageList = memo(function MessageList({
     onRetry,
     canResend,
     handleRef,
+    onSettle,
 }: MessageListProps) {
     const scrollRef = useRef<HTMLDivElement | null>(null)
 
@@ -222,6 +227,7 @@ export const MessageList = memo(function MessageList({
     )
 
     useStickToBottom(scrollRef, conversationKey, items.length)
+    useSettled(scrollRef, items.length > 0, onSettle)
 
     // ─── Links between rows ───────────────────────────────────────────────────
 
@@ -325,6 +331,18 @@ export const MessageList = memo(function MessageList({
                             >
                                 {item.kind === "divider" ? (
                                     <DateDivider label={item.label} />
+                                ) : item.kind === "notice" && item.notice.rename ? (
+                                    <GroupRenameNotice
+                                        by={item.notice.rename.by}
+                                        name={item.notice.rename.name}
+                                        timestamp={item.notice.timestamp}
+                                    />
+                                ) : item.kind === "notice" && item.notice.explanation ? (
+                                    <NewDeviceLine
+                                        text={item.notice.text}
+                                        explanation={item.notice.explanation}
+                                        timestamp={item.notice.timestamp}
+                                    />
                                 ) : item.kind === "notice" ? (
                                     <GroupEventLine text={item.notice.text} timestamp={item.notice.timestamp} />
                                 ) : (

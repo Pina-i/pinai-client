@@ -34,8 +34,10 @@ export type AppStore =
 /**
  * Persisted slice — the parts of the store we want to survive page
  * reloads. Today: the message-plaintext cache (`dmMessages`), the group
- * changes shown between its messages (`groupEvents`) and the unread
- * counters keyed by conversation_id (`dmUnread`).
+ * changes shown between its messages (`groupEvents`), the lines for a
+ * device that joined by itself (`newDeviceLines`, this device's own: nothing
+ * else holds them) and the unread counters keyed by conversation_id
+ * (`dmUnread`).
  *
  * Why these two specifically:
  * - `dmMessages` holds plaintexts the client has already decrypted.
@@ -52,6 +54,7 @@ type PersistedAppState = {
     dmMessages: WsSlice["dmMessages"]
     appliedReactionIds: WsSlice["appliedReactionIds"]
     groupEvents: WsSlice["groupEvents"]
+    newDeviceLines: WsSlice["newDeviceLines"]
     dmUnread: DataSlice["dmUnread"]
 }
 
@@ -110,6 +113,7 @@ export const useAppStore = create<AppStore>()(
                     dmMessages: s.dmMessages,
                     appliedReactionIds: s.appliedReactionIds,
                     groupEvents: s.groupEvents,
+                    newDeviceLines: s.newDeviceLines,
                     dmUnread: s.dmUnread,
                 }),
                 // Never changed without a `migrate`: on a mismatch persist hydrates the defaults, and

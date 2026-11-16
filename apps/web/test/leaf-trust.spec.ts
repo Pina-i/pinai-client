@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 import { asActorUri } from "@pinai/domain/models/identity"
 import {
     admitsClaim,
+    leafApprovals,
     leafOrigin,
     sameCredential,
     untrustedLeaf,
@@ -66,6 +67,48 @@ describe("sameCredential", () => {
         expect(sameCredential(renewed, CREDENTIAL)).toBe(false)
         expect(sameCredential({ ...CREDENTIAL, leaf_binding: "other" }, CREDENTIAL)).toBe(false)
         expect(sameCredential(null, CREDENTIAL)).toBe(false)
+    })
+
+    it("tells approvals gained, lost or changed, and takes none and an empty list as the same", () => {
+        const words = { by: "passphrase", generation: 1, approval_public_key: "key", signature: "w" } as const
+        const partner = { by: "device", device_id: "dan-2", signature: "p" } as const
+        const approved = { ...CREDENTIAL, approvals: [words, partner] }
+
+        expect(sameCredential({ ...CREDENTIAL, approvals: [] }, CREDENTIAL)).toBe(true)
+        expect(sameCredential({ ...approved, approvals: [{ ...words }, { ...partner }] }, approved)).toBe(true)
+        expect(sameCredential(CREDENTIAL, approved)).toBe(false)
+        expect(sameCredential(approved, { ...CREDENTIAL, approvals: [partner] })).toBe(false)
+        expect(sameCredential({ ...approved, approvals: [{ ...words, generation: 2 }, partner] }, approved)).toBe(false)
+        expect(sameCredential({ ...approved, approvals: [{ ...words, approval_public_key: "other" }, partner] }, approved)).toBe(false)
+        expect(sameCredential({ ...approved, approvals: [words, { ...partner, device_id: "dan-3" }] }, approved)).toBe(false)
+        expect(sameCredential({ ...approved, approvals: [words, { ...partner, signature: "q" }] }, approved)).toBe(false)
+    })
+})
+
+describe("leafApprovals", () => {
+    const words = { generation: 2, approval_public_key: "key", signature: "w" }
+
+    it("puts the words' approval first, then its partners' by device id, each once", () => {
+        const partners = [
+            { device_id: "dan-3", signature: "b" },
+            { device_id: "dan-2", signature: "c" },
+            { device_id: "dan-3", signature: "a" },
+            { device_id: "dan-2", signature: "c" },
+        ]
+
+        expect(leafApprovals(words, partners)).toEqual([
+            { by: "passphrase", ...words },
+            { by: "device", device_id: "dan-2", signature: "c" },
+            { by: "device", device_id: "dan-3", signature: "a" },
+            { by: "device", device_id: "dan-3", signature: "b" },
+        ])
+        expect(leafApprovals(words, [...partners].reverse())).toEqual(leafApprovals(words, partners))
+    })
+
+    it("carries what there is: no words, no partner, nothing", () => {
+        expect(leafApprovals(null, [{ device_id: "dan-2", signature: "c" }])).toEqual([{ by: "device", device_id: "dan-2", signature: "c" }])
+        expect(leafApprovals(words, [])).toEqual([{ by: "passphrase", ...words }])
+        expect(leafApprovals(null, [])).toEqual([])
     })
 })
 

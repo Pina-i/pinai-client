@@ -34,6 +34,26 @@ export function samePartner(a: HandshakePartner, b: HandshakePartner): boolean {
     return sameDevice(a, b) && sameBytes(a.hpkeKey, b.hpkeKey)
 }
 
+/**
+ * A handshake partner's approval of this device as the exchange ended, over the root key this
+ * device held then, verified under the partner's root key from the exchange (§ 3.10): what its
+ * leaves carry (§ 3.4).
+ */
+export interface PartnerApproval {
+    partner: KnownDevice
+    rootKey: Uint8Array
+    signature: Uint8Array
+}
+
+function samePartnerApproval(a: PartnerApproval, b: PartnerApproval): boolean {
+    return a.partner.deviceId === b.partner.deviceId && sameBytes(a.signature, b.signature)
+}
+
+/** Its partners' approvals of the root key this device holds now: one of a root key it had before approves nothing. */
+export function partnerApprovalsOver(trust: DeviceTrust, rootKey: Uint8Array): PartnerApproval[] {
+    return trust.partnerApprovals.filter((approval) => sameBytes(approval.rootKey, rootKey))
+}
+
 /** What left the account's other devices behind: a start over, or a replacement of the words. */
 export type BeforeCause = "start-over" | "replacement"
 
@@ -62,6 +82,8 @@ export interface DeviceTrust {
     revoked: DeviceId[]
     /** Approved both ways in a code handshake. */
     partners: HandshakePartner[]
+    /** The approvals of this device its partners made, as the device asking for one. */
+    partnerApprovals: PartnerApproval[]
     /** The generations this device took its baseline under (`deviceBaseline`). */
     baselines: number[]
     /** One entry per generation this device set over others, the first recorded for it kept. */
@@ -70,10 +92,18 @@ export interface DeviceTrust {
 
 export type DeviceTrustRow = keyof DeviceTrust
 
-export const DEVICE_TRUST_ROWS: readonly DeviceTrustRow[] = ["seen", "approved", "revoked", "partners", "baselines", "before"]
+export const DEVICE_TRUST_ROWS: readonly DeviceTrustRow[] = [
+    "seen",
+    "approved",
+    "revoked",
+    "partners",
+    "partnerApprovals",
+    "baselines",
+    "before",
+]
 
 export function emptyDeviceTrust(): DeviceTrust {
-    return { seen: [], approved: [], revoked: [], partners: [], baselines: [], before: [] }
+    return { seen: [], approved: [], revoked: [], partners: [], partnerApprovals: [], baselines: [], before: [] }
 }
 
 /** `trust` with what `change` adds; the very same object when it adds nothing. */
@@ -81,6 +111,7 @@ export function withTrust(trust: DeviceTrust, change: Partial<DeviceTrust>): Dev
     const seen = withDevices(trust.seen, change.seen ?? [], sameDevice)
     const approved = withDevices(trust.approved, change.approved ?? [], sameDevice)
     const partners = withDevices(trust.partners, change.partners ?? [], samePartner)
+    const partnerApprovals = withDevices(trust.partnerApprovals, change.partnerApprovals ?? [], samePartnerApproval)
     const newlyRevoked = [...new Set(change.revoked ?? [])].filter((id) => !trust.revoked.includes(id))
     const newBaselines = [...new Set(change.baselines ?? [])].filter((g) => !trust.baselines.includes(g))
     const before = withDevices(trust.before, change.before ?? [], (a, b) => a.generation === b.generation)
@@ -88,6 +119,7 @@ export function withTrust(trust: DeviceTrust, change: Partial<DeviceTrust>): Dev
         seen === trust.seen &&
         approved === trust.approved &&
         partners === trust.partners &&
+        partnerApprovals === trust.partnerApprovals &&
         newlyRevoked.length === 0 &&
         newBaselines.length === 0 &&
         before === trust.before
@@ -99,6 +131,7 @@ export function withTrust(trust: DeviceTrust, change: Partial<DeviceTrust>): Dev
         approved,
         revoked: newlyRevoked.length === 0 ? trust.revoked : [...trust.revoked, ...newlyRevoked],
         partners,
+        partnerApprovals,
         baselines: newBaselines.length === 0 ? trust.baselines : [...trust.baselines, ...newBaselines],
         before,
     }

@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useAppStore } from "@/store/store"
 import { getE2eePort, getGroupPort } from "@/ioc"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
+import { groupMembersQueryKey, useGroupMembers } from "@/presentation/hooks/useGroupMembers"
+import { useLeaveGroup } from "@/presentation/hooks/useLeaveGroup"
 import type { GroupMember, GroupRole } from "@pinai/domain/models/group"
+import { actorUriToAddress } from "@pinai/domain/models/identity"
 import { isBlocked } from "@pinai/domain/models/block"
 import { reconcileGroupKeysUseCase } from "@pinai/domain/usecases/e2ee/reconcile-group-keys.usecase"
 import { removeGroupMemberUseCase } from "@pinai/domain/usecases/e2ee/remove-group-member.usecase"
 import { useBlockUser, useBlocks } from "@/presentation/hooks/useBlocks"
-
-export const groupMembersQueryKey = (conversationId: string) => ["group-members", conversationId] as const
 
 export function useGroupMembersPanelViewModel(conversationId: string) {
     const accessToken = useAppStore((s) => s.accessToken)
@@ -20,19 +21,11 @@ export function useGroupMembersPanelViewModel(conversationId: string) {
     // Local instance host, used to flag federated members in the roster.
     const localHost = useAppStore((s) => s.user?.address?.split("@")[1] ?? null)
     const openGroupComposer = useAppStore((s) => s.openGroupComposer)
-    const switchToDms = useAppStore((s) => s.switchToDms)
     const queryClient = useQueryClient()
     const navigate = useNavigate()
+    const { leave, isPending: isLeaving } = useLeaveGroup()
 
-    const {
-        data: members = [],
-        isLoading,
-        error,
-    } = useQuery({
-        queryKey: groupMembersQueryKey(conversationId),
-        queryFn: () => getGroupPort().listMembers(idpUrl!, accessToken!, conversationId),
-        enabled: !!idpUrl && !!accessToken && !!conversationId,
-    })
+    const { data: members = [], isLoading, error } = useGroupMembers(conversationId)
 
     // Opening the group catches up on what a departure left: devices still in its MLS state.
     useEffect(() => {
@@ -95,12 +88,12 @@ export function useGroupMembersPanelViewModel(conversationId: string) {
         }
     }
 
-    async function leaveGroup() {
-        if (!idpUrl || !accessToken || !myActorUri) return
-        await getGroupPort().removeMember(idpUrl, accessToken, conversationId, myActorUri)
-        void queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
-        switchToDms()
-        void navigate({ to: "/home" })
+    function leaveGroup() {
+        void leave(conversationId)
+    }
+
+    function messagePrivately(actorUri: string) {
+        void navigate({ to: "/dm/$name", params: { name: actorUriToAddress(actorUri) } })
     }
 
     function openAddPeople() {
@@ -120,6 +113,8 @@ export function useGroupMembersPanelViewModel(conversationId: string) {
         removeMember,
         setRole,
         leaveGroup,
+        isLeaving,
+        messagePrivately,
         openAddPeople,
         /** Their messages here still show, without drawing the user's attention. */
         isBlocked: (actorUri: string) => isBlocked(blocked, actorUri),

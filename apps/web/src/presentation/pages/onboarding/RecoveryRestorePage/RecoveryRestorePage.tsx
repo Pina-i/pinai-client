@@ -47,7 +47,7 @@ export function RecoveryRestorePage({ variant = "new-device" }: { variant?: Rest
 
     if (vm.newWords) {
         return (
-            <PassShell instance={vm.instance} title="Your new 24 words" titleFocusKey="new-words">
+            <PassShell instance={vm.instance} title="Your new 24 words" titleFocusKey="new-words" anchor="top">
                 <PassCard>
                     <NewWords words={vm.newWords} onContinue={vm.onIn} />
                 </PassCard>
@@ -80,7 +80,7 @@ export function RecoveryRestorePage({ variant = "new-device" }: { variant?: Rest
           : "First connection to a new device"
 
     return (
-        <PassShell instance={vm.instance} title={title} footer={<Footer vm={vm} />}>
+        <PassShell instance={vm.instance} title={title} footer={<Footer vm={vm} />} anchor="top">
             {vm.notice && <Notice text={vm.notice} takesFocus />}
             {vm.offersWayIn && vm.shareRefused && (
                 <Notice text="Your history couldn't be received from your other device. Type your 24 words to bring it back." />

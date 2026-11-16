@@ -10,6 +10,9 @@ interface ModalProps {
     /** "centered" (default) renders a centered dialog over a dimmed backdrop.
      *  "fullscreen" fills the entire viewport — use for settings-style overlays. */
     variant?: "centered" | "fullscreen"
+    /** For "centered": "center" (default), or "top" for a dialog that changes height, as its tabs
+     *  switch — what is above the change stays put. */
+    placement?: "center" | "top"
     className?: string
     /** Extra classes for the overlay, e.g. a see-through fullscreen scrim. */
     overlayClassName?: string
@@ -29,6 +32,7 @@ export function Modal({
     onClose,
     children,
     variant = "centered",
+    placement = "center",
     className,
     overlayClassName,
     isDismissable = true,
@@ -47,7 +51,10 @@ export function Modal({
                 "fixed inset-x-0 bottom-0 top-(--titlebar-height) z-(--z-overlay) flex",
                 isFullscreen
                     ? "bg-background"
-                    : "items-center justify-center bg-[color-mix(in_oklab,var(--background)_55%,transparent)] backdrop-blur-[6px] entering:animate-in entering:fade-in-0 entering:duration-200",
+                    : cn(
+                          "justify-center bg-[color-mix(in_oklab,var(--background)_55%,transparent)] backdrop-blur-[6px] entering:animate-in entering:fade-in-0 entering:duration-200",
+                          placement === "top" ? "items-start pt-[clamp(24px,10vh,96px)]" : "items-center",
+                      ),
                 overlayClassName,
             )}
         >

@@ -73,13 +73,15 @@ export async function decryptDownloaded(
 }
 
 /**
- * WebCrypto implementation of {@link IAttachmentCryptoPort}.
+ * Portable implementation of {@link IAttachmentCryptoPort}, for platforms
+ * without WebCrypto. The web app uses its own WebCrypto adapter instead:
+ * the same bytes, faster and off the main thread.
  *
  * The free functions above stay exported: the E2EE integration specs
  * drive them directly, and there is no value in going through an
  * instance there.
  */
-export class WebCryptoAttachmentCryptoAdapter implements IAttachmentCryptoPort {
+export class NobleAttachmentCryptoAdapter implements IAttachmentCryptoPort {
     encryptForUpload(file: LocalFile): Promise<{ ciphertext: Uint8Array; key: AttachmentBlobKey }> {
         return encryptForUpload(file)
     }

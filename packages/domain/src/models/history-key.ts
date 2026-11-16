@@ -171,6 +171,15 @@ export function isSettled(approvedRootKey: Uint8Array | null, rootKey: Uint8Arra
     return approvedRootKey !== null && rootKey !== null && sameBytes(approvedRootKey, rootKey)
 }
 
+/**
+ * A device's leaves carry its words' approval while the words it keeps give the key in force, as
+ * last checked (`identity-provider/specs/e2ee.md § 3.4`): words a later generation replaced approve
+ * nothing any more.
+ */
+export function carriesWordsApproval(standing: HistoryKeyStanding | null, keptGeneration: number | null): boolean {
+    return standing?.kind === "holds" && standing.generation === keptGeneration
+}
+
 /** Keeping words again keeps their approval only when they are the same words for the same generation. */
 export function approvalCarriedOver(
     previous: { words: readonly string[]; generation: number; approvedRootKey: Uint8Array | null } | null,

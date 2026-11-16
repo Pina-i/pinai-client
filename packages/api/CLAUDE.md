@@ -66,6 +66,9 @@ domain as `IKeyDirectoryPort`, which is what keeps the two independent.
   `approval_required`, `start_over_ended`). `toIdpError` reads a refusal's `ready_at` into
   `IdpError.readyAt` (`start_over_not_ready`, from `PUT /api/history/key`). The pushes
   `start_over_requested` / `start_over_cancelled` are typed in the domain's `WsServerEvent`.
+- The Delivery Service (`e2ee/key-directory.adapter.ts`, `/api/mls/*`): a commit goes with the
+  GroupInfo of the epoch it opens (`group_info`); `GET …/group-info` reads a `404` as none
+  (`apps/web/test/key-directory-api.spec.ts`).
 - Key shares (`key-share-api.adapter.ts`, `/api/history/key-shares`): the seal's bytes as standard
   base64 both ways; `GET` reads a `404` as no share and refuses an answer whose bytes aren't their
   size or whose sender is no UUID (`parseKeyShare`, ids lowercased); every refusal an `IdpError`,

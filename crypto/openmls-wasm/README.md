@@ -27,6 +27,46 @@ leaves it brought in or replaced (this device's own left out), checked as they a
 met. `Group::update_credential` commits a new credential into the device's own leaf
 over the key it carries.
 
+## Commits, GroupInfos and proposals
+
+Each commit a `Group` makes — `add_member`, `remove_member`, `update`,
+`update_credential` — stays pending until the DS takes it (`merge_pending_commit`,
+`clear_pending_commit`), and comes with `group_info`: the GroupInfo of the epoch it
+opens, as an `MlsMessage`, the ratchet tree and `external_pub` in it — what the client
+posts beside the commit, and all a device needs to join alone
+(`identity-provider/specs/e2ee.md § 5`). `Group::join_by_external_commit` joins from
+one: an external commit adding the bound `Identity`'s leaf, its group already merged by
+openmls — kept once the DS took the commit, `delete`d once refused; rows a join left
+under that group id are deleted first, by it and by `Group::join`.
+
+## Leaf lifetimes
+
+`Identity::key_package` builds KeyPackages that live a year (`KEY_PACKAGE_LIFETIME_SECONDS`),
+not openmls's default 12 weeks. openmls checks an added KeyPackage's lifetime when a member
+applies the add, with no way to skip it: with 12 weeks, a member away a few weeks — 12 weeks
+less the package's age when it was claimed, up to the instance's 30 days — could no longer apply
+an add made meanwhile, and would stop reading the group. openmls's `has_acceptable_range`
+(12 weeks) is never called, here nor in openmls. The instance still drops unclaimed packages
+after 30 days.
+
+No join — `Group::join`, `rejoin`, `join_by_external_commit` — checks the lifetime of the
+tree's leaves (`skip_lifetime_validation`). Only a leaf never updated has one, the
+KeyPackage's it came in by, and nothing refreshes leaves on a schedule: past it, a member who
+never committed would keep every new device out of the group. A KeyPackage is still checked
+when it is added.
+
+`process_message` drops every proposal (`ProcessedKind::Proposal`), a join proposal
+among them, and a commit never takes in the group's proposal store: a proposal kept
+would ride a member's next commit (§ 6.3).
+
+A commit received is staged, not merged: `process_message` shows its `joiner` — the leaf an
+external commit (a `new_member_commit` sender) brings in, at the index it takes — and the
+leaves it `removed`, as they stand before it, and `Group::apply_commit` merges it, filling
+`leaves_met`. A `ProcessedMessage` dropped unapplied leaves the group as it was. RFC 9420
+§ 12.4.3.2 leaves an external commit's removals for the application to accept: the client
+refuses one reaching a leaf of another account than its joiner's (`@pinai/mls`), which needs
+the credentials this crate doesn't read.
+
 ## HPKE (`src/hpke.rs`)
 
 RFC 9180 base mode with the suite key shares use — DHKEM(X25519, HKDF-SHA256),

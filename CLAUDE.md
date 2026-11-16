@@ -114,8 +114,8 @@ pinai-client/                 # pnpm workspace root
     │                         #   electron.vite.config.ts builds src/main and serves
     │                         #   apps/web as the renderer, loading web's own
     │                         #   vite.config.ts so plugins are never duplicated.
-    │                         #   Shares :5173 with web (the port is strict), so run
-    │                         #   one at a time. Its renderer is built with
+    │                         #   Its dev server is :5174, web's :5173 (both strict),
+    │                         #   so both run at once. Its renderer is built with
     │                         #   `import.meta.env.PINAI_DESKTOP`, which hides the
     │                         #   landing's "Get the client" and swaps in the desktop's
     │                         #   sign-in (see its CLAUDE.md): the IdP's pages in the

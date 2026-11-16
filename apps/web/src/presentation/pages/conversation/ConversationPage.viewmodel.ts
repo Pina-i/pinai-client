@@ -14,11 +14,13 @@ import {
     UNDECRYPTABLE_TEXT,
     applyFederationStatus,
     findConversation,
+    inTimeOrder,
     settleStaleSend,
     startsConversation,
     type DirectMessage,
 } from "@pinai/domain/models/dm"
-import { describeGroupEvent, type GroupEvent } from "@pinai/domain/models/group-event"
+import { describeGroupEvent, groupEventActor, type GroupEvent } from "@pinai/domain/models/group-event"
+import { describeNewDevice, readNewDeviceLines } from "@pinai/domain/models/new-device"
 import { useDismissGroup } from "@/presentation/hooks/useDismissGroup"
 import { useReadOnReturn } from "@/presentation/hooks/use-read-on-return"
 import type {
@@ -32,6 +34,12 @@ import type {
 import { archivedEdit, archivedReaction, archivedText } from "@pinai/domain/models/history-archive"
 import type { UserProfile } from "@pinai/domain/models/auth"
 import type { MessageListHandle } from "@/presentation/organisms/MessageList/MessageList"
+import { attachmentCache } from "@/presentation/_libs/attachment-cache"
+import { latestImageKeys } from "@/presentation/_libs/attachments"
+import { enterConversation } from "@/presentation/_libs/conversation-joins"
+
+// Sends this page load is still working on — waiting for the device to join, say —: not stale.
+const sendsUnderWay = new Set<string>()
 
 /**
  * Decode a base64 string to bytes. The wire format throughout 5a is
@@ -218,6 +226,9 @@ async function mapApiMessage(
     return { kind: "message", message: mapped }
 }
 
+// The last screenful or so of a conversation.
+const PREFETCHED_IMAGES = 12
+
 // Stable fallbacks: a fresh `[]` per render would defeat every memo downstream.
 const NO_MESSAGES: Message[] = []
 const NO_EVENTS: GroupEvent[] = []
@@ -256,7 +267,7 @@ export function useConversationPageViewModel(name: string) {
     // it, a reload-then-rapid-send window could mint a UUID for a
     // conversation that already exists server-side, racing the very
     // problem the friendship-accept refactor was meant to fix.
-    const { isSuccess: dmConvosLoaded } = useQuery({
+    const { isSuccess: dmConvosLoaded, isError: dmConvosFailed } = useQuery({
         queryKey: dmConversationsQueryKey(idpUrl ?? ""),
         queryFn: () => getDmConversationsUseCase(idpUrl!, accessToken!, getDmPort()),
         enabled: !!accessToken && !!idpUrl,
@@ -355,6 +366,9 @@ export function useConversationPageViewModel(name: string) {
 
     // Load message history from REST API once per conversation mount.
     const historyLoadedRef = useRef(false)
+    // The conversation whose history last answered, failed or not: until then one with nothing cached shows a skeleton.
+    const [historyAnswered, setHistoryAnswered] = useState<string | null>(null)
+    const isHistoryLoading = dmData ? historyAnswered !== dmData.id : !dmConvosLoaded && !dmConvosFailed
     useEffect(() => {
         historyLoadedRef.current = false
     }, [name])
@@ -364,6 +378,7 @@ export function useConversationPageViewModel(name: string) {
         // Need the conversation_id to load history. If we don't have the dmData yet, skip.
         if (!dmData) return
         historyLoadedRef.current = true
+        const historyOf = dmData.id
 
         openConversationUseCase({ idpUrl, accessToken }, dmData.id, {
             port: getDmPort(),
@@ -448,6 +463,7 @@ export function useConversationPageViewModel(name: string) {
             .catch(() => {
                 historyLoadedRef.current = false
             })
+            .finally(() => setHistoryAnswered(historyOf))
     }, [
         accessToken,
         idpUrl,
@@ -467,24 +483,39 @@ export function useConversationPageViewModel(name: string) {
     useEffect(() => {
         const now = Date.now()
         updateDmConversation(conversationKey, (list) => {
-            const settled = list.map((m) => settleStaleSend(m, now))
+            const settled = list.map((m) => (sendsUnderWay.has(m.id) ? m : settleStaleSend(m, now)))
             return settled.some((m, i) => m !== list[i]) ? settled : list
         })
     }, [conversationKey, updateDmConversation])
 
     // This conversation's list only: traffic in other conversations must not re-render the page.
     const messages = useAppStore((s) => s.dmMessages[conversationKey]) ?? NO_MESSAGES
+    const signedIn = accessToken !== null
+    // Started as the conversation opens, before the deferred list lays their rows out.
+    useEffect(() => {
+        if (signedIn) attachmentCache.prefetch(latestImageKeys(messages, PREFETCHED_IMAGES))
+    }, [messages, signedIn])
     const events = useAppStore((s) => s.groupEvents[conversationKey]) ?? NO_EVENTS
+    const newDeviceLines = useAppStore((s) => s.newDeviceLines[conversationKey])
     const myActorUri = user?.actor_uri ?? ""
     const notices = useMemo<TimelineNotice[]>(
         () =>
-            events.map((e) => ({
-                id: e.id,
-                createdAt: e.createdAt,
-                text: describeGroupEvent(e, myActorUri),
-                timestamp: timeOfDay(e.createdAt),
-            })),
-        [events, myActorUri],
+            inTimeOrder([
+                ...events.map((e) => ({
+                    id: e.id,
+                    createdAt: e.createdAt,
+                    text: describeGroupEvent(e, myActorUri),
+                    timestamp: timeOfDay(e.createdAt),
+                    rename: e.event === "renamed" ? { by: groupEventActor(e, myActorUri), name: e.name ?? "" } : undefined,
+                })),
+                ...readNewDeviceLines(newDeviceLines).map((line) => ({
+                    id: line.id,
+                    createdAt: line.createdAt,
+                    ...describeNewDevice(line),
+                    timestamp: timeOfDay(line.createdAt),
+                })),
+            ]),
+        [events, newDeviceLines, myActorUri],
     )
     // Scroll-to-bottom is an imperative action — page wires a
     // `MessageListHandle` here, viewmodel triggers it after a local
@@ -586,26 +617,24 @@ export function useConversationPageViewModel(name: string) {
                 })
             }
 
-            // DM-only lazy MLS bootstrap: the first send into a 1:1 claims a
-            // KeyPackage for the peer and builds the founding commit + welcome.
-            // Groups already have their MLS state from creation, so skip it.
-            if (intent.kind === "dm") {
-                if (!intent.recipientActorUri) {
-                    markFailed(new Error("Missing recipient"), "ensureGroupExists")
-                    return
-                }
-                try {
-                    await getE2eePort().ensureGroupExists(
-                        idpUrl,
-                        accessToken,
-                        intent.conversationId,
-                        intent.recipientActorUri,
-                    )
-                } catch (e) {
-                    markFailed(e, "ensureGroupExists")
-                    return
-                }
+            if (intent.kind === "dm" && !intent.recipientActorUri) {
+                markFailed(new Error("Missing recipient"), "enterConversation")
+                return
             }
+            // The device in the conversation first — a Welcome or its own join, the message
+            // `sending` meanwhile —, or the DM's group founded by its first send.
+            sendsUnderWay.add(optimisticId)
+            try {
+                await enterConversation({
+                    id: intent.conversationId,
+                    peer: intent.kind === "dm" ? intent.recipientActorUri : null,
+                })
+            } catch (e) {
+                sendsUnderWay.delete(optimisticId)
+                markFailed(e, "enterConversation")
+                return
+            }
+            sendsUnderWay.delete(optimisticId)
 
             const appMessage: ApplicationMessage<TextBody> = {
                 version: 1,
@@ -855,6 +884,7 @@ export function useConversationPageViewModel(name: string) {
         isGroup,
         messages,
         notices,
+        isHistoryLoading,
         messageListHandleRef,
         replyingTo,
         sendMessage,

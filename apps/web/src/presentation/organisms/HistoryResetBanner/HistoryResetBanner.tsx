@@ -165,6 +165,7 @@ function WayBack({ vm }: { vm: HistoryResetBannerViewModel }) {
             isDismissable={!vm.busy}
             isKeyboardDismissDisabled={vm.busy}
             label="Let this device back in"
+            placement="top"
         >
             <div className={cn(modalSurface, "w-[580px] overflow-y-auto")}>
                 <Heading eyebrow="It was me" title="Let this device back in">
