@@ -445,6 +445,10 @@ above, the sections above win.
   upload, encrypts file bytes with `additionalData = utf8(uuid)`,
   returns ciphertext + AttachmentBlobKey. `decryptDownloaded` runs
   the reverse with the embedded key/nonce + UUID-AAD.
+  `NobleAttachmentCryptoAdapter` is the port over them, for platforms
+  without WebCrypto; the web app wires its own WebCrypto adapter
+  (`apps/web/src/adapters/e2ee/attachment-crypto.adapter.ts`) — the same
+  bytes, off the main thread.
 - **`upload-encrypted-attachment.usecase.ts`** — wraps
   `IDmPort.uploadAttachment` with the encrypt-first pipeline. Sends
   the ciphertext as a File named `"encrypted"` with type
