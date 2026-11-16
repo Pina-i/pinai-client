@@ -94,6 +94,7 @@ A full-page loading state doesn't draw a loader: it holds the splash. A loader i
 
 - `pages/conversation/ConversationTimeline` is keyed by the conversation: switching mounts a fresh list, rendered in the background (`useDeferredValue`, so the route commits at once) and shown only once laid out and pinned to the end — `MessageList`'s `onSettle`, three still frames, 400 ms at most —, fading in over 150 ms. Neither the previous conversation nor the rows settling are seen. Not shown 120 ms after mounting, it gives way to `molecules/MessageListSkeleton` (`atoms/Skeleton`), which fades out over the list. An empty conversation shows once its history answered (`isHistoryLoading`).
 - Attachments come from `_libs/attachment-cache.ts`: each downloaded and decrypted once a page load, kept as an object URL (150 MB, least recently used first, never one on screen, cleared when the account changes). The conversation prefetches its last 12 images as it opens.
+- An image's box is laid out before it loads, from the size its key carries (`imagePreviewOf`): `SingleImageAttachment` at its aspect ratio (up to 960 × 360), its blurhash drawn meanwhile (`_libs/blurhash-image.ts`, decoded once a page load), the image fading in over it; one sent without a size gets a fixed 320 × 240 frame, the image contained in it. Nothing moves when it arrives. One that can't be opened says so.
 
 ## This device and its session
 

@@ -419,6 +419,16 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   visible: the key, nonce and AAD travel to the peer in the MLS body, so
   every implementation must agree byte-for-byte.
 
+### models/image-preview.ts + ports/image-probe.port.ts
+- An image's `width`, `height` and `blurhash` ride in its `AttachmentBlobKey`, inside the
+  encrypted body: the receiver lays the image out at its size and shows the blur before it
+  loads. `IImageProbePort` reads them on the sender's platform;
+  `uploadEncryptedAttachmentUseCase` asks it beside the sealing, a failure costing only the
+  preview.
+- `imagePreviewOf(key)` — the only way to read them, because a peer wrote them: a size whole and
+  within `MAX_IMAGE_SIDE`, or no preview at all; a blurhash of base 83 whose length its first
+  character gives, or none, the size kept. A key sent before these fields has no preview.
+
 ### usecases/auth/startLogin.usecase.ts
 - `prepareLoginUseCase` — discovery, PKCE verifier + challenge (S256) and
   random state/nonce via `IPkcePort`, the scratch space in `IAuthSessionStore`,

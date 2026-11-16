@@ -121,6 +121,10 @@ export interface AttachmentBlobKey {
     mime_type: string
     /** Plaintext byte size before AES-GCM tagging. */
     byte_size: number
+    /** An image's size and blurhash, so a receiver lays it out and previews it before it loads. Read through `imagePreviewOf`. */
+    width?: number
+    height?: number
+    blurhash?: string
 }
 
 /** Per-device count returned by `GET /api/keys/packages/status`. */

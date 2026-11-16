@@ -1,7 +1,11 @@
+import { useState } from "react"
 import type { Attachment } from "@pinai/domain/models/dm"
 import type { AttachmentBlobKey } from "@pinai/domain/models/e2ee"
+import { imagePreviewOf } from "@pinai/domain/models/image-preview"
+import { Skeleton } from "@/presentation/atoms/Skeleton/Skeleton"
 import { useAttachmentBlobUrl } from "@/presentation/hooks/useAttachmentBlobUrl"
 import { formatBytes } from "@/presentation/_libs/attachments"
+import { blurhashImage } from "@/presentation/_libs/blurhash-image"
 import { cn } from "@/presentation/_libs/utils"
 
 interface SingleImageAttachmentProps {
@@ -10,18 +14,27 @@ interface SingleImageAttachmentProps {
     onExpand: () => void
 }
 
+const MAX_WIDTH = 960
+const MAX_HEIGHT = 360
+// An image sent without its size gets a fixed frame, so its arrival moves nothing.
+const FRAME = { width: 320, height: 240 }
+
 /**
  * Hero treatment for messages that carry exactly one image or GIF.
  *
- * The image renders at its intrinsic dimensions (clamped by max-w / max-h)
- * so the native aspect ratio survives without any container gymnastics —
- * no `aspectRatio` style, no `object-cover` crop. Small images stay small,
- * large ones get a generous canvas up to ~960×360.
+ * Its box is laid out before it loads, from the size its message carried, at the image's own
+ * aspect ratio — small images stay small, large ones get up to ~960×360. The blurhash shows
+ * meanwhile, and the image fades in over it.
  *
  * Click anywhere → caller opens the lightbox via `onExpand`.
  */
 export function SingleImageAttachment({ attachment, attachmentKey, onExpand }: SingleImageAttachmentProps) {
-    const url = useAttachmentBlobUrl(attachmentKey)
+    const { url, failed } = useAttachmentBlobUrl(attachmentKey)
+    const [loadedUrl, setLoadedUrl] = useState<string | null>(null)
+    const isShown = url !== null && loadedUrl === url
+    const preview = imagePreviewOf(attachmentKey)
+    const box = preview ?? FRAME
+    const placeholder = preview?.blurhash ? blurhashImage(preview.blurhash) : null
     const filename = attachmentKey?.original_filename ?? attachment.original_filename
     const byteSize = attachmentKey?.byte_size ?? attachment.byte_size
 
@@ -30,22 +43,45 @@ export function SingleImageAttachment({ attachment, attachmentKey, onExpand }: S
             type="button"
             onClick={onExpand}
             aria-label={`Open ${filename} in lightbox`}
+            style={{
+                aspectRatio: `${box.width} / ${box.height}`,
+                width: `min(${box.width}px, ${MAX_WIDTH}px, 100%, ${(MAX_HEIGHT * box.width) / box.height}px)`,
+            }}
             className={cn(
                 "group relative mt-2 block max-w-full cursor-zoom-in overflow-hidden",
                 "rounded-[14px] border border-line bg-surf2 p-0 text-left",
             )}
         >
-            {url ? (
+            {placeholder ? (
                 <img
-                    src={url}
-                    alt={filename}
+                    src={placeholder}
+                    alt=""
+                    aria-hidden
                     className={cn(
-                        "block h-auto w-auto max-w-[min(960px,100%)] max-h-[360px] object-contain",
+                        "absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ease-out motion-reduce:transition-none",
+                        isShown && "opacity-0",
                     )}
                 />
             ) : (
-                <div className="flex h-48 w-72 items-center justify-center font-mono text-[10.5px] text-muted-foreground">
-                    loading…
+                !isShown && !failed && <Skeleton shape="block" className="absolute inset-0 h-full w-full rounded-none" />
+            )}
+
+            {url && (
+                <img
+                    src={url}
+                    alt={filename}
+                    onLoad={() => setLoadedUrl(url)}
+                    className={cn(
+                        "absolute inset-0 h-full w-full transition-opacity duration-200 ease-out motion-reduce:transition-none",
+                        preview ? "object-cover" : "object-contain",
+                        !isShown && "opacity-0",
+                    )}
+                />
+            )}
+
+            {failed && (
+                <div className="absolute inset-0 flex items-center justify-center px-3 text-center font-mono text-[10.5px] text-muted-foreground">
+                    This image couldn't be loaded
                 </div>
             )}
 

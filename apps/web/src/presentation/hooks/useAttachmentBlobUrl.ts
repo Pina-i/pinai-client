@@ -5,13 +5,14 @@ import { attachmentCache } from "@/presentation/_libs/attachment-cache"
 import { useAppStore } from "@/store/store"
 
 /**
- * The object URL of an encrypted attachment, `null` while it loads, when it fails, or without the
- * key its message carried (one this device couldn't decrypt). One the page opened already is
- * there from the first render.
+ * The object URL of an encrypted attachment: `null` while it loads, or without the key its
+ * message carried (one this device couldn't decrypt); `failed` once it couldn't be opened. One
+ * the page opened already is there from the first render.
  */
-export function useAttachmentBlobUrl(attachmentKey: AttachmentBlobKey | undefined): string | null {
+export function useAttachmentBlobUrl(attachmentKey: AttachmentBlobKey | undefined): { url: string | null; failed: boolean } {
     const signedIn = useAppStore((s) => s.accessToken !== null)
     const [loaded, setLoaded] = useState<{ id: string; url: string } | null>(null)
+    const [failedId, setFailedId] = useState<string | null>(null)
     const id = attachmentKey?.id
     const url = !id ? null : loaded?.id === id ? loaded.url : attachmentCache.url(id)
 
@@ -27,6 +28,7 @@ export function useAttachmentBlobUrl(attachmentKey: AttachmentBlobKey | undefine
                 (e: unknown) => {
                     // eslint-disable-next-line no-console
                     console.warn(`Attachment ${attachmentKey.id} could not be opened:`, e)
+                    if (live) setFailedId(attachmentKey.id)
                 },
             )
         }
@@ -36,5 +38,5 @@ export function useAttachmentBlobUrl(attachmentKey: AttachmentBlobKey | undefine
         }
     }, [attachmentKey, signedIn])
 
-    return url
+    return { url, failed: url === null && id !== undefined && failedId === id }
 }
