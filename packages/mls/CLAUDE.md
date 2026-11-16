@@ -55,6 +55,11 @@ because Hermes has no WebAssembly.
     waits apart, out of `hasGroup`, until `mergePendingCommit` holds it or
     `clearPendingCommit` deletes it from the provider. A proposal comes out as
     `{ kind: "proposal" }`: the wrapper keeps none.
+  - A commit received is staged by the wrapper, then applied (`apply_commit`): an external
+    one — its `joiner`, a `new_member_commit` — whose removals reach a leaf of another account
+    than its joiner's (`refusesExternalCommit`, the domain's, over the decoded credentials) is
+    thrown unapplied, as an invalid commit; RFC 9420 § 12.4.3.2 leaves that check to the
+    application. An applied one answers its `joiner`, at the index it took.
   - No join — by Welcome, again by Welcome, by external commit — checks the
     tree's leaf lifetimes (`crypto/openmls-wasm/README.md`); a KeyPackage added
     still is, by every member applying the add: KeyPackages live a year.

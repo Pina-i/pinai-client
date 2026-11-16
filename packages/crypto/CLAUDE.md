@@ -260,6 +260,13 @@ Three collaborators could not come, and the shape of each is the mobile work:
     keeps the pending join (`unansweredJoins`) to post as it is at the next call.
     `consumePendingWelcomes` settles such a join first: the Welcome and it would
     share the group's rows. `heldGroups` — the groups held.
+  - **A device joining by itself, as a member sees it** (§ 6.14): the engine refuses an
+    external commit removing a leaf of another account (`refusesExternalCommit`); one applied
+    — in `decryptInbound` or the catch-up — answers its `joiner`, met after the leaf checks
+    (`meetNewcomer`): another account's, its leaf not shown forged and not proven
+    (`newcomerProven` over the tree as the commit left it, the signatures checked by
+    `credentialApproved`), goes to `onNewDevice` with the commit's epoch and `created_at` — the
+    line. One applied before any listener waits for the first. Never thrown: the commit is in.
   - **`ensureGroupExists`** founds only while the conversation has no GroupInfo;
     one held, or epoch 1 lost to another founding (`409`), is `GroupToJoin`: the
     send waits for the join instead of using up a KeyPackage of each of the
@@ -712,7 +719,12 @@ vitest setup, so a package's specs sit there until it needs its own.
   KeyPackage's lifetime (the clock moved by `vi.setSystemTime`, which the bundle
   reads); the approvals a leaf carries, committed into a group held, in the
   KeyPackages published and in a join, and a member away 13 weeks applying an add
-  of a KeyPackage from before.
+  of a KeyPackage from before; the members of a conversation a device joins by
+  itself — no line after the words or a code, the line after a start over, one per
+  member of a group, none on the account's own devices nor for a sibling's Welcome,
+  an external commit removing another account's leaf refused. `new-device.spec.ts` —
+  the proof rule's table; `new-device-line-cache.spec.ts` and `new-device-line.spec.ts`
+  — the line in the persisted cache and on screen.
 - `apps/web/test/leaf-approvals.spec.ts` — what a device's leaves would carry, over the
   real handshake and share flows: the words typed or set, a new generation, a code's
   approval alone then beside the shared words, a start over, a root key changed.

@@ -151,6 +151,11 @@ export function interleaveTimeline<M extends TimelineEntry, E extends TimelineEn
     return items
 }
 
+/** Entries of a timeline in time order, those of one instant as they came. */
+export function inTimeOrder<T extends TimelineEntry>(entries: readonly T[]): T[] {
+    return [...entries].sort((a, b) => timeOf(a) - timeOf(b))
+}
+
 // An entry from before `createdAt` existed has no usable time; it is old by definition.
 function timeOf(entry: TimelineEntry): number {
     const t = Date.parse(entry.createdAt)

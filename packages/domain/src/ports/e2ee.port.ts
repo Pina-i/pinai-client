@@ -15,6 +15,7 @@ import type { ArchiveEnvelope, ArchivedEntry } from "../models/history-archive"
 import type { DerivedHistoryKey, HistoryKey, HistoryKeyStanding, PendingHistoryKey } from "../models/history-key"
 import type { RearchiveDue, RearchiveEntry, RearchivePosition } from "../models/history-rearchive"
 import type { KeyShare, KeyShareRefusal, OutgoingKeyShare } from "../models/key-share"
+import type { NewDeviceSeen } from "../models/new-device"
 import type { ArchiveEntry } from "./history-archive.port"
 
 /**
@@ -219,6 +220,14 @@ export interface IE2eePort {
      * it. Answers the unsubscribe.
      */
     onGroupHeld(listener: (conversationId: ConversationId) => void): () => void
+
+    /**
+     * Calls `listener` for each external commit this device applies that brings in a device of
+     * another account, not proven by what the conversation holds (`newcomerProven`,
+     * `identity-provider/specs/e2ee.md § 6.14`): the line its timeline shows. One applied before any
+     * listener is told to the first. Answers the unsubscribe.
+     */
+    onNewDevice(listener: (seen: NewDeviceSeen) => void): () => void
 
     /**
      * Applies the commits the DS holds past this device's epoch, for a group it holds keys for:

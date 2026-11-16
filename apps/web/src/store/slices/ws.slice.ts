@@ -2,6 +2,7 @@ import type { StateCreator } from "zustand"
 import type { WsConnectionStatus, WsNotification } from "@pinai/domain/models/ws"
 import { addToTimeline, mergeMessageHistory, reconcileOptimistic } from "@pinai/domain/models/dm"
 import type { GroupEvent } from "@pinai/domain/models/group-event"
+import { withNewDeviceLine, type NewDeviceLine } from "@pinai/domain/models/new-device"
 import type { Message } from "@/lib/types"
 import type { AppStore } from "../store"
 
@@ -28,6 +29,11 @@ export interface WsSlice {
     appliedReactionIds: Record<string, true>
     /** A group's changes, per conversation, shown between its messages and persisted with them. */
     groupEvents: Record<string, GroupEvent[]>
+    /**
+     * Per conversation, the lines for someone else's device that joined by itself unproven: this
+     * device's own entries, persisted with the messages, never archived.
+     */
+    newDeviceLines: Record<string, readonly NewDeviceLine[]>
 
     setWsStatus: (status: WsConnectionStatus) => void
     addNotification: (notification: WsNotification) => void
@@ -45,7 +51,9 @@ export interface WsSlice {
     seedDmMessages: (conversationKey: string, messages: Message[]) => void
     /** Merge a group's changes into the conversation's, deduplicating by id. */
     addGroupEvents: (conversationKey: string, events: GroupEvent[]) => void
-    /** Drop what this device keeps of a conversation: its messages and its changes. */
+    /** One line to its conversation's, once per id. */
+    addNewDeviceLine: (conversationKey: string, line: NewDeviceLine) => void
+    /** Drop what this device keeps of a conversation: its messages, its changes and its lines. */
     forgetConversation: (conversationKey: string) => void
     /** Update a single message by id across all conversations. */
     updateMessageById: (messageId: string, updater: (msg: Message) => Message) => void
@@ -79,6 +87,7 @@ export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]]
     dmMessages: {},
     appliedReactionIds: {},
     groupEvents: {},
+    newDeviceLines: {},
 
     setWsStatus: (status) => set({ wsStatus: status }, false, "ws/setStatus"),
 
@@ -177,14 +186,29 @@ export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]]
             "ws/addGroupEvents",
         ),
 
+    addNewDeviceLine: (conversationKey, line) =>
+        set(
+            (s) => {
+                const held = s.newDeviceLines[conversationKey]
+                // A value of another shape, read back from the cache, is left as it is.
+                if (held !== undefined && !Array.isArray(held)) return s
+                const next = withNewDeviceLine(held ?? [], line)
+                return next === held ? s : { newDeviceLines: { ...s.newDeviceLines, [conversationKey]: next } }
+            },
+            false,
+            "ws/addNewDeviceLine",
+        ),
+
     forgetConversation: (conversationKey) =>
         set(
             (s) => {
                 const dmMessages = { ...s.dmMessages }
                 const groupEvents = { ...s.groupEvents }
+                const newDeviceLines = { ...s.newDeviceLines }
                 delete dmMessages[conversationKey]
                 delete groupEvents[conversationKey]
-                return { dmMessages, groupEvents }
+                delete newDeviceLines[conversationKey]
+                return { dmMessages, groupEvents, newDeviceLines }
             },
             false,
             "ws/forgetConversation",

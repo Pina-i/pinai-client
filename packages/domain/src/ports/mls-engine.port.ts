@@ -39,8 +39,11 @@ export interface ExternalJoinOutput extends CommitOutput {
  */
 export type ProcessOutcome =
     | { kind: "application"; plaintext: Uint8Array }
-    /** `leavesMet`: the leaves it brought in or replaced, this device's own left out. */
-    | { kind: "commit"; leavesMet: MlsLeaf[] }
+    /**
+     * `leavesMet`: the leaves it brought in or replaced, this device's own left out. `joiner`: for an
+     * external commit — a device committing itself in —, the leaf it brought in; `null` for a member's.
+     */
+    | { kind: "commit"; leavesMet: MlsLeaf[]; joiner: MlsLeaf | null }
     /** A proposal, ignored: never kept, so no commit of this device's carries it. */
     | { kind: "proposal" }
 
@@ -169,6 +172,10 @@ export interface IMlsEngine {
         plaintext: Uint8Array,
     ): Promise<MlsCiphertext>
 
+    /**
+     * An external commit removing a leaf of another account than its joiner's
+     * (`refusesExternalCommit`) is refused as an invalid commit is — thrown, nothing merged.
+     */
     processMessage(
         conversationId: ConversationId,
         msgBytes: Uint8Array,

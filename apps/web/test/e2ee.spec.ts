@@ -182,7 +182,7 @@ describe("mls adapter — what a device checks of a leaf", () => {
         const outcome = await bob.processMessage(conversationId, addCarol.commit)
 
         const carolsLeaf = await carol.inspectKeyPackage(carolsPackage)
-        expect(outcome).toEqual({ kind: "commit", leavesMet: [{ leafIndex: 2, own: false, ...carolsLeaf }] })
+        expect(outcome).toEqual({ kind: "commit", leavesMet: [{ leafIndex: 2, own: false, ...carolsLeaf }], joiner: null })
         const leaves = await bob.groupLeaves(conversationId)
         expect(leaves.map((l) => [l.leafIndex, l.own])).toEqual([[0, false], [1, true], [2, false]])
         expect(await bob.ownLeafSignatureKey()).toEqual(leaves[1].signatureKey)
@@ -206,6 +206,7 @@ describe("mls adapter — what a device checks of a leaf", () => {
         expect(outcome).toEqual({
             kind: "commit",
             leavesMet: [{ leafIndex: 0, own: false, credential: renewed, signatureKey: own.signatureKey }],
+            joiner: null,
         })
         const after = await bob.processMessage(
             conversationId,
@@ -265,7 +266,7 @@ describe("mls adapter — a device joining by external commit", () => {
         expect(await laptop.getEpoch(conversationId)).toBe(join.epoch)
         expect(join.leaves).toEqual(await laptop.groupLeaves(conversationId))
         const own = (await laptop.groupLeaves(conversationId)).find((leaf) => leaf.own)!
-        expect(outcome).toEqual({ kind: "commit", leavesMet: [{ ...own, own: false }] })
+        expect(outcome).toEqual({ kind: "commit", leavesMet: [{ ...own, own: false }], joiner: { ...own, own: false } })
         expect(own.credential?.actor_uri).toBe("https://idp.example.com/users/alice")
         const hello = await laptop.encryptApplication(conversationId, new TextEncoder().encode("back"))
         expect(await bob.processMessage(conversationId, hello)).toMatchObject({ kind: "application" })
@@ -285,6 +286,36 @@ describe("mls adapter — a device joining by external commit", () => {
         await bob.processMessage(conversationId, again.commit)
         await laptop.mergePendingCommit(conversationId)
         expect(await laptop.getEpoch(conversationId)).toBe(await bob.getEpoch(conversationId))
+    })
+
+    it("is refused removing a leaf of another account than its joiner's, and taken removing one of its own account's", async () => {
+        const { alice, bob } = await aliceWithBob()
+        const carol = await makeAdapter("https://idp.example.com/users/carol")
+        const addCarol = await alice.addMember(conversationId, await carol.createKeyPackage())
+        await alice.mergePendingCommit(conversationId)
+        await bob.processMessage(conversationId, addCarol.commit)
+        // A join over the key of a leaf in the tree removes that leaf: Carol's, here.
+        const key = await carol.getDeviceSignaturePublicKey()
+        const epoch = await bob.getEpoch(conversationId)
+
+        const mallory = credentialFor(testDevice(issuers, asActorUri("https://idp.example.com/users/mallory")), key)
+        await carol.setIdentity(mallory, key)
+        const intruding = await carol.joinByExternalCommit(conversationId, addCarol.group_info)
+        await expect(bob.processMessage(conversationId, intruding.commit)).rejects.toThrow(/another account/)
+        expect(await bob.getEpoch(conversationId)).toBe(epoch)
+        expect(await bob.groupLeaves(conversationId)).toHaveLength(3)
+        await carol.clearPendingCommit(conversationId)
+
+        const carolAgain = credentialFor(testDevice(issuers, asActorUri("https://idp.example.com/users/carol")), key)
+        await carol.setIdentity(carolAgain, key)
+        const rejoining = await carol.joinByExternalCommit(conversationId, addCarol.group_info)
+        const outcome = await bob.processMessage(conversationId, rejoining.commit)
+
+        expect(outcome).toMatchObject({ kind: "commit", joiner: { leafIndex: 2, credential: carolAgain } })
+        expect((await bob.groupLeaves(conversationId)).map((leaf) => leaf.credential?.device_id)).toEqual(
+            expect.arrayContaining([carolAgain.device_id]),
+        )
+        expect(await bob.groupLeaves(conversationId)).toHaveLength(3)
     })
 
     it("refuses a GroupInfo of another group, and a group it holds or is joining", async () => {

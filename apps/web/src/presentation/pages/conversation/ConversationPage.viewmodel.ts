@@ -14,11 +14,13 @@ import {
     UNDECRYPTABLE_TEXT,
     applyFederationStatus,
     findConversation,
+    inTimeOrder,
     settleStaleSend,
     startsConversation,
     type DirectMessage,
 } from "@pinai/domain/models/dm"
 import { describeGroupEvent, type GroupEvent } from "@pinai/domain/models/group-event"
+import { describeNewDevice, readNewDeviceLines } from "@pinai/domain/models/new-device"
 import { useDismissGroup } from "@/presentation/hooks/useDismissGroup"
 import { useReadOnReturn } from "@/presentation/hooks/use-read-on-return"
 import type {
@@ -479,16 +481,25 @@ export function useConversationPageViewModel(name: string) {
     // This conversation's list only: traffic in other conversations must not re-render the page.
     const messages = useAppStore((s) => s.dmMessages[conversationKey]) ?? NO_MESSAGES
     const events = useAppStore((s) => s.groupEvents[conversationKey]) ?? NO_EVENTS
+    const newDeviceLines = useAppStore((s) => s.newDeviceLines[conversationKey])
     const myActorUri = user?.actor_uri ?? ""
     const notices = useMemo<TimelineNotice[]>(
         () =>
-            events.map((e) => ({
-                id: e.id,
-                createdAt: e.createdAt,
-                text: describeGroupEvent(e, myActorUri),
-                timestamp: timeOfDay(e.createdAt),
-            })),
-        [events, myActorUri],
+            inTimeOrder([
+                ...events.map((e) => ({
+                    id: e.id,
+                    createdAt: e.createdAt,
+                    text: describeGroupEvent(e, myActorUri),
+                    timestamp: timeOfDay(e.createdAt),
+                })),
+                ...readNewDeviceLines(newDeviceLines).map((line) => ({
+                    id: line.id,
+                    createdAt: line.createdAt,
+                    ...describeNewDevice(line),
+                    timestamp: timeOfDay(line.createdAt),
+                })),
+            ]),
+        [events, newDeviceLines, myActorUri],
     )
     // Scroll-to-bottom is an imperative action — page wires a
     // `MessageListHandle` here, viewmodel triggers it after a local

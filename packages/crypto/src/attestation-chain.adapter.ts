@@ -5,6 +5,7 @@ import type { DeviceChainVerdict, DeviceListEntry, DeviceRootVerdict } from "@pi
 import type { CheckedApproval, CheckedDevice } from "@pinai/domain/models/device-trust"
 import { instanceOrigin } from "@pinai/domain/models/identity"
 import type { LeafClaim, LeafVerdict } from "@pinai/domain/models/leaf-trust"
+import type { ApprovalCheck } from "@pinai/domain/models/new-device"
 import type { IJwksCachePort } from "@pinai/domain/ports/jwks-cache.port"
 
 import { approvalBytes, attestationBytes, deviceHpkeKeyBytes, leafBindingBytes } from "./canonical-bytes"
@@ -131,6 +132,14 @@ export function verifyApproval(
     signerKey: Uint8Array,
 ): boolean {
     return verifyStrict(signature, approvalBytes(actorUri, deviceId, rootKey), signerKey)
+}
+
+/** `verifyApproval` over a leaf credential's own bytes, keys and signature in base64 as credentials carry them. */
+export const credentialApproved: ApprovalCheck = (signature, subject, signerKey) => {
+    const sig = decodeBase64(signature, 64)
+    const rootKey = decodeBase64(subject.drk_pub, 32)
+    const signer = decodeBase64(signerKey, 32)
+    return sig !== null && rootKey !== null && signer !== null && verifyApproval(sig, subject.actor_uri, subject.device_id, rootKey, signer)
 }
 
 /** Root checks by the row's content, each until its attestation's expiry; an issuer out of reach is never kept. */

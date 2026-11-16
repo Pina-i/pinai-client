@@ -38,6 +38,7 @@ import init, {
 
 import type { ActorUri, ConversationId, DeviceId } from "@pinai/domain/models/e2ee"
 import type { LeafClaim, LeafCredential, MlsLeaf } from "@pinai/domain/models/leaf-trust"
+import { refusesExternalCommit } from "@pinai/domain/models/new-device"
 import type { HpkeKeyPair, HpkeSealed, IHpkePort } from "@pinai/domain/ports/hpke.port"
 import { decodeLeafCredential, encodeLeafCredential } from "./leaf-credential"
 import type {
@@ -372,22 +373,39 @@ export class MlsAdapter implements IMlsEngine, IHpkePort {
     }
 
     /**
-     * Process any inbound MLS message — application, commit, or
-     * proposal, which is ignored — for the named group. Returns a
-     * discriminated union the caller can switch on.
+     * Process any inbound MLS message — application, commit, or proposal, which is ignored — for
+     * the named group. A commit is applied unless it is an external one removing a leaf of another
+     * account than its joiner's: that one is thrown, the group left as it was.
      */
     async processMessage(conversationId: ConversationId, msgBytes: Uint8Array): Promise<ProcessOutcome> {
         const group = this.requireGroup(conversationId)
-        const processed = group.process_message(this.requireProvider(), msgBytes)
-        switch (processed.kind) {
-            case ProcessedKind.Application:
-                return { kind: "application", plaintext: processed.application }
-            case ProcessedKind.Commit:
-                return { kind: "commit", leavesMet: processed.leaves_met.map((m) => mlsLeaf(m, false)) }
-            case ProcessedKind.Proposal:
-                return { kind: "proposal" }
-            default:
-                throw new Error(`Unknown ProcessedKind: ${processed.kind}`)
+        const provider = this.requireProvider()
+        const processed = group.process_message(provider, msgBytes)
+        try {
+            switch (processed.kind) {
+                case ProcessedKind.Application:
+                    return { kind: "application", plaintext: processed.application }
+                case ProcessedKind.Commit: {
+                    const joiner = processed.joiner
+                    const removed = processed.removed.map((m) => decodeLeafCredential(m.credential_bytes))
+                    if (joiner && refusesExternalCommit(decodeLeafCredential(joiner.credential_bytes), removed)) {
+                        throw new Error("An external commit removing a leaf of another account than its joiner's")
+                    }
+                    group.apply_commit(provider, processed)
+                    const brought = processed.joiner
+                    return {
+                        kind: "commit",
+                        leavesMet: processed.leaves_met.map((m) => mlsLeaf(m, false)),
+                        joiner: brought ? mlsLeaf(brought, false) : null,
+                    }
+                }
+                case ProcessedKind.Proposal:
+                    return { kind: "proposal" }
+                default:
+                    throw new Error(`Unknown ProcessedKind: ${processed.kind}`)
+            }
+        } finally {
+            processed.free()
         }
     }
 

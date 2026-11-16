@@ -38,8 +38,8 @@
 
 use openmls::{
     credentials::{BasicCredential, CredentialWithKey},
-    framing::{MlsMessageBodyIn, MlsMessageIn, MlsMessageOut, ProcessedMessageContent},
-    group::{CommitBuilder, GroupId, Initial, MlsGroup, MlsGroupJoinConfig, StagedWelcome},
+    framing::{MlsMessageBodyIn, MlsMessageIn, MlsMessageOut, ProcessedMessageContent, Sender},
+    group::{CommitBuilder, GroupId, Initial, MlsGroup, MlsGroupJoinConfig, StagedCommit, StagedWelcome},
     key_packages::{KeyPackage as OpenMlsKeyPackage, KeyPackageIn, Lifetime},
     messages::{group_info::VerifiableGroupInfo, Welcome},
     prelude::{LeafNodeIndex, LeafNodeParameters, ProtocolVersion, SignatureScheme},
@@ -437,7 +437,7 @@ struct Committed {
 
 /// One leaf in the MLS tree: its index, its credential's identity bytes, its signature key.
 #[wasm_bindgen]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct GroupMember {
     leaf_index: u32,
     credential_bytes: Vec<u8>,
@@ -471,8 +471,8 @@ pub enum ProcessedKind {
     Application,
     /// A proposal — a member's, or a join proposal from outside —, ignored: never stored.
     Proposal,
-    /// A staged commit was merged immediately. Group state advanced
-    /// to the next epoch.
+    /// A commit, checked and staged: [`Group::apply_commit`] merges it, and the group moves to
+    /// the next epoch. Dropped unapplied, it leaves the group as it was.
     Commit,
 }
 
@@ -481,6 +481,22 @@ pub struct ProcessedMessage {
     kind: ProcessedKind,
     application: Vec<u8>,
     leaves_met: Vec<GroupMember>,
+    joiner: Option<GroupMember>,
+    removed: Vec<GroupMember>,
+    staged: Option<Box<StagedCommit>>,
+}
+
+impl ProcessedMessage {
+    fn other(kind: ProcessedKind, application: Vec<u8>) -> Self {
+        ProcessedMessage {
+            kind,
+            application,
+            leaves_met: vec![],
+            joiner: None,
+            removed: vec![],
+            staged: None,
+        }
+    }
 }
 
 #[wasm_bindgen]
@@ -494,11 +510,24 @@ impl ProcessedMessage {
     pub fn application(&self) -> Vec<u8> {
         self.application.clone()
     }
-    /// For a commit: the leaves it brought in or replaced — added, a device committing itself in, or
-    /// the committer's own changed by its path —, this device's own left out. Empty otherwise.
+    /// For a commit once applied: the leaves it brought in or replaced — added, a device committing
+    /// itself in, or the committer's own changed by its path —, this device's own left out. Empty
+    /// otherwise.
     #[wasm_bindgen(getter)]
     pub fn leaves_met(&self) -> Vec<GroupMember> {
         self.leaves_met.clone()
+    }
+    /// For an external commit — a device committing itself in, its sender a `new_member_commit`:
+    /// the leaf it brings in, at the index it takes. `None` for any other message.
+    #[wasm_bindgen(getter)]
+    pub fn joiner(&self) -> Option<GroupMember> {
+        self.joiner.clone()
+    }
+    /// For a commit: the leaves it removes, as they stand before it. RFC 9420 § 12.4.3.2 leaves an
+    /// external commit's removals to the application to accept. Empty otherwise.
+    #[wasm_bindgen(getter)]
+    pub fn removed(&self) -> Vec<GroupMember> {
+        self.removed.clone()
     }
 }
 
@@ -902,9 +931,9 @@ impl Group {
         serialize_message(&msg)
     }
 
-    /// Process any inbound MLS message — application, proposal, or commit.
-    /// Application messages return their plaintext. Commits are merged
-    /// in-place and advance the group epoch. Proposals are ignored.
+    /// Process any inbound MLS message — application, proposal, or commit. Application messages
+    /// return their plaintext; proposals are ignored. A commit is checked and staged, not merged:
+    /// it shows its joiner and the leaves it removes, and [`Group::apply_commit`] merges it.
     pub fn process_message(
         &mut self,
         provider: &mut Provider,
@@ -929,39 +958,78 @@ impl Group {
                 )))
             }
         };
+        let external = matches!(processed.sender(), Sender::NewMemberCommit);
 
         match processed.into_content() {
-            ProcessedMessageContent::ApplicationMessage(app) => Ok(ProcessedMessage {
-                kind: ProcessedKind::Application,
-                application: app.into_bytes(),
-                leaves_met: vec![],
-            }),
+            ProcessedMessageContent::ApplicationMessage(app) => {
+                Ok(ProcessedMessage::other(ProcessedKind::Application, app.into_bytes()))
+            }
             // Never stored: a stored proposal rides a member's next commit, so anyone holding only
             // a user's password could ask in and be committed by a member. Our clients send none.
             ProcessedMessageContent::ProposalMessage(_)
-            | ProcessedMessageContent::ExternalJoinProposalMessage(_) => Ok(ProcessedMessage {
-                kind: ProcessedKind::Proposal,
-                application: vec![],
-                leaves_met: vec![],
-            }),
+            | ProcessedMessageContent::ExternalJoinProposalMessage(_) => {
+                Ok(ProcessedMessage::other(ProcessedKind::Proposal, vec![]))
+            }
             ProcessedMessageContent::StagedCommitMessage(staged) => {
                 let before = self.list_members();
-                self.mls_group
-                    .merge_staged_commit(&provider.0, *staged)
-                    .map_err(|e| JsError::new(&format!("merge_staged_commit failed: {e}")))?;
-                let own = self.own_leaf_index();
-                let leaves_met = self
-                    .list_members()
-                    .into_iter()
-                    .filter(|leaf| leaf.leaf_index != own && !before.contains(leaf))
+                let gone: Vec<u32> = staged
+                    .remove_proposals()
+                    .map(|r| r.remove_proposal().removed().u32())
                     .collect();
+                let removed = before
+                    .iter()
+                    .filter(|m| gone.contains(&m.leaf_index))
+                    .cloned()
+                    .collect();
+                // The leftmost leaf no member holds once the removals are applied (RFC 9420 § 7.8).
+                let free = (0..).find(|i| {
+                    !before.iter().any(|m| m.leaf_index == *i && !gone.contains(i))
+                });
+                let joiner = match (external, staged.update_path_leaf_node(), free) {
+                    (true, Some(leaf), Some(leaf_index)) => Some(GroupMember {
+                        leaf_index,
+                        credential_bytes: leaf.credential().serialized_content().to_vec(),
+                        signature_public_key: leaf.signature_key().as_slice().to_vec(),
+                    }),
+                    _ => None,
+                };
                 Ok(ProcessedMessage {
                     kind: ProcessedKind::Commit,
                     application: vec![],
-                    leaves_met,
+                    leaves_met: vec![],
+                    joiner,
+                    removed,
+                    staged: Some(staged),
                 })
             }
         }
+    }
+
+    /// Merges the commit `processed` staged: the group moves to its epoch, and `processed` tells
+    /// the leaves the commit met and where its joiner sits.
+    pub fn apply_commit(
+        &mut self,
+        provider: &mut Provider,
+        processed: &mut ProcessedMessage,
+    ) -> Result<(), JsError> {
+        let staged = processed.staged.take().ok_or_else(|| JsError::new("No commit to apply"))?;
+        let before = self.list_members();
+        self.mls_group
+            .merge_staged_commit(&provider.0, *staged)
+            .map_err(|e| JsError::new(&format!("merge_staged_commit failed: {e}")))?;
+        let own = self.own_leaf_index();
+        let after = self.list_members();
+        if let Some(joiner) = processed.joiner.as_mut() {
+            let key = &joiner.signature_public_key;
+            if let Some(leaf) = after.iter().find(|m| &m.signature_public_key == key) {
+                joiner.leaf_index = leaf.leaf_index;
+            }
+        }
+        processed.leaves_met = after
+            .into_iter()
+            .filter(|leaf| leaf.leaf_index != own && !before.contains(leaf))
+            .collect();
+        Ok(())
     }
 
     /// Derive a `key_length`-byte secret bound to `(label, context)` from
@@ -1002,6 +1070,17 @@ mod tests {
     use openmls::key_packages::errors::KeyPackageVerifyError;
     use openmls::messages::external_proposals::JoinProposal;
 
+    impl Group {
+        /// A message taken as the client takes it: a commit applied as it comes.
+        fn receive(&mut self, provider: &mut Provider, msg_bytes: &[u8]) -> Result<ProcessedMessage, JsError> {
+            let mut processed = self.process_message(provider, msg_bytes)?;
+            if processed.staged.is_some() {
+                self.apply_commit(provider, &mut processed)?;
+            }
+            Ok(processed)
+        }
+    }
+
     /// A fresh signature key bound to `credential`, as a device binds its leaf credential.
     fn identity(provider: &Provider, credential: &[u8]) -> Identity {
         let key = Identity::generate_signature_key(provider).unwrap();
@@ -1041,7 +1120,7 @@ mod tests {
             .unwrap();
         alice_group.merge_pending_commit(&mut alice_p).unwrap();
 
-        let processed = bob_group.process_message(&mut bob_p, &add.commit).unwrap();
+        let processed = bob_group.receive(&mut bob_p, &add.commit).unwrap();
 
         let met = processed.leaves_met();
         assert_eq!(met.len(), 1);
@@ -1060,11 +1139,11 @@ mod tests {
             .add_member(&alice_p, &charles.key_package(&charles_p).unwrap())
             .unwrap();
         alice_group.merge_pending_commit(&mut alice_p).unwrap();
-        bob_group.process_message(&mut bob_p, &add.commit).unwrap();
+        bob_group.receive(&mut bob_p, &add.commit).unwrap();
         let remove = alice_group.remove_member(&alice_p, 2).unwrap();
         alice_group.merge_pending_commit(&mut alice_p).unwrap();
 
-        let processed = bob_group.process_message(&mut bob_p, &remove.commit).unwrap();
+        let processed = bob_group.receive(&mut bob_p, &remove.commit).unwrap();
 
         assert!(processed.leaves_met().is_empty());
         assert_eq!(bob_group.list_members().len(), 2);
@@ -1079,7 +1158,7 @@ mod tests {
 
         let update = alice_group.update_credential(&alice_p, b"alice, bound").unwrap();
         alice_group.merge_pending_commit(&mut alice_p).unwrap();
-        let processed = bob_group.process_message(&mut bob_p, &update.commit).unwrap();
+        let processed = bob_group.receive(&mut bob_p, &update.commit).unwrap();
 
         let met = processed.leaves_met();
         assert_eq!(met.len(), 1);
@@ -1088,7 +1167,7 @@ mod tests {
         assert_eq!(met[0].signature_public_key(), key);
         assert_eq!(alice_group.list_members()[0].credential_bytes(), b"alice, bound");
         let ciphertext = alice_group.encrypt_application(&alice_p, b"still me").unwrap();
-        let read = bob_group.process_message(&mut bob_p, &ciphertext).unwrap();
+        let read = bob_group.receive(&mut bob_p, &ciphertext).unwrap();
         assert_eq!(read.application(), b"still me");
     }
 
@@ -1152,7 +1231,7 @@ mod tests {
             bobs_update_proposal(&bob_p, &mut bob_group),
             join_proposal(&alice_group, b"mallory"),
         ] {
-            let processed = alice_group.process_message(&mut alice_p, &proposal).unwrap();
+            let processed = alice_group.receive(&mut alice_p, &proposal).unwrap();
 
             assert!(matches!(processed.kind(), ProcessedKind::Proposal));
             assert!(!alice_group.mls_group.has_pending_proposals());
@@ -1184,7 +1263,7 @@ mod tests {
 
             let commit = commit(&mut alice_group, &alice_p);
             alice_group.merge_pending_commit(&mut alice_p).unwrap();
-            bob_group.process_message(&mut bob_p, &commit).unwrap();
+            bob_group.receive(&mut bob_p, &commit).unwrap();
 
             for group in [&alice_group, &bob_group] {
                 let credentials: Vec<_> = group.list_members().iter().map(|m| m.credential_bytes()).collect();
@@ -1241,7 +1320,7 @@ mod tests {
         let (commit, group_info) = (join.commit(), join.group_info());
         assert_eq!(join.epoch(), bob_group.epoch() + 1);
         let mut laptop_group = join.into_group();
-        let processed = bob_group.process_message(&mut bob_p, &commit).unwrap();
+        let processed = bob_group.receive(&mut bob_p, &commit).unwrap();
 
         assert!(matches!(processed.kind(), ProcessedKind::Commit));
         let met = processed.leaves_met();
@@ -1251,10 +1330,10 @@ mod tests {
         assert_eq!(met[0].leaf_index(), laptop_group.own_leaf_index());
         assert_eq!(bob_group.epoch(), laptop_group.epoch());
         let to_bob = laptop_group.encrypt_application(&laptop_p, b"back").unwrap();
-        assert_eq!(bob_group.process_message(&mut bob_p, &to_bob).unwrap().application(), b"back");
+        assert_eq!(bob_group.receive(&mut bob_p, &to_bob).unwrap().application(), b"back");
         let to_laptop = bob_group.encrypt_application(&bob_p, b"welcome back").unwrap();
         assert_eq!(
-            laptop_group.process_message(&mut laptop_p, &to_laptop).unwrap().application(),
+            laptop_group.receive(&mut laptop_p, &to_laptop).unwrap().application(),
             b"welcome back"
         );
         assert_eq!(joinable_epoch(&group_info, b"conv-016"), laptop_group.epoch());
@@ -1264,12 +1343,81 @@ mod tests {
         let join = Group::join_by_external_commit(&charles_p, &charles, b"conv-016", &group_info).unwrap();
         let commit = join.commit();
         let mut charles_group = join.into_group();
-        bob_group.process_message(&mut bob_p, &commit).unwrap();
-        laptop_group.process_message(&mut laptop_p, &commit).unwrap();
+        bob_group.receive(&mut bob_p, &commit).unwrap();
+        laptop_group.receive(&mut laptop_p, &commit).unwrap();
         let hello = bob_group.encrypt_application(&bob_p, b"hello both").unwrap();
         for (group, provider) in [(&mut laptop_group, &mut laptop_p), (&mut charles_group, &mut charles_p)] {
-            assert_eq!(group.process_message(provider, &hello).unwrap().application(), b"hello both");
+            assert_eq!(group.receive(provider, &hello).unwrap().application(), b"hello both");
         }
+    }
+
+    /// Bob sees, before applying it, that the laptop's commit is a device committing itself in, which
+    /// leaf it brings and where; applied, it sits there.
+    #[test]
+    fn an_external_commit_shows_its_joiner_where_it_sits() {
+        let (_, _, mut bob_p, mut bob_group) = alice_with_bob(b"conv-030");
+        let update = bob_group.update(&bob_p).unwrap();
+        bob_group.merge_pending_commit(&mut bob_p).unwrap();
+        let laptop_p = Provider::new();
+        let laptop = identity(&laptop_p, b"alice's laptop");
+        let join = Group::join_by_external_commit(&laptop_p, &laptop, b"conv-030", &update.group_info).unwrap();
+        let commit = join.commit();
+        let laptop_group = join.into_group();
+        let epoch = bob_group.epoch();
+
+        let mut processed = bob_group.process_message(&mut bob_p, &commit).unwrap();
+
+        let joiner = processed.joiner().unwrap();
+        assert_eq!(joiner.credential_bytes(), b"alice's laptop");
+        assert_eq!(joiner.signature_public_key(), laptop.signature_public_key());
+        assert_eq!(joiner.leaf_index(), laptop_group.own_leaf_index());
+        assert!(processed.removed().is_empty());
+        assert_eq!(bob_group.epoch(), epoch);
+
+        bob_group.apply_commit(&mut bob_p, &mut processed).unwrap();
+        assert_eq!(bob_group.epoch(), epoch + 1);
+        assert_eq!(processed.joiner().unwrap().leaf_index(), laptop_group.own_leaf_index());
+        assert_eq!(processed.leaves_met(), vec![joiner]);
+    }
+
+    #[test]
+    fn a_members_commit_has_no_joiner() {
+        let (alice_p, mut alice_group, mut bob_p, mut bob_group) = alice_with_bob(b"conv-031");
+        let charles_p = Provider::new();
+        let charles = identity(&charles_p, b"charles");
+        let add = alice_group.add_member(&alice_p, &charles.key_package(&charles_p).unwrap()).unwrap();
+
+        let processed = bob_group.process_message(&mut bob_p, &add.commit).unwrap();
+
+        assert!(processed.joiner().is_none());
+        assert!(processed.removed().is_empty());
+    }
+
+    /// Mallory commits herself in over the key of Charles's leaf, which openmls then removes: Bob
+    /// sees the leaf it would remove, as it stands, and dropping the commit unapplied changes nothing.
+    #[test]
+    fn an_external_commit_shows_the_leaves_it_removes_and_dropped_changes_nothing() {
+        let (mut alice_p, mut alice_group, mut bob_p, mut bob_group) = alice_with_bob(b"conv-032");
+        let charles_p = Provider::new();
+        let charles = identity(&charles_p, b"charles");
+        let add = alice_group.add_member(&alice_p, &charles.key_package(&charles_p).unwrap()).unwrap();
+        alice_group.merge_pending_commit(&mut alice_p).unwrap();
+        bob_group.receive(&mut bob_p, &add.commit).unwrap();
+        let charles_leaf = bob_group.list_members().into_iter().find(|m| m.credential_bytes() == b"charles").unwrap();
+        let mallory = Identity::bind(&charles_p, b"mallory", charles.signature_public_key()).unwrap();
+        let join = Group::join_by_external_commit(&charles_p, &mallory, b"conv-032", &add.group_info).unwrap();
+        let (members, epoch) = (bob_group.list_members(), bob_group.epoch());
+
+        let processed = bob_group.process_message(&mut bob_p, &join.commit()).unwrap();
+
+        assert_eq!(processed.removed(), vec![charles_leaf.clone()]);
+        let joiner = processed.joiner().unwrap();
+        assert_eq!(joiner.credential_bytes(), b"mallory");
+        assert_eq!(joiner.leaf_index(), charles_leaf.leaf_index());
+        drop(processed);
+        assert_eq!((bob_group.list_members(), bob_group.epoch()), (members, epoch));
+        let hello = alice_group.encrypt_application(&alice_p, b"still here").unwrap();
+        assert_eq!(bob_group.receive(&mut bob_p, &hello).unwrap().application(), b"still here");
     }
 
     /// A join's group is stored as it is made; one the DS refused is deleted, and a join after
@@ -1292,7 +1440,7 @@ mod tests {
         Group::join_by_external_commit(&laptop_p, &laptop, b"conv-019", &update.group_info).unwrap();
         let again = Group::join_by_external_commit(&laptop_p, &laptop, b"conv-019", &update.group_info).unwrap();
         let commit = again.commit();
-        bob_group.process_message(&mut bob_p, &commit).unwrap();
+        bob_group.receive(&mut bob_p, &commit).unwrap();
         assert_eq!(bob_group.list_members().len(), 3);
     }
 
@@ -1316,11 +1464,11 @@ mod tests {
         assert!(alice_group.mls_group.pending_commit().is_none());
         let update = alice_group.update(&alice_p).unwrap();
         alice_group.merge_pending_commit(&mut alice_p).unwrap();
-        bob_group.process_message(&mut bob_p, &update.commit).unwrap();
+        bob_group.receive(&mut bob_p, &update.commit).unwrap();
         let ciphertext = alice_group
             .encrypt_application(&alice_p, b"still in step")
             .unwrap();
-        let processed = bob_group.process_message(&mut bob_p, &ciphertext).unwrap();
+        let processed = bob_group.receive(&mut bob_p, &ciphertext).unwrap();
         assert_eq!(processed.application(), b"still in step");
     }
 
@@ -1355,7 +1503,7 @@ mod tests {
             .add_member(&alice_p, &charles.key_package(&charles_p).unwrap())
             .unwrap();
         alice_group.merge_pending_commit(&mut alice_p).unwrap();
-        bob_group.process_message(&mut bob_p, &add.commit).unwrap();
+        bob_group.receive(&mut bob_p, &add.commit).unwrap();
         let mut charles_group = Group::join(&charles_p, &add.welcome, None).unwrap();
 
         let refused = MlsGroup::external_commit_builder()
@@ -1372,23 +1520,23 @@ mod tests {
             (&mut bob_group, &mut bob_p),
             (&mut charles_group, &mut charles_p),
         ] {
-            group.process_message(provider, &commit).unwrap();
+            group.receive(provider, &commit).unwrap();
         }
         let hello = bob_group.encrypt_application(&bob_p, b"still here").unwrap();
         for (group, provider) in [(&mut charles_group, &mut charles_p), (&mut dave_group, &mut dave_p)] {
-            assert_eq!(group.process_message(provider, &hello).unwrap().application(), b"still here");
+            assert_eq!(group.receive(provider, &hello).unwrap().application(), b"still here");
         }
 
         let remove = alice_group.remove_member(&alice_p, charles_group.own_leaf_index()).unwrap();
         alice_group.merge_pending_commit(&mut alice_p).unwrap();
-        charles_group.process_message(&mut charles_p, &remove.commit).unwrap();
+        charles_group.receive(&mut charles_p, &remove.commit).unwrap();
         let back = alice_group
             .add_member(&alice_p, &charles.key_package(&charles_p).unwrap())
             .unwrap();
         alice_group.merge_pending_commit(&mut alice_p).unwrap();
         let mut charles_group = charles_group.rejoin(&charles_p, &back.welcome).unwrap().unwrap();
         let again = alice_group.encrypt_application(&alice_p, b"welcome back").unwrap();
-        assert_eq!(charles_group.process_message(&mut charles_p, &again).unwrap().application(), b"welcome back");
+        assert_eq!(charles_group.receive(&mut charles_p, &again).unwrap().application(), b"welcome back");
     }
 
     /// The lifetime still counts when a KeyPackage is added: `KeyPackage::from_bytes` validates it so.
@@ -1433,10 +1581,10 @@ mod tests {
         let add = alice_group.add_member(&alice_p, &made).unwrap();
         alice_group.merge_pending_commit(&mut alice_p).unwrap();
 
-        bob_group.process_message(&mut bob_p, &add.commit).unwrap();
+        bob_group.receive(&mut bob_p, &add.commit).unwrap();
         let mut charles_group = Group::join(&charles_p, &add.welcome, None).unwrap();
         let hello = charles_group.encrypt_application(&charles_p, b"hello Bob").unwrap();
-        assert_eq!(bob_group.process_message(&mut bob_p, &hello).unwrap().application(), b"hello Bob");
+        assert_eq!(bob_group.receive(&mut bob_p, &hello).unwrap().application(), b"hello Bob");
 
         let twelve_weeks = key_package_made_ago(&charles_p, &charles, 13 * WEEK, 12 * WEEK);
         let signer = alice_group.signer(&alice_p).unwrap();
@@ -1480,7 +1628,7 @@ mod tests {
         let mut laptop_group = Group::join(&laptop_p, &add.welcome, None).unwrap();
 
         let hello = alice_group.encrypt_application(&alice_p, b"in").unwrap();
-        assert_eq!(laptop_group.process_message(&mut laptop_p, &hello).unwrap().application(), b"in");
+        assert_eq!(laptop_group.receive(&mut laptop_p, &hello).unwrap().application(), b"in");
     }
 
     /// Bob joined Alice's group; Charles, whom Bob adds, joins from Bob's Welcome alone, as a
@@ -1506,7 +1654,7 @@ mod tests {
 
         let ciphertext = bob_group.encrypt_application(&bob_p, b"in").unwrap();
         let processed = charles_group
-            .process_message(&mut charles_p, &ciphertext)
+            .receive(&mut charles_p, &ciphertext)
             .unwrap();
         assert_eq!(processed.application(), b"in");
     }
@@ -1565,9 +1713,9 @@ mod tests {
         alice_group.merge_pending_commit(&mut alice_p).unwrap();
 
         bob_group
-            .process_message(&mut bob_p, &update.commit)
+            .receive(&mut bob_p, &update.commit)
             .unwrap();
-        let processed = bob_group.process_message(&mut bob_p, &sent).unwrap();
+        let processed = bob_group.receive(&mut bob_p, &sent).unwrap();
 
         assert_eq!(processed.application(), b"before the commit");
     }
@@ -1583,9 +1731,9 @@ mod tests {
         bob_group.merge_pending_commit(&mut bob_p).unwrap();
 
         alice_group
-            .process_message(&mut alice_p, &update.commit)
+            .receive(&mut alice_p, &update.commit)
             .unwrap();
-        let processed = alice_group.process_message(&mut alice_p, &sent).unwrap();
+        let processed = alice_group.receive(&mut alice_p, &sent).unwrap();
 
         assert_eq!(processed.application(), b"before the commit");
     }
@@ -1603,10 +1751,10 @@ mod tests {
             let update = alice_group.update(&alice_p).unwrap();
             alice_group.merge_pending_commit(&mut alice_p).unwrap();
             bob_group
-                .process_message(&mut bob_p, &update.commit)
+                .receive(&mut bob_p, &update.commit)
                 .unwrap();
         }
-        let processed = bob_group.process_message(&mut bob_p, &sent).unwrap();
+        let processed = bob_group.receive(&mut bob_p, &sent).unwrap();
 
         assert_eq!(processed.application(), b"five behind");
     }
@@ -1635,7 +1783,7 @@ mod tests {
         let ciphertext = alice_group
             .encrypt_application(&alice_p, b"welcome back")
             .unwrap();
-        let processed = rejoined.process_message(&mut bob_p, &ciphertext).unwrap();
+        let processed = rejoined.receive(&mut bob_p, &ciphertext).unwrap();
         assert_eq!(processed.application(), b"welcome back");
         let stored = Group::load_from_provider(&bob_p, b"conv-003").unwrap().unwrap();
         assert_eq!(stored.epoch(), rejoined.epoch());
@@ -1702,7 +1850,7 @@ mod tests {
         let ciphertext = alice_group
             .encrypt_application(&alice_p_mut, plaintext)
             .unwrap();
-        let processed = bob_group.process_message(&mut bob_p_mut, &ciphertext).unwrap();
+        let processed = bob_group.receive(&mut bob_p_mut, &ciphertext).unwrap();
         assert!(matches!(processed.kind(), ProcessedKind::Application));
         assert_eq!(processed.application(), plaintext);
     }
@@ -1745,7 +1893,7 @@ mod tests {
         alice_group.merge_pending_commit(&mut alice_p_mut).unwrap();
 
         let processed = bob_group
-            .process_message(&mut bob_p_mut, &add_charles.commit)
+            .receive(&mut bob_p_mut, &add_charles.commit)
             .unwrap();
         assert!(matches!(processed.kind(), ProcessedKind::Commit));
 
@@ -1765,7 +1913,7 @@ mod tests {
             (&mut bob_group, &mut bob_p_mut),
             (&mut charles_group, &mut charles_p_mut),
         ] {
-            let p = group.process_message(prov, &ct).unwrap();
+            let p = group.receive(prov, &ct).unwrap();
             assert!(matches!(p.kind(), ProcessedKind::Application));
             assert_eq!(p.application(), msg);
         }
@@ -1836,7 +1984,7 @@ mod tests {
         alice_group.merge_pending_commit(&mut alice_p_mut).unwrap();
 
         // Bob processes the update commit.
-        let processed = bob_group.process_message(&mut bob_p_mut, &upd.commit).unwrap();
+        let processed = bob_group.receive(&mut bob_p_mut, &upd.commit).unwrap();
         assert!(matches!(processed.kind(), ProcessedKind::Commit));
 
         let epoch_after = alice_group.epoch();
@@ -1854,7 +2002,7 @@ mod tests {
         let ct = alice_group
             .encrypt_application(&alice_p_mut, b"post-update")
             .unwrap();
-        let processed = bob_group.process_message(&mut bob_p_mut, &ct).unwrap();
+        let processed = bob_group.receive(&mut bob_p_mut, &ct).unwrap();
         assert_eq!(processed.application(), b"post-update");
     }
 
@@ -1929,7 +2077,7 @@ mod tests {
             .encrypt_application(&alice_p_mut, b"after-reload")
             .unwrap();
         let mut restored_p_mut = restored_p;
-        let processed = bob_loaded.process_message(&mut restored_p_mut, &ct).unwrap();
+        let processed = bob_loaded.receive(&mut restored_p_mut, &ct).unwrap();
         assert!(matches!(processed.kind(), ProcessedKind::Application));
         assert_eq!(processed.application(), b"after-reload");
     }

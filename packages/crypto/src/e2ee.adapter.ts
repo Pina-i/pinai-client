@@ -97,6 +97,7 @@ import {
     type PendingHistoryKey,
 } from "@pinai/domain/models/history-key"
 import type { RearchiveDue, RearchiveEntry, RearchivePosition } from "@pinai/domain/models/history-rearchive"
+import { newcomerProven, type NewDeviceSeen } from "@pinai/domain/models/new-device"
 import { IdpError, isApprovalRequired, isStaleHistoryKey } from "@pinai/domain/models/idp-error"
 import {
     shareCandidates,
@@ -114,6 +115,7 @@ import { ApprovalHandshake, newApprovalCode } from "./approval-handshake"
 import {
     attestedUntil,
     checkListedDevices,
+    credentialApproved,
     verifyApproval,
     verifyDeviceChain,
     verifyDeviceRoot,
@@ -133,7 +135,7 @@ import { HISTORY_SALT_BYTES, type HistoryArchiveAdapter } from "./history-archiv
 import type { IdentityAdapter } from "./identity.adapter"
 import { openKeyShare, sealKeyShare } from "./key-share"
 import type { CommitView, IKeyDirectoryPort } from "@pinai/domain/ports/key-directory.port"
-import type { CommitOutput, ExternalJoinOutput, IMlsEngine } from "@pinai/domain/ports/mls-engine.port"
+import type { CommitOutput, ExternalJoinOutput, IMlsEngine, ProcessOutcome } from "@pinai/domain/ports/mls-engine.port"
 import type { DeviceAttestation, E2eeStorage, KeptPassphrase, RestoreDue } from "./sealed-storage"
 
 /** Renew the Device Root Key attestation silently when within this window of expiry. */
@@ -489,6 +491,55 @@ export class E2eeAdapter implements IE2eePort {
                 continue
             }
             this.recordUntrusted(conversationId, leaf, verdict.reason)
+        }
+    }
+
+    /** A commit applied: the leaves it met checked, and the device an external one brought in met. */
+    private async commitApplied(
+        conversationId: ConversationId,
+        outcome: Extract<ProcessOutcome, { kind: "commit" }>,
+        createdAt: string,
+    ): Promise<void> {
+        await this.checkLeavesMet(conversationId, outcome.leavesMet)
+        if (outcome.joiner) await this.meetNewcomer(conversationId, outcome.joiner, createdAt)
+    }
+
+    private readonly newDeviceListeners = new Set<(seen: NewDeviceSeen) => void>()
+    // A commit is applied once: what came before any listener waits for the first.
+    private untoldNewDevices: NewDeviceSeen[] = []
+
+    onNewDevice(listener: (seen: NewDeviceSeen) => void): () => void {
+        this.newDeviceListeners.add(listener)
+        const untold = this.untoldNewDevices
+        this.untoldNewDevices = []
+        for (const seen of untold) tellNewDevice(listener, seen)
+        return () => this.newDeviceListeners.delete(listener)
+    }
+
+    /**
+     * A device that committed itself into the group (§ 6.14): told when it is another account's and
+     * neither the words nor a code the conversation can check prove it — nor when its leaf is shown
+     * forged. Never thrown: the commit is applied already.
+     */
+    private async meetNewcomer(conversationId: ConversationId, joiner: MlsLeaf, createdAt: string): Promise<void> {
+        try {
+            const credential = joiner.credential
+            if (!credential || credential.actor_uri === (await this.storage.getBoundActorUri())) return
+            const forged = leafOrigin(await this.verifyLeaf(joiner)) === "forged"
+            const tree = await this.mls.groupLeaves(conversationId)
+            if (!forged && newcomerProven({ ...joiner, credential }, tree, credentialApproved)) return
+            const seen: NewDeviceSeen = {
+                conversationId,
+                epoch: Number(await this.mls.getEpoch(conversationId)),
+                actorUri: credential.actor_uri,
+                deviceId: credential.device_id,
+                createdAt,
+            }
+            if (this.newDeviceListeners.size === 0) this.untoldNewDevices.push(seen)
+            for (const listener of this.newDeviceListeners) tellNewDevice(listener, seen)
+        } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn(`[e2ee] a device joining ${conversationId} by itself couldn't be looked at`, e)
         }
     }
 
@@ -1684,7 +1735,7 @@ export class E2eeAdapter implements IE2eePort {
         ciphertext: Uint8Array,
     ): Promise<ApplicationMessage | null> {
         const outcome = await this.mls.processMessage(conversationId, ciphertext)
-        if (outcome.kind === "commit") await this.checkLeavesMet(conversationId, outcome.leavesMet)
+        if (outcome.kind === "commit") await this.commitApplied(conversationId, outcome, new Date().toISOString())
         if (outcome.kind !== "application") return null
         const text = new TextDecoder().decode(outcome.plaintext)
         return JSON.parse(text, applicationMessageReviver) as ApplicationMessage
@@ -1717,7 +1768,7 @@ export class E2eeAdapter implements IE2eePort {
         for (const c of commits) {
             try {
                 const outcome = await this.mls.processMessage(conversationId, c.commit_blob)
-                if (outcome.kind === "commit") await this.checkLeavesMet(conversationId, outcome.leavesMet)
+                if (outcome.kind === "commit") await this.commitApplied(conversationId, outcome, c.created_at)
             } catch (e) {
                 // eslint-disable-next-line no-console
                 console.warn(
@@ -2587,6 +2638,15 @@ function tell(listener: (event: TrustEvent) => void, event: TrustEvent): void {
     } catch (e) {
         // eslint-disable-next-line no-console
         console.warn("onTrustEvent listener failed:", e)
+    }
+}
+
+function tellNewDevice(listener: (seen: NewDeviceSeen) => void, seen: NewDeviceSeen): void {
+    try {
+        listener(seen)
+    } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("onNewDevice listener failed:", e)
     }
 }
 

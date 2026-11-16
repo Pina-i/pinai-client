@@ -59,6 +59,14 @@ when it is added.
 among them, and a commit never takes in the group's proposal store: a proposal kept
 would ride a member's next commit (§ 6.3).
 
+A commit received is staged, not merged: `process_message` shows its `joiner` — the leaf an
+external commit (a `new_member_commit` sender) brings in, at the index it takes — and the
+leaves it `removed`, as they stand before it, and `Group::apply_commit` merges it, filling
+`leaves_met`. A `ProcessedMessage` dropped unapplied leaves the group as it was. RFC 9420
+§ 12.4.3.2 leaves an external commit's removals for the application to accept: the client
+refuses one reaching a leaf of another account than its joiner's (`@pinai/mls`), which needs
+the credentials this crate doesn't read.
+
 ## HPKE (`src/hpke.rs`)
 
 RFC 9180 base mode with the suite key shares use — DHKEM(X25519, HKDF-SHA256),

@@ -141,7 +141,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   epoch it opens, posted together. `joinByExternalCommit` is pending as a
   commit is — `mergePendingCommit` holds the group, `clearPendingCommit` drops
   it — and shows the tree it makes (`leaves`). A proposal received is ignored
-  (`kind: "proposal"`).
+  (`kind: "proposal"`). A commit received answers its `joiner` when it is an
+  external one; one removing a leaf of another account is refused
+  (`refusesExternalCommit`, `models/new-device.ts`).
 
 ### ports/hpke.port.ts
 - `IHpkePort` — RFC 9180 base mode, one suite (DHKEM(X25519, HKDF-SHA256),
@@ -168,7 +170,7 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   `approval_public_key`) or by a partner's root key (`device_id`), both over
   `PINAI-DEVICE-APPROVAL-v1`. `leafApprovals` — the one order a device writes them in:
   the words' first, then its partners' by device id, each once, so the credential it
-  would make compares with its leaf's. Members checking them is not here.
+  would make compares with its leaf's. Members checking them: `models/new-device.ts`.
 
 ### models/device.ts
 - `DeviceListEntry` carries what another device needs to check the chain JWKS
@@ -549,7 +551,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   shows as unavailable instead of minting a conversation for it.
 - `interleaveTimeline(messages, events)` — a group's changes between its
   messages: the messages keep their order, each change goes before the first
-  message from after it.
+  message from after it. `inTimeOrder` — the lines from several sources as one,
+  in time order.
 - `SendStatus` — an own message's lifecycle. `failed`: the IdP never accepted
   it, retried in place. `undelivered`: the IdP stored it but couldn't reach the
   recipient's IdP; the row stays as the record of that attempt and the retry
@@ -703,6 +706,22 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   `whenIn` — what a send waits on: `in`, `no-group`, or the refusal.
   `enterConversationUseCase` — before a send: in, or a DM founded while it has no
   group, `GroupToJoin` sending it back to the wait; a group without one fails.
+
+### models/new-device.ts
+- What the members make of a device that committed itself in (`identity-provider/specs/e2ee.md
+  § 3.4`, § 6.14). `refusesExternalCommit` — its removals reach only its joiner's account.
+  `newcomerProven(newcomer, tree, approves)` — proven by what the conversation holds: a words
+  approval under the key another leaf of its account carries in its own verifying words
+  approval, at the newest generation those leaves carry; or a code approval by another device
+  of its account with a leaf there, under that leaf's `drk_pub` (never one the newcomer
+  carries). The signatures go through `ApprovalCheck` (`@pinai/crypto`'s `credentialApproved`):
+  credentials decode leniently, so the rule checks every one itself.
+- `NewDeviceSeen` (`IE2eePort.onNewDevice`) → `NewDeviceLine`: this device's own timeline entry,
+  one per commit (`newDeviceLine`'s id: the epoch and the device), dated by the commit,
+  `withNewDeviceLine` (the same list when held). `readNewDeviceLines` — what the cache holds read
+  leniently, an entry of another shape passed over. `memberName` — the name the conversation
+  list gives. `describeNewDevice` — "⚠ Alice is now writing from a new device." and its
+  explanation; singular "they": the instance knows nobody's pronouns.
 
 ### models/own-messages.ts
 - `isHeldHere` — a message from the user's own account is this device's

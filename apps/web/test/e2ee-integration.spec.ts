@@ -46,6 +46,7 @@ import { GroupToJoin, WELCOME_WAIT_MS } from "@pinai/domain/models/conversation-
 import { ConversationJoins, enterConversationUseCase } from "@pinai/domain/usecases/e2ee/join-conversations.usecase"
 import { approvalBytes, deviceHpkeKeyBytes } from "@pinai/crypto/canonical-bytes"
 import type { LeafCredential, UntrustedLeaf } from "@pinai/domain/models/leaf-trust"
+import type { NewDeviceSeen } from "@pinai/domain/models/new-device"
 
 import { decryptDownloaded, encryptForUpload } from "@pinai/crypto/attachment-crypto"
 import { E2eeAdapter } from "@pinai/crypto/e2ee.adapter"
@@ -2648,5 +2649,190 @@ describe("MLS E2EE — a KeyPackage lives a year", () => {
         } finally {
             vi.useRealTimers()
         }
+    })
+})
+
+describe("MLS E2EE — the members of a conversation a device joins by itself", () => {
+    const dm: ConversationId = "f5f5f5f5-2222-3333-4444-555566667777"
+    const group: ConversationId = "f6f6f6f6-2222-3333-4444-555566667777"
+    const issuer = "https://idp.shared.example"
+    const [aliceActor, bobActor, carolActor, malloryActor] = ["alice", "bob", "carol", "mallory"].map((name) =>
+        asActorUri(`${issuer}/users/${name}_x1y2z`),
+    )
+    const join = { welcomeOverdue: false, siblingMayAdd: false }
+
+    async function registered(directory: InMemoryKeyDirectory, token: string, actor: ActorUri, history: FakeHistoryIdp | null = null) {
+        const ctx = await buildAdapter(directory, token, actor, history)
+        await ctx.e2ee.register(issuer, token, actor)
+        return ctx
+    }
+
+    /** The new devices `ctx` tells of from now on. */
+    function linesOf(ctx: AdapterCtx): NewDeviceSeen[] {
+        const seen: NewDeviceSeen[] = []
+        ctx.e2ee.onNewDevice((line) => seen.push(line))
+        return seen
+    }
+
+    async function leavesOf(ctx: AdapterCtx, conversationId: ConversationId, device: AdapterCtx) {
+        const id = await device.storage.getOrCreateDeviceId()
+        return (await ctx.mls.groupLeaves(conversationId)).filter((leaf) => leaf.credential?.device_id === id)
+    }
+
+    /**
+     * Alice's phone, holding generation 1's words — its leaves carrying their approval —, in her DM
+     * with Bob and her group with Bob and Carol; then lost.
+     */
+    async function alicesPhoneLost() {
+        const directory = new InMemoryKeyDirectory()
+        directory.senderIssuer = issuer
+        const history = new FakeHistoryIdp()
+        const account = await accountKey(history)
+        const phone = await registered(directory, "phone-token", aliceActor, history)
+        await account.hold(phone)
+        const bob = await registered(directory, "bob-token", bobActor)
+        const carol = await registered(directory, "carol-token", carolActor)
+        await phone.e2ee.addContactToGroup(issuer, "phone-token", dm, bobActor)
+        await phone.e2ee.addContactToGroup(issuer, "phone-token", group, bobActor)
+        await phone.e2ee.addContactToGroup(issuer, "phone-token", group, carolActor)
+        for (const conversation of [dm, group]) await phone.e2ee.refreshOwnLeaf(issuer, "phone-token", conversation)
+        await bob.e2ee.consumePendingWelcomes(issuer, "bob-token", bobActor)
+        await carol.e2ee.consumePendingWelcomes(issuer, "carol-token", carolActor)
+        for (const conversation of [dm, group]) await bob.e2ee.catchUp(issuer, "bob-token", conversation)
+        await carol.e2ee.catchUp(issuer, "carol-token", group)
+        expect((await leavesOf(bob, dm, phone))[0].credential?.approvals).toEqual([expect.objectContaining({ by: "passphrase", generation: 1 })])
+        return { directory, history, account, phone, bob, carol }
+    }
+
+    it("shows Bob no line for Alice's laptop that her words brought back", async () => {
+        const { directory, history, account, bob } = await alicesPhoneLost()
+        const laptop = await registered(directory, "laptop-token", aliceActor, history)
+        await account.hold(laptop)
+        const bobSees = linesOf(bob)
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).toEqual({ kind: "joined" })
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+
+        expect(await leavesOf(bob, dm, laptop)).toHaveLength(1)
+        expect(bobSees).toEqual([])
+    })
+
+    it("shows Bob no line for a laptop approved by the phone's code before it got the words", async () => {
+        const { directory, phone, bob } = await alicesPhoneLost()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        const laptopId = await laptop.storage.getOrCreateDeviceId()
+        const laptopRoot = (await laptop.storage.loadDeviceAttestation())!.drk_public
+        const phoneDevice = { ...(await known(phone)), hpkeKey: (await phone.storage.loadDeviceAttestation())!.hpke!.public_key }
+        const signature = await phone.e2ee.signDeviceApproval(aliceActor, laptopId, laptopRoot)
+        await laptop.e2ee.rememberHandshakePartner(phoneDevice, { actorUri: aliceActor, signature })
+        const bobSees = linesOf(bob)
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).toEqual({ kind: "joined" })
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+
+        expect(await leavesOf(bob, dm, laptop)).toHaveLength(1)
+        expect(bobSees).toEqual([])
+    })
+
+    it("shows Bob the line, once and dated by the commit, for a laptop that started over", async () => {
+        const { directory, history, bob } = await alicesPhoneLost()
+        const laptop = await registered(directory, "laptop-token", aliceActor, history)
+        await (await accountKey(history, 2)).hold(laptop)
+        const bobSees = linesOf(bob)
+        const laptopSees = linesOf(laptop)
+        const epoch = Number(await bob.mls.getEpoch(dm)) + 1
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).toEqual({ kind: "joined" })
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+
+        const [commit] = (await directory.getCommitsSince(issuer, "bob-token", dm, epoch - 1)).commits
+        expect(bobSees).toEqual([
+            {
+                conversationId: dm,
+                epoch,
+                actorUri: aliceActor,
+                deviceId: await laptop.storage.getOrCreateDeviceId(),
+                createdAt: commit.created_at,
+            },
+        ])
+        expect(laptopSees).toEqual([])
+    })
+
+    it("has every member of a group see exactly one line", async () => {
+        const { directory, bob, carol } = await alicesPhoneLost()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+        const [bobSees, carolSees] = [linesOf(bob), linesOf(carol)]
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", group, join)).toEqual({ kind: "joined" })
+        for (let i = 0; i < 2; i++) {
+            await bob.e2ee.catchUp(issuer, "bob-token", group)
+            await carol.e2ee.catchUp(issuer, "carol-token", group)
+        }
+
+        const laptopId = await laptop.storage.getOrCreateDeviceId()
+        expect(bobSees).toEqual([expect.objectContaining({ conversationId: group, actorUri: aliceActor, deviceId: laptopId })])
+        expect(carolSees).toEqual(bobSees)
+    })
+
+    it("tells a line applied before anyone listened to the first listener", async () => {
+        const { directory, bob } = await alicesPhoneLost()
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+
+        await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+
+        expect(linesOf(bob)).toHaveLength(1)
+        expect(linesOf(bob)).toEqual([])
+    })
+
+    /** The phone brings Alice's tablet into the DM by Welcome, as an approved sibling. */
+    async function withTablet() {
+        const lost = await alicesPhoneLost()
+        const tablet = await registered(lost.directory, "tablet-token", aliceActor)
+        const bobSees = linesOf(lost.bob)
+        await lost.phone.e2ee.addOwnDevices(issuer, "phone-token", dm, await trusting(lost.phone, tablet))
+        await tablet.e2ee.consumePendingWelcomes(issuer, "tablet-token", aliceActor)
+        await lost.bob.e2ee.catchUp(issuer, "bob-token", dm)
+        expect(await leavesOf(lost.bob, dm, tablet)).toHaveLength(1)
+        return { ...lost, tablet, bobSees }
+    }
+
+    it("shows Bob no line for a sibling's add by Welcome", async () => {
+        const { bobSees } = await withTablet()
+
+        expect(bobSees).toEqual([])
+    })
+
+    it("shows no line on Alice's own devices for a device of hers that joined unproven", async () => {
+        const { directory, bob, tablet, bobSees } = await withTablet()
+        const tabletSees = linesOf(tablet)
+        const laptop = await registered(directory, "laptop-token", aliceActor)
+
+        expect(await laptop.e2ee.joinConversation(issuer, "laptop-token", dm, join)).toEqual({ kind: "joined" })
+        await tablet.e2ee.catchUp(issuer, "tablet-token", dm)
+        await bob.e2ee.catchUp(issuer, "bob-token", dm)
+
+        expect(await leavesOf(tablet, dm, laptop)).toHaveLength(1)
+        expect(tabletSees).toEqual([])
+        expect(bobSees).toHaveLength(1)
+    })
+
+    it("refuses an external commit removing a leaf of another account, as any invalid commit", async () => {
+        const { directory, bob, carol } = await alicesPhoneLost()
+        const bobSees = linesOf(bob)
+        const epoch = await bob.mls.getEpoch(group)
+        // Mallory commits herself in over the key of Carol's leaf, which openmls removes for it.
+        const key = (await carol.mls.ownLeafSignatureKey())!
+        await carol.mls.deleteGroup(group)
+        await carol.mls.setIdentity(credentialFor(testDevice(issuers, malloryActor), key), key)
+        const intrusion = await carol.mls.joinByExternalCommit(group, (await directory.getGroupInfo(issuer, "carol-token", group))!.group_info)
+        await directory.postCommit(issuer, "carol-token", group, Number(intrusion.epoch), intrusion.commit, intrusion.group_info)
+
+        await bob.e2ee.catchUp(issuer, "bob-token", group)
+
+        expect(await bob.mls.getEpoch(group)).toBe(epoch)
+        expect(await leavesOf(bob, group, carol)).toHaveLength(1)
+        expect(bobSees).toEqual([])
     })
 })
