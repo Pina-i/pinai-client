@@ -1,6 +1,7 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react"
 import { Backdrop } from "@/presentation/atoms/backdrop/backdrop"
 import { Motif } from "@/presentation/atoms/motif/motif"
+import { cn } from "@/presentation/_libs/utils"
 
 interface PassShellProps {
     /** The instance this device signs in to, as "— kauai.studio" above the title; its first letter is the watermark. */
@@ -12,6 +13,8 @@ interface PassShellProps {
     children: ReactNode
     /** Under the card: signing out, going back. */
     footer?: ReactNode
+    /** "center" (default), or "top" for a card that changes height, as its tabs switch: what is above it stays put. */
+    anchor?: "center" | "top"
 }
 
 // The pattern belongs to the left edge: the title and the card stand on a quiet ground.
@@ -19,14 +22,19 @@ const FADE = "linear-gradient(90deg, #000 0%, rgba(0,0,0,.7) 22%, rgba(0,0,0,.25
 const FADE_STYLE: CSSProperties = { maskImage: FADE, WebkitMaskImage: FADE }
 
 /** "Pass": a device being let in — centred, the instance's motif fading in from the left over a soft accent wash. */
-export function PassShell({ instance, title, titleFocusKey, children, footer }: PassShellProps) {
+export function PassShell({ instance, title, titleFocusKey, children, footer, anchor = "center" }: PassShellProps) {
     const heading = useRef<HTMLHeadingElement>(null)
     useEffect(() => {
         if (titleFocusKey) heading.current?.focus()
     }, [titleFocusKey])
 
     return (
-        <div className="relative flex min-h-app flex-col items-center justify-center gap-[26px] overflow-hidden bg-background px-4 py-14 sm:px-6">
+        <div
+            className={cn(
+                "relative flex min-h-app flex-col items-center gap-[26px] overflow-hidden bg-background px-4 sm:px-6",
+                anchor === "top" ? "justify-start pb-14 pt-[clamp(56px,14vh,160px)]" : "justify-center py-14",
+            )}
+        >
             <Backdrop />
             <div aria-hidden className="pointer-events-none absolute inset-0" style={FADE_STYLE}>
                 <Motif variant="field" className="absolute inset-0" style={{ opacity: "var(--pass-motif-opacity)" }} />

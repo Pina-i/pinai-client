@@ -34,6 +34,7 @@ Before creating a new reusable component, check if a similar one already exists 
 - Use tv() function from tailwind-variants to define component variants.
 - Use Shadcn theme tokens architecture for component styling.
 - Create custom declarative props to not coupling the reusable components to specific UI libraries (e.g. React Aria).
+- **Tabs** are always `molecules/SegmentedTabs` (React Aria `Tabs`), never buttons switching state: `SegmentedTabs` draws the pill over its panels; `SegmentedTabsRoot` + `SegmentedTabList` (`variant`: `pill`, `subtle`) + `SegmentedTabPanel` for another layout (the friends list). A page or dialog whose tabs change its height is anchored at the top — `PassShell`'s `anchor="top"`, `Modal`'s `placement="top"` — so the tabs never move as the content below them does.
 
 ## Layering (z-index)
 

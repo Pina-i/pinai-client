@@ -8,13 +8,19 @@ import { PersonProfileModal } from "@/presentation/organisms/PersonProfileModal/
 import { blockedPeople } from "@/presentation/molecules/BlockedPersonRow/blocked-person.helper"
 import { useRemoveFriend } from "@/presentation/hooks/useRemoveFriend"
 import { useBlockUser, useBlocks } from "@/presentation/hooks/useBlocks"
-import { cn } from "@/presentation/_libs/utils"
+import {
+    SegmentedTabList,
+    SegmentedTabPanel,
+    SegmentedTabsRoot,
+    type SegmentedTab,
+} from "@/presentation/molecules/SegmentedTabs/SegmentedTabs"
 import { useFriendsPanelViewModel, type Friend } from "./FriendsPanel.viewmodel"
 import { AddFriendPopover } from "./AddFriendPopover/AddFriendPopover"
 import { FriendRow } from "./FriendRow/FriendRow"
 
 const friendTabs = ["All", "Online", "Pending", "Blocked"] as const
 type FriendTab = (typeof friendTabs)[number]
+const FRIEND_TABS: readonly SegmentedTab<FriendTab>[] = friendTabs.map((tab) => ({ id: tab, label: tab }))
 
 interface FriendsPanelProps {
     userAddress: string
@@ -53,85 +59,71 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
 
     return (
         <div className="relative flex min-h-0 flex-1 flex-col px-1.5">
-            <div className="flex items-start justify-between gap-3 px-1.5 pt-1">
-                <div className="flex min-w-0 flex-wrap gap-1 self-start rounded-[22px] bg-surf2 p-1">
-                    {friendTabs.map((tab) => (
-                        <button
-                            key={tab}
-                            type="button"
-                            onClick={() => setActiveTab(tab)}
-                            className={cn(
-                                "flex-none cursor-pointer rounded-full px-4 py-[7px] text-[12.5px] transition-colors duration-150 max-[1180px]:px-[11px]",
-                                activeTab === tab
-                                    ? "bg-acc font-bold text-acc-ink"
-                                    : "text-muted-foreground hover:text-foreground",
-                            )}
-                        >
-                            {tab}
-                        </button>
-                    ))}
+            <SegmentedTabsRoot selected={activeTab} onChange={setActiveTab} className="flex min-h-0 flex-1 flex-col">
+                <div className="flex items-start justify-between gap-3 px-1.5 pt-1">
+                    <SegmentedTabList tabs={FRIEND_TABS} label="Friends" variant="subtle" />
+                    <AddFriendPopover
+                        userAddress={userAddress}
+                        onSendFriendRequest={onSendFriendRequest}
+                    />
                 </div>
-                <AddFriendPopover
-                    userAddress={userAddress}
-                    onSendFriendRequest={onSendFriendRequest}
-                />
-            </div>
 
-            <div className="mx-2 mb-2 mt-3.5 flex justify-between">
-                <span className="eye">
-                    Online <span className="fact ml-0.5">{onlineCount}</span>
-                </span>
-                <span className="eye">Showing {activeTab.toLowerCase()}</span>
-            </div>
+                <div className="mx-2 mb-2 mt-3.5 flex justify-between">
+                    <span className="eye">
+                        Online <span className="fact ml-0.5">{onlineCount}</span>
+                    </span>
+                    <span className="eye">Showing {activeTab.toLowerCase()}</span>
+                </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto pb-3">
-                {activeTab === "Blocked" ? (
-                    <>
-                        {blocks.length === 0 && (
-                            <p className="title py-8 text-center text-[13px] italic text-muted-foreground">You haven't blocked anyone.</p>
-                        )}
-                        {blockedPeople(blocks).map((person) => (
-                            <BlockedPersonRow
-                                key={person.actorUri}
-                                person={person}
-                                isPending={isBlocking}
-                                onUnblock={(p) => void unblock(p.actorUri, p.name)}
-                            />
-                        ))}
-                    </>
-                ) : (
-                    <>
-                        {isLoading && <p className="title py-8 text-center text-[13px] italic text-muted-foreground">Loading friends…</p>}
-                        {error && <p className="py-8 text-center text-[13px] text-dnd">{error}</p>}
-                        {filteredFriends.map((friend) => (
-                            <ContextMenu
-                                key={friend.id}
-                                trigger={(isOpen) => (
-                                    <FriendRow
-                                        friend={friend}
-                                        isActive={isOpen}
-                                        onOpen={onStartDm}
-                                        onProfile={setProfileFriend}
-                                        onRemove={(f) => setFriendToRemove({ id: f.id, name: f.name })}
-                                        onBlock={(f) => setFriendToBlock({ id: f.id, name: f.name })}
-                                    />
-                                )}
-                            >
-                                {(close) => (
-                                    <UserContextMenu
-                                        displayName={friend.name}
-                                        onClose={close}
-                                        onMessage={() => onStartDm(friend.address)}
-                                        onProfile={() => setProfileFriend(friend)}
-                                        onRemove={() => setFriendToRemove({ id: friend.id, name: friend.name })}
-                                        onBlock={() => setFriendToBlock({ id: friend.id, name: friend.name })}
-                                    />
-                                )}
-                            </ContextMenu>
-                        ))}
-                    </>
-                )}
-            </div>
+                <SegmentedTabPanel id={activeTab} className="min-h-0 flex-1 overflow-y-auto pb-3">
+                    {activeTab === "Blocked" ? (
+                        <>
+                            {blocks.length === 0 && (
+                                <p className="title py-8 text-center text-[13px] italic text-muted-foreground">You haven't blocked anyone.</p>
+                            )}
+                            {blockedPeople(blocks).map((person) => (
+                                <BlockedPersonRow
+                                    key={person.actorUri}
+                                    person={person}
+                                    isPending={isBlocking}
+                                    onUnblock={(p) => void unblock(p.actorUri, p.name)}
+                                />
+                            ))}
+                        </>
+                    ) : (
+                        <>
+                            {isLoading && <p className="title py-8 text-center text-[13px] italic text-muted-foreground">Loading friends…</p>}
+                            {error && <p className="py-8 text-center text-[13px] text-dnd">{error}</p>}
+                            {filteredFriends.map((friend) => (
+                                <ContextMenu
+                                    key={friend.id}
+                                    trigger={(isOpen) => (
+                                        <FriendRow
+                                            friend={friend}
+                                            isActive={isOpen}
+                                            onOpen={onStartDm}
+                                            onProfile={setProfileFriend}
+                                            onRemove={(f) => setFriendToRemove({ id: f.id, name: f.name })}
+                                            onBlock={(f) => setFriendToBlock({ id: f.id, name: f.name })}
+                                        />
+                                    )}
+                                >
+                                    {(close) => (
+                                        <UserContextMenu
+                                            displayName={friend.name}
+                                            onClose={close}
+                                            onMessage={() => onStartDm(friend.address)}
+                                            onProfile={() => setProfileFriend(friend)}
+                                            onRemove={() => setFriendToRemove({ id: friend.id, name: friend.name })}
+                                            onBlock={() => setFriendToBlock({ id: friend.id, name: friend.name })}
+                                        />
+                                    )}
+                                </ContextMenu>
+                            ))}
+                        </>
+                    )}
+                </SegmentedTabPanel>
+            </SegmentedTabsRoot>
 
             <RemoveFriendModal
                 friendName={friendToRemove?.name ?? null}
