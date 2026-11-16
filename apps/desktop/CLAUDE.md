@@ -2,7 +2,8 @@
 
 The web app (`apps/web`) as its renderer, built with `import.meta.env.PINAI_DESKTOP`, plus what
 only a desktop app can do: keep its session across restarts. In dev (`pnpm dev:desktop`) its
-window loads the web app's dev server, :5173 like the web app; built
+window loads its own dev server of the web app, on :5174 so that `pnpm dev` (:5173) can run
+beside it; built
 (`pnpm --filter @pinai/desktop build`), `app://pinai/`.
 
 ## Main process (`src/main`)

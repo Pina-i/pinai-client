@@ -33,6 +33,8 @@ export default defineConfig(async (env) => {
             build: { minify: true, rolldownOptions: { input: path.join(webRoot, "index.html") } },
             // The renderer is the web app, built knowing it runs inside the desktop app.
             define: { "import.meta.env.PINAI_DESKTOP": "true" },
+            // Off the web's 5173, so both dev servers run side by side.
+            server: { port: 5174 },
             // electron-vite's production preset forces base "./", meant for file://. app:// answers
             // index.html at every route, so from /dm/alice, "./assets/…" would be index.html again.
             plugins: [{ name: "pinai:root-base", apply: "build", config: () => ({ base: "/" }) }],
