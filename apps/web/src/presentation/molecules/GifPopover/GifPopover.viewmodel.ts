@@ -27,13 +27,10 @@ export function useGifPopoverViewModel(onPickGif: (file: File) => void) {
             const resp = await fetch(gif.gifUrl)
             if (!resp.ok) throw new Error(`Failed to load GIF: ${resp.status}`)
             const blob = await resp.blob()
-            // Force `image/gif` regardless of what Klipy's CDN reports.
-            // Some CDN edges return `application/octet-stream` (or
-            // `binary/octet-stream`) for larger frames; without this
-            // pin, the recipient's `isImageAttachment` check on the
-            // decrypted `AttachmentBlobKey.mime_type` would render the
-            // GIF as a generic file tile instead of an image tile.
-            const file = new File([blob], `${gif.id}.gif`, { type: "image/gif" })
+            // The type Klipy listed, not the CDN's: some edges answer `application/octet-stream`, and
+            // the recipient would then show a file tile instead of the image.
+            const extension = gif.mimeType === "image/webp" ? "webp" : "gif"
+            const file = new File([blob], `${gif.id}.${extension}`, { type: gif.mimeType })
             onPickGif(file)
         } catch (err) {
             toast.error(err instanceof Error ? err.message : "Could not load GIF.")

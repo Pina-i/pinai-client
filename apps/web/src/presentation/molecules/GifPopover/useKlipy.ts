@@ -50,8 +50,10 @@ export interface KlipyGif {
     description: string
     /** Best-effort preview URL (small bytes for the grid). */
     previewUrl: string
-    /** Full GIF URL — the bytes the user wants to send. */
+    /** The full animation — the bytes the user wants to send. */
     gifUrl: string
+    /** `image/webp`, or `image/gif` where Klipy has no WebP of it. */
+    mimeType: string
     width: number
     height: number
 }
@@ -78,35 +80,41 @@ interface KlipyRawItem {
     }
 }
 
-interface KlipyEnvelope {
+export interface KlipyEnvelope {
     result?: boolean
     data?: {
         data?: KlipyRawItem[]
     }
 }
 
-function pickGifUrl(item: KlipyRawItem, ...tiers: Array<"hd" | "md" | "sm" | "xs">): KlipyVariant | null {
+// The first tier that has it, its WebP before its GIF: the same animation, often several times lighter.
+function pickVariant(
+    item: KlipyRawItem,
+    ...tiers: Array<"hd" | "md" | "sm" | "xs">
+): { variant: KlipyVariant; mimeType: string } | null {
     for (const t of tiers) {
-        const variant = item.file?.[t]?.gif
-        if (variant?.url) return variant
+        const formats = item.file?.[t]
+        if (formats?.webp?.url) return { variant: formats.webp, mimeType: "image/webp" }
+        if (formats?.gif?.url) return { variant: formats.gif, mimeType: "image/gif" }
     }
     return null
 }
 
-function parseResults(raw: KlipyEnvelope | undefined): KlipyGif[] {
+export function parseResults(raw: KlipyEnvelope | undefined): KlipyGif[] {
     const items = raw?.data?.data ?? []
     return items
         .map((r): KlipyGif | null => {
-            const preview = pickGifUrl(r, "sm", "xs", "md")
-            const full = pickGifUrl(r, "md", "hd", "sm")
+            const preview = pickVariant(r, "sm", "xs", "md")
+            const full = pickVariant(r, "md", "hd", "sm")
             if (!preview || !full) return null
             return {
                 id: String(r.id ?? r.slug ?? ""),
                 description: r.title ?? "",
-                previewUrl: preview.url ?? "",
-                gifUrl: full.url ?? "",
-                width: full.width ?? 0,
-                height: full.height ?? 0,
+                previewUrl: preview.variant.url ?? "",
+                gifUrl: full.variant.url ?? "",
+                mimeType: full.mimeType,
+                width: full.variant.width ?? 0,
+                height: full.variant.height ?? 0,
             }
         })
         .filter((g): g is KlipyGif => g != null && g.gifUrl.length > 0)
