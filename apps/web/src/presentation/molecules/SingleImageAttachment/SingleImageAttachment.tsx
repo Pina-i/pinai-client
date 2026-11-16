@@ -21,7 +21,7 @@ interface SingleImageAttachmentProps {
  * Click anywhere → caller opens the lightbox via `onExpand`.
  */
 export function SingleImageAttachment({ attachment, attachmentKey, onExpand }: SingleImageAttachmentProps) {
-    const url = useAttachmentBlobUrl(attachment.id, attachmentKey)
+    const url = useAttachmentBlobUrl(attachmentKey)
     const filename = attachmentKey?.original_filename ?? attachment.original_filename
     const byteSize = attachmentKey?.byte_size ?? attachment.byte_size
 

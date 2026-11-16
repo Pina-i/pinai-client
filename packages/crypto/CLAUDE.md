@@ -463,11 +463,13 @@ above, the sections above win.
   (optimistic) and receiver (after MLS decrypt). The wire-shape
   `Message.attachments[]` carries placeholder filename + MIME;
   components consult `attachmentKeys` for the real values.
-- **`useAttachmentBlobUrl(attachmentId, attachmentKey)`** —
-  three-step pipeline: resolve token-protected ciphertext URL →
-  fetch ciphertext bytes → AES-GCM decrypt → return
-  `URL.createObjectURL(decryptedBlob)`. Object URLs revoked on
-  unmount + on key change.
+- **`useAttachmentBlobUrl(attachmentKey)`** — the object URL from the
+  page's `AttachmentCache` (`presentation/_libs/attachment-cache.ts`),
+  which runs `openAttachmentUseCase` (the token-protected URL, the
+  ciphertext, the AES-GCM decrypt) once per attachment and keeps the
+  result for the page load: 150 MB, least recently used first, never
+  one on screen; cleared when the account changes. The conversation
+  prefetches its last 12 images as it opens.
 
 ## Phase 5 follow-ups
 

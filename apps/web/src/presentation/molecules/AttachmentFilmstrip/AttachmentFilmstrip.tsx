@@ -39,7 +39,6 @@ export function AttachmentFilmstrip({ attachments, attachmentKeys, onImageClick 
                         ? (
                             <ImageTile
                                 key={a.id}
-                                attachmentId={a.id}
                                 filename={realFilename}
                                 attachmentKey={key}
                                 onClick={() => onImageClick(a)}
@@ -48,7 +47,6 @@ export function AttachmentFilmstrip({ attachments, attachmentKeys, onImageClick 
                         : (
                             <FileTile
                                 key={a.id}
-                                attachmentId={a.id}
                                 filename={realFilename}
                                 byteSize={realSize}
                                 attachmentKey={key}
@@ -64,17 +62,15 @@ export function AttachmentFilmstrip({ attachments, attachmentKeys, onImageClick 
 }
 
 function ImageTile({
-    attachmentId,
     filename,
     attachmentKey,
     onClick,
 }: {
-    attachmentId: string
     filename: string
     attachmentKey: AttachmentBlobKey | undefined
     onClick: () => void
 }) {
-    const url = useAttachmentBlobUrl(attachmentId, attachmentKey)
+    const url = useAttachmentBlobUrl(attachmentKey)
     return (
         <button
             type="button"
@@ -103,17 +99,15 @@ function ImageTile({
 }
 
 function FileTile({
-    attachmentId,
     filename,
     byteSize,
     attachmentKey,
 }: {
-    attachmentId: string
     filename: string
     byteSize: number
     attachmentKey: AttachmentBlobKey | undefined
 }) {
-    const url = useAttachmentBlobUrl(attachmentId, attachmentKey)
+    const url = useAttachmentBlobUrl(attachmentKey)
     const ext = extensionBadge(filename)
     return (
         <a

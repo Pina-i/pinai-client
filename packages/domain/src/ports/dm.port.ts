@@ -77,6 +77,6 @@ export interface IDmPort {
         signal?: AbortSignal,
         attachmentId?: string,
     ): Promise<Attachment>
-    /** GET /api/attachments/{id} — resolve to a token-protected blob URL. */
-    getAttachmentBlobUrl(idpUrl: string, accessToken: string, attachmentId: string): Promise<string>
+    /** GET /api/attachments/{id}, then the token-protected URL it answers: the attachment's ciphertext. */
+    downloadAttachment(idpUrl: string, accessToken: string, attachmentId: string): Promise<Uint8Array>
 }

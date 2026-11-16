@@ -163,19 +163,16 @@ export class DmApiAdapter implements IDmPort {
         })
     }
 
-    async getAttachmentBlobUrl(
-        idpUrl: string,
-        accessToken: string,
-        attachmentId: string,
-    ): Promise<string> {
+    async downloadAttachment(idpUrl: string, accessToken: string, attachmentId: string): Promise<Uint8Array> {
         const url = `${idpUrl.replace(/\/$/, "")}/api/attachments/${encodeURIComponent(attachmentId)}`
         try {
-            const body = await idp.get(url, {
-                headers: { Authorization: `Bearer ${accessToken}` },
-            }).json<{ url: string }>()
-            return body.url
+            const { url: blobUrl } = await idp
+                .get(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+                .json<{ url: string }>()
+            // A large file on a slow link outlasts ky's 10 s default.
+            return new Uint8Array(await idp.get(blobUrl, { timeout: false }).arrayBuffer())
         } catch (error) {
-            throw await idpErrorFrom(error, "Failed to resolve attachment")
+            throw await idpErrorFrom(error, "Failed to download attachment")
         }
     }
 

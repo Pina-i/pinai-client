@@ -32,6 +32,8 @@ import type {
 import { archivedEdit, archivedReaction, archivedText } from "@pinai/domain/models/history-archive"
 import type { UserProfile } from "@pinai/domain/models/auth"
 import type { MessageListHandle } from "@/presentation/organisms/MessageList/MessageList"
+import { attachmentCache } from "@/presentation/_libs/attachment-cache"
+import { latestImageKeys } from "@/presentation/_libs/attachments"
 
 /**
  * Decode a base64 string to bytes. The wire format throughout 5a is
@@ -217,6 +219,9 @@ async function mapApiMessage(
     }
     return { kind: "message", message: mapped }
 }
+
+// The last screenful or so of a conversation.
+const PREFETCHED_IMAGES = 12
 
 // Stable fallbacks: a fresh `[]` per render would defeat every memo downstream.
 const NO_MESSAGES: Message[] = []
@@ -474,6 +479,11 @@ export function useConversationPageViewModel(name: string) {
 
     // This conversation's list only: traffic in other conversations must not re-render the page.
     const messages = useAppStore((s) => s.dmMessages[conversationKey]) ?? NO_MESSAGES
+    const signedIn = accessToken !== null
+    // Started as the conversation opens, before the deferred list lays their rows out.
+    useEffect(() => {
+        if (signedIn) attachmentCache.prefetch(latestImageKeys(messages, PREFETCHED_IMAGES))
+    }, [messages, signedIn])
     const events = useAppStore((s) => s.groupEvents[conversationKey]) ?? NO_EVENTS
     const myActorUri = user?.actor_uri ?? ""
     const notices = useMemo<TimelineNotice[]>(

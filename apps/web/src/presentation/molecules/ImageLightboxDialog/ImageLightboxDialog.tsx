@@ -33,7 +33,7 @@ export function ImageLightboxDialog({
     senderDisplayName,
     timeLabel,
 }: ImageLightboxDialogProps) {
-    const url = useAttachmentBlobUrl(attachment?.id, attachmentKey)
+    const url = useAttachmentBlobUrl(attachmentKey)
     const avatarUrl = useAppStore((s) =>
         senderAddress ? s.avatarsByAddress[senderAddress] ?? null : null,
     )
