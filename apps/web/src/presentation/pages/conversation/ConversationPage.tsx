@@ -1,14 +1,12 @@
-import { useDeferredValue, useRef, useState, type DragEvent } from "react"
+import { useRef, useState, type DragEvent } from "react"
 import { PageTransition } from "@/presentation/atoms/page-transition/page-transition"
 import { DropOverlay } from "@/presentation/molecules/DropOverlay/DropOverlay"
 import { MessageInput } from "@/presentation/molecules/MessageInput/MessageInput"
 import type { MessageInputHandle } from "@/presentation/molecules/MessageInput/MessageInput.viewmodel"
-import { MessageList } from "@/presentation/organisms/MessageList/MessageList"
 import { RemoveGroupFromListModal } from "@/presentation/molecules/RemoveGroupFromListModal/RemoveGroupFromListModal"
-import { useHoldSplashScreen } from "@/presentation/hooks/use-hold-splash-screen"
-import type { Message, TimelineNotice } from "@/lib/types"
 import { ConversationTypingIndicator } from "./ConversationTypingIndicator/ConversationTypingIndicator"
 import { BlockedComposer } from "./BlockedComposer/BlockedComposer"
+import { ConversationTimeline } from "./ConversationTimeline/ConversationTimeline"
 import { ConversationUnavailable } from "./ConversationUnavailable/ConversationUnavailable"
 import { RemovedComposer } from "./RemovedComposer/RemovedComposer"
 import { useConversationPageViewModel } from "./ConversationPage.viewmodel"
@@ -22,24 +20,8 @@ function dragHasFiles(e: DragEvent<HTMLDivElement>): boolean {
     return Array.from(e.dataTransfer.types).includes("Files")
 }
 
-// Stable reference so `useDeferredValue`'s initialValue path doesn't
-// allocate a fresh array on every render.
-const EMPTY_MESSAGES: Message[] = []
-const EMPTY_NOTICES: TimelineNotice[] = []
-
 export function ConversationPage({ name }: ConversationPageProps) {
     const vm = useConversationPageViewModel(name)
-
-    // Defer the heavy MessageList render. Initial value `[]` lets the
-    // route transition commit immediately on first navigation from
-    // /home — without it, TanStack Router (which wraps `navigate()` in
-    // `startTransition`) holds the old route visible until the full
-    // message list has rendered. The deferred render then re-runs in
-    // the background with the real cached messages.
-    const deferredMessages = useDeferredValue(vm.messages, EMPTY_MESSAGES)
-    const deferredNotices = useDeferredValue(vm.notices, EMPTY_NOTICES)
-    // After a hard refresh the page is not loaded until that background render lands.
-    useHoldSplashScreen(deferredMessages !== vm.messages, { reshow: "never" })
 
     const messageInputRef = useRef<MessageInputHandle | null>(null)
 
@@ -97,9 +79,11 @@ export function ConversationPage({ name }: ConversationPageProps) {
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
             >
-                <MessageList
-                    messages={deferredMessages}
-                    notices={deferredNotices}
+                <ConversationTimeline
+                    key={vm.conversationKey}
+                    messages={vm.messages}
+                    notices={vm.notices}
+                    isLoading={vm.isHistoryLoading}
                     conversationKey={vm.conversationKey}
                     recipientAddress={vm.recipientAddress}
                     isGroup={vm.isGroup}

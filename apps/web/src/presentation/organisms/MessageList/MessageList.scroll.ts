@@ -5,6 +5,50 @@ const PINNED_SLACK_PX = 48
 // A scroll this soon after wheel, touch, pointer or key input is the reader's.
 const USER_INTENT_MS = 1000
 const INTENT_EVENTS = ["wheel", "touchmove", "pointerdown", "keydown"] as const
+// A row measured in one frame re-lays the virtualizer out in the next, so one still frame proves nothing.
+const SETTLE_FRAMES = 3
+// Settled anyway past this, should the list never hold still.
+const SETTLE_CAP_MS = 400
+
+/** Calls `onSettle` once the first rows are laid out, measured and pinned: the list's height held still. */
+export function useSettled(scrollRef: RefObject<HTMLElement | null>, hasItems: boolean, onSettle?: () => void) {
+    const onSettleRef = useRef(onSettle)
+    useEffect(() => {
+        onSettleRef.current = onSettle
+    })
+
+    useEffect(() => {
+        if (!hasItems) return
+        const sizer = scrollRef.current?.firstElementChild
+        let frame = 0
+        let cap = 0
+        let still = 0
+        const observer = new ResizeObserver(() => {
+            still = 0
+        })
+        const stop = () => {
+            observer.disconnect()
+            cancelAnimationFrame(frame)
+            window.clearTimeout(cap)
+        }
+        const settle = () => {
+            stop()
+            onSettleRef.current?.()
+        }
+        const tick = () => {
+            if (++still >= SETTLE_FRAMES) settle()
+            else frame = requestAnimationFrame(tick)
+        }
+        if (!sizer) {
+            settle()
+            return
+        }
+        observer.observe(sizer)
+        frame = requestAnimationFrame(tick)
+        cap = window.setTimeout(settle, SETTLE_CAP_MS)
+        return stop
+    }, [scrollRef, hasItems])
+}
 
 /**
  * Chat scrolling: a conversation opens at its end and stays pinned there while

@@ -261,7 +261,7 @@ export function useConversationPageViewModel(name: string) {
     // it, a reload-then-rapid-send window could mint a UUID for a
     // conversation that already exists server-side, racing the very
     // problem the friendship-accept refactor was meant to fix.
-    const { isSuccess: dmConvosLoaded } = useQuery({
+    const { isSuccess: dmConvosLoaded, isError: dmConvosFailed } = useQuery({
         queryKey: dmConversationsQueryKey(idpUrl ?? ""),
         queryFn: () => getDmConversationsUseCase(idpUrl!, accessToken!, getDmPort()),
         enabled: !!accessToken && !!idpUrl,
@@ -360,6 +360,9 @@ export function useConversationPageViewModel(name: string) {
 
     // Load message history from REST API once per conversation mount.
     const historyLoadedRef = useRef(false)
+    // The conversation whose history last answered, failed or not: until then one with nothing cached shows a skeleton.
+    const [historyAnswered, setHistoryAnswered] = useState<string | null>(null)
+    const isHistoryLoading = dmData ? historyAnswered !== dmData.id : !dmConvosLoaded && !dmConvosFailed
     useEffect(() => {
         historyLoadedRef.current = false
     }, [name])
@@ -369,6 +372,7 @@ export function useConversationPageViewModel(name: string) {
         // Need the conversation_id to load history. If we don't have the dmData yet, skip.
         if (!dmData) return
         historyLoadedRef.current = true
+        const historyOf = dmData.id
 
         openConversationUseCase({ idpUrl, accessToken }, dmData.id, {
             port: getDmPort(),
@@ -453,6 +457,7 @@ export function useConversationPageViewModel(name: string) {
             .catch(() => {
                 historyLoadedRef.current = false
             })
+            .finally(() => setHistoryAnswered(historyOf))
     }, [
         accessToken,
         idpUrl,
@@ -866,6 +871,7 @@ export function useConversationPageViewModel(name: string) {
         isGroup,
         messages,
         notices,
+        isHistoryLoading,
         messageListHandleRef,
         replyingTo,
         sendMessage,

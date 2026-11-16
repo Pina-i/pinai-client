@@ -90,6 +90,11 @@ A full-page loading state doesn't draw a loader: it holds the splash. A loader i
 - Holds hand over within one commit, so going from one loading screen to the next never uncovers the page.
 - After boot, a hold longer than 150 ms brings the splash back, for at least 600 ms. `reshow: "never"` only extends a splash that is up, for work that also runs long after boot (the deferred message list).
 
+## Opening a conversation
+
+- `pages/conversation/ConversationTimeline` is keyed by the conversation: switching mounts a fresh list, rendered in the background (`useDeferredValue`, so the route commits at once) and shown only once laid out and pinned to the end — `MessageList`'s `onSettle`, three still frames, 400 ms at most —, fading in over 150 ms. Neither the previous conversation nor the rows settling are seen. Not shown 120 ms after mounting, it gives way to `molecules/MessageListSkeleton` (`atoms/Skeleton`), which fades out over the list. An empty conversation shows once its history answered (`isHistoryLoading`).
+- Attachments come from `_libs/attachment-cache.ts`: each downloaded and decrypted once a page load, kept as an object URL (150 MB, least recently used first, never one on screen, cleared when the account changes). The conversation prefetches its last 12 images as it opens.
+
 ## This device and its session
 
 - `_libs/session-device.ts` — once per page load, from `requireSession`, it runs `startThisDeviceUseCase`: the device registers again when it has to (near its attestation's end, or no HPKE key yet), names itself on the session with its root key's proof over the token's `sid` (a proof refused registers it again and names it once more; a second refusal is final for the page load, and the onboarding pages show it as any failure to set up) — after a failed registration too, which the KeyPackage tick tries again (`use-replenish-key-packages.ts`) — then its words are checked against the account's history key, a pending key settled first. Tried again at the next route when the IdP is out of reach.
