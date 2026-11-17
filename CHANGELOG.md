@@ -1,5 +1,57 @@
 # Changelog
 
+## [0.5.0](https://github.com/Pina-i/pinai-client/compare/v0.4.1...v0.5.0) (2026-11-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* **e2ee:** takes an identity provider on pinai 0.4 or later, which keeps each conversation's GroupInfo and takes a device's own external commit. With an older one, a message written in a conversation the device isn't in yet waits.
+
+### Features
+
+* **attachments:** lay images out before they load, a blurred preview meanwhile ([c7824b3](https://github.com/Pina-i/pinai-client/commit/c7824b3412e8a3caa8cbf390613e8d65fd7b24a4))
+* **conversations:** switch conversations cleanly, with a skeleton when it takes a while ([64c7a63](https://github.com/Pina-i/pinai-client/commit/64c7a63cfdb1afbe62b82d881918bcb5b1f0f3b6))
+* count what waits for the user in the title and on the desktop icon ([c127fcc](https://github.com/Pina-i/pinai-client/commit/c127fcceb268414c7bedb57d62c87f55eb9e160b))
+* **desktop:** keep running in the tray when the window closes ([22570d4](https://github.com/Pina-i/pinai-client/commit/22570d465c41cbdda6e5f9af7a78cb6066220435))
+* **e2ee:** a device rejoins its conversations through its identity provider ([cca8d58](https://github.com/Pina-i/pinai-client/commit/cca8d58bfde62f87b168ffe58067c687fc19e493))
+* **e2ee:** approve a new device with a 6-digit code ([04c9fb6](https://github.com/Pina-i/pinai-client/commit/04c9fb6e93c0e3b7d1d6cd8e049b644e12e5b020))
+* **e2ee:** approved devices and a shared history passphrase ([0b71ed5](https://github.com/Pina-i/pinai-client/commit/0b71ed5231583b105edf9771290c6a63936c18d5))
+* **e2ee:** bind every leaf to its device and give devices an HPKE key ([87f7006](https://github.com/Pina-i/pinai-client/commit/87f70068f5b16a432986d5278ceb6217a93163db))
+* **e2ee:** carry the device's approvals in its leaf, keep KeyPackages a year ([1a21f52](https://github.com/Pina-i/pinai-client/commit/1a21f52e2ff2eb3a972bff80e65e996036944c34))
+* **e2ee:** carry the history passphrase to approved devices ([10d0060](https://github.com/Pina-i/pinai-client/commit/10d0060315648ce3725f4f284e113f15d4bdf83a))
+* **e2ee:** decide which of the account's devices are approved ([6d2bb14](https://github.com/Pina-i/pinai-client/commit/6d2bb14ac6e9eb0c6f42dada342c35367183dfd4))
+* **e2ee:** hold the history passphrase by generation ([a19839f](https://github.com/Pina-i/pinai-client/commit/a19839fdb49c4c65459b486cc2e0e655c2691a2f))
+* **e2ee:** join a conversation by itself when no sibling brings the device in ([05bb647](https://github.com/Pina-i/pinai-client/commit/05bb647958537d8e42492fc577f0c9ed1a117327))
+* **e2ee:** keep a device out of the app until it is approved ([a989114](https://github.com/Pina-i/pinai-client/commit/a989114ab24be83608ef5917a3f3f683901e9342))
+* **e2ee:** replace the words without losing the history ([281aa90](https://github.com/Pina-i/pinai-client/commit/281aa90900f19caccff42531b7b7ca16b2b2dd5b))
+* **e2ee:** tell members when a contact writes from a device nothing vouches for ([7a27d55](https://github.com/Pina-i/pinai-client/commit/7a27d55236d43b1d5ca07e2e8e8dd61ccdd24af5))
+* **e2ee:** wait a week to start over, and warn the approved devices ([a4b328e](https://github.com/Pina-i/pinai-client/commit/a4b328eec0b553fcc40be81102b3e2b51c3ab221))
+* **e2ee:** withhold clearing the backup and signing out from unapproved devices ([4447059](https://github.com/Pina-i/pinai-client/commit/444705946bddf372d3f1611649cb41eef1bdfd36))
+* **groups:** rename a group, leave it from its menu, reach a member ([ddebe44](https://github.com/Pina-i/pinai-client/commit/ddebe447dc1e10d75bd8ea9f2f274a550b416c4f))
+* **mls:** post each commit's GroupInfo, join a group by external commit ([3c2448c](https://github.com/Pina-i/pinai-client/commit/3c2448c6eef1c5d2f8e7b47afe6f45f1c67c69be))
+* unread count in the title and on the icon, and keep running in the tray ([583e27d](https://github.com/Pina-i/pinai-client/commit/583e27da90a0e15f7a0d9b42b2103c756e7d63ec))
+* **web:** Settings → Devices shows who is approved, and who waits ([22bb3bb](https://github.com/Pina-i/pinai-client/commit/22bb3bb9b3113b543c62fbc5565f989814d8899d))
+* **web:** the new-device page, the reset page, and starting over ([cb0aadb](https://github.com/Pina-i/pinai-client/commit/cb0aadbecaecfb1dfe12af1e1a409ba105936e3e))
+
+
+### Bug Fixes
+
+* **e2ee:** no toast for devices from before, no lockout on a reset ([fc72060](https://github.com/Pina-i/pinai-client/commit/fc72060705ab0bcd05f5a207a306dd544b2af1f9))
+* **e2ee:** save to the backup only once approved, and never drop a refused batch ([7624cba](https://github.com/Pina-i/pinai-client/commit/7624cba424dd850f555494e70c01c33e74248e5f))
+* **ui:** keep tabs in place as their content changes, every tab React Aria's ([5e80392](https://github.com/Pina-i/pinai-client/commit/5e80392886a6a43478bac40843e7ee094f98812f))
+* **web:** drop the pinned-messages button, which opened nothing ([978a38b](https://github.com/Pina-i/pinai-client/commit/978a38b740493bb8d86baa7667a465ea805ed592))
+* **web:** pin the settings close button to the overlay's corner ([359b0f6](https://github.com/Pina-i/pinai-client/commit/359b0f6f1fc4fd9b021ffe8f187dddf1ebcef5dd))
+* **web:** recover from device_mismatch without signing the browser out ([10ae3a9](https://github.com/Pina-i/pinai-client/commit/10ae3a95e5c4d06d7b48fc964950d03d66bc7391))
+* **web:** the history backup keeps attachments, edits and reactions ([e92803b](https://github.com/Pina-i/pinai-client/commit/e92803b304a522abee3491b94a7a5c9c240c4684))
+* **web:** the history backup keeps attachments, edits and reactions ([1b15a15](https://github.com/Pina-i/pinai-client/commit/1b15a15b934506bd2e7d5db7421aa2f6c8ec9bda))
+
+
+### Performance Improvements
+
+* **attachments:** keep opened images for the page load, prefetch a conversation's ([1be4b0b](https://github.com/Pina-i/pinai-client/commit/1be4b0b860c6c86dc315feb9723e986522333d6b))
+* **attachments:** seal and open attachments with WebCrypto on the web ([16d039e](https://github.com/Pina-i/pinai-client/commit/16d039e1898ed85275fdc39d09c25634e4d75da6))
+* **gifs:** send Klipy's WebP of an animation rather than its GIF ([8bb4628](https://github.com/Pina-i/pinai-client/commit/8bb46281e19b2661542c0db702b3398fd58f64f3))
+
 ## [0.4.1](https://github.com/Pina-i/pinai-client/compare/v0.4.0...v0.4.1) (2026-11-02)
 
 
