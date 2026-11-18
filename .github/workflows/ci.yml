@@ -9,10 +9,11 @@ on:
 permissions:
   contents: read
 
-# A newer push waits for the run under way rather than racing it: edge is always main's latest.
+# A newer push replaces the run under way, which publishes nothing; a tag's run, which
+# publishes, always finishes.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 env:
   # The toolchain of docker/Dockerfile's wasm stage.
@@ -65,7 +66,7 @@ jobs:
       - run: cargo test --locked --manifest-path crypto/openmls-wasm/Cargo.toml
 
   # One runner builds both platforms: the files are built once, and arm64's last stage only
-  # copies them (docker/Dockerfile). Pull requests only build.
+  # copies them (docker/Dockerfile). Only a tag pushes; main builds to keep the cache a tag reads.
   image:
     needs: check
     runs-on: ubuntu-24.04
@@ -77,8 +78,7 @@ jobs:
       artifact-metadata: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # main: edge and sha-<short>. A tag: 0.1.0, 0.1 and latest; a release candidate
-      # (v0.2.0-rc.1) only its own version.
+      # A tag: 0.1.0, 0.1 and latest; a release candidate (v0.2.0-rc.1) only its own version.
       # GitHub detects the license as AGPL-3.0, which can't say "or later": named here.
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -87,13 +87,11 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=edge,branch=main
-            type=sha,enable=${{ github.ref == 'refs/heads/main' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
           labels: org.opencontainers.image.licenses=AGPL-3.0-or-later
           annotations: org.opencontainers.image.licenses=AGPL-3.0-or-later
-      - if: github.event_name != 'pull_request'
+      - if: startsWith(github.ref, 'refs/tags/v')
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
@@ -109,11 +107,11 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
           # Written from main only; pull requests and tags read main's.
           cache-from: type=gha,scope=web
           cache-to: ${{ github.ref == 'refs/heads/main' && 'type=gha,scope=web,mode=max' || '' }}
-      - if: github.event_name != 'pull_request'
+      - if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ${{ env.IMAGE }}

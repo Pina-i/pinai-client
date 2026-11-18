@@ -353,7 +353,7 @@ triggered it:
 | Trigger | Published |
 |---|---|
 | A pull request | nothing |
-| A push to `main` | `edge` and `sha-<short>`, for testing only |
+| A push to `main` | nothing: the image is built, unpublished, to keep the cache a tag's build reads |
 | A tag `vX.Y.Z` | `X.Y.Z`, `X.Y` and `latest`, the four installers (`Pinai-Setup.exe`, `Pinai.dmg`, the two AppImages) with the files the app updates from (`latest*.yml`, `Pinai-mac.zip`), then the GitHub release |
 | A tag `vX.Y.Z-rc.1` | `X.Y.Z-rc.1`, the installers, then a pre-release |
 
