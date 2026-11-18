@@ -23,6 +23,8 @@ import { settleIncomingReadUseCase } from "@pinai/domain/usecases/dm/settle-inco
 import { blocksQueryKey, useBlocks } from "@/presentation/hooks/useBlocks"
 import { TYPING_INDICATOR_TTL_MS } from "@/store/slices/presence.slice"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
+import { peopleQueryKey } from "@/presentation/pages/home/FriendsPanel/AddFriendPopover/people-query-keys"
+import { changesRelation } from "@pinai/domain/models/people-search"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 import { profileCardQueryKey, profileCardsQueryKey } from "@/presentation/hooks/useProfileCard"
 import { groupMembersQueryKey } from "@/presentation/hooks/useGroupMembers"
@@ -214,6 +216,8 @@ export function useIdpWebSocket(): void {
             const accessToken = currentToken()
             // heartbeat_ack is purely a keep-alive — no UI side effect.
             if (event.type === "heartbeat_ack") return
+            // An open "Add a friend" must turn Add into Accept when that person's request arrives.
+            if (idpUrl && changesRelation(event.type)) queryClient.invalidateQueries({ queryKey: peopleQueryKey(idpUrl) })
 
             switch (event.type) {
                 case "presence_update": {

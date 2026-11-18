@@ -6,7 +6,7 @@ export function Highlight({ text, match }: { text: string; match: TextMatch | nu
     return (
         <>
             {text.slice(0, match.start)}
-            <mark className="bg-transparent font-semibold text-acc underline decoration-acc-line decoration-[1.5px] underline-offset-[3px]">
+            <mark className="bg-transparent font-semibold text-acc-text underline decoration-acc-line decoration-[1.5px] underline-offset-[3px]">
                 {text.slice(match.start, match.end)}
             </mark>
             {text.slice(match.end)}

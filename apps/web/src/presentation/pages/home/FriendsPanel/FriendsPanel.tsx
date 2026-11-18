@@ -23,12 +23,10 @@ type FriendTab = (typeof friendTabs)[number]
 const FRIEND_TABS: readonly SegmentedTab<FriendTab>[] = friendTabs.map((tab) => ({ id: tab, label: tab }))
 
 interface FriendsPanelProps {
-    userAddress: string
     onStartDm: (name: string) => void
-    onSendFriendRequest: (address: string) => Promise<unknown>
 }
 
-export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: FriendsPanelProps) {
+export function FriendsPanel({ onStartDm }: FriendsPanelProps) {
     const { friends, isLoading, error } = useFriendsPanelViewModel()
     const [activeTab, setActiveTab] = useState<FriendTab>("All")
     const [friendToRemove, setFriendToRemove] = useState<{ id: string; name: string } | null>(null)
@@ -62,10 +60,7 @@ export function FriendsPanel({ userAddress, onStartDm, onSendFriendRequest }: Fr
             <SegmentedTabsRoot selected={activeTab} onChange={setActiveTab} className="flex min-h-0 flex-1 flex-col">
                 <div className="flex items-start justify-between gap-3 px-1.5 pt-1">
                     <SegmentedTabList tabs={FRIEND_TABS} label="Friends" variant="subtle" />
-                    <AddFriendPopover
-                        userAddress={userAddress}
-                        onSendFriendRequest={onSendFriendRequest}
-                    />
+                    <AddFriendPopover />
                 </div>
 
                 <div className="mx-2 mb-2 mt-3.5 flex justify-between">

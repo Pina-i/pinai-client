@@ -1052,7 +1052,34 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   1:1s with people who aren't friends. A group is found by a member's name too.
 - `matchText` ignores case, diacritics and the ʻokina / apostrophes — names are
   written with and without them — and answers a range of the original text, so
-  the mark falls on what is displayed.
+  the mark falls on what is displayed. Letters decomposing leaves whole fold to
+  base letters as Postgres's `unaccent` folds the Latin ones (æ → ae, þ → th,
+  ø → o…), so a name's highlight falls where the IdP's people search matched.
+
+### models/people-search.ts + `ISocialPort.searchPeople` / `lookupAddress`
+- "Add a friend" (`identity-provider/specs/identity.md § 7`): by name on the instance and among the
+  other instances' people of the user's groups (`PeopleFound`: `server`, `groups`), by exact address
+  anywhere else. `Person` as the IdP answers it; `friendship_id` only with `request_received`.
+- `searchMode(text)` — any `@` makes it an address: `address` once something comes before it and a
+  complete domain after it — a host with a dot, or `localhost`, an optional port
+  (`alice_x7k2p@localhost:8080`) —, else `address-incomplete`; one leading `@` is dropped
+  (`@kai@moana.social`, as other fediverse apps write it), which the IdP accepts too. Without one,
+  `intro` under 2 characters, counted as the IdP counts them (combining marks aside), else `names`.
+- `search-people.usecase.ts` finds nobody, without asking, for a query the IdP refuses rather than
+  answers (`findsNobody`: over 100 characters, a control character). `lookup-address.usecase.ts`
+  sends only what `searchMode` calls a complete address; the adapter answers `found`, `not-found`
+  — a `404`, or a `400`: the IdP couldn't read the address, which for one that looks complete
+  means a space, a `/` or a control character before the `@` (`kai moana@moana.social`), where no
+  account can be —, `unreachable` (`502`); anything else rejects.
+- `nameMatch` — the highlight: `conversation-search.ts`'s folding (`matchFolded`), the query taken
+  as the IdP takes it, trimmed, a leading `#` kept.
+- `shownRelation(relation, action)` — a row of "Add a friend": the user's Add or Accept under way
+  (`sending`, `accepting`), then answered (`request_sent`, `friend`) over the relation it was made
+  on; an answer of the IdP's saying otherwise wins, so a search read again never undoes it.
+- `changesRelation(type)` — the pushes after which an open search is read again (a request
+  arriving must turn Add into Accept, or Add would send one the other way): `friend_request`,
+  `friend_accepted`, `friend_removed`, `blocks_updated`. The user's own Add or Accept reads the
+  names again only: a lookup asked again resolves the address on its instance once more.
 
 ### models/identity.ts
 - `actorUriToAddress(uri)` — only sanctioned converter between

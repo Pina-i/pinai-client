@@ -57,6 +57,11 @@ domain as `IKeyDirectoryPort`, which is what keeps the two independent.
   `approval_request_ended`, `approval_request_full`, `too_many_requests`). A device approves
   another by its root key through the device directory (`approveByDevice`,
   `{ by: "device", signature }`), whose list's device ids are lowercased too.
+- Finding people (`social-api.adapter.ts`, `/api/users/search`, `/api/users/lookup`): the query and
+  the address as query parameters. The lookup reads `404` and `400` as no account, `502` as the
+  other instance out of reach, and is never retried: asking again would only wait on that instance
+  again. It waits 15 s, past the 10 s the IdP gives that instance before its `502`
+  (`apps/web/test/people-search-api.spec.ts`).
 - Naming the session's device (`session-api.adapter.ts`): `{ device_id, signature }`, the id
   lowercased, the proof in standard base64.
 - Start over requests (`start-over-api.adapter.ts`, `/api/history/start-over`): times read as epoch

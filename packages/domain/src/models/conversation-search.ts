@@ -39,7 +39,19 @@ export interface SearchResults<F, C, S, Ch> {
 // Names are written with and without the ʻokina, or with an apostrophe or a backtick in its place.
 const APOSTROPHES = new Set(["'", "`", "‘", "’", "ʻ", "ʼ"])
 // Letters NFKD leaves whole, as someone typing the name without them would write them.
-const BASE_LETTERS: Record<string, string> = { đ: "d", ħ: "h", ı: "i", ł: "l", ø: "o", ß: "ss", ς: "σ" }
+const BASE_LETTERS: Record<string, string> = {
+    æ: "ae",
+    đ: "d",
+    ð: "d",
+    ħ: "h",
+    ı: "i",
+    ł: "l",
+    œ: "oe",
+    ø: "o",
+    ß: "ss",
+    þ: "th",
+    ς: "σ",
+}
 const MARKS = /\p{M}/gu
 const MARK = /\p{M}/u
 const ENDS_WITH_WORD_CHAR = /[\p{L}\p{N}]$/u
@@ -112,6 +124,11 @@ function find(text: string, needle: string): Found | null {
  */
 export function matchText(text: string, query: string): TextMatch | null {
     return find(text, needleOf(query))?.match ?? null
+}
+
+/** `matchText` for a query taken as it is: no leading `#` or `@` dropped, no spaces trimmed. */
+export function matchFolded(text: string, query: string): TextMatch | null {
+    return find(text, fold(query).text)?.match ?? null
 }
 
 function ranked<T>(items: T[], texts: (item: T) => [SearchField, string][], needle: string): SearchHit<T>[] {

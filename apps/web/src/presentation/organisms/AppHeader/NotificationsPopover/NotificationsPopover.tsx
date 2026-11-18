@@ -9,6 +9,7 @@ import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { Popover, PopoverCaret } from "@/presentation/molecules/Popover/Popover"
 import { popoverSurface } from "@/presentation/molecules/Popover/popover-surface"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
+import { peopleQueryKey } from "@/presentation/pages/home/FriendsPanel/AddFriendPopover/people-query-keys"
 import { cn } from "@/presentation/_libs/utils"
 import { useBell } from "@/presentation/providers/BellProvider/Bell.context"
 import { unseenNotifications } from "@pinai/domain/models/attention"
@@ -210,6 +211,7 @@ export function NotificationsPopover() {
             dismissNotification(n.id)
             toast.success("Friend request accepted")
             queryClient.invalidateQueries({ queryKey: friendsQueryKey(idpUrl) })
+            queryClient.invalidateQueries({ queryKey: peopleQueryKey(idpUrl) })
         } catch (e) {
             toast.error(e instanceof Error ? e.message : "Something went wrong")
         }
@@ -221,6 +223,7 @@ export function NotificationsPopover() {
             await getSocialPort().rejectFriendRequest(idpUrl, accessToken, n.friendshipId)
             dismissNotification(n.id)
             toast.success("Friend request declined")
+            queryClient.invalidateQueries({ queryKey: peopleQueryKey(idpUrl) })
         } catch (e) {
             toast.error(e instanceof Error ? e.message : "Something went wrong")
         }
