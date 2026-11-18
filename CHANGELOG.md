@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/Pina-i/pinai-client/compare/v0.5.0...v0.5.1) (2026-11-18)
+
+
+### Features
+
+* **web:** find people to add as friends ([c08dbef](https://github.com/Pina-i/pinai-client/commit/c08dbef5a5859cfc776e8d9d4b71518cc94650a6))
+* **web:** find people to add as friends ([a159d9c](https://github.com/Pina-i/pinai-client/commit/a159d9c594abf34e102a163ecb46aacee045f6f1))
+
 ## [0.5.0](https://github.com/Pina-i/pinai-client/compare/v0.4.1...v0.5.0) (2026-11-17)
 
 
