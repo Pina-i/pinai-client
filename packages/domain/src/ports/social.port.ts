@@ -1,3 +1,4 @@
+import type { AddressLookup, PeopleFound } from "../models/people-search"
 import type { FriendListEntry, FriendRequestResponse, PendingFriendRequest } from "../models/social"
 
 export interface ISocialPort {
@@ -13,4 +14,8 @@ export interface ISocialPort {
     rejectFriendRequest(idpUrl: string, accessToken: string, friendshipId: string): Promise<void>
     /** End a friendship on both sides. The DM conversation is kept. */
     removeFriend(idpUrl: string, accessToken: string, friendActorUri: string): Promise<void>
+    /** Find people by name: on this instance, and other instances' people from the user's groups. */
+    searchPeople(idpUrl: string, accessToken: string, q: string): Promise<PeopleFound>
+    /** One person by their exact address, asked of their instance. */
+    lookupAddress(idpUrl: string, accessToken: string, address: string): Promise<AddressLookup>
 }

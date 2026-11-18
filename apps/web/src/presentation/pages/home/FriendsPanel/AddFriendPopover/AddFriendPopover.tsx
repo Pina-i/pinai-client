@@ -1,51 +1,26 @@
-import { useState } from "react"
-import { AtSign, Check, Plus, Send } from "lucide-react"
-import { toast } from "sonner"
+import { AtSign, Plus, X } from "lucide-react"
 import { Button } from "@/presentation/atoms/Button/Button"
-import { Popover, PopoverCaret } from "@/presentation/molecules/Popover/Popover"
+import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
+import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
+import { SearchField } from "@/presentation/atoms/SearchField/SearchField"
+import { Spinner } from "@/presentation/atoms/Spinner/Spinner"
+import { Popover } from "@/presentation/molecules/Popover/Popover"
 import { popoverSurface } from "@/presentation/molecules/Popover/popover-surface"
 import { cn } from "@/presentation/_libs/utils"
+import { useAddFriendPopoverViewModel } from "./AddFriendPopover.viewmodel"
+import { AddressResult } from "./AddressResult/AddressResult"
+import { IntroCards } from "./IntroCards/IntroCards"
+import { NamesResult } from "./NamesResult/NamesResult"
+import { PeopleSection } from "./PeopleSection/PeopleSection"
+import { actionButton } from "./PersonAction/action-button"
+import { Tag } from "./Tag/Tag"
 
-interface AddFriendPopoverProps {
-    userAddress: string
-    onSendFriendRequest: (address: string) => Promise<unknown>
-}
-
-export function AddFriendPopover({ userAddress, onSendFriendRequest }: AddFriendPopoverProps) {
-    const [friendInput, setFriendInput] = useState("")
-    const [requestStatus, setRequestStatus] = useState<"idle" | "sending" | "sent" | "error">("idle")
-    const [requestError, setRequestError] = useState("")
-    const [copied, setCopied] = useState(false)
-
-    const looksLikeAddress = /\S+@\S+/.test(friendInput.trim())
-    const resolvedHost = friendInput.split("@")[1]?.trim()
-
-    function copyAddress() {
-        navigator.clipboard.writeText(userAddress)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
-    }
-
-    async function sendFriendRequest() {
-        if (!friendInput.trim()) return
-        const target = friendInput.trim()
-        setRequestStatus("sending")
-        setRequestError("")
-        try {
-            await onSendFriendRequest(target)
-            setRequestStatus("sent")
-            setFriendInput("")
-            toast.success(`Friend request sent to ${target}`)
-        } catch (e) {
-            setRequestStatus("error")
-            setRequestError(e instanceof Error ? e.message : "Failed to send request")
-        }
-    }
-
+export function AddFriendPopover() {
     return (
         <Popover
             placement="bottom end"
             offset={12}
+            label="Add a friend"
             trigger={
                 <Button
                     variant="primary"
@@ -56,78 +31,114 @@ export function AddFriendPopover({ userAddress, onSendFriendRequest }: AddFriend
                     Add friend
                 </Button>
             }
-            className={cn(popoverSurface, "relative w-[380px] px-4 pb-3.5 pt-4")}
+            className={cn(popoverSurface, "w-[560px] max-w-[calc(100vw-24px)] overflow-hidden rounded-[22px]")}
         >
-            <PopoverCaret side="up" className="right-[58px]" />
-
-            <div className="mb-2.5 flex items-baseline justify-between gap-2.5">
-                <h3 className="title text-[17px] font-normal tracking-[-0.005em] text-foreground">Add a friend</h3>
-                <span className="eye">by address</span>
-            </div>
-
-            <div
-                className={cn(
-                    "flex h-[42px] items-center gap-2.5 rounded-[12px] border px-3.5 transition-[border-color,box-shadow] duration-150",
-                    looksLikeAddress
-                        ? "border-acc bg-surf2 text-acc shadow-[0_0_0_3px_var(--accsoft)]"
-                        : "border-line2 bg-surf2 text-muted-foreground",
-                )}
-            >
-                <AtSign className="h-4 w-4 shrink-0" />
-                <input
-                    autoFocus
-                    value={friendInput}
-                    onChange={(e) => {
-                        setFriendInput(e.target.value)
-                        if (requestStatus !== "idle") {
-                            setRequestStatus("idle")
-                            setRequestError("")
-                        }
-                    }}
-                    onKeyDown={(e) => {
-                        if (e.key === "Enter") sendFriendRequest()
-                    }}
-                    placeholder="alice@idp.example.com"
-                    className="min-w-0 flex-1 bg-transparent font-mono text-[12.5px] text-foreground placeholder:text-muted-foreground outline-none"
-                />
-                {looksLikeAddress && <Check className="h-4 w-4 shrink-0" />}
-            </div>
-
-            {requestStatus === "sent" ? (
-                <p className="mt-1.5 font-mono text-[10.5px] text-on">✓ Friend request sent</p>
-            ) : requestStatus === "error" ? (
-                <p className="mt-1.5 font-mono text-[10.5px] text-dnd">{requestError}</p>
-            ) : looksLikeAddress ? (
-                <p className="mt-1.5 font-mono text-[10.5px] text-on">✓ resolved · {resolvedHost}</p>
-            ) : null}
-
-            <Button
-                onPress={sendFriendRequest}
-                isDisabled={!friendInput.trim() || requestStatus === "sending"}
-                className="mt-3 px-3.5 py-2.5 text-[13px]"
-            >
-                {requestStatus === "sending" ? "Sending…" : "Send request"}
-                <Send className="h-3.5 w-3.5" />
-            </Button>
-
-            <div className="my-3.5 flex items-center gap-2.5">
-                <i className="h-px flex-1 bg-line2" />
-                <span className="eye">or share yours</span>
-                <i className="h-px flex-1 bg-line2" />
-            </div>
-
-            <div className="flex items-center gap-2 rounded-[12px] border border-dashed border-[color-mix(in_oklab,var(--acc)_40%,var(--line2))] bg-[color-mix(in_oklab,var(--acc)_8%,var(--surf))] py-2 pl-3 pr-2">
-                <span className="min-w-0 flex-1 truncate font-mono text-[11px] font-medium text-foreground">
-                    {userAddress}
-                </span>
-                <button
-                    type="button"
-                    onClick={copyAddress}
-                    className="shrink-0 cursor-pointer rounded-full border border-acc bg-transparent px-[11px] py-1 text-[11px] text-acc transition-colors duration-150 hover:bg-acc-soft"
-                >
-                    {copied ? "Copied" : "Copy"}
-                </button>
-            </div>
+            <AddFriendPanel />
         </Popover>
+    )
+}
+
+// Mounted with the popover, so each opening starts from an empty field.
+function AddFriendPanel() {
+    const vm = useAddFriendPopoverViewModel()
+
+    return (
+        <>
+            <div className="border-b border-line pb-3 pl-11 pr-[22px] pt-[18px]">
+                <div className="flex min-h-[18px] items-center justify-between gap-3">
+                    <p className="fact text-muted-ink">Add a friend · searching outward from you</p>
+                    {vm.isAddressMode && (
+                        <Tag tone="acc" icon={<AtSign />}>
+                            address
+                        </Tag>
+                    )}
+                </div>
+                <SearchField
+                    aria-label="Name or full address"
+                    placeholder="A name, or a full address"
+                    value={vm.text}
+                    onChange={vm.setText}
+                    inputRef={vm.inputRef}
+                    autoFocus
+                    className={cn(
+                        "mt-2.5 h-[42px] rounded-[12px] border-line2 text-[14px] transition-[border-color,box-shadow] duration-150",
+                        "focus-within:border-acc focus-within:shadow-[0_0_0_3px_var(--accsoft)] [&_input]:placeholder:text-muted-ink",
+                        vm.text.trim() && "border-acc shadow-[0_0_0_3px_var(--accsoft)]",
+                    )}
+                    trailing={
+                        <>
+                            {vm.isBusy && <Spinner />}
+                            {vm.text && (
+                                <IconButton
+                                    aria-label="Clear"
+                                    className="h-[22px] w-[22px] shrink-0 rounded-full bg-surf3 text-muted-foreground hover:text-foreground"
+                                >
+                                    <X className="h-3 w-3" />
+                                </IconButton>
+                            )}
+                        </>
+                    }
+                />
+                <p role="status" className="mb-0 mt-2 font-mono text-[10.5px] tracking-[.03em] text-muted-ink">
+                    {vm.status}
+                </p>
+            </div>
+
+            <ScrollArea className="max-h-[470px] pb-4 pl-7 pr-[22px] pt-1">
+                {vm.isIntro || !vm.names || !vm.address ? (
+                    <IntroCards domain={vm.domain} />
+                ) : (
+                    <>
+                        <PeopleSection step={1} tone="acc" title="Your server" subtitle={`${vm.domain} · accents ignored`}>
+                            <NamesResult
+                                view={vm.names}
+                                section="server"
+                                domain={vm.domain}
+                                onAdd={vm.add}
+                                onAccept={vm.accept}
+                            />
+                        </PeopleSection>
+                        <PeopleSection step={2} tone="sec" title="Your groups" subtitle="people you already share a group with">
+                            <NamesResult
+                                view={vm.names}
+                                section="groups"
+                                domain={vm.domain}
+                                onAdd={vm.add}
+                                onAccept={vm.accept}
+                            />
+                        </PeopleSection>
+                        <PeopleSection step={3} tone="muted" title="Everywhere else" subtitle="only with their exact address">
+                            {/* Read out: the status line only says "Address lookup finished". */}
+                            <div aria-live="polite">
+                                <AddressResult view={vm.address} onAdd={vm.add} onAccept={vm.accept} />
+                            </div>
+                        </PeopleSection>
+                    </>
+                )}
+            </ScrollArea>
+
+            <div className="flex items-center gap-3 border-t border-line bg-popover pb-3.5 pl-11 pr-[18px] pt-3">
+                <span className="min-w-0 flex-1">
+                    <span className="eye block text-muted-ink">Your full address — friends on other servers need it</span>
+                    <span className="mt-[3px] block truncate font-mono text-[13px] text-foreground">{vm.userAddress}</span>
+                </span>
+                <Button
+                    variant="secondary"
+                    size="none"
+                    aria-label="Copy your full address"
+                    onPress={vm.copyAddress}
+                    className={actionButton({
+                        className: vm.copied
+                            ? "border-[color:color-mix(in_oklab,var(--online)_45%,transparent)] text-online-ink"
+                            : undefined,
+                    })}
+                >
+                    {vm.copied ? "✓ Copied" : "Copy address"}
+                </Button>
+                <span className="sr-only" aria-live="polite">
+                    {vm.copied ? "Copied" : ""}
+                </span>
+            </div>
+        </>
     )
 }

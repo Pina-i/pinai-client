@@ -14,6 +14,8 @@ export interface SearchFieldProps
     icon?: ReactNode
     /** Optional kbd-style hint rendered on the right (e.g. "⌘K"). */
     shortcutHint?: ReactNode
+    /** After the input: a spinner, or a React Aria `Button`, which clears the field. */
+    trailing?: ReactNode
     className?: string
     onChange?: (value: string) => void
     "aria-label"?: string
@@ -24,6 +26,7 @@ export function SearchField({
     placeholder,
     icon,
     shortcutHint,
+    trailing,
     className,
     onChange,
     inputRef,
@@ -47,6 +50,7 @@ export function SearchField({
                 placeholder={placeholder}
                 className="min-w-0 flex-1 bg-transparent text-foreground placeholder:text-muted-foreground outline-none [&::-webkit-search-cancel-button]:hidden"
             />
+            {trailing}
             {shortcutHint && <Kbd className="ml-auto">{shortcutHint}</Kbd>}
         </AriaSearchField>
     )

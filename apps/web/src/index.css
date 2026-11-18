@@ -408,14 +408,24 @@
     --tracking-normal:            0em;
 }
 
-/* Red and amber as text: on a light ground the raw hues fall under 4.5:1, so they lean toward the ink. */
+/* Hues as text: on a light ground the raw hues fall under 4.5:1, so they lean toward the ink.
+   `acc-text` / `sec-text`, not `-ink`: `accink` / `secink` are the ink on those fills. */
 :root {
     --dnd-ink:                    var(--dnd);
     --idle-ink:                   var(--idle);
+    --online-ink:                 var(--on);
+    --acc-text:                   var(--acc);
+    --sec-text:                   var(--sec);
+    /* Muted text on a raised surface or a tint, a tag on a hovered row included: the raw grey falls under 4.5:1 there. */
+    --muted-ink:                  color-mix(in oklab, var(--muted-foreground) 65%, var(--foreground));
 }
 .light {
     --dnd-ink:                    color-mix(in oklab, var(--dnd) 80%, var(--foreground));
     --idle-ink:                   color-mix(in oklab, var(--idle) 60%, var(--foreground));
+    --online-ink:                 color-mix(in oklab, var(--on) 65%, var(--foreground));
+    --acc-text:                   color-mix(in oklab, var(--acc) 65%, var(--foreground));
+    --sec-text:                   color-mix(in oklab, var(--sec) 75%, var(--foreground));
+    --muted-ink:                  color-mix(in oklab, var(--muted-foreground) 80%, var(--foreground));
 }
 
 /* Tailwind v4 — expose tokens to utility classes (`bg-surf2`, `text-acc`, …) */
@@ -465,6 +475,10 @@
     --color-dnd:                      var(--dnd);
     --color-dnd-ink:                  var(--dnd-ink);
     --color-idle-ink:                 var(--idle-ink);
+    --color-online-ink:               var(--online-ink);
+    --color-acc-text:                 var(--acc-text);
+    --color-sec-text:                 var(--sec-text);
+    --color-muted-ink:                var(--muted-ink);
     --color-offline:                  var(--offline);
 
     --color-border:                   var(--border);
