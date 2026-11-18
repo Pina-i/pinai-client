@@ -55,7 +55,8 @@ jobs:
       # under app:// would get index.html for its assets. An upgrade could undo the override.
       - run: grep -q 'src="/assets/' apps/desktop/out/renderer/index.html
       # The app's code, built once with the WASM engine: each system's job only packages it.
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-out
           path: apps/desktop/out
@@ -119,17 +120,19 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
-  # Each system's installers on its own runner. Pull requests package Linux x64 only; main and
-  # tags all four, kept 3 days to try them, and a tag hands them to the release.
+  # Each system's installers on its own runner, for pull requests and tags only: a pull request
+  # packages Linux x64, release-please's all four so a release can't break on one after its tag,
+  # and a tag all four, which it hands to the release.
   desktop:
     name: desktop (${{ matrix.name }})
     needs: check
+    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
     # A hung hdiutil on the macOS runners would otherwise hold the job for hours.
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"runner":"ubuntu-24.04","name":"linux-x64","args":"--linux --x64"}]' || '[{"runner":"ubuntu-24.04","name":"linux-x64","args":"--linux --x64"},{"runner":"ubuntu-24.04-arm","name":"linux-arm64","args":"--linux --arm64"},{"runner":"windows-latest","name":"windows-x64","args":"--win --x64"},{"runner":"macos-15","name":"mac-universal","args":"--mac --universal"}]') }}
+        include: ${{ fromJSON(github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release-please--') && '[{"runner":"ubuntu-24.04","name":"linux-x64","args":"--linux --x64"}]' || '[{"runner":"ubuntu-24.04","name":"linux-x64","args":"--linux --x64"},{"runner":"ubuntu-24.04-arm","name":"linux-arm64","args":"--linux --arm64"},{"runner":"windows-latest","name":"windows-x64","args":"--win --x64"},{"runner":"macos-15","name":"mac-universal","args":"--mac --universal"}]') }}
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -147,7 +150,7 @@ jobs:
       - run: pnpm --filter @pinai/desktop package ${{ matrix.args }}
       - if: runner.os == 'macOS'
         run: codesign --verify --deep --strict --verbose=2 apps/desktop/dist/mac-universal/Pinai.app
-      - if: github.event_name != 'pull_request'
+      - if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: installers-${{ matrix.name }}
