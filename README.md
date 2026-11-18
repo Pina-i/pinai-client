@@ -344,15 +344,16 @@ the build.
 `.github/workflows/ci.yml` first runs the checks: the MLS engine built once, then
 `pnpm lint`, `pnpm typecheck`, `pnpm test`, the desktop app's build and the
 crate's `cargo test`. Then it builds the image from `docker/Dockerfile` for amd64
-and arm64, and packages the desktop app on a runner of each system (a pull
-request packages Linux x64 only). A `main` run's installers can be downloaded
-from its run page for 3 days, to try them before a release. What it publishes to
-`ghcr.io/pina-i/pinai-web` depends on what triggered it:
+and arm64, and packages the desktop app: a pull request on Linux x64,
+release-please's release pull request and a tag on a runner of each system, so a
+release can't break on one system after its tag. A push to `main` packages
+nothing. What it publishes to `ghcr.io/pina-i/pinai-web` depends on what
+triggered it:
 
 | Trigger | Published |
 |---|---|
 | A pull request | nothing |
-| A push to `main` | `edge` and `sha-<short>`, for testing only |
+| A push to `main` | nothing: the image is built, unpublished, to keep the cache a tag's build reads |
 | A tag `vX.Y.Z` | `X.Y.Z`, `X.Y` and `latest`, the four installers (`Pinai-Setup.exe`, `Pinai.dmg`, the two AppImages) with the files the app updates from (`latest*.yml`, `Pinai-mac.zip`), then the GitHub release |
 | A tag `vX.Y.Z-rc.1` | `X.Y.Z-rc.1`, the installers, then a pre-release |
 
