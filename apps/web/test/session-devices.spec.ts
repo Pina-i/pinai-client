@@ -23,7 +23,10 @@ function entry(change: Partial<DeviceListEntry>): DeviceListEntry {
     return {
         device_id: "d1",
         display_name: "Firefox on Linux",
+        automatic_name: "Firefox on Linux",
+        chosen_name: null,
         kind: "laptop",
+        client: "browser",
         paired_at: "2026-10-01T09:00:00Z",
         last_seen_at: "2026-10-19T09:00:00Z",
         revoked_at: null,

@@ -9,6 +9,11 @@ export interface IDeviceDirectoryPort {
     listDevices(idpUrl: string, accessToken: string): Promise<DeviceListResponse>
     markRevoked(idpUrl: string, accessToken: string, deviceId: string): Promise<void>
     /**
+     * The name the user gives one of their devices; `null` gives its automatic name back. Refused as
+     * Revoke is: `IdpError` 403 `approval_required`, 403 `access_denied` (revoked), 404.
+     */
+    renameDevice(idpUrl: string, accessToken: string, deviceId: string, name: string | null): Promise<void>
+    /**
      * The session's own device approved by the passphrase: `signature` is the generation's
      * approval key's. `IdpError` 409 `stale_history_key` under another generation.
      */

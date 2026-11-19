@@ -49,6 +49,7 @@ import { accessToken } from "./setup/access-token"
 import { FakeAccount } from "./setup/approval-relay"
 import { ACTOR, FakeHistoryIdp, IDP, MemoryHistoryStorage, historyDevice, nameSession } from "./setup/history-idp"
 import { FakeIssuers } from "./setup/issuers"
+import { fixedDeviceLabel } from "./setup/this-device-label"
 
 const wired = vi.hoisted(() => ({
     e2ee: null as unknown,
@@ -72,6 +73,7 @@ vi.mock("@/ioc", () => ({
     getAuthPlatform: () => wired.platform,
     getAuthPort: vi.fn(),
     getSessionRenewal: vi.fn(),
+    getThisDeviceLabel: () => fixedDeviceLabel(),
 }))
 vi.mock("@/presentation/hooks/useIdpWebSocket", () => ({
     registerKeyPackagesLowHandler: (handler: () => void) => {

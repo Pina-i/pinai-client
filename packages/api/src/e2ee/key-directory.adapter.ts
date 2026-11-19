@@ -11,6 +11,7 @@ import { HTTPError } from "ky"
 import { idp } from "../http"
 import { idpErrorFrom } from "../idp-error"
 
+import type { DeviceLabel } from "@pinai/domain/models/device-label"
 import type {
     ActorUri,
     ClaimedKeyPackage,
@@ -29,6 +30,13 @@ import type {
 } from "@pinai/domain/ports/key-directory.port"
 
 export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
+    private readonly deviceLabel: () => Promise<DeviceLabel | null>
+
+    /** `deviceLabel`: what this device says it is, sent with each registration and upload; `null` sends none. */
+    constructor(deviceLabel: () => Promise<DeviceLabel | null> = async () => null) {
+        this.deviceLabel = deviceLabel
+    }
+
     /** Legacy — no-op since the server-side identity endpoint is gone. */
     async publishIdentity(
         _idpUrl: string,
@@ -44,6 +52,7 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
         hpkeKey: { publicKey: Uint8Array; signature: Uint8Array },
     ): Promise<RegisterDeviceResponse> {
         const url = `${trimSlash(idpUrl)}/api/keys/devices`
+        const label = await this.deviceLabel()
         const body = await guarded(() =>
             idp.post(url, {
                 headers: authHeader(accessToken),
@@ -52,6 +61,7 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
                     drk_public_key: b64(drkPublicKey),
                     hpke_public_key: b64(hpkeKey.publicKey),
                     hpke_key_signature: b64(hpkeKey.signature),
+                    ...labelField(label),
                 },
             }).json<{
                 signature: string
@@ -86,6 +96,7 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
         packages: { key_package: Uint8Array; expires_at: string }[],
     ): Promise<{ uploaded: number; available_after: number }> {
         const url = `${trimSlash(idpUrl)}/api/keys/packages`
+        const label = await this.deviceLabel()
         return guarded(() =>
             idp
                 .post(url, {
@@ -96,6 +107,7 @@ export class KeyDirectoryApiAdapter implements IKeyDirectoryPort {
                             key_package: b64(p.key_package),
                             expires_at: p.expires_at,
                         })),
+                        ...labelField(label),
                     },
                 })
                 .json<{ uploaded: number; available_after: number }>(),
@@ -321,6 +333,10 @@ function trimSlash(url: string): string {
 
 function authHeader(token: string): Record<string, string> {
     return { Authorization: `Bearer ${token}` }
+}
+
+function labelField(label: DeviceLabel | null): { label?: DeviceLabel } {
+    return label ? { label: { name: label.name, kind: label.kind, client: label.client } } : {}
 }
 
 function b64(bytes: Uint8Array): string {

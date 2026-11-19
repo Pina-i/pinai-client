@@ -1,4 +1,5 @@
 import type { AppUpdate } from "@pinai/domain/ports/app-updates.port"
+import type { ComputerFacts } from "@pinai/domain/models/device-label"
 import type { HeldRefreshToken } from "@pinai/domain/ports/auth.port"
 import type { KeepRunningSetting } from "@pinai/domain/ports/keep-running.port"
 import type { TitleBarColors } from "@pinai/domain/ports/window-frame.port"
@@ -41,6 +42,10 @@ export interface DesktopBridge {
         /** Whether closing the window keeps the app running (`apps/desktop/src/main/keep-running.ts`). */
         keepRunning(): Promise<KeepRunningSetting>
         setKeepRunning(keepRunning: boolean): Promise<void>
+    }
+    /** The computer the app runs on (`apps/desktop/src/main/device-facts.ts`); `late`, a read ran past its cap. */
+    device: {
+        facts(): Promise<{ facts: ComputerFacts; late: boolean }>
     }
 }
 

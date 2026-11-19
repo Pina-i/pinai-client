@@ -44,6 +44,9 @@ function bridge() {
             keepRunning: vi.fn(async () => ({ keepRunning: true, comesBackBy: "tray" as const })),
             setKeepRunning: vi.fn(async () => {}),
         },
+        device: {
+            facts: vi.fn(async () => ({ facts: { os: "Linux" as const, model: null, computerName: null }, late: false })),
+        },
     }
     return { bridge: value, handedOver }
 }

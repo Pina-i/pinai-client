@@ -181,6 +181,42 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   HPKE key, for sharing the passphrase (`@pinai/crypto`).
 - `deviceListKey` — what a review reads of the list as one string: a refetch
   that only changed activity times compares equal.
+- `display_name` is the shown name (`chosen_name`, else `automatic_name`); `client` tells the
+  app from a browser (`DeviceClient`, `unknown` for a client that never said).
+- `deviceRename(draft, device)` — what a rename sends (`IDeviceDirectoryPort.renameDevice`): the
+  name as the IdP takes it (`readableName`, `models/device-label.ts`), `null` for the automatic name
+  back (nothing readable typed, or that name), nothing when the shown name would stay.
+  `MAX_DEVICE_NAME_LENGTH` (50) in code points, as the IdP counts; `cutDeviceName` cuts there, never
+  inside an emoji's surrogates. `renameRefusal` — past `approval_required`: `gone` (`403
+  access_denied`, `404`), `invalid` (`400`), `failed`.
+
+### models/device-label.ts + ports/device-facts.port.ts + usecases/e2ee/this-device-label.usecase.ts
+- The device names itself: `composeDeviceLabel(facts)` makes the `label` its registration and
+  uploads carry (the web's `KeyDirectoryApiAdapter` is given it), so every platform's quirks stay
+  on the client. `DeviceFacts` is a union by `client`, one branch a kind of client: `browser` (the
+  `User-Agent`, Chromium's hints or `null`) and `app` (`ComputerFacts`: the system, the
+  computer's model and name, as the desktop app's main process reads them).
+- The desktop app: the model, else the system, then the computer's name in brackets —
+  "Lenovo ThinkPad X1 Carbon Gen 9 (alice-thinkpad)", "Windows (alice-pc)", "Linux"; the computer's
+  name alone when it holds the model, as whole words ("Alice's MacBook Air"; "iMac" is not in
+  "jimac-server"). No word for the kind of device, the
+  card's icon says it; `laptop`, `app`. Past 100 characters the computer's name is shortened with
+  "…", its bracket kept. `desktopOsOf` — the system the app's `User-Agent` names, for what it
+  knows before its main process answers.
+- A browser: "<browser> on <system>" from the `User-Agent`. Close to the IdP's own reading of one,
+  not the same: ChromeOS is named, and Edge and Opera on Android too, where the IdP says Chrome.
+  Chromium's hints put an Android model in the system's place (`SM-` codes get "Samsung";
+  `mobile` decides phone or tablet) and tell Windows 11 from 10 (`platformVersion` major ≥ 13).
+  A browser it doesn't know: on a phone or tablet "Browser on <system>"; on a computer "Web
+  client", `unknown`.
+- `deviceName` — the name as the IdP takes it: control and invisible characters dropped (the
+  IdP's list; joiners kept: emoji), trimmed, cut at 100 code points; `null` when nothing readable
+  is left. `readableName` — the same without the cut: a rename's too.
+- `IDeviceFactsPort` — `known()` at once, `gather()` within the platform's time, never
+  rejecting, and `late` when the platform didn't answer in time. `thisDeviceLabel` gathers once
+  a run, again at the next request after a late answer — kept, its base name would overwrite the
+  better one the IdP holds at every request: `now()` is the base until the facts are in,
+  `settled()` what is sent.
 
 ### models/device-trust.ts
 - Who each device trusts, decided by itself (`identity-provider/specs/e2ee.md § 3.9`).
@@ -248,7 +284,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   (`IE2eePort.approvedAsTheInstanceCounts`: the approval rule over approvals verified under the
   stored approval key — what the instance refuses, never trust): "Clear history backup" and "Sign
   out other devices" withheld; no key, or unknown, nothing. `revokeWithheld` — the same, and
-  "Revoke" withheld only on a device the instance counts approved.
+  "Revoke" withheld only on a device the instance counts approved. `mayRename` — the pencil:
+  Revoke's rule (the IdP's `may_rename` is `may_revoke`), never on a revoked device.
   `holdsCurrentWords` (the words shown, else "Restore history"); `holdsHistory` /
   `historyHolders` — on an acting verdict, a device it approves that says it holds its
   generation. `approverOf` — over the root key listed now; `approvedByWording` — "this

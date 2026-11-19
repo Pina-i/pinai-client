@@ -45,6 +45,7 @@ import { useAppStore } from "@/store/store"
 import { ACTOR, IDP } from "./setup/history-idp"
 import { FakeIssuers } from "./setup/issuers"
 import { bundleHpke, sharingAccount, type SharingAccount, type SharingDevice } from "./setup/key-shares"
+import { fixedDeviceLabel } from "./setup/this-device-label"
 
 const wired = vi.hoisted(() => ({
     e2ee: null as unknown,
@@ -68,6 +69,7 @@ vi.mock("@/ioc", () => ({
     getAuthPort: vi.fn(),
     getAuthPlatform: vi.fn(),
     getSessionRenewal: vi.fn(),
+    getThisDeviceLabel: () => fixedDeviceLabel(),
 }))
 vi.mock("@/presentation/hooks/useIdpWebSocket", () => ({
     registerHistoryKeyReadyHandler: (handler: () => void) => {

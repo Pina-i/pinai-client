@@ -149,8 +149,9 @@ async function until(check: () => boolean) {
     expect(check()).toBe(true)
 }
 
+/** The card named `name`: its name is the one element it focuses by script. */
 const card = (name: string) =>
-    [...container.querySelectorAll("div.rounded-\\[14px\\]")].find((d) => d.querySelector(".title")?.textContent === name)
+    [...container.querySelectorAll("div.rounded-\\[14px\\]")].find((d) => d.querySelector('[tabindex="-1"]')?.textContent === name)
 const button = (label: string, within: ParentNode = container) =>
     [...within.querySelectorAll("button")].find((b) => b.textContent?.trim() === label)
 const dialog = (name: string) => document.body.querySelector<HTMLElement>(`[role="dialog"][aria-label="${name}"]`)
@@ -569,5 +570,175 @@ describe("Settings → Devices: replacing the words", () => {
         await render()
         await until(() => button("Clear history backup") !== undefined)
         expect(button("Replace my words")).toBeUndefined()
+    })
+})
+
+describe("Settings → Devices: renaming a device", () => {
+    const input = () => container.querySelector<HTMLInputElement>('input[aria-label="Device name"]')
+    const pencil = (name: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="Rename ${name}"]`)
+    const alert = () => container.querySelector('[role="alert"]')
+    const showing = (within: Element, text: string | RegExp) =>
+        [...within.querySelectorAll("*")].find(
+            (e) => e.childElementCount === 0 && (typeof text === "string" ? e.textContent === text : text.test(e.textContent ?? "")),
+        )
+
+    async function type(value: string) {
+        const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!
+        await act(async () => {
+            setValue.call(input(), value)
+            input()!.dispatchEvent(new Event("input", { bubbles: true }))
+        })
+    }
+
+    async function enter() {
+        await act(async () => {
+            input()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+        })
+    }
+
+    /** A web device nobody approved beside the account's, and one more nobody approved: the instance counts it out. */
+    async function unapprovedHere() {
+        const { idp, rows } = await account()
+        const web = historyDevice(idp, "web", new MemoryHistoryStorage(), issuers.jwks)
+        await nameSession(web)
+        const self: TestDevice = {
+            actorUri: ACTOR,
+            deviceId: web.storage.deviceId,
+            rootKey: web.storage.rootKey,
+            attestation: issuers.attest(ACTOR, web.storage.deviceId, web.storage.rootKey.publicKey),
+        }
+        wired.e2ee = web.e2ee
+        wired.history = idp
+        wired.rows = [
+            ...rows,
+            listedDevice(self, [], { display_name: "Chrome on Windows" }),
+            listedDevice(testDevice(issuers, ACTOR), [], { display_name: "Edge on Windows" }),
+        ]
+        useAppStore.setState({ accessToken: web.token })
+        await render({ cause: "reset-by-unapproved", setter: rows[0].device_id })
+        await until(() => card("Firefox on Linux")?.textContent?.includes("Only an approved device can remove an approved device") === true)
+        return { web }
+    }
+
+    /** The laptop, approved, renaming the phone through `renameDevice`. */
+    async function approvedHere(renameDevice: (idpUrl: string, token: string, deviceId: string, name: string | null) => Promise<void>) {
+        const { idp, laptop, rows, phone } = await account()
+        wired.e2ee = laptop.e2ee
+        wired.history = idp
+        wired.rows = rows
+        wired.directory = { renameDevice }
+        await render()
+        await until(() => pencil("Pixel 8") !== null)
+        await act(async () => pencil("Pixel 8")?.click())
+        await type("Alice's phone")
+        return { laptop, rows, phone }
+    }
+
+    it("on a device that isn't approved, offers the pencil on itself and the devices nobody approved only, as Revoke", async () => {
+        await unapprovedHere()
+
+        expect(pencil("Chrome on Windows")).not.toBeNull()
+        expect(pencil("Edge on Windows")).not.toBeNull()
+        for (const name of ["Firefox on Linux", "Pixel 8", "Studio iMac", "Old laptop"]) expect(pencil(name)).toBeNull()
+    })
+
+    it("on a device the instance counts approved, offers it on every device but the revoked one", async () => {
+        const { idp, laptop, rows } = await account()
+        wired.e2ee = laptop.e2ee
+        wired.history = idp
+        wired.rows = rows
+        const counted = vi.spyOn(laptop.e2ee, "approvedAsTheInstanceCounts")
+        await render()
+        await until(() => counted.mock.calls.length > 0 && button("Revoke") !== undefined)
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(5)
+        })
+
+        for (const name of ["Firefox on Linux", "Pixel 8", "Studio iMac"]) expect(pencil(name)).not.toBeNull()
+        expect(pencil("Old laptop")).toBeNull()
+    })
+
+    it("keeps withholding while the list a rename changed is counted again: no Revoke, pencil nor sign-out meanwhile", async () => {
+        const { web } = await unapprovedHere()
+        wired.directory = {
+            renameDevice: async (_idpUrl: string, _token: string, deviceId: string, name: string | null) => {
+                wired.rows = (wired.rows as DeviceListEntry[]).map((row) =>
+                    row.device_id === deviceId ? { ...row, display_name: name ?? row.automatic_name, chosen_name: name } : row,
+                )
+            },
+        }
+        const counted = vi.spyOn(web.e2ee, "approvedAsTheInstanceCounts")
+        await act(async () => pencil("Edge on Windows")?.click())
+        await type("Bob's tablet")
+        // The new list's count never answers: only the one before it can withhold.
+        counted.mockImplementation(() => new Promise(() => undefined))
+        await enter()
+        await until(() => card("Bob's tablet") !== undefined && counted.mock.calls.length > 0)
+
+        expect(container.querySelector('button[aria-label="Revoke Firefox on Linux"]')).toBeNull()
+        expect(card("Firefox on Linux")?.textContent).toContain("Only an approved device can remove an approved device")
+        expect(pencil("Firefox on Linux")).toBeNull()
+        expect(button("Sign out other devices")).toBeUndefined()
+    })
+
+    it("renames through the IdP, then shows the list read again: the chosen name, the automatic one first among the facts", async () => {
+        const renameDevice = vi.fn(async (_idpUrl: string, _token: string, deviceId: string, name: string | null) => {
+            wired.rows = (wired.rows as DeviceListEntry[]).map((row) =>
+                row.device_id === deviceId ? { ...row, display_name: name ?? row.automatic_name, chosen_name: name } : row,
+            )
+        })
+        // No answer the first time: said under the field, which stays for another try.
+        renameDevice.mockRejectedValueOnce(new TypeError("Failed to fetch"))
+        const { laptop, phone } = await approvedHere(renameDevice)
+        await enter()
+        await until(() => alert()?.textContent === "Couldn't rename this device — try again.")
+        expect(input()?.value).toBe("Alice's phone")
+
+        await enter()
+        await until(() => card("Alice's phone") !== undefined && input() === null)
+        expect(renameDevice).toHaveBeenLastCalledWith(IDP, laptop.token, phone.deviceId, "Alice's phone")
+        const renamed = card("Alice's phone")!
+        const automatic = showing(renamed, "Chrome on Linux")!
+        expect(automatic.compareDocumentPosition(showing(renamed, /^paired /)!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(alert()).toBeNull()
+        expect(toasts.error).not.toHaveBeenCalled()
+    })
+
+    it("says a name the IdP won't take, keeping the field", async () => {
+        await approvedHere(async () => Promise.reject(new IdpError(400, "invalid_request", "name holds a control character")))
+
+        await enter()
+
+        await until(() => alert()?.textContent === "That name can't be used.")
+        expect(input()?.value).toBe("Alice's phone")
+    })
+
+    it("refused for approval, says so as Revoke does, reads the list and the count again, and takes the focus to the name", async () => {
+        const { rows } = await approvedHere(async () => Promise.reject(new IdpError(403, "approval_required", "refused")))
+        // The instance's word changed meanwhile, its list with it: it no longer counts this device approved.
+        wired.rows = [{ ...rows[0], approvals: [] }, ...rows.slice(1)]
+
+        await enter()
+
+        expect(toasts.error).toHaveBeenCalledWith("Only an approved device can rename an approved device.")
+        expect(input()).toBeNull()
+        expect(document.activeElement?.textContent).toBe("Pixel 8")
+        await until(() => card("Pixel 8")?.textContent?.includes("Only an approved device can remove an approved device") === true)
+        expect(pencil("Pixel 8")).toBeNull()
+        expect(document.activeElement?.textContent).toBe("Pixel 8")
+    })
+
+    it("revoked elsewhere meanwhile, reads the list again: the field closes on the device shown revoked", async () => {
+        const { phone } = await approvedHere(async () => Promise.reject(new IdpError(403, "access_denied", "This device is revoked")))
+        wired.rows = (wired.rows as DeviceListEntry[]).map((row) =>
+            row.device_id === phone.deviceId ? { ...row, revoked_at: "2026-11-19T00:00:00Z" } : row,
+        )
+
+        await enter()
+
+        expect(input()).toBeNull()
+        await until(() => card("Pixel 8")?.textContent?.includes("revoked") === true)
+        expect(pencil("Pixel 8")).toBeNull()
+        expect(alert()).toBeNull()
     })
 })

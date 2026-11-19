@@ -15,6 +15,7 @@ import {
     historyHolders,
     holdsCurrentWords,
     holdsHistory,
+    mayRename,
     waitingDevices,
 } from "@pinai/domain/models/device-roster"
 import {
@@ -33,7 +34,10 @@ function row(device_id: string, n: number | null, change: Partial<DeviceListEntr
     return {
         device_id,
         display_name: device_id,
+        automatic_name: device_id,
+        chosen_name: null,
         kind: "laptop",
+        client: "browser",
         paired_at: "2026-11-01T00:00:00Z",
         last_seen_at: "2026-11-04T00:00:00Z",
         revoked_at: null,
@@ -332,5 +336,29 @@ describe("what a waiting seat offers", () => {
         expect(at("approved").kind).toBe("approved")
         expect(at("failed", { failure: "wrong-code" })).toMatchObject({ kind: "failed", failure: "wrong-code" })
         expect(seatAnswer("tablet", { ...empty, seat: view({ stage: "working" }) })).toEqual({ kind: "asks-nothing" })
+    })
+})
+
+describe("who may rename a device", () => {
+    const counted = new Set(["laptop", "phone"])
+
+    it("follows Revoke's rule: an approved device only from an approved one", () => {
+        expect(mayRename(counted, "tablet", row("phone", 2))).toBe(false)
+        expect(mayRename(counted, "laptop", row("phone", 2))).toBe(true)
+    })
+
+    it("lets any device rename itself and the devices nobody approved", () => {
+        expect(mayRename(counted, "tablet", row("tablet", 3))).toBe(true)
+        expect(mayRename(counted, "tablet", row("watch", 4))).toBe(true)
+        expect(mayRename(counted, "laptop", row("laptop", 1))).toBe(true)
+    })
+
+    it("lets any device rename any without a key, or while the count is unknown", () => {
+        expect(mayRename(null, "tablet", row("phone", 2))).toBe(true)
+    })
+
+    it("never offers it on a revoked device", () => {
+        expect(mayRename(counted, "laptop", row("old", 5, { revoked_at: "2026-11-03T00:00:00Z" }))).toBe(false)
+        expect(mayRename(null, "laptop", row("old", 5, { revoked_at: "2026-11-03T00:00:00Z" }))).toBe(false)
     })
 })

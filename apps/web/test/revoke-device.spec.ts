@@ -26,6 +26,7 @@ function ports(markRevoked: IDeviceDirectoryPort["markRevoked"]) {
             await markRevoked(idpUrl, accessToken, deviceId)
             done.push("revoked at the IdP")
         }),
+        renameDevice: vi.fn(),
         approveByPassphrase: vi.fn(),
         approveByDevice: vi.fn(),
         reportHistoryKey: vi.fn(),

@@ -8,8 +8,11 @@ import { parseDeviceList } from "@pinai/api/device-directory/device-directory-ap
 
 const ROW = {
     device_id: "550e8400-e29b-41d4-a716-446655440000",
-    display_name: "Firefox on Linux",
+    display_name: "Alice's laptop",
+    automatic_name: "Firefox on Linux",
+    chosen_name: "Alice's laptop",
     kind: "laptop",
+    client: "browser",
     paired_at: "2026-11-01T09:00:00Z",
     last_seen_at: "2026-11-02T09:00:00Z",
     revoked_at: null,
@@ -53,6 +56,36 @@ describe("parseDeviceList", () => {
                 created_at: "2026-11-01T09:02:00Z",
             },
         ])
+    })
+
+    it("reads both names and the client", () => {
+        const [browser, app] = parseDeviceList({ devices: [ROW, { ...ROW, client: "app" }] }).devices
+
+        expect(browser).toMatchObject({
+            display_name: "Alice's laptop",
+            automatic_name: "Firefox on Linux",
+            chosen_name: "Alice's laptop",
+            client: "browser",
+        })
+        expect(app.client).toBe("app")
+    })
+
+    it("reads a row without them as named automatically by its display name, by an unknown client", () => {
+        const { automatic_name: _automatic, chosen_name: _chosen, client: _client, ...older } = ROW
+        const [device] = parseDeviceList({ devices: [older] }).devices
+
+        expect(device).toMatchObject({
+            display_name: "Alice's laptop",
+            automatic_name: "Alice's laptop",
+            chosen_name: null,
+            client: "unknown",
+        })
+    })
+
+    it("reads a client it doesn't know as unknown", () => {
+        const [device] = parseDeviceList({ devices: [{ ...ROW, client: "toaster" }] }).devices
+
+        expect(device.client).toBe("unknown")
     })
 
     it("reads a device with no root key yet as holding none", () => {

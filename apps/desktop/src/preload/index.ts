@@ -34,5 +34,8 @@ if (app && isApp(window.location.href, app)) {
             keepRunning: () => ipcRenderer.invoke("window:keep-running"),
             setKeepRunning: (keepRunning: unknown) => ipcRenderer.invoke("window:set-keep-running", keepRunning),
         },
+        device: {
+            facts: () => ipcRenderer.invoke("device:facts"),
+        },
     })
 }

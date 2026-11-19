@@ -1,14 +1,14 @@
 import { useLocation, useRouter } from "@tanstack/react-router"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import type { KeptWordsCause, KeptWordsReset } from "@pinai/domain/models/admission"
 import type { DeviceId } from "@pinai/domain/models/e2ee"
 import type { AwaitedShareState } from "@pinai/domain/usecases/e2ee/accept-history-share.usecase"
 import { dropSearchParam } from "@/presentation/_libs/search-param"
-import { userAgentLabel } from "@/presentation/_libs/user-agent-label"
 import { useAwaitedShare } from "@/presentation/hooks/use-awaited-share"
 import { useOwnStartOver, type OwnStartOver } from "@/presentation/hooks/use-own-start-over"
 import { useTypedWords, type TypedWords } from "@/presentation/hooks/use-typed-words"
+import { useThisDeviceName } from "@/presentation/hooks/use-this-device-name"
 import { START_OVER_NOTICES, type StartOverNotice } from "@/presentation/organisms/StartOverPanel/StartOverPanel.viewmodel"
 import { useHistoryReset, type RecheckOutcome } from "@/presentation/providers/HistoryResetProvider/HistoryReset.context"
 
@@ -186,7 +186,7 @@ export function useHistoryResetBannerViewModel(onHeld: (held: boolean) => void):
     }, [close])
 
     const ownStartOver = useOwnStartOver(opened?.modal === "start-over")
-    const deviceLabel = useMemo(() => userAgentLabel(), [])
+    const deviceLabel = useThisDeviceName()
     const openedFor = opened?.reset ?? null
 
     return {

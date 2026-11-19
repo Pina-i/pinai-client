@@ -4,9 +4,14 @@
  */
 
 import { hexOf } from "./bytes"
+import { readableName } from "./device-label"
 import type { DeviceId } from "./e2ee"
+import { IdpError } from "./idp-error"
 
 export type DeviceKind = "laptop" | "phone" | "tablet" | "unknown"
+
+/** The Pīna'i app or a browser; `unknown` for a client that never said and whose `User-Agent` didn't tell. */
+export type DeviceClient = "app" | "browser" | "unknown"
 
 /** A signature binding the listed root key: by another device's root key, or by a generation's approval key. */
 export type DeviceApproval =
@@ -15,8 +20,14 @@ export type DeviceApproval =
 
 export interface DeviceListEntry {
     device_id: string
+    /** The shown name: `chosen_name` when set, else `automatic_name`. */
     display_name: string
+    /** The name the device gave itself (its label), or its `User-Agent`'s. */
+    automatic_name: string
+    /** The name its user gave it, null until then. */
+    chosen_name: string | null
     kind: DeviceKind
+    client: DeviceClient
     /** ISO-8601 / RFC 3339. */
     paired_at: string
     /** ISO-8601 / RFC 3339. */
@@ -43,6 +54,40 @@ export interface DeviceListEntry {
 
 export interface DeviceListResponse {
     devices: DeviceListEntry[]
+}
+
+/** The longest name a user gives a device, in characters (code points) as the IdP counts them. */
+export const MAX_DEVICE_NAME_LENGTH = 50
+
+/** `text` cut to `MAX_DEVICE_NAME_LENGTH` code points: a UTF-16 cut could leave half an emoji, which the IdP refuses. */
+export function cutDeviceName(text: string): string {
+    const chars = Array.from(text)
+    return chars.length > MAX_DEVICE_NAME_LENGTH ? chars.slice(0, MAX_DEVICE_NAME_LENGTH).join("") : text
+}
+
+/**
+ * What renaming `device` to `draft` sends: the name as the IdP takes it (`readableName`), or `null`
+ * for its automatic name back — nothing readable typed, or that name. `null` overall when the name
+ * it is shown by would stay.
+ */
+export function deviceRename(
+    draft: string,
+    device: Pick<DeviceListEntry, "automatic_name" | "chosen_name">,
+): { name: string | null } | null {
+    const typed = readableName(draft)
+    const name = typed === null || typed === device.automatic_name ? null : typed
+    return name === device.chosen_name ? null : { name }
+}
+
+/**
+ * A rename's refusal past `approval_required` (Revoke's rule): `gone` — the device revoked
+ * (`403 access_denied`) or not the account's (`404`) —, `invalid` — a name the IdP won't take
+ * (`400`) —, `failed` — anything else, no answer included.
+ */
+export function renameRefusal(error: unknown): "gone" | "invalid" | "failed" {
+    if (!(error instanceof IdpError)) return "failed"
+    if (error.status === 404 || (error.status === 403 && error.code === "access_denied")) return "gone"
+    return error.status === 400 ? "invalid" : "failed"
 }
 
 export type DeviceStatus =

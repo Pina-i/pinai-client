@@ -153,7 +153,10 @@ describe("verifyDeviceChain", () => {
         const entry: DeviceListEntry = {
             device_id: device.deviceId,
             display_name: "Firefox on Linux",
+            automatic_name: "Firefox on Linux",
+            chosen_name: null,
             kind: "laptop",
+            client: "browser",
             paired_at: "2026-11-01T09:00:00Z",
             last_seen_at: "2026-11-02T09:00:00Z",
             revoked_at: null,

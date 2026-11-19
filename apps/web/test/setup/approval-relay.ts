@@ -78,7 +78,10 @@ export class FakeAccount {
         const row: DeviceListEntry = {
             device_id: deviceId,
             display_name: name,
+            automatic_name: name,
+            chosen_name: null,
             kind: "laptop",
+            client: "browser",
             paired_at: new Date(this.now.at - 120_000).toISOString(),
             last_seen_at: new Date(this.now.at).toISOString(),
             revoked_at: null,
@@ -208,6 +211,7 @@ export class FakeAccount {
                 if ((held.asker === deviceId || held.approver === deviceId) && !this.ended(held)) this.end(held)
             }
         },
+        renameDevice: async () => undefined,
         approveByPassphrase: async () => undefined,
         approveByDevice: async (_idp, token, deviceId, signature) => {
             const approver = this.device(token, "approveByDevice")

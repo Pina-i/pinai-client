@@ -133,6 +133,15 @@ export function revokeWithheld(
     return notCountedApproved(approvedByInstance, thisDevice) && approvedByInstance !== null && approvedByInstance.has(device.device_id)
 }
 
+/** The pencil: Revoke's rule, as the IdP's `may_rename` is `may_revoke`; never on a revoked device. */
+export function mayRename(
+    approvedByInstance: ReadonlySet<DeviceId> | null,
+    thisDevice: DeviceId | null,
+    device: Pick<DeviceListEntry, "device_id" | "revoked_at">,
+): boolean {
+    return device.revoked_at === null && !revokeWithheld(approvedByInstance, thisDevice, device)
+}
+
 function newestFirst<T extends Seated>(devices: T[]): T[] {
     return devices.sort((a, b) => Date.parse(b.paired_at) - Date.parse(a.paired_at))
 }
