@@ -1,6 +1,8 @@
 import { Check, X } from "lucide-react"
+import { useRef } from "react"
 import { Input, TextField } from "react-aria-components"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
+import { useNameField } from "@/presentation/hooks/use-name-field"
 import { useRenameGroup } from "@/presentation/hooks/useRenameGroup"
 
 interface GroupTitleEditorProps {
@@ -15,13 +17,13 @@ interface GroupTitleEditorProps {
 /** The header's title, renamed in place. */
 export function GroupTitleEditor({ conversationId, groupName, placeholder, onDone }: GroupTitleEditorProps) {
     const rename = useRenameGroup(conversationId, groupName)
-    const isBlank = !rename.draft.trim()
+    const inputRef = useRef<HTMLInputElement>(null)
+    const field = useNameField(inputRef, rename.draft, rename.setDraft, rename.maxLength)
 
     async function submit() {
-        if (rename.isPending || isBlank) return
-        // Not blank, yet nothing to send: it is the name the group has.
-        if (!rename.canSave) return onDone()
-        if (await rename.save()) onDone()
+        if (rename.isPending || rename.isBlank) return
+        if (rename.isUnchanged) return onDone()
+        if (rename.canSave && (await rename.save())) onDone()
     }
 
     return (
@@ -30,9 +32,12 @@ export function GroupTitleEditor({ conversationId, groupName, placeholder, onDon
                 aria-label="Group name"
                 autoFocus
                 value={rename.draft}
-                onChange={rename.setDraft}
-                maxLength={rename.maxLength}
+                onChange={field.onChange}
+                onCompositionStart={field.onCompositionStart}
+                onCompositionEnd={field.onCompositionEnd}
                 onKeyDown={(e) => {
+                    // An IME's Enter or Escape ends its composition, never the edit.
+                    if (e.nativeEvent.isComposing) return
                     if (e.key === "Enter") void submit()
                     else if (e.key === "Escape") onDone()
                     else e.continuePropagation()
@@ -40,6 +45,7 @@ export function GroupTitleEditor({ conversationId, groupName, placeholder, onDon
                 className="w-[min(340px,100%)] min-w-0"
             >
                 <Input
+                    ref={inputRef}
                     placeholder={placeholder}
                     className="title w-full rounded-[10px] bg-surf2 px-2.5 py-0.5 text-[19px] font-semibold text-foreground shadow-[inset_0_0_0_1.5px_var(--acc)] outline-none placeholder:text-muted-foreground"
                 />
@@ -47,7 +53,7 @@ export function GroupTitleEditor({ conversationId, groupName, placeholder, onDon
             <IconButton
                 variant="ghost"
                 aria-label="Save name"
-                isDisabled={isBlank || rename.isPending}
+                isDisabled={rename.isBlank || rename.isPending}
                 onPress={() => void submit()}
                 className="bg-action text-action-foreground hover:bg-action hover:text-action-foreground disabled:opacity-45"
             >

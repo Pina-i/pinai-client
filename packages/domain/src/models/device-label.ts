@@ -5,6 +5,7 @@
  */
 
 import type { DeviceClient, DeviceKind } from "./device"
+import { cutName, readableName } from "./name"
 
 export interface DeviceLabel {
     name: string
@@ -46,21 +47,10 @@ export type DeviceFacts = BrowserFacts | AppFacts
 /** The IdP's limit on an automatic name, in characters (code points). */
 export const DEVICE_NAME_MAX_CHARS = 100
 
-const CONTROL = /\p{Cc}/gu
-// The IdP refuses them: they show nothing, or turn the text around them.
-const INVISIBLE = /[\u200B\u200E\u200F\u061C\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF\u2028\u2029\u00AD\u180E\u115F\u1160\u3164\uFFA0\u2800]/gu
-const JOINERS_ONLY = /^[\u200C\u200D\s]*$/u
-
 /** `raw` as the IdP takes a device's name, or null when nothing readable is left; joiners stay, emoji need them. */
 export function deviceName(raw: string): string | null {
     const kept = readableName(raw)
-    return kept === null ? null : readableName(Array.from(kept).slice(0, DEVICE_NAME_MAX_CHARS).join(""))
-}
-
-/** `raw` without the characters the IdP refuses in a name, trimmed; null when nothing readable is left. */
-export function readableName(raw: string): string | null {
-    const kept = raw.replace(CONTROL, "").replace(INVISIBLE, "").trim()
-    return JOINERS_ONLY.test(kept) ? null : kept
+    return kept === null ? null : readableName(cutName(kept, DEVICE_NAME_MAX_CHARS))
 }
 
 const UNKNOWN_NAME = "Web client"

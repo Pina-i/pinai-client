@@ -57,11 +57,7 @@ export class UserApiAdapter implements IUserPort {
                 json: patch,
             }).json<UserProfile>()
         } catch (error) {
-            if (error instanceof HTTPError) {
-                const err = await error.response.json().catch(() => ({})) as { error?: string }
-                throw new Error(err.error ?? `Failed to update profile: ${error.response.status}`)
-            }
-            throw error
+            throw await idpErrorFrom(error, "Failed to update profile")
         }
     }
 

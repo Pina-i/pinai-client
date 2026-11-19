@@ -63,7 +63,7 @@ export function useDeviceCardViewModel(device: DeviceRow, onRename: RenameDevice
     return {
         isEditing,
         draft,
-        setDraft: (value) => setDraft(cutDeviceName(value)),
+        setDraft,
         isSaving,
         failure: isEditing ? failure : null,
         startRename: () => {
@@ -79,6 +79,7 @@ export function useDeviceCardViewModel(device: DeviceRow, onRename: RenameDevice
             if (!onRename || isSaving) return
             const change = deviceRename(draft, device)
             if (!change) return close("pencil")
+            if ("refused" in change) return setFailure(NAME_REFUSED)
             setIsSaving(true)
             setFailure(null)
             const outcome = await onRename(change.name).catch((): RenameOutcome => "failed")
