@@ -4,7 +4,7 @@ import { useAppStore } from "@/store/store"
 import { toast } from "sonner"
 import { getE2eePort, getGroupPort } from "@/ioc"
 import { distributeGroupKeysUseCase } from "@pinai/domain/usecases/e2ee/distribute-group-keys.usecase"
-import { MAX_GROUP_MEMBERS, seatsLeft } from "@pinai/domain/models/group"
+import { MAX_GROUP_MEMBERS, MAX_GROUP_NAME_LENGTH, newGroupName, seatsLeft } from "@pinai/domain/models/group"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 import { groupMembersQueryKey } from "@/presentation/hooks/useGroupMembers"
 import { useFriendsPanelViewModel, type Friend } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
@@ -56,6 +56,8 @@ export function useGroupComposerViewModel(composer: GroupComposerState, onClose:
         [friends, selectedIds],
     )
 
+    const groupName = newGroupName(name)
+
     // The creator counts, and so does everyone already in the group being added to.
     const isFull = seatsLeft((isAddMode ? (existingMembers?.length ?? 0) : 1) + selectedIds.size) === 0
 
@@ -89,7 +91,7 @@ export function useGroupComposerViewModel(composer: GroupComposerState, onClose:
     }
 
     async function submit() {
-        if (!idpUrl || !accessToken || selectedIds.size === 0 || isSubmitting) return
+        if (!idpUrl || !accessToken || selectedIds.size === 0 || isSubmitting || groupName === null) return
         const actorUris = selectedFriends.map((f) => f.id)
         setIsSubmitting(true)
         setError(null)
@@ -115,7 +117,7 @@ export function useGroupComposerViewModel(composer: GroupComposerState, onClose:
                 const group = await getGroupPort().createGroup(
                     idpUrl,
                     accessToken,
-                    name.trim() || null,
+                    groupName.name,
                     actorUris,
                 )
                 await distributeKeys(group.conversationId, actorUris)
@@ -138,6 +140,7 @@ export function useGroupComposerViewModel(composer: GroupComposerState, onClose:
         setQuery,
         name,
         setName,
+        maxNameLength: MAX_GROUP_NAME_LENGTH,
         selectedFriends,
         selectedIds,
         excludedIds,
@@ -147,6 +150,6 @@ export function useGroupComposerViewModel(composer: GroupComposerState, onClose:
         submit,
         isSubmitting,
         error,
-        canSubmit: selectedIds.size > 0 && !isSubmitting,
+        canSubmit: selectedIds.size > 0 && !isSubmitting && groupName !== null,
     }
 }

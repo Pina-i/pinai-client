@@ -4,13 +4,15 @@ import { Input, TextField } from "react-aria-components"
 
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { cn } from "@/presentation/_libs/utils"
+import { useNameField } from "@/presentation/hooks/use-name-field"
 
 interface InlineNameFieldProps {
     /** What a screen reader calls the field: "Device name". */
     label: string
     value: string
-    /** Where a limit is enforced: the field sets none. */
     onChange: (value: string) => void
+    /** In characters as the IdP counts them: past it, what is typed or pasted is cut, never the text after it. */
+    maxLength: number
     placeholder?: string
     /** Saving: the field is read-only and busy, its buttons wait. */
     isPending?: boolean
@@ -26,6 +28,7 @@ export function InlineNameField({
     label,
     value,
     onChange,
+    maxLength,
     placeholder,
     isPending = false,
     error = null,
@@ -36,6 +39,7 @@ export function InlineNameField({
     const inputRef = useRef<HTMLInputElement>(null)
     const wasPending = useRef(isPending)
     const errorId = useId()
+    const field = useNameField(inputRef, value, onChange, maxLength)
 
     useEffect(() => {
         inputRef.current?.focus()
@@ -55,11 +59,15 @@ export function InlineNameField({
                     aria-label={label}
                     aria-describedby={error ? errorId : undefined}
                     value={value}
-                    onChange={onChange}
+                    onChange={field.onChange}
+                    onCompositionStart={field.onCompositionStart}
+                    onCompositionEnd={field.onCompositionEnd}
                     isReadOnly={isPending}
                     isInvalid={!!error}
                     validationBehavior="aria"
                     onKeyDown={(e) => {
+                        // An IME's Enter or Escape ends its composition, never the edit.
+                        if (e.nativeEvent.isComposing) return
                         if (e.key === "Enter") {
                             if (!isPending) onSave()
                         } else if (e.key === "Escape") {

@@ -1,9 +1,10 @@
-import type { RefObject } from "react"
+import { type RefObject, useRef } from "react"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { AvatarStack } from "@/presentation/atoms/AvatarStack/AvatarStack"
 import { Button } from "@/presentation/atoms/Button/Button"
 import { TextField } from "@/presentation/atoms/TextField/TextField"
 import { AnchoredPopover } from "@/presentation/molecules/AnchoredPopover/AnchoredPopover"
+import { useNameField } from "@/presentation/hooks/use-name-field"
 import { useRenameGroup } from "@/presentation/hooks/useRenameGroup"
 import type { DmConversation } from "@/lib/types"
 
@@ -16,7 +17,9 @@ interface RenameGroupPopoverProps {
 
 export function RenameGroupPopover({ group, anchorRef, onClose }: RenameGroupPopoverProps) {
     const rename = useRenameGroup(group.id, group.groupName)
-    const preview = rename.draft.trim() || group.displayName
+    const inputRef = useRef<HTMLInputElement>(null)
+    const field = useNameField(inputRef, rename.draft, rename.setDraft, rename.maxLength)
+    const preview = rename.readable ?? group.displayName
     const count = group.memberCount
 
     async function save() {
@@ -37,16 +40,20 @@ export function RenameGroupPopover({ group, anchorRef, onClose }: RenameGroupPop
                 aria-label="Group name"
                 autoFocus
                 value={rename.draft}
-                onChange={rename.setDraft}
-                maxLength={rename.maxLength}
+                inputRef={inputRef}
+                onChange={field.onChange}
+                onCompositionStart={field.onCompositionStart}
+                onCompositionEnd={field.onCompositionEnd}
                 placeholder={group.displayName}
                 onKeyDown={(e) => {
+                    // An IME's Enter or Escape ends its composition, never the edit.
+                    if (e.nativeEvent.isComposing) return
                     if (e.key === "Enter") void save()
                     else e.continuePropagation()
                 }}
                 trailing={
                     <span className="font-mono text-[10px] tracking-[0.03em] text-muted-foreground">
-                        {rename.draft.length}/{rename.maxLength}
+                        {rename.length}/{rename.maxLength}
                     </span>
                 }
             />

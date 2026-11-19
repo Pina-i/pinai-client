@@ -1,6 +1,8 @@
 import { useMemo, useRef, useState, type ChangeEvent } from "react"
 import { toast } from "sonner"
 import type { Pronouns, UserProfile } from "@pinai/domain/models/auth"
+import { readableName } from "@pinai/domain/models/name"
+import { MAX_DISPLAY_NAME_LENGTH, displayNameToSave } from "@pinai/domain/models/profile"
 import { getUserPort } from "@/ioc"
 import { uploadAvatarUseCase } from "@pinai/domain/usecases/user/upload-avatar.usecase"
 import { blobToLocalFile } from "@/presentation/_libs/local-file"
@@ -9,7 +11,6 @@ import { updateProfileUseCase } from "@pinai/domain/usecases/user/update-profile
 import { useAppStore } from "@/store/store"
 
 const BIO_MAX = 190
-const DISPLAY_NAME_MAX = 50
 const MAX_FILE_SIZE = 20 * 1024 * 1024 // 20 MiB before crop (server caps post-crop at 2 MiB)
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"]
 
@@ -53,15 +54,16 @@ export interface ProfileEditorViewModel {
     onRemoveAvatar: () => Promise<void>
 }
 
+function draftOf(profile: UserProfile): ProfileDraft {
+    return {
+        displayName: profile.display_name ?? profile.preferred_username,
+        pronouns: (profile.pronouns ?? "") as "" | Pronouns,
+        bio: profile.bio ?? "",
+    }
+}
+
 export function useProfileEditorViewModel(user: UserProfile): ProfileEditorViewModel {
-    const initial = useMemo<ProfileDraft>(
-        () => ({
-            displayName: user.display_name ?? user.preferred_username,
-            pronouns: (user.pronouns ?? "") as "" | Pronouns,
-            bio: user.bio ?? "",
-        }),
-        [user.display_name, user.preferred_username, user.pronouns, user.bio],
-    )
+    const initial = useMemo(() => draftOf(user), [user])
 
     const [displayName, setDisplayName] = useState(initial.displayName)
     const [pronouns, setPronouns] = useState<"" | Pronouns>(initial.pronouns)
@@ -69,8 +71,9 @@ export function useProfileEditorViewModel(user: UserProfile): ProfileEditorViewM
     const [isSaving, setIsSaving] = useState(false)
 
     const draft: ProfileDraft = { displayName, pronouns, bio }
+    // As saved: an invisible character or a space at the end changes nothing.
     const isDirty =
-        draft.displayName !== initial.displayName ||
+        readableName(draft.displayName) !== readableName(initial.displayName) ||
         draft.pronouns !== initial.pronouns ||
         draft.bio !== initial.bio
 
@@ -80,10 +83,14 @@ export function useProfileEditorViewModel(user: UserProfile): ProfileEditorViewM
     const setAvatarUrl = useAppStore((s) => s.setAvatarUrl)
     const storedAvatarUrl = useAppStore((s) => s.user?.avatar_url ?? null)
 
+    function show(next: ProfileDraft) {
+        setDisplayName(next.displayName)
+        setPronouns(next.pronouns)
+        setBio(next.bio)
+    }
+
     function reset() {
-        setDisplayName(initial.displayName)
-        setPronouns(initial.pronouns)
-        setBio(initial.bio)
+        show(initial)
     }
 
     async function save() {
@@ -91,28 +98,29 @@ export function useProfileEditorViewModel(user: UserProfile): ProfileEditorViewM
             toast.error("Not signed in.")
             return
         }
-        const trimmedDisplayName = draft.displayName.trim()
-        if (trimmedDisplayName.length === 0) {
-            toast.error("Display name cannot be blank.")
-            return
-        }
-        if (trimmedDisplayName.length > DISPLAY_NAME_MAX) {
-            toast.error(`Display name must be ≤ ${DISPLAY_NAME_MAX} characters.`)
+        const toSave = displayNameToSave(draft.displayName)
+        if ("refused" in toSave) {
+            toast.error(
+                toSave.refused === "blank"
+                    ? "Display name cannot be blank."
+                    : `Display name must be ≤ ${MAX_DISPLAY_NAME_LENGTH} characters.`,
+            )
             return
         }
 
         setIsSaving(true)
         try {
-            await updateProfileUseCase(getUserPort(), {
+            const saved = await updateProfileUseCase(getUserPort(), {
                 idpUrl,
                 accessToken,
                 patch: {
-                    display_name: trimmedDisplayName,
+                    display_name: toSave.name,
                     pronouns: draft.pronouns === "" ? null : draft.pronouns,
                     bio: draft.bio,
                 },
                 setUser,
             })
+            show(draftOf(saved))
             toast.success("Profile saved.")
         } catch (err) {
             toast.error(err instanceof Error ? err.message : "Failed to save profile.")
@@ -198,8 +206,8 @@ export function useProfileEditorViewModel(user: UserProfile): ProfileEditorViewM
         isSaving,
         bioCount: bio.length,
         bioMax: BIO_MAX,
-        displayNameMax: DISPLAY_NAME_MAX,
-        setDisplayName: (v) => setDisplayName(v.slice(0, DISPLAY_NAME_MAX)),
+        displayNameMax: MAX_DISPLAY_NAME_LENGTH,
+        setDisplayName,
         setPronouns,
         setBio: (v) => setBio(v.slice(0, BIO_MAX)),
         reset,

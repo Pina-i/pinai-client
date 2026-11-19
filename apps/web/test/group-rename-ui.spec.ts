@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { DmConversation } from "@/lib/types"
+import { composeAt, endComposition, pressComposing, typeAt } from "./setup/name-field"
 
 const mocks = vi.hoisted(() => ({ renameGroup: vi.fn(async () => ({})), toastError: vi.fn() }))
 vi.mock("@/ioc/index", () => ({ getGroupPort: () => ({ renameGroup: mocks.renameGroup }) }))
@@ -39,6 +40,10 @@ async function render(node: ReactNode) {
         root.render(createElement(QueryClientProvider, { client: new QueryClient() }, node))
     })
 }
+
+const ZWSP = String.fromCodePoint(0x200b)
+const ZWJ = String.fromCodePoint(0x200d)
+const FULL = "a".repeat(10) + "b".repeat(40)
 
 const input = () => document.body.querySelector<HTMLInputElement>('input[aria-label="Group name"]')!
 const button = (name: string) =>
@@ -124,6 +129,75 @@ describe("GroupTitleEditor", () => {
         expect(mocks.renameGroup).not.toHaveBeenCalled()
     })
 
+    it("drops invisible characters before sending, and can't save a name with nothing readable", async () => {
+        const { node, onDone } = editor()
+        await render(node)
+
+        await type(`${ZWSP}${ZWJ}`)
+        await press("Enter")
+        expect(button("Save name").disabled).toBe(true)
+        expect(onDone).not.toHaveBeenCalled()
+        expect(mocks.renameGroup).not.toHaveBeenCalled()
+
+        await type(`Alice and Bob${ZWSP}`)
+        await press("Enter")
+        expect(mocks.renameGroup).toHaveBeenCalledWith("https://idp.test", "access-1", "g1", "Alice and Bob")
+    })
+
+    it("holds 50 characters, an emoji counted once and never cut", async () => {
+        const { node } = editor()
+        await render(node)
+        expect(input().hasAttribute("maxlength")).toBe(false)
+
+        await type("😀".repeat(60))
+        expect(input().value).toBe("😀".repeat(50))
+        await press("Enter")
+
+        expect(mocks.renameGroup).toHaveBeenCalledWith("https://idp.test", "access-1", "g1", "😀".repeat(50))
+    })
+
+    it("keeps a full name's end when typing or pasting in its middle, the caret after what stayed", async () => {
+        const { node } = editor(FULL)
+        await render(node)
+
+        await typeAt(input(), "X", 10)
+        expect(input().value).toBe(FULL)
+        expect(input().selectionStart).toBe(10)
+
+        await type("a".repeat(20) + "b".repeat(25))
+        await typeAt(input(), "X".repeat(10), 20)
+        expect(input().value).toBe("a".repeat(20) + "X".repeat(5) + "b".repeat(25))
+        expect(input().selectionStart).toBe(25)
+    })
+
+    it("lets an IME finish its syllable before holding the name to 50 characters", async () => {
+        const { node } = editor(FULL)
+        await render(node)
+
+        await composeAt(input(), 10, ["ㅎ", "하"], { end: false })
+        expect(input().value).toBe("a".repeat(10) + "하" + "b".repeat(40))
+        await endComposition(input())
+        expect(input().value).toBe(FULL)
+        expect(input().selectionStart).toBe(10)
+
+        await type("a".repeat(49))
+        await composeAt(input(), 49, ["ㅎ", "하"])
+        expect(input().value).toBe("a".repeat(49) + "하")
+    })
+
+    it("saves nothing and stays open on the Enter or Escape that ends an IME's composition", async () => {
+        const { node, onDone } = editor(FULL)
+        await render(node)
+
+        await composeAt(input(), 10, ["ㅎ", "하"], { end: false })
+        await pressComposing(input(), "Enter")
+        await pressComposing(input(), "Escape")
+
+        expect(mocks.renameGroup).not.toHaveBeenCalled()
+        expect(onDone).not.toHaveBeenCalled()
+        expect(input()).not.toBeNull()
+    })
+
     it("stays open and says why when the rename fails", async () => {
         mocks.renameGroup.mockRejectedValueOnce(new Error("Group name is longer than 50 characters"))
         const { node, onDone } = editor()
@@ -185,5 +259,56 @@ describe("RenameGroupPopover", () => {
         await type("a".repeat(60))
 
         expect(input().value).toHaveLength(50)
+    })
+
+    it("counts an emoji once, cuts between whole ones, and renames to 50 of them", async () => {
+        const { onClose } = await open()
+        expect(input().hasAttribute("maxlength")).toBe(false)
+
+        await type("😀".repeat(60))
+        expect(input().value).toBe("😀".repeat(50))
+        expect(document.body.textContent).toContain("50/50")
+        await act(async () => button("Rename").click())
+
+        expect(mocks.renameGroup).toHaveBeenCalledWith("https://idp.test", "access-1", "g1", "😀".repeat(50))
+        expect(onClose).toHaveBeenCalledOnce()
+    })
+
+    it("keeps a full name's end when typing or pasting in its middle, the caret after what stayed", async () => {
+        await open()
+        await type(FULL)
+
+        await typeAt(input(), "X", 10)
+        expect(input().value).toBe(FULL)
+        expect(input().selectionStart).toBe(10)
+        expect(document.body.textContent).toContain("50/50")
+
+        await type("a".repeat(20) + "b".repeat(25))
+        await typeAt(input(), "X".repeat(10), 20)
+        expect(input().value).toBe("a".repeat(20) + "X".repeat(5) + "b".repeat(25))
+        expect(input().selectionStart).toBe(25)
+    })
+
+    it("saves nothing and stays open on the Enter that ends an IME's composition", async () => {
+        const { onClose } = await open()
+        await type("Alice and Bob")
+
+        await composeAt(input(), 13, ["ㅎ", "하"], { end: false })
+        await pressComposing(input(), "Enter")
+
+        expect(mocks.renameGroup).not.toHaveBeenCalled()
+        expect(onClose).not.toHaveBeenCalled()
+        expect(input()).not.toBeNull()
+    })
+
+    it("can't rename to a name with nothing readable, and sends one without its invisible characters", async () => {
+        await open()
+
+        await type(ZWSP)
+        expect(button("Rename").disabled).toBe(true)
+
+        await type(`Alice and Bob${ZWSP}`)
+        await act(async () => button("Rename").click())
+        expect(mocks.renameGroup).toHaveBeenCalledWith("https://idp.test", "access-1", "g1", "Alice and Bob")
     })
 })

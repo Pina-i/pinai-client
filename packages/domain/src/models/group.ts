@@ -1,5 +1,6 @@
 import { sameDevice, type DeviceTrustVerdict, type KnownDevice } from "./device-trust"
 import type { LeafOrigin, LeafVerdict } from "./leaf-trust"
+import { nameLength, readableName } from "./name"
 
 /** A member of a group conversation, as returned by the group REST API. */
 export interface GroupMember {
@@ -21,7 +22,7 @@ export function seatsLeft(members: number): number {
     return Math.max(0, MAX_GROUP_MEMBERS - members)
 }
 
-/** How many characters a group's name holds at most: the IdP refuses more. */
+/** How many characters (code points) a group's name holds at most: the IdP refuses more. */
 export const MAX_GROUP_NAME_LENGTH = 50
 
 /** Whether the user may rename this conversation: any member of a group, not one removed from it. */
@@ -31,12 +32,24 @@ export function mayRenameGroup(conversation: { kind: "dm" | "group"; removedAt: 
 
 /**
  * The name to send when renaming a group named `current` (`null` while unnamed) to `draft`: the
- * draft trimmed, or `null` when there is nothing to send — blank, too long, or the name it has.
+ * draft as the IdP takes it (`readableName`), or `null` when there is nothing to send — nothing
+ * readable, too long, or the name it has.
  */
 export function groupRename(draft: string, current: string | null): string | null {
-    const name = draft.trim()
-    if (!name || name.length > MAX_GROUP_NAME_LENGTH || name === current) return null
+    const name = readableName(draft)
+    if (name === null || nameLength(name) > MAX_GROUP_NAME_LENGTH || name === current) return null
     return name
+}
+
+/**
+ * What a new group is created with: the name as the IdP takes it (`readableName`), `null` when
+ * nothing readable is typed — the group is then titled by its members —; nothing to send when it is
+ * too long.
+ */
+export function newGroupName(draft: string): { name: string | null } | null {
+    const name = readableName(draft)
+    if (name === null) return { name: null }
+    return nameLength(name) > MAX_GROUP_NAME_LENGTH ? null : { name }
 }
 
 /**

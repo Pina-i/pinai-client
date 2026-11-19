@@ -1,8 +1,10 @@
+import { useId, useRef } from "react"
 import type { Pronouns, UserProfile } from "@pinai/domain/models/auth"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { AvatarCropDialog } from "@/presentation/molecules/AvatarCropDialog/AvatarCropDialog"
 import { cn } from "@/presentation/_libs/utils"
+import { useNameField } from "@/presentation/hooks/use-name-field"
 import { editorFrame, editorTitle, fieldCount, fieldHint, fieldLabel, pill, textArea, textAreaInput, textInput } from "../editor-styles"
 import { PRONOUN_OPTIONS, useProfileEditorViewModel } from "./ProfileEditor.viewmodel"
 
@@ -15,6 +17,9 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
     // other property read on it for `react-hooks/refs`.
     const { fileInputRef, ...vm } = useProfileEditorViewModel(user)
     const initials = vm.draft.displayName.slice(0, 2).toUpperCase() || "?"
+    const nameId = useId()
+    const nameRef = useRef<HTMLInputElement>(null)
+    const nameField = useNameField(nameRef, vm.draft.displayName, vm.setDisplayName, vm.displayNameMax)
 
     return (
         <div className={editorFrame}>
@@ -62,11 +67,17 @@ export function ProfileEditor({ user }: ProfileEditorProps) {
 
             <div className="mt-[18px] flex flex-col gap-3.5">
                 <div>
-                    <label className={fieldLabel}>Display name</label>
+                    <label htmlFor={nameId} className={fieldLabel}>
+                        Display name
+                    </label>
                     <input
+                        id={nameId}
+                        ref={nameRef}
                         className={textInput}
                         value={vm.draft.displayName}
-                        onChange={(e) => vm.setDisplayName(e.target.value)}
+                        onChange={(e) => nameField.onChange(e.target.value)}
+                        onCompositionStart={nameField.onCompositionStart}
+                        onCompositionEnd={nameField.onCompositionEnd}
                     />
                 </div>
                 <div>

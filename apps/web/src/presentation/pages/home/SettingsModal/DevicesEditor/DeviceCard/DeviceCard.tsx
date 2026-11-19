@@ -1,6 +1,6 @@
 import { HelpCircle, KeyRound, Laptop, Pencil, Smartphone, Tablet } from "lucide-react"
 
-import { deviceStatus } from "@pinai/domain/models/device"
+import { MAX_DEVICE_NAME_LENGTH, deviceStatus } from "@pinai/domain/models/device"
 
 import type { DeviceRow } from "@/presentation/hooks/useDevices"
 import { activityLabel } from "@/presentation/_libs/device-activity"
@@ -102,6 +102,7 @@ export function DeviceCard({ device, holdsHistory, approvedBy, onRevoke, revokeW
                                 label="Device name"
                                 value={rename.draft}
                                 onChange={rename.setDraft}
+                                maxLength={MAX_DEVICE_NAME_LENGTH}
                                 placeholder={device.automatic_name}
                                 isPending={rename.isSaving}
                                 error={rename.failure}

@@ -172,6 +172,22 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   the words' first, then its partners' by device id, each once, so the credential it
   would make compares with its leaf's. Members checking them: `models/new-device.ts`.
 
+### models/name.ts
+- One rule for every name people type — a device's, a group's, the account's display name — as the
+  IdP takes it. `readableName` drops control and invisible characters (the IdP's list; ZWJ/ZWNJ
+  kept: emoji), trims, and is `null` when nothing readable is left (blank, or only joiners or
+  whitespace). `nameLength` counts code points, as the IdP does; `cutName(text, max)` cuts within
+  them between whole characters (`Intl.Segmenter` graphemes): an emoji of several code points — a
+  family, a flag, a skin tone — is dropped whole, never split. Without `Intl.Segmenter` (Firefox
+  before 125) it cuts between code points.
+- `fitName(previous, next, max, caret?)` — a field's edit held to the limit: the insertion (found by
+  the caret, else by the common start and end) is cut to the room left, never the text after it,
+  and the caret goes after what was kept; a deletion is never cut. Fields enforce their limit with it through the web's
+  `presentation/hooks/use-name-field.ts`, never `maxLength` (UTF-16 units: 50 emoji would stop at
+  25), and leave an IME composition alone until it ends.
+- Display names: `displayNameToSave` (`models/profile.ts`) — what a profile save sends, else
+  `blank` or `too-long` (`MAX_DISPLAY_NAME_LENGTH`, 50).
+
 ### models/device.ts
 - `DeviceListEntry` carries what another device needs to check the chain JWKS
   → attestation → root key → HPKE key itself (bytes, `null` without), the
@@ -184,10 +200,11 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `display_name` is the shown name (`chosen_name`, else `automatic_name`); `client` tells the
   app from a browser (`DeviceClient`, `unknown` for a client that never said).
 - `deviceRename(draft, device)` — what a rename sends (`IDeviceDirectoryPort.renameDevice`): the
-  name as the IdP takes it (`readableName`, `models/device-label.ts`), `null` for the automatic name
-  back (nothing readable typed, or that name), nothing when the shown name would stay.
-  `MAX_DEVICE_NAME_LENGTH` (50) in code points, as the IdP counts; `cutDeviceName` cuts there, never
-  inside an emoji's surrogates. `renameRefusal` — past `approval_required`: `gone` (`403
+  name as the IdP takes it (`readableName`, `models/name.ts`), `null` for the automatic name
+  back (nothing readable typed, or that name), nothing when the shown name would stay, refused
+  (`too-long`) past the limit.
+  `MAX_DEVICE_NAME_LENGTH` (50) in code points, as the IdP counts; `cutDeviceName` cuts there
+  (`cutName`). `renameRefusal` — past `approval_required`: `gone` (`403
   access_denied`, `404`), `invalid` (`400`), `failed`.
 
 ### models/device-label.ts + ports/device-facts.port.ts + usecases/e2ee/this-device-label.usecase.ts
@@ -211,7 +228,7 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   client", `unknown`.
 - `deviceName` — the name as the IdP takes it: control and invisible characters dropped (the
   IdP's list; joiners kept: emoji), trimmed, cut at 100 code points; `null` when nothing readable
-  is left. `readableName` — the same without the cut: a rename's too.
+  is left. `readableName` (`models/name.ts`) — the same without the cut: a rename's too.
 - `IDeviceFactsPort` — `known()` at once, `gather()` within the platform's time, never
   rejecting, and `late` when the platform didn't answer in time. `thisDeviceLabel` gathers once
   a run, again at the next request after a late answer — kept, its base name would overwrite the
@@ -1048,9 +1065,13 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 ### Renaming a group (`models/group.ts`)
 - `mayRenameGroup(conversation)` — any member of a group, as the IdP lets
   them (`PATCH /api/groups/:id`); never one removed from it, never a DM.
-- `groupRename(draft, current)` — the name to send: trimmed, or `null` when
-  blank, over `MAX_GROUP_NAME_LENGTH` (50, the IdP's limit at creation too),
-  or the name it has. An unnamed group (`current` null) takes any name.
+- `groupRename(draft, current)` — the name to send (`readableName`), or
+  `null` when nothing readable, over `MAX_GROUP_NAME_LENGTH` (50 code points,
+  the IdP's limit at creation too), or the name it has. An unnamed group
+  (`current` null) takes any name.
+- `newGroupName(draft)` — a new group's name (`readableName`), `{ name: null }`
+  when nothing readable is typed (the group then titled by its members), `null`
+  — nothing to send — past `MAX_GROUP_NAME_LENGTH`.
 
 ### Leaving a group (`models/group.ts`)
 - `mayLeaveGroup(members, actorUri)` — the IdP's rule (`409` on

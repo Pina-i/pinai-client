@@ -4,6 +4,7 @@ import { toast } from "sonner"
 import { getGroupPort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 import { MAX_GROUP_NAME_LENGTH, groupRename } from "@pinai/domain/models/group"
+import { nameLength, readableName } from "@pinai/domain/models/name"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 
 /**
@@ -16,6 +17,7 @@ export function useRenameGroup(conversationId: string, current: string | null) {
     const [isPending, setIsPending] = useState(false)
     const queryClient = useQueryClient()
     const name = groupRename(draft, current)
+    const readable = readableName(draft)
 
     async function save(): Promise<boolean> {
         const { accessToken, idpUrl } = useAppStore.getState()
@@ -36,8 +38,16 @@ export function useRenameGroup(conversationId: string, current: string | null) {
 
     return {
         draft,
-        setDraft: (value: string) => setDraft(value.slice(0, MAX_GROUP_NAME_LENGTH)),
+        /** The field holds it to `maxLength` (`useNameField`). */
+        setDraft,
+        /** The draft's length in code points, as the IdP counts. */
+        length: nameLength(draft),
         maxLength: MAX_GROUP_NAME_LENGTH,
+        /** The name as it will read; `null` when nothing readable is typed. */
+        readable,
+        isBlank: readable === null,
+        /** The name the group already has: nothing to send. */
+        isUnchanged: readable !== null && readable === current,
         /** Whether there is a new name to send. */
         canSave: name !== null && !isPending,
         isPending,

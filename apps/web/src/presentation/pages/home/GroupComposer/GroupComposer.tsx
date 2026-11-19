@@ -1,12 +1,13 @@
 import { Check, GitBranch, Search, X } from "lucide-react"
+import { useRef } from "react"
 import { Avatar } from "@/presentation/atoms/Avatar/Avatar"
 import { Button } from "@/presentation/atoms/Button/Button"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { modalSurface } from "@/presentation/molecules/Modal/modal-surface"
 import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { cn } from "@/presentation/_libs/utils"
+import { useNameField } from "@/presentation/hooks/use-name-field"
 import { useAppStore } from "@/store/store"
-import { MAX_GROUP_NAME_LENGTH } from "@pinai/domain/models/group"
 import type { GroupComposerState } from "@/store/slices/ui.slice"
 import type { Friend } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import { useGroupComposerViewModel } from "./GroupComposer.viewmodel"
@@ -35,6 +36,8 @@ function GroupComposerContent({
     onClose: () => void
 }) {
     const vm = useGroupComposerViewModel(composer, onClose)
+    const nameRef = useRef<HTMLInputElement>(null)
+    const nameField = useNameField(nameRef, vm.name, vm.setName, vm.maxNameLength)
 
     return (
         <div className={cn(modalSurface, "max-h-[80vh] w-[560px]")}>
@@ -106,9 +109,11 @@ function GroupComposerContent({
                     </div>
                     <input
                         id="group-name"
+                        ref={nameRef}
                         value={vm.name}
-                        maxLength={MAX_GROUP_NAME_LENGTH}
-                        onChange={(e) => vm.setName(e.target.value)}
+                        onChange={(e) => nameField.onChange(e.target.value)}
+                        onCompositionStart={nameField.onCompositionStart}
+                        onCompositionEnd={nameField.onCompositionEnd}
                         placeholder="Leave blank to use members' names"
                         className="h-10 w-full rounded-[12px] border border-line2 bg-surf2 px-3.5 text-[13px] text-foreground placeholder:text-muted-foreground outline-none transition-colors duration-150 focus:border-acc"
                     />

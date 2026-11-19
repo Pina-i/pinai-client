@@ -99,6 +99,13 @@ describe("what a draft sends, as the IdP takes a name", () => {
         expect(deviceRename("\u200B\u200D ", { ...automatic, chosen_name: "Alice's laptop" })).toEqual({ name: null })
     })
 
+    it("refuses a name longer than the IdP takes, counted in characters", () => {
+        const automatic = { automatic_name: "Firefox on Linux", chosen_name: null }
+        expect(deviceRename("😀".repeat(50), automatic)).toEqual({ name: "😀".repeat(50) })
+        expect(deviceRename("😀".repeat(51), automatic)).toEqual({ refused: "too-long" })
+        expect(deviceRename(`Bob's ${"b".repeat(45)}`, automatic)).toEqual({ refused: "too-long" })
+    })
+
     it("cuts at 50 code points, as the IdP counts, never inside an emoji", () => {
         expect(cutDeviceName("😀".repeat(60))).toBe("😀".repeat(50))
         expect(cutDeviceName("a".repeat(49) + "😀😀")).toBe("a".repeat(49) + "😀")

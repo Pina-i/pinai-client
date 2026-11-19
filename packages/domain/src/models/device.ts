@@ -4,9 +4,9 @@
  */
 
 import { hexOf } from "./bytes"
-import { readableName } from "./device-label"
 import type { DeviceId } from "./e2ee"
 import { IdpError } from "./idp-error"
+import { cutName, nameLength, readableName } from "./name"
 
 export type DeviceKind = "laptop" | "phone" | "tablet" | "unknown"
 
@@ -59,22 +59,22 @@ export interface DeviceListResponse {
 /** The longest name a user gives a device, in characters (code points) as the IdP counts them. */
 export const MAX_DEVICE_NAME_LENGTH = 50
 
-/** `text` cut to `MAX_DEVICE_NAME_LENGTH` code points: a UTF-16 cut could leave half an emoji, which the IdP refuses. */
+/** `text` cut to `MAX_DEVICE_NAME_LENGTH` code points (`cutName`). */
 export function cutDeviceName(text: string): string {
-    const chars = Array.from(text)
-    return chars.length > MAX_DEVICE_NAME_LENGTH ? chars.slice(0, MAX_DEVICE_NAME_LENGTH).join("") : text
+    return cutName(text, MAX_DEVICE_NAME_LENGTH)
 }
 
 /**
  * What renaming `device` to `draft` sends: the name as the IdP takes it (`readableName`), or `null`
  * for its automatic name back — nothing readable typed, or that name. `null` overall when the name
- * it is shown by would stay.
+ * it is shown by would stay; refused past `MAX_DEVICE_NAME_LENGTH`.
  */
 export function deviceRename(
     draft: string,
     device: Pick<DeviceListEntry, "automatic_name" | "chosen_name">,
-): { name: string | null } | null {
+): { name: string | null } | { refused: "too-long" } | null {
     const typed = readableName(draft)
+    if (typed !== null && nameLength(typed) > MAX_DEVICE_NAME_LENGTH) return { refused: "too-long" }
     const name = typed === null || typed === device.automatic_name ? null : typed
     return name === device.chosen_name ? null : { name }
 }
