@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.2](https://github.com/Pina-i/pinai-client/compare/v0.5.1...v0.5.2) (2026-11-19)
+
+
+### Features
+
+* devices named after the phone or computer, and renamed from their card ([bb774df](https://github.com/Pina-i/pinai-client/commit/bb774dfbcfadec10c23d6bebd1940c584c6664d3))
+* devices named after the phone or computer, and renamed from their card ([87cf08e](https://github.com/Pina-i/pinai-client/commit/87cf08e11374fe69a90e043b76386b172b416661))
+
+
+### Bug Fixes
+
+* **web:** name fields drop hidden characters and count 50 for real ([032b672](https://github.com/Pina-i/pinai-client/commit/032b672e4cac33788fc5bd9561ff895cd4084e61))
+* **web:** name fields drop hidden characters and count 50 for real ([cffd05d](https://github.com/Pina-i/pinai-client/commit/cffd05d09a3694455b3dd6041477732e73d1aad3))
+
 ## [0.5.1](https://github.com/Pina-i/pinai-client/compare/v0.5.0...v0.5.1) (2026-11-18)
 
 
