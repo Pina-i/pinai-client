@@ -153,7 +153,7 @@ export function DevicesEditor() {
                                 ))}
                             </section>
                         )}
-                        {vm.rows.map(({ device, holdsHistory, approvedBy, revokeWithheld }) => (
+                        {vm.rows.map(({ device, holdsHistory, approvedBy, revokeWithheld, renamable }) => (
                             <DeviceCard
                                 key={device.device_id}
                                 device={device}
@@ -162,6 +162,7 @@ export function DevicesEditor() {
                                 revokeWithheld={revokeWithheld ? ONLY_APPROVED_REVOKES : null}
                                 onRevoke={() => void vm.onRevokeDevice(device.device_id)}
                                 isRevoking={vm.revokingDeviceId === device.device_id}
+                                onRename={renamable ? (name) => vm.onRenameDevice(device.device_id, name) : undefined}
                             />
                         ))}
                     </div>

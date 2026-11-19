@@ -19,6 +19,12 @@ picks them over the browser's. Their other half is the main process (`apps/deskt
 - `keep-running-desktop.adapter.ts` — whether closing the window keeps the app running, and how the
   window then comes back: kept and acted on by the main process
   (`apps/desktop/src/main/keep-running.ts`); the browser has no adapter, the IoC gives `null`.
+- `device-facts-desktop.adapter.ts` — `IDeviceFactsPort` for the app: the system from the
+  `User-Agent` at once (the name is the system, "Windows", until the facts come), then the
+  computer's model and name from the main process (`device.facts`,
+  `apps/desktop/src/main/device-facts.ts`), what isn't of the right shape left out. Its `late` —
+  a read ran past its cap — is passed on, and a bridge that fails gives what is known, `late`:
+  either way the next request asks again.
 - `app-updates-desktop.adapter.ts` — the installed app's updates: the main process checks,
   downloads and installs (`apps/desktop/src/main/updates.ts`); the page shows the notice and
   sends its button back (`restart`, or `download` on an unsigned Mac).

@@ -1,16 +1,17 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useLocation } from "@tanstack/react-router"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import type { SeatsView } from "@pinai/domain/models/approval-handshake"
-import { deviceListKey } from "@pinai/domain/models/device"
+import { deviceListKey, renameRefusal } from "@pinai/domain/models/device"
 import {
     approvedByWording,
     approverOf,
     historyHolders,
     holdsCurrentWords,
     holdsHistory,
+    mayRename,
     notCountedApproved,
     refusedDevice,
     revokeWithheld,
@@ -32,6 +33,7 @@ import { type RecentSignIn, useRecentSignIn } from "@/presentation/hooks/use-rec
 import { useAppStore } from "@/store/store"
 
 import { settingsHref } from "../SettingsModal.viewmodel"
+import type { RenameOutcome } from "./DeviceCard/DeviceCard.viewmodel"
 import { type ReplaceWordsViewModel, useReplaceWordsViewModel } from "./ReplaceWords/ReplaceWords.viewmodel"
 
 /** A device of the list, as its row says it. */
@@ -42,10 +44,15 @@ export interface DeviceRowView {
     approvedBy: string | null
     /** Approved, while this device isn't: the instance refuses its revoke, so the row says why instead. */
     revokeWithheld: boolean
+    /** Revoke's rule, the IdP's for a rename too, and never a revoked device: the pencil. */
+    renamable: boolean
 }
 
 /** Why "Revoke" isn't offered on an approved device, from one that isn't. */
 export const ONLY_APPROVED_REVOKES = "Only an approved device can remove an approved device"
+
+/** A rename refused for the same reason: no note of its own on the card, Revoke's is there. */
+export const ONLY_APPROVED_RENAMES = "Only an approved device can rename an approved device"
 
 /** Why "Clear history backup" isn't offered on a device the instance doesn't count approved. */
 export const ONLY_APPROVED_CLEARS = "Only an approved device can clear the history backup"
@@ -90,6 +97,8 @@ export interface DevicesEditorViewModel {
 
     revokingDeviceId: string | null
     onRevokeDevice: (deviceId: string) => Promise<void>
+    /** `null` gives the automatic name back. */
+    onRenameDevice: (deviceId: string, name: string | null) => Promise<RenameOutcome>
 
     isSigningOutOthers: boolean
     onSignOutOthers: () => Promise<void>
@@ -168,6 +177,8 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
             return counted && new Set(counted)
         },
         enabled: !!idpUrl && !!accessToken && !!ownActorUri && !!rows,
+        // A list that changed (a rename) is counted again under a new key: meanwhile `null` would withhold nothing.
+        placeholderData: keepPreviousData,
     }).data
 
     const holds = held ? holdsCurrentWords(held.standing) : null
@@ -180,6 +191,7 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
             holdsHistory: holdsHistory(device, verdict),
             approvedBy: approvedByWording(approverOf(verdict, device), rows, thisDevice),
             revokeWithheld: revokeWithheld(approvedByInstance ?? null, thisDevice, device),
+            renamable: mayRename(approvedByInstance ?? null, thisDevice, device),
         }))
     const uncounted = notCountedApproved(approvedByInstance ?? null, thisDevice)
     // NodeInfo read only once there is a key: before one, the instance refuses none of these for approval.
@@ -187,15 +199,19 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
     const signOutRefused = `${ONLY_APPROVED_SIGNS_OUT} ${passwordAdvice(howToChangePassword, instanceHost(idpUrl), "this one included")}`
 
     // Refused anyway, the count changed meanwhile: the list read again too, as the count is computed from it.
+    const recount = useCallback(() => {
+        if (idpUrl) void queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
+        void queryClient.invalidateQueries({ queryKey: ["devices-approved-as-listed", idpUrl] })
+    }, [idpUrl, queryClient])
+
     const refusedUnapproved = useCallback(
         (e: unknown, words: string): boolean => {
             if (!isApprovalRequired(e)) return false
             toast.error(words)
-            if (idpUrl) void queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
-            void queryClient.invalidateQueries({ queryKey: ["devices-approved-as-listed", idpUrl] })
+            recount()
             return true
         },
-        [idpUrl, queryClient],
+        [recount],
     )
 
     const onClearHistoryBackup = useCallback(async () => {
@@ -236,6 +252,26 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
             }
         },
         [idpUrl, accessToken, ownActorUri, localDmConvos, queryClient, refused, refusedUnapproved, answering],
+    )
+
+    const onRenameDevice = useCallback(
+        async (deviceId: string, name: string | null): Promise<RenameOutcome> => {
+            if (!idpUrl || !accessToken) return "failed"
+            try {
+                await getDeviceDirectoryPort().renameDevice(idpUrl, accessToken, deviceId, name)
+                // Waits for the list, so the field never closes on the old name.
+                await queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
+                return "renamed"
+            } catch (e) {
+                if (refusedUnapproved(e, `${ONLY_APPROVED_RENAMES}.`)) return "withdrawn"
+                const refusal = renameRefusal(e)
+                if (refusal !== "gone") return refusal
+                // Revoked elsewhere or not there any more: the list read again shows it.
+                recount()
+                return "withdrawn"
+            }
+        },
+        [idpUrl, accessToken, queryClient, refusedUnapproved, recount],
     )
 
     // Their devices stay: each may sign in again, as the same device.
@@ -280,6 +316,7 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
         clearWithheld: uncounted ? ONLY_APPROVED_CLEARS : null,
         revokingDeviceId,
         onRevokeDevice,
+        onRenameDevice,
         isSigningOutOthers,
         onSignOutOthers,
         signOutOthersWithheld: uncounted ? signOutRefused : null,

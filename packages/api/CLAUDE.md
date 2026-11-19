@@ -46,6 +46,15 @@ domain as `IKeyDirectoryPort`, which is what keeps the two independent.
   needs to check another's chain itself — root key, attestation, HPKE key and its signature —
   and the approvals as listed; a key that isn't base64 reads as none, an approval that isn't
   one is left out. `registerDevice` sends the HPKE key and its signature with the root key.
+  Each row's `display_name` is the shown name; `automatic_name` (the display name when absent),
+  `chosen_name` and `client` (`app`, `browser`, anything else `unknown`) come beside it.
+  `renameDevice` puts `{ name }` to `…/{id}/name` as given (`null` for the automatic name back,
+  the domain's `deviceRename` decides); its refusals are `IdpError`s (`403 approval_required`,
+  `403 access_denied`, `404`, `400`) (`apps/web/test/device-rename.spec.ts`).
+- This device's `label` (`{ name, kind, client }`, `@pinai/domain/models/device-label`) goes with
+  `registerDevice` and `uploadKeyPackages`, as the `User-Agent` goes with any request: the
+  adapter is given the label's source when it is built, and leaves the field out when it answers
+  `null` (`apps/web/test/key-directory-api.spec.ts`).
 - The history key (`history-archive-api.adapter.ts`): `GET /api/history/key` reads a `404` as
   no key and refuses an answer whose bytes aren't their size (`parseHistoryKey`); `PUT` sets a
   generation; uploads name theirs. A device approves itself by the passphrase and reports its

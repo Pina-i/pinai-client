@@ -13,6 +13,7 @@ import trayPng from "../../build/tray/tray.png?asset&asarUnpack"
 
 import { registerAppScheme, serveApp } from "./app-scheme"
 import { AppBadge, badgeOf, clearWhenPageGoes, electronBadgeSurface } from "./badge"
+import { readComputerFacts, readOnce } from "./device-facts"
 import {
     AppLifecycle,
     KeepRunningChoice,
@@ -38,6 +39,9 @@ else start()
 
 function start(): void {
     registerAppScheme()
+    // Read as the app starts: the page asks before its first registration.
+    const computerFacts = readOnce(() => readComputerFacts(process.platform))
+    void computerFacts()
     let window: BrowserWindow | null = null
     // The IdP whose pages the window shows, from the sign-in the app started until its answer.
     let signingInTo: string | null = null
@@ -163,6 +167,8 @@ function start(): void {
         handle("window:set-keep-running", (value: unknown) => {
             if (choice.choose(value)) tray.setShown(showsTray(process.platform, choice.current))
         })
+        // What the device names itself after: the computer's model and name.
+        handle("device:facts", () => computerFacts())
 
         const { APPIMAGE: appImage, APPDIR: appDir, XDG_DATA_HOME: xdg } = process.env
         if (process.platform === "linux" && app.isPackaged && appImage && appDir) {

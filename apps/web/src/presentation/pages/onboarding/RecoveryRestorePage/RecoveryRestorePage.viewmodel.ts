@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useLocation, useNavigate, useRouter } from "@tanstack/react-router"
 
 import { replacedOn, resetCause, type ResetCause } from "@pinai/domain/models/admission"
@@ -11,7 +11,6 @@ import { setUpThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/set-up-this-
 import { getAuthPlatform, getDeviceDirectoryPort, getE2eePort, getSessionPort } from "@/ioc"
 import { admissionDeps } from "@/presentation/_libs/admission-deps"
 import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
-import { userAgentLabel } from "@/presentation/_libs/user-agent-label"
 import { GATE_PAGES } from "@/presentation/_libs/gate-pages"
 import { instanceHost } from "@/presentation/_libs/instance-host"
 import { warnE2ee } from "@/presentation/_libs/key-share-deps"
@@ -20,6 +19,7 @@ import { dropSearchParam } from "@/presentation/_libs/search-param"
 import { useAwaitedShare } from "@/presentation/hooks/use-awaited-share"
 import { useOwnStartOver, type OwnStartOver } from "@/presentation/hooks/use-own-start-over"
 import { useTypedWords } from "@/presentation/hooks/use-typed-words"
+import { useThisDeviceName } from "@/presentation/hooks/use-this-device-name"
 import { useAppStore } from "@/store/store"
 
 export type RestoreStatus = "initializing" | "ready" | "restoring" | "done" | "error"
@@ -312,7 +312,7 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
         setStartingOver(busy)
     }, [])
 
-    const deviceLabel = useMemo(() => userAgentLabel(), [])
+    const deviceLabel = useThisDeviceName()
     const offersStartOver = !isIn
     // A device found in has no Start over tab: it opens on another way in.
     const shownTab = !offersStartOver && tab === "start-over" ? "device" : tab

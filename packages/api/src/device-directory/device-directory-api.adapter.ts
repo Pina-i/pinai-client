@@ -3,7 +3,7 @@ import { idp } from "../http"
 import { idpErrorFrom } from "../idp-error"
 
 import { bytesToBase64, decodeBase64 } from "@pinai/domain/lib/bytes"
-import type { DeviceApproval, DeviceKind, DeviceListEntry, DeviceListResponse } from "@pinai/domain/models/device"
+import type { DeviceApproval, DeviceClient, DeviceKind, DeviceListEntry, DeviceListResponse } from "@pinai/domain/models/device"
 import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
 
 /** REST client for the device-directory endpoints. */
@@ -39,6 +39,17 @@ export class DeviceDirectoryApiAdapter implements IDeviceDirectoryPort {
             })
         } catch (error) {
             throw await idpErrorFrom(error, "Failed to revoke device")
+        }
+    }
+
+    async renameDevice(idpUrl: string, accessToken: string, deviceId: string, name: string | null): Promise<void> {
+        try {
+            await idp.put(`${deviceUrl(idpUrl, deviceId)}/name`, {
+                headers: { Authorization: `Bearer ${accessToken}` },
+                json: { name },
+            })
+        } catch (error) {
+            throw await idpErrorFrom(error, "Renaming the device failed")
         }
     }
 
@@ -95,11 +106,15 @@ export function parseDeviceList(body: unknown): DeviceListResponse {
 }
 
 function parseDevice(row: Row): DeviceListEntry {
+    const displayName = typeof row.display_name === "string" ? row.display_name : ""
     return {
         // Compared with the relay's and this device's own, which § 7.2 writes lowercase.
         device_id: String(row.device_id).toLowerCase(),
-        display_name: typeof row.display_name === "string" ? row.display_name : "",
+        display_name: displayName,
+        automatic_name: typeof row.automatic_name === "string" ? row.automatic_name : displayName,
+        chosen_name: text(row.chosen_name),
         kind: (typeof row.kind === "string" ? row.kind : "unknown") as DeviceKind,
+        client: deviceClient(row.client),
         paired_at: String(row.paired_at),
         last_seen_at: String(row.last_seen_at),
         revoked_at: text(row.revoked_at),
@@ -116,6 +131,10 @@ function parseDevice(row: Row): DeviceListEntry {
             ? row.approvals.filter(isRow).flatMap((approval) => parseApproval(approval) ?? [])
             : [],
     }
+}
+
+function deviceClient(value: unknown): DeviceClient {
+    return value === "app" || value === "browser" ? value : "unknown"
 }
 
 function parseApproval(row: Row): DeviceApproval | null {

@@ -2334,7 +2334,10 @@ describe("MLS E2EE — a device with none of its siblings in a conversation join
         return {
             device_id: deviceId,
             display_name: deviceId,
+            automatic_name: deviceId,
+            chosen_name: null,
             kind: "phone",
+            client: "browser",
             paired_at: "2026-11-01T00:00:00Z",
             last_seen_at: new Date(Date.now() - ago).toISOString(),
             revoked_at: null,

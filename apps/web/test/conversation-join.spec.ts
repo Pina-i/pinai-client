@@ -36,7 +36,10 @@ function device(device_id: string, change: Partial<DeviceListEntry> = {}): Devic
     return {
         device_id,
         display_name: device_id,
+        automatic_name: device_id,
+        chosen_name: null,
         kind: "laptop",
+        client: "browser",
         paired_at: "2026-11-01T00:00:00Z",
         last_seen_at: "2026-11-16T11:59:00Z",
         revoked_at: null,

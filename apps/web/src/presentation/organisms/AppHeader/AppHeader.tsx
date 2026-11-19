@@ -131,7 +131,7 @@ export function AppHeader() {
                                     variant="ghost"
                                     aria-label="Rename group"
                                     onPress={() => setRenamingId(renamable.id)}
-                                    className="h-[26px] w-[26px] opacity-55 hover:opacity-100 focus-visible:opacity-100"
+                                    className="h-[26px] w-[26px]"
                                 >
                                     <Pencil className="h-[13px] w-[13px]" />
                                 </IconButton>

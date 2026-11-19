@@ -265,6 +265,7 @@ export class FakeHistoryIdp implements IHistoryArchivePort {
             markRevoked: async (_idpUrl, _token, deviceId) => {
                 this.revoked.add(deviceId)
             },
+            renameDevice: async () => undefined,
             approveByPassphrase: async (_idpUrl, accessToken, deviceId, generation, signature) => {
                 this.onApprove?.()
                 this.ownDevice(accessToken, deviceId)

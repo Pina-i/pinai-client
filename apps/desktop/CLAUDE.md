@@ -90,16 +90,45 @@ beside it; built
   hidden window's overlay with its taskbar button, which may not be back yet at `show`.
   Unverified on a Mac: Electron's docs say the Dock badge needs the notification permission, which
   the app never asks for — deliberately, no prompt for it.
+- **The computer's facts** (`device-facts.ts`): what the device names itself after
+  (`composeDeviceLabel`'s `app` branch), read as the app starts and handed to the page's
+  `device:facts` as `{ facts: { os, model, computerName }, late }`, `null` for what couldn't be
+  read. Each read is an `execFile` without a shell (`windowsHide`) or a file, capped — 2 s, 5 s
+  for `system_profiler`, which is slow on a cold start —, a command past its cap killed; any
+  failure a `null`, nothing throws. A reading where a read ran past its cap is `late`, and the
+  next ask reads again (`readOnce`); one that wasn't is kept for the run. macOS:
+  `system_profiler SPHardwareDataType -json`'s `machine_name`, and `scutil --get ComputerName`,
+  else the host name. Windows: the `REG_SZ` values of
+  `reg query HKLM\HARDWARE\DESCRIPTION\System\BIOS` (`SystemManufacturer`, `SystemProductName`,
+  `SystemVersion`, `SystemFamily`) — `%SystemRoot%\System32\reg.exe`, `C:\Windows`'s when
+  `SystemRoot` is unset or not absolute, never one on `PATH` —, the host name. Linux:
+  `/sys/class/dmi/id/{sys_vendor,product_name,product_version,product_family}` (readable without
+  root), else, on an ARM board, `/sys/firmware/devicetree/base/model` ("Raspberry Pi 5 Model B
+  Rev 1.0"); `/etc/os-release`'s `ID`; the host name. The parsing is pure (`brandOf`, `modelOf`,
+  `computerNameOf`, the per-system `…Facts`), tested from captured outputs
+  (`test/fixtures/device-facts.ts`):
+  - the model: the product name, else the family — a Lenovo's version, else its family, its
+    product name being a type code —, a trailing " Notebook PC" / " Desktop PC" dropped (HP's
+    words for the device's type), with the brand in front unless it holds it already;
+    placeholders ("System Product Name", "To Be Filled By O.E.M.", "Default string", …) are no
+    value;
+  - the brand: legal forms dropped ("VMware, Inc." → VMware, "Gigabyte Technology Co., Ltd." →
+    Gigabyte), then a few names tidied (ASUSTeK COMPUTER → ASUS, Micro-Star International → MSI,
+    Hewlett-Packard → HP, Samsung Electronics → Samsung, LENOVO → Lenovo, DELL → Dell);
+  - the computer's name: `.local` / `.localdomain` dropped; names the system made up are none —
+    Windows' fills of NetBIOS's 15 characters (`DESKTOP-` and 7 letters or digits, `LAPTOP-` and
+    8, `WIN-` and 11), Linux's `localhost…` and the distribution's `ID`.
+  The name goes to the instance in clear, which the user accepted.
 - **IPC** answers the app's own pages only (`isApp`): `session:hold`, `session:renew`,
   `session:sign-out`, `sign-in` (`http(s)` only), `updates:status`, `updates:restart`,
   `updates:download`, `window:title-bar`, `window:badge`, `window:keep-running`,
-  `window:set-keep-running` (a boolean, `keepRunningOf`; a failed write refused).
+  `window:set-keep-running` (a boolean, `keepRunningOf`; a failed write refused), `device:facts`.
 
 ## Preload (`src/preload`)
 
 `window.pinaiDesktop` — `session.{store, renew, clear}`, `signIn`,
 `window.{paintTitleBar, setBadge, keepRunning, setKeepRunning}`, `updates.{status, onChange, restart, download}` (`onChange` listens to `updates:changed`, which
-the main process sends the window) — exposed to the app's own pages only (`--pinai-app`,
+the main process sends the window), `device.facts` — exposed to the app's own pages only (`--pinai-app`,
 `isApp`), never to the IdP's pages in the same window. CommonJS: sandboxed preloads can't be ES
 modules. Its shape is `apps/web/src/adapters/desktop/desktop-bridge.ts`, kept in step by hand.
 
@@ -154,7 +183,8 @@ modules. Its shape is `apps/web/src/adapters/desktop/desktop-bridge.ts`, kept in
 - `test/` (vitest): the navigation rule, the session store and `MainSession`, `electron`
   mocked; the menu entry (`menu-entry.spec.ts`, temp dirs); the startup refusal
   (`startup.spec.ts`), `AppUpdates` (`updates.spec.ts`, a fake updater), the badge
-  (`badge.spec.ts`), closing and quitting (`keep-running.spec.ts`) and the tray (`tray.spec.ts`).
+  (`badge.spec.ts`), closing and quitting (`keep-running.spec.ts`), the tray (`tray.spec.ts`) and
+  the computer's facts (`device-facts.spec.ts`, from `test/fixtures/device-facts.ts`).
 - To drive the app without a screen: a headless sway (`WLR_BACKENDS=headless sway`) and
   `--ozone-platform=wayland`; Ozone's own headless platform crashes Electron.
 - The renderer is `apps/web`'s build without its `/oauth-client.json` (`electron.vite.config.ts`

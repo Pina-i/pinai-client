@@ -87,7 +87,10 @@ export function listedDevice(device: TestDevice, approvals: DeviceApproval[] = [
     return {
         device_id: device.deviceId,
         display_name: "Chrome on Linux",
+        automatic_name: "Chrome on Linux",
+        chosen_name: null,
         kind: "laptop",
+        client: "browser",
         paired_at: "2026-11-01T00:00:00Z",
         last_seen_at: "2026-11-04T00:00:00Z",
         revoked_at: null,

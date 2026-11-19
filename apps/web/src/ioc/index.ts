@@ -9,10 +9,12 @@ import {
 } from "@/adapters/desktop/auth-navigation-desktop.adapter"
 import { DesktopAppBadgeAdapter } from "@/adapters/desktop/app-badge-desktop.adapter"
 import { DesktopAppUpdatesAdapter } from "@/adapters/desktop/app-updates-desktop.adapter"
+import { DesktopDeviceFactsAdapter } from "@/adapters/desktop/device-facts-desktop.adapter"
 import { desktopBridge } from "@/adapters/desktop/desktop-bridge"
 import { DesktopKeepRunningAdapter } from "@/adapters/desktop/keep-running-desktop.adapter"
 import { DesktopSessionTokenStore } from "@/adapters/desktop/session-token-desktop.adapter"
 import { DesktopWindowFrameAdapter } from "@/adapters/desktop/window-frame-desktop.adapter"
+import { BrowserDeviceFactsAdapter } from "@/adapters/device/device-facts-browser.adapter"
 import { BrowserWindowFrameAdapter } from "@/adapters/window-frame/window-frame-browser.adapter"
 import { type RenewAccessToken, retryUnauthorizedWith } from "@pinai/api/http"
 import { OidcAdapter } from "@pinai/api/auth/oidc.adapter"
@@ -79,6 +81,7 @@ import type { IInstanceAdminPort } from "@pinai/domain/ports/instance-admin.port
 import type { INotificationSoundPort } from "@pinai/domain/ports/notification-sound.port"
 import { appearanceHints, resolveMode } from "@pinai/domain/models/user-settings"
 import { loadUserSettingsUseCase } from "@pinai/domain/usecases/user-settings/load-user-settings.usecase"
+import { thisDeviceLabel, type ThisDeviceLabel } from "@pinai/domain/usecases/e2ee/this-device-label.usecase"
 
 /**
  * Singleton instances.
@@ -157,11 +160,17 @@ const mlsAdapter = new MlsAdapter()
 const mlsEngine: IMlsEngine = mlsAdapter
 const hpke: IHpkePort = mlsAdapter
 
+const deviceLabel: ThisDeviceLabel = thisDeviceLabel(
+    desktop ? new DesktopDeviceFactsAdapter(desktop, navigator.userAgent) : new BrowserDeviceFactsAdapter(navigator),
+)
+// Started now, so neither a registration nor the restore page waits on the hints.
+void deviceLabel.settled()
+
 const e2eePort: IE2eePort = new E2eeAdapter(
     new NobleIdentityAdapter(),
     mlsEngine,
     getSharedE2eeStorage(),
-    new KeyDirectoryApiAdapter(),
+    new KeyDirectoryApiAdapter(() => deviceLabel.settled()),
     hpke,
     jwksCache,
     historyArchivePort,
@@ -265,6 +274,10 @@ export function getUserPort(): IUserPort {
 
 export function getE2eePort(): IE2eePort {
     return e2eePort
+}
+
+export function getThisDeviceLabel(): ThisDeviceLabel {
+    return deviceLabel
 }
 
 export function getAccountStoragePort(): IAccountStoragePort {
