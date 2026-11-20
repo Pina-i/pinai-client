@@ -30,7 +30,16 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
   the system's sheet → `callback`; `unreachable` at launch. `presentation/_libs/session.ts` wires
   the domain's `SessionKeeper` to `AppState` and the tick, resumes at launch, signs out.
 - The store (`src/store/store.ts`, the composition root): the access token in memory, the
-  instance signed in to persisted through the kv-store's synchronous half.
+  instance signed in to persisted through the kv-store's synchronous half; the chosen status
+  (`online` at launch); the account's appearance, read from this phone's settings copy at launch.
+- **Reach**: the `(app)` group's layout holds the rail (`presentation/templates/reach/`), so it
+  stays while `home` and `settings` change beside it; `status` is a form sheet over them.
+- **The account's look**: `presentation/_libs/appearance.ts` settles the account's settings at
+  each sign-in or resume (the domain's sync) and on `settings_updated`; the Unistyles theme follows
+  the store's palette and the system's mode; `<Motif>` defaults to the account's motif.
+- **The socket** (`presentation/_libs/socket.ts`): open while signed in and in front, closed in
+  the background; heartbeat 30 s; `1008` renews then reconnects; the chosen status restated once
+  connected (`restatePresenceUseCase`).
 - No typed routes: they are generated into the gitignored `.expo/`.
 - No `android/` or `ios/` in git (prebuild). The debug variants allow cleartext HTTP, release
   doesn't.
