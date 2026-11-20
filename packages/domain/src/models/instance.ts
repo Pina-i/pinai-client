@@ -120,6 +120,23 @@ export function peopleCount(count: number): string {
     return `${count.toLocaleString("en")} ${count === 1 ? "person" : "people"}`
 }
 
+/** What is known of the address typed, before Continue; each client words it. */
+export type InstanceResolution =
+    /** Nothing typed, or an address whose NodeInfo hasn't answered yet. */
+    | { kind: "pending" }
+    | { kind: "not-an-address" }
+    | { kind: "not-pinai"; address: InstanceAddress }
+    | { kind: "resolved"; address: InstanceAddress; info: InstanceInfo }
+
+/** `resolved`: the last NodeInfo answer, for the origin it was asked of (`null` info: no Pīna'i instance). */
+export function instanceResolution(input: string, resolved: { origin: string; info: InstanceInfo | null } | null): InstanceResolution {
+    if (!input.trim()) return { kind: "pending" }
+    const address = instanceAddress(input)
+    if (!address) return { kind: "not-an-address" }
+    if (resolved?.origin !== address.origin) return { kind: "pending" }
+    return resolved.info ? { kind: "resolved", address, info: resolved.info } : { kind: "not-pinai", address }
+}
+
 /** The landing's resolution line: `✓ resolved · Aotearoa · 1,204 people · invite only`. */
 export function describeInstance(info: InstanceInfo): string {
     const parts = ["✓ resolved", info.name]

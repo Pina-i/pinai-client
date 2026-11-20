@@ -4,8 +4,10 @@ import {
     describeInstance,
     displayAddress,
     instanceAddress,
+    instanceResolution,
     type InstanceAddress,
     type InstanceInfo,
+    type InstanceResolution,
 } from "@pinai/domain/models/instance"
 import { prepareLoginUseCase } from "@pinai/domain/usecases/auth/startLogin.usecase"
 import { resolveInstanceUseCase } from "@pinai/domain/usecases/instance/resolve-instance.usecase"
@@ -86,15 +88,10 @@ export function useLandingPageViewModel() {
         }
     }, [address])
 
-    const info = address && resolved?.origin === address.origin ? resolved.info : null
-    const settled = address !== null && resolved?.origin === address.origin
-
-    let resolution: { line: string; tone: ResolutionTone }
-    if (error) resolution = { line: error, tone: "error" }
-    else if (!input.trim() || (address && !settled)) resolution = { line: "", tone: "plain" }
-    else if (!address) resolution = { line: "not a federated address yet", tone: "plain" }
-    else if (!info) resolution = { line: `no Pīna'i instance at ${address.host}`, tone: "plain" }
-    else resolution = { line: describeInstance(info), tone: "ok" }
+    const known = instanceResolution(input, resolved)
+    const info = known.kind === "resolved" ? known.info : null
+    const settled = known.kind === "resolved" || known.kind === "not-pinai"
+    const resolution: { line: string; tone: ResolutionTone } = error ? { line: error, tone: "error" } : resolutionLine(known)
 
     function changeAddress(value: string) {
         setError(null)
@@ -146,6 +143,19 @@ export function useLandingPageViewModel() {
             endpoint: handoff.url && endpointOf(handoff.url),
         },
         barDone,
+    }
+}
+
+function resolutionLine(known: InstanceResolution): { line: string; tone: ResolutionTone } {
+    switch (known.kind) {
+        case "pending":
+            return { line: "", tone: "plain" }
+        case "not-an-address":
+            return { line: "not a federated address yet", tone: "plain" }
+        case "not-pinai":
+            return { line: `no Pīna'i instance at ${known.address.host}`, tone: "plain" }
+        case "resolved":
+            return { line: describeInstance(known.info), tone: "ok" }
     }
 }
 

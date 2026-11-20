@@ -1,5 +1,5 @@
 import { tv } from "tailwind-variants"
-import { avatarToneFor, type AvatarTone } from "@/presentation/_libs/avatar-tone"
+import { avatarToneFor, type AvatarTone } from "@pinai/domain/models/avatar-tone"
 import type { UserStatus } from "@pinai/domain/models/presence"
 
 const avatar = tv({

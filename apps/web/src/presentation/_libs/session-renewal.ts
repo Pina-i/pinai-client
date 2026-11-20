@@ -1,36 +1,42 @@
-import { renewAfter } from "@pinai/domain/models/auth"
 import { ensureAuthenticatedUseCase } from "@pinai/domain/usecases/auth/ensureAuthenticated.usecase"
+import { SESSION_TICK_MS, SessionKeeper } from "@pinai/domain/usecases/auth/keep-session.usecase"
 import { getAuthPlatform, getAuthPort, getSessionRenewal, onAccessTokenRefused } from "@/ioc/index"
 import { useAppStore } from "@/store/store"
 
-// A timer stops while the device sleeps; a short tick against the wall clock catches up within seconds of waking.
-const TICK_MS = 10_000
-// Soon enough that a renewal whose answer was lost is tried again within the IdP's minute of grace.
-const RETRY_MS = 15_000
+const keeper = new SessionKeeper({
+    renew: () => getSessionRenewal()(),
+    signedIn: () => {
+        const { user, idpUrl } = useAppStore.getState()
+        return idpUrl ? (user?.actor_uri ?? null) : null
+    },
+    renewed: (accessToken) => {
+        const { user, idpUrl, setSession } = useAppStore.getState()
+        if (user && idpUrl) setSession(accessToken, user, idpUrl)
+    },
+    ended: () => {
+        const { idpUrl } = useAppStore.getState()
+        if (idpUrl) endSession(idpUrl)
+    },
+})
 
 let started = false
-let scheduledFor: string | null = null
-let arrivedAt = 0
-let dueAt = Number.POSITIVE_INFINITY
-let ending = false
 
 /**
- * Keeps the signed-in session going, from `requireSession`: the access token is renewed once
- * {@link renewAfter} says, on the page coming back to the foreground or online past that point,
- * and when the IdP refuses a request with it. Idempotent.
+ * Keeps the signed-in session going, from `requireSession`: the domain's {@link SessionKeeper}
+ * over this page's triggers — its tick, the page back in the foreground or online, a request the
+ * IdP refused. Idempotent.
  */
 export function keepSessionAlive(): void {
     if (!started) {
         started = true
         onAccessTokenRefused(renewAccessToken)
-        window.setInterval(renewIfDue, TICK_MS)
+        window.setInterval(() => keeper.renewIfDue(), SESSION_TICK_MS)
         document.addEventListener("visibilitychange", () => {
-            if (document.visibilityState === "visible") renewIfDue()
+            if (document.visibilityState === "visible") keeper.renewIfDue()
         })
-        window.addEventListener("online", renewIfDue)
+        window.addEventListener("online", () => keeper.renewIfDue())
     }
-    const token = useAppStore.getState().accessToken
-    if (token && token !== scheduledFor) schedule(token, renewAfter(token))
+    keeper.track(useAppStore.getState().accessToken)
 }
 
 /**
@@ -38,44 +44,16 @@ export function keepSessionAlive(): void {
  * through `/authorize` once — the login page, since the browser's session is the one that ended —
  * or, on the desktop, back to the landing. The new token, or `null`.
  */
-export async function renewAccessToken(): Promise<string | null> {
-    const signedIn = useAppStore.getState().user?.actor_uri
-    if (!signedIn || ending) return null
-    const renewal = await getSessionRenewal()()
-    // Signed out, or in as someone else, while it ran: it answers nothing any more.
-    const { user, idpUrl, setSession } = useAppStore.getState()
-    if (user?.actor_uri !== signedIn || !idpUrl) return null
-    switch (renewal.kind) {
-        case "renewed":
-            setSession(renewal.accessToken, user, idpUrl)
-            schedule(renewal.accessToken, renewAfter(renewal.accessToken))
-            return renewal.accessToken
-        case "unreachable":
-            dueAt = Date.now() + RETRY_MS
-            return null
-        case "ended":
-            endSession(idpUrl)
-            return null
-    }
+export function renewAccessToken(): Promise<string | null> {
+    return keeper.renewNow()
 }
 
 /** When `token` reached this page, on its clock; `null` for a token it never scheduled. */
 export function accessTokenArrivedAt(token: string | null): number | null {
-    return token !== null && token === scheduledFor ? arrivedAt : null
-}
-
-function schedule(token: string, delay: number | null): void {
-    scheduledFor = token
-    arrivedAt = Date.now()
-    dueAt = delay === null ? Number.POSITIVE_INFINITY : Date.now() + delay
-}
-
-function renewIfDue(): void {
-    if (Date.now() >= dueAt) void renewAccessToken()
+    return keeper.arrivalOf(token)
 }
 
 function endSession(idpUrl: string): void {
-    ending = true
     const platform = getAuthPlatform()
     platform.tokens.clear()
     useAppStore.getState().clearSession()

@@ -78,9 +78,12 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
     the appearance, so each platform answers it
 
 ### usecases/auth/resume-session.usecase.ts
-- Picks up a session the platform kept across restarts (the desktop's, in the
-  keychain): a renewal, then `/userinfo`. Nothing to pick up on the web. Run by
-  the route guard and the landing before anything else
+- Picks up a session the platform kept across restarts (the desktop's and the
+  mobile app's, in the keychain): a renewal, then `/userinfo`. Nothing to pick up
+  on the web. Run by the route guard and the landing before anything else.
+  `ResumeOutcome`: `resumed`, `ended` (none kept, or refused), `unreachable` (the
+  renewal or `/userinfo` out of reach, `isUnreachable`: the token kept — the mobile
+  app says so and offers Retry); any other failure is thrown
 
 ### usecases/auth/renew-session.usecase.ts
 - `renewSessionUseCase(authPort, platform)` — the page's one renewer:
@@ -89,6 +92,16 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - One renewal at a time, whoever asks — a timer, a refused request, a closed
   socket: the IdP rotates the token at each use, and a token presented twice
   outside its minute of grace ends the session
+
+### usecases/auth/keep-session.usecase.ts
+- `SessionKeeper` — when to renew and what an answer means, for every client: a token tracked
+  (`track`) is due at `renewAfter` from its arrival on this device; `renewIfDue` is what the
+  platform's triggers call (its tick, `SESSION_TICK_MS`: a timer stops while the device sleeps;
+  back in front; back online), `renewNow` a refused request or a closed socket. Unreachable: tried
+  again `RENEWAL_RETRY_MS` (15 s) on, within the IdP's minute of grace; ended: `ended` once, until
+  a new session's token is tracked (an app signs in again without reloading); an answer reaching
+  someone else signed in — or nobody — is dropped. `arrivalOf` — the tracked token's arrival, for
+  `signedInRecently` and `clockLeadOf`. The web's `presentation/_libs/session-renewal.ts` wires it
 
 ### ports/session.port.ts · usecases/auth/link-session-device.usecase.ts
 - `ISessionPort` — `linkDevice` names the E2EE device this session signed in,
@@ -533,7 +546,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   `/.well-known/nodeinfo` and the document it links to (2.1, else 2.0 —
   `nodeInfoHref`); `parseNodeInfo` takes the name, the account count and
   `openRegistrations`, and only from `software.name` = `pinai`;
-  `describeInstance` is the landing's `✓ resolved · …` line.
+  `describeInstance` is the landing's `✓ resolved · …` line. `instanceResolution(input,
+  resolved)` — what is known of the address typed, for every client to word: `pending` (nothing
+  typed, or NodeInfo not answered for that origin yet), `not-an-address`, `not-pinai`, `resolved`.
   `resolve-instance.usecase.ts` chains them.
 - `IRecentInstancesPort` — the instances this device signed in to, as
   origins; `parseRecentInstances` / `addRecentInstance` keep 3, newest first,
@@ -1151,6 +1166,10 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `instanceOrigin(uri)` — the instance a URL belongs to, as an origin: an
   actor's attests its devices, and names itself so in their credentials.
 
+### models/avatar-tone.ts
+- `avatarToneFor(seed)` — a person's tone from their address, the same on every client (`sec` is
+  left to groups); each client paints `AvatarTone` in its own palette.
+
 ### models/presence.ts
 - `UserStatus` — presence as the UI models it (`online | idle | dnd |
   invisible | offline`); domain vocabulary because `setPresenceUseCase`
@@ -1167,6 +1186,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 ### usecases/presence/
 - `get-presence-snapshot.usecase.ts` — initial state on page load
 - `send-heartbeat.usecase.ts` — pumps `{ type: "heartbeat" }` over WS every 30s
+- `restate-presence.usecase.ts` — once a connection is (back) up, the status the user chose is
+  told again (the IdP reads a new connection as online); nothing for online
 - `send-typing-start.usecase.ts` — emits `{ type: "typing_start" }`,
   rate-limited to 1/s per conversation
 

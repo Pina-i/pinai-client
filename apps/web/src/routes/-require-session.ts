@@ -37,6 +37,6 @@ export async function requireSession(): Promise<void> {
 export async function resumeKeptSession(): Promise<void> {
     const { accessToken, idpUrl, setSession } = useAppStore.getState()
     if (accessToken !== null || !idpUrl) return
-    const resumed = await resumeSessionUseCase(idpUrl, getSessionRenewal(), getAuthPort()).catch(() => null)
-    if (resumed) setSession(resumed.accessToken, resumed.user, resumed.idpUrl)
+    const outcome = await resumeSessionUseCase(idpUrl, getSessionRenewal(), getAuthPort()).catch(() => null)
+    if (outcome?.kind === "resumed") setSession(outcome.session.accessToken, outcome.session.user, outcome.session.idpUrl)
 }

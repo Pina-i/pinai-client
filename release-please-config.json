@@ -12,7 +12,8 @@
       "extra-files": [
         { "type": "json", "path": "apps/web/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "apps/desktop/package.json", "jsonpath": "$.version" }
-      ]
+      ],
+      "exclude-paths": ["apps/mobile"]
     }
   }
 }

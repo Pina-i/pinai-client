@@ -110,6 +110,13 @@ pinai-client/                 # pnpm workspace root
 │                             #   as source TS; `exports` maps
 │                             #   `@pinai/domain/<path>` to `src/<path>.ts`.
 └── apps/
+    ├── mobile/               # The Expo app (@pinai/mobile), Android first: SDK 58,
+    │                         #   Expo Router (`src/app/`), Unistyles 3 themes generated
+    │                         #   from the design system's tokens. Runs as a development
+    │                         #   build (`pnpm --filter @pinai/mobile android`, then
+    │                         #   `pnpm dev:mobile`); no android/ or ios/ in git. Same
+    │                         #   layers and lint boundaries as the web; see its CLAUDE.md
+    │                         #   and README. Out of release-please (`exclude-paths`).
     ├── desktop/              # Electron shell (@pinai/desktop).
     │                         #   electron.vite.config.ts builds src/main and serves
     │                         #   apps/web as the renderer, loading web's own
@@ -162,8 +169,9 @@ only call. Pure functions survive a change of state container; a slice does
 not. See "Where does a change go?" below.
 
 What stays in `apps/web` for good is the platform-specific remainder — WASM,
-WebCrypto, IndexedDB, web storage and navigation. `apps/mobile/` is
-deliberately absent until that work begins.
+WebCrypto, IndexedDB, web storage and navigation. `apps/mobile/` has its own
+remainder (the keychain, the system's sign-in sheet, SQLite, the native MLS
+binding) and nothing else: a notion both apps need goes in the domain first.
 
 
 ### Dependency principle
@@ -274,10 +282,11 @@ for a known IdP.
    the web
 7. Access token stored in memory only (the auth slice, never persisted)
 8. Staying signed in: `requireSession` starts `keepSessionAlive`
-   (`apps/web/src/presentation/_libs/session-renewal.ts`). The access token is renewed at 80 % of
-   its lifetime (`renewAfter`, `@pinai/domain/models/auth`), checked every 10 s against the wall
-   clock — a timer stops while the device sleeps — and when the page comes back to the
-   foreground or online. A `401` from `@pinai/api` renews once and sends the request again. The
+   (`apps/web/src/presentation/_libs/session-renewal.ts`, the page's triggers over the domain's
+   `SessionKeeper`, `@pinai/domain/usecases/auth/keep-session.usecase`). The access token is
+   renewed at 80 % of its lifetime (`renewAfter`, `@pinai/domain/models/auth`), checked every 10 s
+   against the wall clock — a timer stops while the device sleeps — and when the page comes back
+   to the foreground or online. A `401` from `@pinai/api` renews once and sends the request again. The
    IdP rotates the refresh token at each use, so renewals run one at a time
    (`renewSessionUseCase`); an unreachable IdP keeps the token, tried again within the minute the
    IdP allows for a lost answer. The socket keeps going across renewals and reconnects with the
@@ -300,7 +309,12 @@ for a known IdP.
    the IdP's answer to `io.github.pina-i:/callback` into the app's `/callback`. The refresh token
    is handed to the main process once, sealed with the OS keychain, renewed there; a restart
    picks the session up. Signing out revokes the token (`/revoke`).
-   `AuthPlatform.browserSession` is what tells the two apart
+   `AuthPlatform.browserSession` is what tells the two apart. **The mobile app** holds an app
+   session too: its client is the IdP's own `/clients/mobile.json`, the IdP's pages open in the
+   system's sheet (Chrome Custom Tabs through `expo-web-browser`), whose answer to
+   `io.github.pina-i:/callback` the app's `/callback` route exchanges; the refresh token sits in
+   the keychain (`expo-secure-store`) and is revoked as its store clears it; a launch resumes the
+   session (`resumeSessionUseCase`, an instance out of reach saying so, the token kept)
 11. Once the account's device storage is open and its E2EE device exists, `requireSession` names
    the device to the IdP (`PUT /api/sessions/current/device`, once per page load —
    `presentation/_libs/session-device.ts`) with its proof — its root key's signature over the

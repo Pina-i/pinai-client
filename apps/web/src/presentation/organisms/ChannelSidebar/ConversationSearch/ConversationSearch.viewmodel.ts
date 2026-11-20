@@ -8,7 +8,7 @@ import { presenceToUserStatus, type UserStatus } from "@pinai/domain/models/pres
 import { getFriendsUseCase } from "@pinai/domain/usecases/social/get-friends.usecase"
 import { getSocialPort } from "@/ioc"
 import { useAppStore } from "@/store/store"
-import type { AvatarTone } from "@/presentation/_libs/avatar-tone"
+import type { AvatarTone } from "@pinai/domain/models/avatar-tone"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
 import { groupFact } from "../_helpers/group-fact.helper"
 
