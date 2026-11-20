@@ -282,10 +282,11 @@ for a known IdP.
    the web
 7. Access token stored in memory only (the auth slice, never persisted)
 8. Staying signed in: `requireSession` starts `keepSessionAlive`
-   (`apps/web/src/presentation/_libs/session-renewal.ts`). The access token is renewed at 80 % of
-   its lifetime (`renewAfter`, `@pinai/domain/models/auth`), checked every 10 s against the wall
-   clock — a timer stops while the device sleeps — and when the page comes back to the
-   foreground or online. A `401` from `@pinai/api` renews once and sends the request again. The
+   (`apps/web/src/presentation/_libs/session-renewal.ts`, the page's triggers over the domain's
+   `SessionKeeper`, `@pinai/domain/usecases/auth/keep-session.usecase`). The access token is
+   renewed at 80 % of its lifetime (`renewAfter`, `@pinai/domain/models/auth`), checked every 10 s
+   against the wall clock — a timer stops while the device sleeps — and when the page comes back
+   to the foreground or online. A `401` from `@pinai/api` renews once and sends the request again. The
    IdP rotates the refresh token at each use, so renewals run one at a time
    (`renewSessionUseCase`); an unreachable IdP keeps the token, tried again within the minute the
    IdP allows for a lost answer. The socket keeps going across renewals and reconnects with the

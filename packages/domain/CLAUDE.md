@@ -90,6 +90,16 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   socket: the IdP rotates the token at each use, and a token presented twice
   outside its minute of grace ends the session
 
+### usecases/auth/keep-session.usecase.ts
+- `SessionKeeper` — when to renew and what an answer means, for every client: a token tracked
+  (`track`) is due at `renewAfter` from its arrival on this device; `renewIfDue` is what the
+  platform's triggers call (its tick, `SESSION_TICK_MS`: a timer stops while the device sleeps;
+  back in front; back online), `renewNow` a refused request or a closed socket. Unreachable: tried
+  again `RENEWAL_RETRY_MS` (15 s) on, within the IdP's minute of grace; ended: `ended` once, until
+  a new session's token is tracked (an app signs in again without reloading); an answer reaching
+  someone else signed in — or nobody — is dropped. `arrivalOf` — the tracked token's arrival, for
+  `signedInRecently` and `clockLeadOf`. The web's `presentation/_libs/session-renewal.ts` wires it
+
 ### ports/session.port.ts · usecases/auth/link-session-device.usecase.ts
 - `ISessionPort` — `linkDevice` names the E2EE device this session signed in,
   so revoking the device signs it out, with its proof: the root key's signature over

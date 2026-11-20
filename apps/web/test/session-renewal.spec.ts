@@ -7,7 +7,8 @@ import { describe, expect, it, vi } from "vitest"
 
 import { renewAfter } from "@pinai/domain/models/auth"
 import type { HeldRefreshToken, IAuthPort, ISessionTokenStore } from "@pinai/domain/ports/auth.port"
-import { renewSessionUseCase } from "@pinai/domain/usecases/auth/renew-session.usecase"
+import { RENEWAL_RETRY_MS, SessionKeeper } from "@pinai/domain/usecases/auth/keep-session.usecase"
+import { type Renewal, renewSessionUseCase } from "@pinai/domain/usecases/auth/renew-session.usecase"
 
 const CLIENT_ID = "https://app.example/oauth-client.json"
 const TOKEN_ENDPOINT = "https://idp.example/token"
@@ -129,5 +130,137 @@ describe("renewSessionUseCase", () => {
         expect(await later).toEqual({ kind: "renewed", accessToken: "access-3" })
         expect(refresh).toHaveBeenCalledTimes(2)
         expect(refresh.mock.calls[1][0].refreshToken).toBe("refresh-2")
+    })
+})
+
+describe("SessionKeeper", () => {
+    const HOUR_TOKEN = jwt({ iat: 1_790_000_000, exp: 1_790_003_600 })
+    const NEXT_TOKEN = jwt({ iat: 1_790_002_880, exp: 1_790_006_480 })
+    const MINUTE = 60_000
+
+    function keeping(answers: Renewal[]) {
+        let now = 0
+        let who: string | null = "alice"
+        const renew = vi.fn(async () => answers.shift() ?? { kind: "ended" as const })
+        const renewed = vi.fn()
+        const ended = vi.fn()
+        const keeper = new SessionKeeper({ renew, signedIn: () => who, renewed, ended, now: () => now })
+        return {
+            keeper,
+            renew,
+            renewed,
+            ended,
+            at: (ms: number) => void (now = ms),
+            signIn: (actor: string | null) => void (who = actor),
+        }
+    }
+
+    it("renews a token at 80 % of its life, counted from its arrival, and not before", async () => {
+        const { keeper, renew, at } = keeping([{ kind: "renewed", accessToken: NEXT_TOKEN }])
+        at(5 * MINUTE)
+        keeper.track(HOUR_TOKEN)
+
+        at(5 * MINUTE + 48 * MINUTE - 1)
+        keeper.renewIfDue()
+        expect(renew).not.toHaveBeenCalled()
+
+        at(5 * MINUTE + 48 * MINUTE)
+        keeper.renewIfDue()
+        expect(renew).toHaveBeenCalledTimes(1)
+    })
+
+    it("keeps the schedule of a token it is shown again", () => {
+        const { keeper, renew, at } = keeping([])
+        keeper.track(HOUR_TOKEN)
+        at(30 * MINUTE)
+        keeper.track(HOUR_TOKEN)
+
+        at(48 * MINUTE)
+        keeper.renewIfDue()
+        expect(renew).toHaveBeenCalledTimes(1)
+    })
+
+    it("hands the renewed token on and schedules it from its own arrival", async () => {
+        const { keeper, renew, renewed, at } = keeping([{ kind: "renewed", accessToken: NEXT_TOKEN }])
+        keeper.track(HOUR_TOKEN)
+        at(48 * MINUTE)
+
+        expect(await keeper.renewNow()).toBe(NEXT_TOKEN)
+        expect(renewed).toHaveBeenCalledWith(NEXT_TOKEN)
+        expect(keeper.arrivalOf(NEXT_TOKEN)).toBe(48 * MINUTE)
+
+        at(48 * MINUTE + 48 * MINUTE - 1)
+        keeper.renewIfDue()
+        expect(renew).toHaveBeenCalledTimes(1)
+    })
+
+    it("tries again 15 seconds after the IdP couldn't be reached, within its minute of grace", async () => {
+        const { keeper, renew, at } = keeping([{ kind: "unreachable" }, { kind: "unreachable" }])
+        keeper.track(HOUR_TOKEN)
+        at(48 * MINUTE)
+        expect(await keeper.renewNow()).toBeNull()
+
+        at(48 * MINUTE + RENEWAL_RETRY_MS - 1)
+        keeper.renewIfDue()
+        expect(renew).toHaveBeenCalledTimes(1)
+        at(48 * MINUTE + RENEWAL_RETRY_MS)
+        keeper.renewIfDue()
+        expect(renew).toHaveBeenCalledTimes(2)
+    })
+
+    it("ends the session once, asks nothing more, and starts again with the next sign-in's token", async () => {
+        const { keeper, renew, ended, at } = keeping([{ kind: "ended" }, { kind: "renewed", accessToken: NEXT_TOKEN }])
+        keeper.track(HOUR_TOKEN)
+
+        expect(await keeper.renewNow()).toBeNull()
+        expect(await keeper.renewNow()).toBeNull()
+        expect(ended).toHaveBeenCalledTimes(1)
+        expect(renew).toHaveBeenCalledTimes(1)
+
+        at(MINUTE)
+        keeper.track(NEXT_TOKEN)
+        expect(await keeper.renewNow()).toBe(NEXT_TOKEN)
+    })
+
+    it("drops an answer that arrives once someone else is signed in, or nobody", async () => {
+        for (const next of ["bob", null]) {
+            let who: string | null = "alice"
+            let answer: (renewal: Renewal) => void = () => {}
+            const renewed = vi.fn()
+            const ended = vi.fn()
+            const keeper = new SessionKeeper({
+                renew: () => new Promise<Renewal>((resolve) => (answer = resolve)),
+                signedIn: () => who,
+                renewed,
+                ended,
+            })
+            keeper.track(HOUR_TOKEN)
+
+            const renewal = keeper.renewNow()
+            who = next
+            answer({ kind: "ended" })
+
+            expect(await renewal).toBeNull()
+            expect(renewed).not.toHaveBeenCalled()
+            expect(ended).not.toHaveBeenCalled()
+        }
+    })
+
+    it("asks nothing while nobody is signed in", async () => {
+        const { keeper, renew, signIn } = keeping([])
+        signIn(null)
+
+        expect(await keeper.renewNow()).toBeNull()
+        expect(renew).not.toHaveBeenCalled()
+    })
+
+    it("knows when the token it tracks arrived, and only that one", () => {
+        const { keeper, at } = keeping([])
+        at(7_000)
+        keeper.track(HOUR_TOKEN)
+
+        expect(keeper.arrivalOf(HOUR_TOKEN)).toBe(7_000)
+        expect(keeper.arrivalOf(NEXT_TOKEN)).toBeNull()
+        expect(keeper.arrivalOf(null)).toBeNull()
     })
 })
