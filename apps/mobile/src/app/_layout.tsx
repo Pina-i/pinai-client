@@ -30,7 +30,17 @@ export default function RootLayout() {
 
     return (
         <View style={styles.root}>
-            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.colors.background } }} />
+            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.colors.background } }}>
+                <Stack.Screen
+                    name="server"
+                    options={{
+                        presentation: "formSheet",
+                        sheetAllowedDetents: [0.86],
+                        sheetCornerRadius: 22,
+                        contentStyle: { backgroundColor: theme.colors.popover },
+                    }}
+                />
+            </Stack>
             <Grain />
             <StatusBar style={light ? "dark" : "light"} />
             <NavigationBar style={light ? "dark" : "light"} />

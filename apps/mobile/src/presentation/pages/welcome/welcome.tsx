@@ -1,3 +1,4 @@
+import { router } from "expo-router"
 import { Text, View } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { StyleSheet } from "react-native-unistyles"
@@ -36,10 +37,14 @@ export function WelcomePage() {
                 </View>
             </View>
             <View style={styles.actions(insets.bottom)}>
-                <Button label="Continue" />
+                <Button
+                    label="Continue"
+                    onPress={() => router.push("/server")}
+                />
                 <Button
                     label="I run my own server"
                     variant="quiet"
+                    onPress={() => router.push("/server")}
                 />
                 <Text
                     textBreakStrategy="balanced"
