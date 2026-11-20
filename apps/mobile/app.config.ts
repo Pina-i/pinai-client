@@ -1,5 +1,55 @@
 import type { ExpoConfig } from "expo/config"
 
+interface Face {
+    file: string
+    weight: number
+    style?: "italic"
+}
+
+// The web's faces, at its weights: the static files Google serves.
+const FONTS: Record<string, { pkg: string; faces: Face[] }> = {
+    "DM Sans": {
+        pkg: "dm-sans",
+        faces: [
+            { file: "300Light/DMSans_300Light.ttf", weight: 300 },
+            { file: "400Regular/DMSans_400Regular.ttf", weight: 400 },
+            { file: "500Medium/DMSans_500Medium.ttf", weight: 500 },
+            { file: "700Bold/DMSans_700Bold.ttf", weight: 700 },
+        ],
+    },
+    "Azeret Mono": {
+        pkg: "azeret-mono",
+        faces: [
+            { file: "400Regular/AzeretMono_400Regular.ttf", weight: 400 },
+            { file: "500Medium/AzeretMono_500Medium.ttf", weight: 500 },
+        ],
+    },
+    "Instrument Serif": {
+        pkg: "instrument-serif",
+        faces: [
+            { file: "400Regular/InstrumentSerif_400Regular.ttf", weight: 400 },
+            { file: "400Regular_Italic/InstrumentSerif_400Regular_Italic.ttf", weight: 400, style: "italic" },
+        ],
+    },
+}
+
+const fontPath = (pkg: string, file: string) => `./node_modules/@expo-google-fonts/${pkg}/${file}`
+
+const fontPlugin: [string, object] = [
+    "expo-font",
+    {
+        android: {
+            fonts: Object.entries(FONTS).map(([fontFamily, { pkg, faces }]) => ({
+                fontFamily,
+                fontDefinitions: faces.map(({ file, weight, style }) => ({ path: fontPath(pkg, file), weight, ...(style && { style }) })),
+            })),
+        },
+        ios: {
+            fonts: Object.values(FONTS).flatMap(({ pkg, faces }) => faces.map(({ file }) => fontPath(pkg, file))),
+        },
+    },
+]
+
 const config: ExpoConfig = {
     name: "Pīna'i",
     slug: "pinai",
@@ -18,7 +68,7 @@ const config: ExpoConfig = {
     ios: {
         bundleIdentifier: "io.github.pina-i.mobile",
     },
-    plugins: ["expo-router"],
+    plugins: ["expo-router", fontPlugin],
     experiments: {
         typedRoutes: true,
         reactCompiler: true,
