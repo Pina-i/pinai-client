@@ -60,15 +60,34 @@ const config: ExpoConfig = {
     // document lists (the desktop's too: the Pina-i organisation's GitHub Pages domain, reversed).
     scheme: "io.github.pina-i",
     userInterfaceStyle: "automatic",
+    icon: "./assets/icon/icon.png",
     android: {
         // Android refuses `-` in an application id.
         package: "io.github.pina_i.mobile",
+        adaptiveIcon: {
+            foregroundImage: "./assets/icon/android-foreground.png",
+            monochromeImage: "./assets/icon/android-monochrome.png",
+            backgroundColor: "#040c0c",
+        },
         predictiveBackGestureEnabled: false,
     },
     ios: {
         bundleIdentifier: "io.github.pina-i.mobile",
     },
-    plugins: ["expo-router", fontPlugin],
+    plugins: [
+        "expo-router",
+        fontPlugin,
+        [
+            "expo-splash-screen",
+            {
+                image: "./assets/icon/splash-light.png",
+                imageWidth: 160,
+                // Black Pearl's grounds, dark and light (`pnpm themes`).
+                backgroundColor: "#f1f7f6",
+                dark: { image: "./assets/icon/splash.png", backgroundColor: "#040c0c" },
+            },
+        ],
+    ],
     experiments: {
         typedRoutes: true,
         reactCompiler: true,

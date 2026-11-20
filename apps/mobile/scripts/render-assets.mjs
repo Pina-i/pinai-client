@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { Resvg } from "@resvg/resvg-js"
+import { buildThemes } from "./theme-tokens.mjs"
 
 const root = fileURLToPath(new URL("..", import.meta.url))
 const SCALES = [1, 2, 3]
@@ -51,3 +52,37 @@ ${entries.join("\n")}
 } satisfies Record<MotifKey, Record<"field" | "band", { source: number; height: number }>>
 `,
 )
+
+// The app icon and the splash, from the desktop's icon (the logo on Black Pearl's ground).
+const desktopIcon = readFileSync(`${root}../desktop/build/icon.svg`, "utf8")
+const paths = desktopIcon.match(/<path [^>]+\/>/g).join("")
+const LOGO_VIEWBOX = "510 400 1025 755"
+
+// The desktop's icon paints the line work and the ripples in Black Pearl dark's foreground and chat.
+const DARK_TONES = { line: "#e9f0ef", ripple: "#65c6af" }
+const light = buildThemes(JSON.parse(readFileSync(`${root}design-system/tokens.json`, "utf8"))).themes["pearl-light"].colors
+
+function logoSvg({ box, background, fill, tones }) {
+    const offset = (1024 - box) / 2
+    const ground = background ? `<rect width="1024" height="1024" fill="${background}"/>` : ""
+    const drawn = fill
+        ? paths.replace(/fill="#[0-9a-f]{6}"/g, `fill="${fill}"`)
+        : tones
+          ? paths.replaceAll(`fill="${DARK_TONES.line}"`, `fill="${tones.line}"`).replaceAll(`fill="${DARK_TONES.ripple}"`, `fill="${tones.ripple}"`)
+          : paths
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">${ground}<svg x="${offset}" y="${offset}" width="${box}" height="${box}" viewBox="${LOGO_VIEWBOX}" preserveAspectRatio="xMidYMid meet">${drawn}</svg></svg>`
+}
+
+const ICONS = {
+    // iOS and older Androids: opaque, full bleed, the logo as large as on the desktop's square.
+    "icon.png": logoSvg({ box: 696, background: "#040c0c" }),
+    // Adaptive icon layers: the logo inside the 66 % safe zone, whatever shape the launcher cuts.
+    "android-foreground.png": logoSvg({ box: 480 }),
+    "android-monochrome.png": logoSvg({ box: 480, fill: "#ffffff" }),
+    "splash.png": logoSvg({ box: 1024 }),
+    "splash-light.png": logoSvg({ box: 1024, tones: { line: light.foreground, ripple: light.chat } }),
+}
+
+for (const [file, svg] of Object.entries(ICONS)) {
+    writeFileSync(`${root}assets/icon/${file}`, new Resvg(svg).render().asPng())
+}
