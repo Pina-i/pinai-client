@@ -1,10 +1,12 @@
 import { OidcAdapter } from "@pinai/api/auth/oidc.adapter"
 import { NodeInfoApiAdapter } from "@pinai/api/instance/nodeinfo-api.adapter"
 import { UserSettingsApiAdapter } from "@pinai/api/user-settings/user-settings-api.adapter"
+import { IdpWsAdapter } from "@pinai/api/ws/idp-ws.adapter"
 import { appearanceHints, resolveMode } from "@pinai/domain/models/user-settings"
 import type { AuthPlatform, IAuthPort } from "@pinai/domain/ports/auth.port"
 import type { ILastInstancePort, INodeInfoPort, IRecentInstancesPort } from "@pinai/domain/ports/instance.port"
 import type { IAccountSettingsPort, IUserSettingsStorePort } from "@pinai/domain/ports/user-settings.port"
+import type { IWsPort } from "@pinai/domain/ports/ws.port"
 import { type Renewal, renewSessionUseCase } from "@pinai/domain/usecases/auth/renew-session.usecase"
 import { loadUserSettingsUseCase } from "@pinai/domain/usecases/user-settings/load-user-settings.usecase"
 import * as Crypto from "expo-crypto"
@@ -26,6 +28,7 @@ const recentInstancesPort: IRecentInstancesPort = new RecentInstancesKvAdapter(S
 const lastInstancePort: ILastInstancePort = new LastInstanceKvAdapter(Storage)
 const userSettingsStore: IUserSettingsStorePort = new UserSettingsKvAdapter(Storage)
 const accountSettingsPort: IAccountSettingsPort = new UserSettingsApiAdapter()
+const wsPort: IWsPort = new IdpWsAdapter()
 
 const navigation = new MobileAuthNavigationAdapter({
     replace: (pathname, params) => router.replace({ pathname, params } as never),
@@ -88,4 +91,8 @@ export function getUserSettingsStore(): IUserSettingsStorePort {
 
 export function getAccountSettingsPort(): IAccountSettingsPort {
     return accountSettingsPort
+}
+
+export function getWsPort(): IWsPort {
+    return wsPort
 }

@@ -1186,6 +1186,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 ### usecases/presence/
 - `get-presence-snapshot.usecase.ts` — initial state on page load
 - `send-heartbeat.usecase.ts` — pumps `{ type: "heartbeat" }` over WS every 30s
+- `restate-presence.usecase.ts` — once a connection is (back) up, the status the user chose is
+  told again (the IdP reads a new connection as online); nothing for online
 - `send-typing-start.usecase.ts` — emits `{ type: "typing_start" }`,
   rate-limited to 1/s per conversation
 

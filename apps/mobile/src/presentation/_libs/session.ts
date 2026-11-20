@@ -52,6 +52,11 @@ export async function resumeKeptSession(): Promise<ResumeOutcome | null> {
     return outcome
 }
 
+/** Renews the session now: a refused request, a socket its session closed. The new token, or `null`. */
+export function renewAccessToken(): Promise<string | null> {
+    return keeper.renewNow()
+}
+
 /** Signing out: the token revoked as its store clears it, then Welcome. */
 export function signOut(): void {
     const { idpUrl, clearSession } = useAppStore.getState()

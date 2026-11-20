@@ -9,6 +9,7 @@ import { getAuthNavigation } from "@/ioc"
 import { Grain } from "@/presentation/atoms/grain/grain"
 import { followAccountAppearance } from "@/presentation/_libs/appearance"
 import { keepSessionAlive, resumeKeptSession } from "@/presentation/_libs/session"
+import { keepSocketOpen } from "@/presentation/_libs/socket"
 
 // Held while a kept session is picked up, so the first screen is the right one.
 void SplashScreen.preventAutoHideAsync()
@@ -25,6 +26,7 @@ export default function RootLayout() {
         void resumeKeptSession()
             .then((outcome) => {
                 keepSessionAlive()
+                keepSocketOpen()
                 if (outcome?.kind === "unreachable") router.replace("/unreachable")
             })
             .finally(() => SplashScreen.hide())
@@ -33,6 +35,15 @@ export default function RootLayout() {
     return (
         <View style={styles.root}>
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.colors.background } }}>
+                <Stack.Screen
+                    name="status"
+                    options={{
+                        presentation: "formSheet",
+                        sheetAllowedDetents: "fitToContents",
+                        sheetCornerRadius: 22,
+                        contentStyle: { backgroundColor: theme.colors.popover },
+                    }}
+                />
                 <Stack.Screen
                     name="server"
                     options={{

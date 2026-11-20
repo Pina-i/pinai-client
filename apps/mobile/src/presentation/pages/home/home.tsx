@@ -1,5 +1,5 @@
 import { personName } from "@pinai/domain/models/identity"
-import { type UserStatus, userStatusLabel } from "@pinai/domain/models/presence"
+import type { UserStatus } from "@pinai/domain/models/presence"
 import { router } from "expo-router"
 import { Settings, Users } from "lucide-react-native"
 import { Pressable, ScrollView, Text, View } from "react-native"
@@ -8,6 +8,7 @@ import { Avatar } from "@/presentation/atoms/avatar/avatar"
 import { Backdrop } from "@/presentation/atoms/backdrop/backdrop"
 import { Logo } from "@/presentation/atoms/logo/logo"
 import { Motif } from "@/presentation/atoms/motif/motif"
+import { statusWords } from "@/presentation/pages/status/status-choices"
 import { useAppStore } from "@/store/store"
 import { statusColor } from "@/theme/status"
 
@@ -71,7 +72,7 @@ export function HomePage() {
                 <View style={styles.footer}>
                     <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel={`Change status, ${userStatusLabel(status)}`}
+                        accessibilityLabel={`Change status, ${statusWords(status)}`}
                         onPress={() => router.push("/status")}
                         style={({ pressed }) => [styles.me, pressed && styles.pressed]}
                     >
@@ -90,7 +91,7 @@ export function HomePage() {
                             </Text>
                             <View style={styles.statusLine}>
                                 <View style={styles.statusDot(status)} />
-                                <Text style={styles.statusLabel}>{userStatusLabel(status).toLowerCase()}</Text>
+                                <Text style={styles.statusLabel}>{statusWords(status).toLowerCase()}</Text>
                             </View>
                         </View>
                     </Pressable>
