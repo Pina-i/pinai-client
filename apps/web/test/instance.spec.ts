@@ -10,6 +10,7 @@ import {
     describeInstance,
     displayAddress,
     instanceAddress,
+    instanceResolution,
     nodeInfoHref,
     parseNodeInfo,
     parseRecentInstances,
@@ -214,5 +215,33 @@ describe("the last instance submitted", () => {
         const store = storeOf(null)
         rememberChosenInstanceUseCase(AOTEAROA, store)
         expect(store.written).toEqual(["https://aotearoa.nz"])
+    })
+})
+
+describe("instanceResolution", () => {
+    const aotearoa = instanceAddress("aotearoa.nz")!
+    const info = { name: "Aotearoa", users: 1204, openRegistrations: true }
+
+    it("waits while nothing is typed, or while the address typed hasn't answered", () => {
+        expect(instanceResolution("", null)).toEqual({ kind: "pending" })
+        expect(instanceResolution("   ", null)).toEqual({ kind: "pending" })
+        expect(instanceResolution("aotearoa.nz", null)).toEqual({ kind: "pending" })
+        expect(instanceResolution("aotearoa.nz", { origin: "https://reef.chat", info })).toEqual({ kind: "pending" })
+    })
+
+    it("says when what is typed is no address yet", () => {
+        expect(instanceResolution("aotearoa", null)).toEqual({ kind: "not-an-address" })
+    })
+
+    it("tells an address with no Pīna'i instance from a resolved one", () => {
+        expect(instanceResolution("aotearoa.nz", { origin: aotearoa.origin, info: null })).toEqual({
+            kind: "not-pinai",
+            address: aotearoa,
+        })
+        expect(instanceResolution("aotearoa.nz", { origin: aotearoa.origin, info })).toEqual({
+            kind: "resolved",
+            address: aotearoa,
+            info,
+        })
     })
 })

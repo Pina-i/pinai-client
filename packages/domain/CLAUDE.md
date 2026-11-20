@@ -543,7 +543,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   `/.well-known/nodeinfo` and the document it links to (2.1, else 2.0 —
   `nodeInfoHref`); `parseNodeInfo` takes the name, the account count and
   `openRegistrations`, and only from `software.name` = `pinai`;
-  `describeInstance` is the landing's `✓ resolved · …` line.
+  `describeInstance` is the landing's `✓ resolved · …` line. `instanceResolution(input,
+  resolved)` — what is known of the address typed, for every client to word: `pending` (nothing
+  typed, or NodeInfo not answered for that origin yet), `not-an-address`, `not-pinai`, `resolved`.
   `resolve-instance.usecase.ts` chains them.
 - `IRecentInstancesPort` — the instances this device signed in to, as
   origins; `parseRecentInstances` / `addRecentInstance` keep 3, newest first,
