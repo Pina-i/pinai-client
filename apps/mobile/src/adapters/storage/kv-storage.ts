@@ -49,20 +49,3 @@ export class LastInstanceKvAdapter implements ILastInstancePort {
         attempt(() => this.kv.setItemSync("pinai.last-instance", origin), undefined)
     }
 }
-
-/** The instance this phone is signed in to, so a restart knows where to resume. */
-export class SignedInInstanceKvAdapter {
-    private readonly kv: SyncKeyValue
-
-    constructor(kv: SyncKeyValue) {
-        this.kv = kv
-    }
-
-    read(): string | null {
-        return attempt(() => this.kv.getItemSync("pinai.signed-in-instance"), null)
-    }
-
-    write(origin: string | null): void {
-        attempt(() => (origin ? this.kv.setItemSync("pinai.signed-in-instance", origin) : this.kv.removeItemSync("pinai.signed-in-instance")), undefined)
-    }
-}

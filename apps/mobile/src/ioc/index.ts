@@ -12,13 +12,12 @@ import { MOBILE_DOCUMENT_PATH, MobileAuthNavigationAdapter } from "@/adapters/au
 import { MemoryAuthSessionStore } from "@/adapters/auth/auth-session-memory.adapter"
 import { ExpoPkceAdapter } from "@/adapters/auth/pkce-expo.adapter"
 import { KeychainSessionTokenStore } from "@/adapters/auth/session-token-keychain.adapter"
-import { LastInstanceKvAdapter, RecentInstancesKvAdapter, SignedInInstanceKvAdapter } from "@/adapters/storage/kv-storage"
+import { LastInstanceKvAdapter, RecentInstancesKvAdapter } from "@/adapters/storage/kv-storage"
 
 const authPort: IAuthPort = new OidcAdapter()
 const nodeInfoPort: INodeInfoPort = new NodeInfoApiAdapter()
 const recentInstancesPort: IRecentInstancesPort = new RecentInstancesKvAdapter(Storage)
 const lastInstancePort: ILastInstancePort = new LastInstanceKvAdapter(Storage)
-const signedInInstance = new SignedInInstanceKvAdapter(Storage)
 
 const navigation = new MobileAuthNavigationAdapter({
     replace: (pathname, params) => router.replace({ pathname, params } as never),
@@ -69,8 +68,4 @@ export function getRecentInstancesPort(): IRecentInstancesPort {
 
 export function getLastInstancePort(): ILastInstancePort {
     return lastInstancePort
-}
-
-export function getSignedInInstance(): SignedInInstanceKvAdapter {
-    return signedInInstance
 }

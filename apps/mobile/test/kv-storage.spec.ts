@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { LastInstanceKvAdapter, RecentInstancesKvAdapter, SignedInInstanceKvAdapter, type SyncKeyValue } from "../src/adapters/storage/kv-storage"
+import { LastInstanceKvAdapter, RecentInstancesKvAdapter, type SyncKeyValue } from "../src/adapters/storage/kv-storage"
 
 function kv(): SyncKeyValue {
     const items = new Map<string, string>()
@@ -20,15 +20,10 @@ describe("the phone's small storage", () => {
         expect(new RecentInstancesKvAdapter(store).read()).toBeNull()
     })
 
-    it("keeps the last instance chosen and the one signed in to, and forgets the latter", () => {
+    it("keeps the last instance chosen", () => {
         const store = kv()
         new LastInstanceKvAdapter(store).write("https://reef.chat")
-        const signedIn = new SignedInInstanceKvAdapter(store)
-        signedIn.write("https://aotearoa.nz")
 
         expect(new LastInstanceKvAdapter(store).read()).toBe("https://reef.chat")
-        expect(signedIn.read()).toBe("https://aotearoa.nz")
-        signedIn.write(null)
-        expect(signedIn.read()).toBeNull()
     })
 })
