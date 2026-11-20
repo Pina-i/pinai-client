@@ -29,8 +29,7 @@ pnpm android:mobile   # forwards Metro and Alice's port, then builds, installs a
 
 It stops at once when no phone or emulator is connected.
 
-On the emulator: start one (`emulator -avd <name>`, or from Android Studio), then
-`pnpm --filter @pinai/mobile android`.
+An emulator is started from Android Studio's Device Manager, or with `emulator -avd <name>`.
 
 The first build compiles the native code (a quarter of an hour). After that, `pnpm dev:mobile`
 starts Metro alone, and changes to the JavaScript reload in place; rebuild only when a native
