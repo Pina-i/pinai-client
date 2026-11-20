@@ -7,6 +7,7 @@ import { View } from "react-native"
 import { StyleSheet, useUnistyles } from "react-native-unistyles"
 import { getAuthNavigation } from "@/ioc"
 import { Grain } from "@/presentation/atoms/grain/grain"
+import { followAccountAppearance } from "@/presentation/_libs/appearance"
 import { keepSessionAlive, resumeKeptSession } from "@/presentation/_libs/session"
 
 // Held while a kept session is picked up, so the first screen is the right one.
@@ -20,6 +21,7 @@ export default function RootLayout() {
     useEffect(() => getAuthNavigation().track(pathname), [pathname])
 
     useEffect(() => {
+        followAccountAppearance()
         void resumeKeptSession()
             .then((outcome) => {
                 keepSessionAlive()

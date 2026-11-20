@@ -1,6 +1,7 @@
-import { DEFAULT_ACCOUNT_SETTINGS, DEFAULT_DEVICE_SETTINGS, resolveMode, themeId, type ThemeId } from "@pinai/domain/models/user-settings"
+import { resolveMode, themeId, type ThemeId } from "@pinai/domain/models/user-settings"
 import { Appearance } from "react-native"
 import { StyleSheet, UnistylesRuntime } from "react-native-unistyles"
+import { useAppStore } from "@/store/store"
 import { layout, radius, space, themes, type } from "./themes.generated"
 
 type Colors = Record<keyof (typeof themes)["pearl-dark"]["colors"], string>
@@ -43,8 +44,8 @@ declare module "react-native-unistyles" {
 }
 
 function currentTheme(): ThemeId {
-    const dark = Appearance.getColorScheme() !== "light"
-    return themeId(DEFAULT_ACCOUNT_SETTINGS.appearance.family, resolveMode(DEFAULT_DEVICE_SETTINGS.mode, dark))
+    const { appearance, deviceMode } = useAppStore.getState()
+    return themeId(appearance.family, resolveMode(deviceMode, Appearance.getColorScheme() !== "light"))
 }
 
 StyleSheet.configure({
@@ -54,3 +55,8 @@ StyleSheet.configure({
 })
 
 Appearance.addChangeListener(() => UnistylesRuntime.setTheme(currentTheme()))
+useAppStore.subscribe((state, previous) => {
+    if (state.appearance.family !== previous.appearance.family || state.deviceMode !== previous.deviceMode) {
+        UnistylesRuntime.setTheme(currentTheme())
+    }
+})

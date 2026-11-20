@@ -1,7 +1,10 @@
 import type { UserProfile } from "@pinai/domain/models/auth"
+import type { AppearanceSettings, ModePreference } from "@pinai/domain/models/user-settings"
+import { loadUserSettingsUseCase } from "@pinai/domain/usecases/user-settings/load-user-settings.usecase"
 import Storage from "expo-sqlite/kv-store"
 import { create } from "zustand"
 import { createJSONStorage, persist } from "zustand/middleware"
+import { UserSettingsKvAdapter } from "@/adapters/storage/user-settings-kv.adapter"
 
 interface AuthSlice {
     /** In memory only: a restart renews it from the keychain's refresh token. */
@@ -13,14 +16,24 @@ interface AuthSlice {
     clearSession: () => void
 }
 
-// The kv-store's synchronous half: the instance is known before the first render.
+interface AppearanceSlice {
+    /** The account's palette and motif, as this phone's copy holds them. */
+    appearance: AppearanceSettings
+    /** Dark or light: this phone's, `system` following it. */
+    deviceMode: ModePreference
+    setAppearance: (appearance: AppearanceSettings) => void
+}
+
+// The kv-store's synchronous half: the instance and the palette are known before the first render.
 const storage = createJSONStorage(() => ({
     getItem: (name: string) => Storage.getItemSync(name),
     setItem: (name: string, value: string) => Storage.setItemSync(name, value),
     removeItem: (name: string) => void Storage.removeItemSync(name),
 }))
 
-export const useAppStore = create<AuthSlice>()(
+const kept = loadUserSettingsUseCase(new UserSettingsKvAdapter(Storage))
+
+export const useAppStore = create<AuthSlice & AppearanceSlice>()(
     persist(
         (set) => ({
             accessToken: null,
@@ -28,6 +41,9 @@ export const useAppStore = create<AuthSlice>()(
             idpUrl: null,
             setSession: (accessToken, user, idpUrl) => set({ accessToken, user, idpUrl }),
             clearSession: () => set({ accessToken: null, user: null, idpUrl: null }),
+            appearance: kept.account.settings.appearance,
+            deviceMode: kept.device.mode,
+            setAppearance: (appearance) => set({ appearance }),
         }),
         { name: "pinai.session", storage, partialize: (state) => ({ idpUrl: state.idpUrl }) },
     ),
