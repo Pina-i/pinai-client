@@ -37,6 +37,12 @@ const AMBIENT = {
     "sand-light": [amb("oklch(0.565 0.120 44 / .12)", 900, 540, 80, 2, 0.62), amb("oklch(0.545 0.070 186 / .10)", 780, 540, 4, 112, 0.58)],
 }
 const MOTIF_OPACITY = { dark: 0.02, light: 0.1 }
+// The avatar tones that are no palette colour, the same in every theme (the web's `avatar-tone.ts`).
+const AVATAR_TONES = {
+    violet: { fill: "oklch(0.70 0.085 300)", ink: "oklch(0.18 0.02 300)" },
+    olive: { fill: "oklch(0.80 0.095 110)", ink: "oklch(0.18 0.02 110)" },
+    blue: { fill: "oklch(0.75 0.080 245)", ink: "oklch(0.18 0.02 245)" },
+}
 // Light themes lean these toward the ink for 4.5:1; dark themes use the colour itself.
 const LIGHT_INKS = {
     "dnd-ink": ["dnd", 0.8],
@@ -156,6 +162,9 @@ export function buildThemes(tokens) {
     return {
         themes,
         type: typeScale(tokens),
+        avatarTones: Object.fromEntries(
+            Object.entries(AVATAR_TONES).map(([tone, { fill, ink }]) => [tone, { fill: toHex(fill), ink: toHex(ink) }]),
+        ),
         radius: lengths(tokens.radius),
         space: lengths(tokens.spacing),
         layout: Object.fromEntries(

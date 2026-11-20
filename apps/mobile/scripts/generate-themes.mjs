@@ -4,7 +4,7 @@ import { buildThemes } from "./theme-tokens.mjs"
 
 const root = fileURLToPath(new URL("..", import.meta.url))
 const tokens = JSON.parse(readFileSync(`${root}design-system/tokens.json`, "utf8"))
-const { themes, type, radius, space, layout } = buildThemes(tokens)
+const { themes, type, radius, space, layout, avatarTones } = buildThemes(tokens)
 
 const json = (value) => JSON.stringify(value, null, 4)
 
@@ -22,5 +22,7 @@ export const radius = ${json(radius)} as const
 export const space = ${json(space)} as const
 
 export const layout = ${json(layout)} as const
+
+export const avatarTones = ${json(avatarTones)} as const
 `,
 )

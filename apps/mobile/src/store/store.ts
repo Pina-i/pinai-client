@@ -1,4 +1,5 @@
 import type { UserProfile } from "@pinai/domain/models/auth"
+import type { UserStatus } from "@pinai/domain/models/presence"
 import type { AppearanceSettings, ModePreference } from "@pinai/domain/models/user-settings"
 import { loadUserSettingsUseCase } from "@pinai/domain/usecases/user-settings/load-user-settings.usecase"
 import Storage from "expo-sqlite/kv-store"
@@ -14,6 +15,12 @@ interface AuthSlice {
     idpUrl: string | null
     setSession: (accessToken: string, user: UserProfile, idpUrl: string) => void
     clearSession: () => void
+}
+
+interface PresenceSlice {
+    /** The status the user chose, `online` at each launch as on the web. */
+    myStatus: UserStatus
+    setMyStatus: (status: UserStatus) => void
 }
 
 interface AppearanceSlice {
@@ -33,14 +40,16 @@ const storage = createJSONStorage(() => ({
 
 const kept = loadUserSettingsUseCase(new UserSettingsKvAdapter(Storage))
 
-export const useAppStore = create<AuthSlice & AppearanceSlice>()(
+export const useAppStore = create<AuthSlice & PresenceSlice & AppearanceSlice>()(
     persist(
         (set) => ({
             accessToken: null,
             user: null,
             idpUrl: null,
             setSession: (accessToken, user, idpUrl) => set({ accessToken, user, idpUrl }),
-            clearSession: () => set({ accessToken: null, user: null, idpUrl: null }),
+            clearSession: () => set({ accessToken: null, user: null, idpUrl: null, myStatus: "online" }),
+            myStatus: "online",
+            setMyStatus: (myStatus) => set({ myStatus }),
             appearance: kept.account.settings.appearance,
             deviceMode: kept.device.mode,
             setAppearance: (appearance) => set({ appearance }),

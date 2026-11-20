@@ -873,3 +873,18 @@ export const layout = {
     "authFormWidth": 380,
     "scrollbarWidth": 4
 } as const
+
+export const avatarTones = {
+    "violet": {
+        "fill": "#a693cc",
+        "ink": "#131019"
+    },
+    "olive": {
+        "fill": "#c1c37a",
+        "ink": "#121208"
+    },
+    "blue": {
+        "fill": "#83b4de",
+        "ink": "#0a131a"
+    }
+} as const
