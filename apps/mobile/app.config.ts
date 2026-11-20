@@ -80,6 +80,9 @@ const config: ExpoConfig = {
         // The ground goes under a transparent navigation bar, as under the status bar; the layout
         // sets its buttons' colour with the theme.
         ["expo-navigation-bar", { enforceContrast: false }],
+        "expo-web-browser",
+        "expo-secure-store",
+        "expo-sqlite",
         [
             "expo-splash-screen",
             {
