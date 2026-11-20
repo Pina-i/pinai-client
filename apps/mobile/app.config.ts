@@ -77,6 +77,9 @@ const config: ExpoConfig = {
     plugins: [
         "expo-router",
         fontPlugin,
+        // The ground goes under a transparent navigation bar, as under the status bar; the layout
+        // sets its buttons' colour with the theme.
+        ["expo-navigation-bar", { enforceContrast: false }],
         [
             "expo-splash-screen",
             {

@@ -10,23 +10,26 @@ interface MotifProps {
     /** `field` tiles a surface; `band` is a rule, one tile high. */
     variant: "field" | "band"
     motif?: MotifKey
+    /** A band's height in dp, its tile scaled to it. Defaults to the motif's own. */
+    size?: number
     /** Defaults to the palette's motif colour. */
     color?: string
     style?: StyleProp<ViewStyle>
 }
 
 /** The web's motif: each tile is a mask, so the ink is a token. */
-export function Motif({ variant, motif = DEFAULT_ACCOUNT_SETTINGS.appearance.motif, color, style }: MotifProps) {
+export function Motif({ variant, motif = DEFAULT_ACCOUNT_SETTINGS.appearance.motif, size, color, style }: MotifProps) {
     const tile = TILES[motif][variant]
+    const scale = variant === "band" && size ? size / tile.height : 1
     return (
         <View
             importantForAccessibility="no-hide-descendants"
-            style={[styles.box(variant, tile.height), style]}
+            style={[styles.box(variant, tile.height * scale), style]}
         >
             <Image
                 source={tile.source}
                 resizeMode="repeat"
-                style={styles.tile(color)}
+                style={styles.tile(scale, color)}
             />
         </View>
     )
@@ -39,12 +42,15 @@ const styles = StyleSheet.create((theme) => ({
         opacity: variant === "band" ? BAND_OPACITY : theme.motifOpacity,
         ...(variant === "band" && { height }),
     }),
-    tile: (color?: string) => ({
+    // A repeated image tiles at its own size, so a smaller band shrinks a wider strip of tiles.
+    tile: (scale: number, color?: string) => ({
         position: "absolute",
         top: 0,
-        right: 0,
-        bottom: 0,
         left: 0,
+        width: `${100 / scale}%`,
+        height: `${100 / scale}%`,
+        transformOrigin: "top left",
+        transform: [{ scale }],
         tintColor: color ?? theme.colors.motifColor,
     }),
 }))

@@ -23,6 +23,19 @@ const GRAIN = {
     "sand-dark": { opacity: 0.075, blend: "overlay" },
     "sand-light": { opacity: 0.045, blend: "multiply" },
 }
+// The ambient wash (`--amb`): two radial gradients, each a radius pair, a centre in % of the screen,
+// and where it fades out.
+const amb = (color, rx, ry, cx, cy, stop) => ({ color, rx, ry, cx, cy, stop })
+const AMBIENT = {
+    "pearl-dark": [amb("oklch(0.760 0.098 176 / .13)", 900, 540, 80, 2, 0.62), amb("oklch(0.705 0.075 348 / .09)", 760, 540, 4, 112, 0.58)],
+    "pearl-light": [amb("oklch(0.545 0.088 176 / .11)", 900, 540, 80, 2, 0.62), amb("oklch(0.560 0.095 348 / .08)", 760, 540, 4, 112, 0.58)],
+    "lagoon-dark": [amb("oklch(0.805 0.105 196 / .15)", 900, 540, 80, 2, 0.6), amb("oklch(0.715 0.178 28 / .11)", 780, 540, 4, 114, 0.58)],
+    "lagoon-light": [amb("oklch(0.555 0.100 204 / .13)", 900, 540, 80, 2, 0.6), amb("oklch(0.715 0.178 28 / .10)", 780, 540, 4, 114, 0.58)],
+    "jungle-dark": [amb("oklch(0.775 0.115 146 / .14)", 900, 540, 80, 2, 0.62), amb("oklch(0.700 0.085 52 / .11)", 780, 540, 4, 112, 0.58)],
+    "jungle-light": [amb("oklch(0.475 0.105 148 / .12)", 900, 540, 80, 2, 0.62), amb("oklch(0.475 0.090 52 / .10)", 780, 540, 4, 112, 0.58)],
+    "sand-dark": [amb("oklch(0.800 0.098 68 / .14)", 900, 540, 80, 2, 0.62), amb("oklch(0.765 0.068 186 / .10)", 780, 540, 4, 112, 0.58)],
+    "sand-light": [amb("oklch(0.565 0.120 44 / .12)", 900, 540, 80, 2, 0.62), amb("oklch(0.545 0.070 186 / .10)", 780, 540, 4, 112, 0.58)],
+}
 const MOTIF_OPACITY = { dark: 0.02, light: 0.1 }
 // Light themes lean these toward the ink for 4.5:1; dark themes use the colour itself.
 const LIGHT_INKS = {
@@ -131,6 +144,12 @@ export function buildThemes(tokens) {
         themes[id] = {
             colors: themeColors(tokens, theme.id, mode),
             grain: GRAIN[id],
+            // SVG gradient stops take their alpha apart (`stopOpacity`), never inside the colour.
+            ambient: AMBIENT[id].map(({ color, ...shape }) => ({
+                ...shape,
+                color: toHex(color).slice(0, 7),
+                opacity: parse(color).alpha ?? 1,
+            })),
             motifOpacity: MOTIF_OPACITY[mode],
         }
     }

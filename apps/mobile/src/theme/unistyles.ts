@@ -5,12 +5,24 @@ import { layout, radius, space, themes, type } from "./themes.generated"
 
 type Colors = Record<keyof (typeof themes)["pearl-dark"]["colors"], string>
 
+/** A radial gradient of the ambient wash: radii in dp, centre in % of the screen, `stop` where it fades out. */
+export interface AmbientGradient {
+    color: string
+    opacity: number
+    rx: number
+    ry: number
+    cx: number
+    cy: number
+    stop: number
+}
+
 function theme(id: ThemeId) {
-    const { colors, grain, motifOpacity } = themes[id]
+    const { colors, grain, motifOpacity, ambient } = themes[id]
     return {
         colors: colors as Colors,
         grain: grain as { opacity: number; blend: "overlay" | "multiply" },
         motifOpacity: motifOpacity as number,
+        ambient: ambient as readonly AmbientGradient[],
         type,
         radius,
         space,

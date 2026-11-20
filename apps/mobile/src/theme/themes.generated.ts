@@ -71,6 +71,26 @@ export const themes = {
             "opacity": 0.065,
             "blend": "overlay"
         },
+        "ambient": [
+            {
+                "rx": 900,
+                "ry": 540,
+                "cx": 80,
+                "cy": 2,
+                "stop": 0.62,
+                "color": "#65c6af",
+                "opacity": 0.13
+            },
+            {
+                "rx": 760,
+                "ry": 540,
+                "cx": 4,
+                "cy": 112,
+                "stop": 0.58,
+                "color": "#c48da8",
+                "opacity": 0.09
+            }
+        ],
         "motifOpacity": 0.02
     },
     "pearl-light": {
@@ -142,6 +162,26 @@ export const themes = {
             "opacity": 0.04,
             "blend": "multiply"
         },
+        "ambient": [
+            {
+                "rx": 900,
+                "ry": 540,
+                "cx": 80,
+                "cy": 2,
+                "stop": 0.62,
+                "color": "#28816e",
+                "opacity": 0.11
+            },
+            {
+                "rx": 760,
+                "ry": 540,
+                "cx": 4,
+                "cy": 112,
+                "stop": 0.58,
+                "color": "#9d5c7e",
+                "opacity": 0.08
+            }
+        ],
         "motifOpacity": 0.1
     },
     "lagoon-dark": {
@@ -213,6 +253,26 @@ export const themes = {
             "opacity": 0.065,
             "blend": "overlay"
         },
+        "ambient": [
+            {
+                "rx": 900,
+                "ry": 540,
+                "cx": 80,
+                "cy": 2,
+                "stop": 0.6,
+                "color": "#60d4d5",
+                "opacity": 0.15
+            },
+            {
+                "rx": 780,
+                "ry": 540,
+                "cx": 4,
+                "cy": 114,
+                "stop": 0.58,
+                "color": "#ff6f61",
+                "opacity": 0.11
+            }
+        ],
         "motifOpacity": 0.02
     },
     "lagoon-light": {
@@ -284,6 +344,26 @@ export const themes = {
             "opacity": 0.04,
             "blend": "multiply"
         },
+        "ambient": [
+            {
+                "rx": 900,
+                "ry": 540,
+                "cx": 80,
+                "cy": 2,
+                "stop": 0.6,
+                "color": "#00838e",
+                "opacity": 0.13
+            },
+            {
+                "rx": 780,
+                "ry": 540,
+                "cx": 4,
+                "cy": 114,
+                "stop": 0.58,
+                "color": "#ff6f61",
+                "opacity": 0.1
+            }
+        ],
         "motifOpacity": 0.1
     },
     "jungle-dark": {
@@ -355,6 +435,26 @@ export const themes = {
             "opacity": 0.07,
             "blend": "overlay"
         },
+        "ambient": [
+            {
+                "rx": 900,
+                "ry": 540,
+                "cx": 80,
+                "cy": 2,
+                "stop": 0.62,
+                "color": "#84ca89",
+                "opacity": 0.14
+            },
+            {
+                "rx": 780,
+                "ry": 540,
+                "cx": 4,
+                "cy": 112,
+                "stop": 0.58,
+                "color": "#c9906d",
+                "opacity": 0.11
+            }
+        ],
         "motifOpacity": 0.02
     },
     "jungle-light": {
@@ -426,6 +526,26 @@ export const themes = {
             "opacity": 0.045,
             "blend": "multiply"
         },
+        "ambient": [
+            {
+                "rx": 900,
+                "ry": 540,
+                "cx": 80,
+                "cy": 2,
+                "stop": 0.62,
+                "color": "#2b6c38",
+                "opacity": 0.12
+            },
+            {
+                "rx": 780,
+                "ry": 540,
+                "cx": 4,
+                "cy": 112,
+                "stop": 0.58,
+                "color": "#834c28",
+                "opacity": 0.1
+            }
+        ],
         "motifOpacity": 0.1
     },
     "sand-dark": {
@@ -497,6 +617,26 @@ export const themes = {
             "opacity": 0.075,
             "blend": "overlay"
         },
+        "ambient": [
+            {
+                "rx": 900,
+                "ry": 540,
+                "cx": 80,
+                "cy": 2,
+                "stop": 0.62,
+                "color": "#e8b277",
+                "opacity": 0.14
+            },
+            {
+                "rx": 780,
+                "ry": 540,
+                "cx": 4,
+                "cy": 112,
+                "stop": 0.58,
+                "color": "#80c1b9",
+                "opacity": 0.1
+            }
+        ],
         "motifOpacity": 0.02
     },
     "sand-light": {
@@ -568,6 +708,26 @@ export const themes = {
             "opacity": 0.045,
             "blend": "multiply"
         },
+        "ambient": [
+            {
+                "rx": 900,
+                "ry": 540,
+                "cx": 80,
+                "cy": 2,
+                "stop": 0.62,
+                "color": "#af5c36",
+                "opacity": 0.12
+            },
+            {
+                "rx": 780,
+                "ry": 540,
+                "cx": 4,
+                "cy": 112,
+                "stop": 0.58,
+                "color": "#397d76",
+                "opacity": 0.1
+            }
+        ],
         "motifOpacity": 0.1
     }
 } as const satisfies Record<ThemeId, unknown>
