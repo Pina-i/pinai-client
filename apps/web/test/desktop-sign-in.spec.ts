@@ -152,16 +152,34 @@ describe("a desktop sign-in", () => {
 
 describe("resumeSessionUseCase", () => {
     it("picks the kept session up at launch: a renewal, then its account", async () => {
-        const session = await resumeSessionUseCase(IDP, async () => ({ kind: "renewed", accessToken: "access-2" }), authPort)
+        const outcome = await resumeSessionUseCase(IDP, async () => ({ kind: "renewed", accessToken: "access-2" }), authPort)
 
-        expect(session).toEqual({ accessToken: "access-2", user: { actor_uri: ALICE }, idpUrl: IDP })
+        expect(outcome).toEqual({
+            kind: "resumed",
+            session: { accessToken: "access-2", user: { actor_uri: ALICE }, idpUrl: IDP },
+        })
         expect(fetchUserInfo).toHaveBeenCalledWith(`${IDP}/userinfo`, "access-2")
     })
 
-    it("is nothing when no session was kept, or the IdP ended it", async () => {
-        expect(await resumeSessionUseCase(IDP, async () => ({ kind: "ended" }), authPort)).toBeNull()
-        expect(await resumeSessionUseCase(IDP, async () => ({ kind: "unreachable" }), authPort)).toBeNull()
+    it("says the session is over when none was kept, or the IdP ended it", async () => {
+        expect(await resumeSessionUseCase(IDP, async () => ({ kind: "ended" }), authPort)).toEqual({ kind: "ended" })
         expect(fetchUserInfo).not.toHaveBeenCalled()
+    })
+
+    it("tells an IdP out of reach apart, its token kept, whether the renewal or the account couldn't be had", async () => {
+        expect(await resumeSessionUseCase(IDP, async () => ({ kind: "unreachable" }), authPort)).toEqual({ kind: "unreachable" })
+
+        fetchUserInfo.mockRejectedValueOnce(new TypeError("Failed to fetch"))
+        const renewed = async () => ({ kind: "renewed" as const, accessToken: "access-2" })
+        expect(await resumeSessionUseCase(IDP, renewed, authPort)).toEqual({ kind: "unreachable" })
+    })
+
+    it("lets any other failure through", async () => {
+        fetchUserInfo.mockRejectedValueOnce(new Error("Userinfo fetch failed: 401"))
+
+        await expect(resumeSessionUseCase(IDP, async () => ({ kind: "renewed", accessToken: "access-2" }), authPort)).rejects.toThrow(
+            "Userinfo fetch failed: 401",
+        )
     })
 })
 

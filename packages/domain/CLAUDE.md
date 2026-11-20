@@ -78,9 +78,12 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
     the appearance, so each platform answers it
 
 ### usecases/auth/resume-session.usecase.ts
-- Picks up a session the platform kept across restarts (the desktop's, in the
-  keychain): a renewal, then `/userinfo`. Nothing to pick up on the web. Run by
-  the route guard and the landing before anything else
+- Picks up a session the platform kept across restarts (the desktop's and the
+  mobile app's, in the keychain): a renewal, then `/userinfo`. Nothing to pick up
+  on the web. Run by the route guard and the landing before anything else.
+  `ResumeOutcome`: `resumed`, `ended` (none kept, or refused), `unreachable` (the
+  renewal or `/userinfo` out of reach, `isUnreachable`: the token kept — the mobile
+  app says so and offers Retry); any other failure is thrown
 
 ### usecases/auth/renew-session.usecase.ts
 - `renewSessionUseCase(authPort, platform)` — the page's one renewer:
