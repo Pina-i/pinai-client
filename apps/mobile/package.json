@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "expo start --dev-client",
     "android": "expo run:android",
+    "reverse": "node scripts/adb-reverse.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "themes": "node scripts/generate-themes.mjs",

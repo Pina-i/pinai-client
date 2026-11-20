@@ -43,10 +43,12 @@ emulator while it builds, or give Gradle fewer workers (`--max-workers=6` in
 ### A local instance
 
 The phone's `localhost` is not the computer's. `adb reverse` makes it so, for the emulator and a
-USB phone alike, so the instance keeps the address it was set up with:
+USB phone alike, so the instance keeps the address it was set up with. From the repository's root,
+for every phone and emulator connected — again after one restarts or is plugged back:
 
 ```sh
-adb reverse tcp:8080 tcp:8080   # the instance's port
+pnpm reverse:mobile        # Metro (8081) and Alice's instance (8088)
+pnpm reverse:mobile 8090   # Metro and an instance on another port
 ```
 
 Only the development build may use plain HTTP; a release build refuses it. Signing in needs an
