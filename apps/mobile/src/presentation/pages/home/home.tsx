@@ -5,16 +5,12 @@ import { Settings, Users } from "lucide-react-native"
 import { Pressable, ScrollView, Text, View } from "react-native"
 import { StyleSheet, useUnistyles } from "react-native-unistyles"
 import { Avatar } from "@/presentation/atoms/avatar/avatar"
-import { Backdrop } from "@/presentation/atoms/backdrop/backdrop"
-import { Logo } from "@/presentation/atoms/logo/logo"
 import { Motif } from "@/presentation/atoms/motif/motif"
 import { statusWords } from "@/presentation/pages/status/status-choices"
 import { useAppStore } from "@/store/store"
 import { statusColor } from "@/theme/status"
 
-const RAIL = 66
-
-/** Reach: the rail at the left edge, the home panel beside it, the user at its foot. */
+/** Reach's home: the panel beside the rail, the user at its foot. */
 export function HomePage() {
     const { theme } = useUnistyles()
     const user = useAppStore((s) => s.user)
@@ -23,126 +19,83 @@ export function HomePage() {
     const name = personName(user.actor_uri, user.display_name)
 
     return (
-        <View style={styles.screen}>
-            <Backdrop />
-            <View
-                accessibilityRole="menu"
-                accessibilityLabel="Servers"
-                style={styles.rail}
+        <View style={styles.panel}>
+            <Motif
+                variant="field"
+                style={styles.fill}
+            />
+            <Text
+                accessibilityRole="header"
+                style={styles.welcome}
             >
-                <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Home"
-                    accessibilityState={{ selected: true }}
-                    style={styles.homeTile}
-                >
-                    <Logo size={18} />
-                </Pressable>
-            </View>
-
-            <View style={styles.panel}>
-                <Motif
-                    variant="field"
-                    style={styles.fill}
-                />
+                — Welcome back, {name}
+            </Text>
+            <ScrollView contentContainerStyle={styles.list}>
+                <View style={styles.row}>
+                    <Users
+                        size={20}
+                        color={theme.colors.mutedForeground}
+                        strokeWidth={1.9}
+                    />
+                    <Text style={styles.rowLabel}>Friends</Text>
+                </View>
                 <Text
                     accessibilityRole="header"
-                    style={styles.welcome}
+                    style={styles.eye}
                 >
-                    — Welcome back, {name}
+                    Direct messages
                 </Text>
-                <ScrollView contentContainerStyle={styles.list}>
-                    <View style={styles.row}>
-                        <Users
-                            size={20}
-                            color={theme.colors.mutedForeground}
-                            strokeWidth={1.9}
-                        />
-                        <Text style={styles.rowLabel}>Friends</Text>
-                    </View>
-                    <Text
-                        accessibilityRole="header"
-                        style={styles.eye}
-                    >
-                        Direct messages
-                    </Text>
-                    <Text style={styles.waiting}>Your friends and conversations are coming to the mobile app soon.</Text>
-                </ScrollView>
+                <Text style={styles.waiting}>Your friends and conversations are coming to the mobile app soon.</Text>
+            </ScrollView>
 
-                <View style={styles.footer}>
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`Change status, ${statusWords(status)}`}
-                        onPress={() => router.push("/status")}
-                        style={({ pressed }) => [styles.me, pressed && styles.pressed]}
-                    >
-                        <Avatar
-                            name={name}
-                            seed={user.address}
-                            imageUrl={user.avatar_url}
-                            status={status}
-                        />
-                        <View style={styles.meText}>
-                            <Text
-                                numberOfLines={1}
-                                style={styles.meName}
-                            >
-                                {name}
-                            </Text>
-                            <View style={styles.statusLine}>
-                                <View style={styles.statusDot(status)} />
-                                <Text style={styles.statusLabel}>{statusWords(status).toLowerCase()}</Text>
-                            </View>
+            <View style={styles.footer}>
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Change status, ${statusWords(status)}`}
+                    onPress={() => router.push("/status")}
+                    style={({ pressed }) => [styles.me, pressed && styles.pressed]}
+                >
+                    <Avatar
+                        name={name}
+                        seed={user.address}
+                        imageUrl={user.avatar_url}
+                        status={status}
+                    />
+                    <View style={styles.meText}>
+                        <Text
+                            numberOfLines={1}
+                            style={styles.meName}
+                        >
+                            {name}
+                        </Text>
+                        <View style={styles.statusLine}>
+                            <View style={styles.statusDot(status)} />
+                            <Text style={styles.statusLabel}>{statusWords(status).toLowerCase()}</Text>
                         </View>
-                    </Pressable>
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Settings"
-                        onPress={() => router.push("/settings")}
-                        style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
-                    >
-                        <Settings
-                            size={20}
-                            color={theme.colors.mutedForeground}
-                            strokeWidth={1.9}
-                        />
-                    </Pressable>
-                </View>
+                    </View>
+                </Pressable>
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Settings"
+                    onPress={() => router.push("/settings")}
+                    style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+                >
+                    <Settings
+                        size={20}
+                        color={theme.colors.mutedForeground}
+                        strokeWidth={1.9}
+                    />
+                </Pressable>
             </View>
         </View>
     )
 }
 
 const styles = StyleSheet.create((theme, rt) => ({
-    screen: {
-        flex: 1,
-        backgroundColor: theme.colors.background,
-    },
-    rail: {
-        position: "absolute",
-        top: rt.insets.top,
-        left: 0,
-        bottom: rt.insets.bottom,
-        width: RAIL,
-        alignItems: "center",
-        paddingTop: 8,
-        gap: 10,
-    },
-    homeTile: {
-        width: 44,
-        height: 44,
-        alignItems: "center",
-        justifyContent: "center",
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: theme.colors.chatLine,
-        backgroundColor: theme.colors.surface2,
-    },
     panel: {
         flex: 1,
         overflow: "hidden",
         marginTop: rt.insets.top + 6,
-        marginLeft: RAIL,
         marginRight: 10,
         marginBottom: rt.insets.bottom + 10,
         borderRadius: 22,
