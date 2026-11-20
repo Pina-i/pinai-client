@@ -110,6 +110,13 @@ pinai-client/                 # pnpm workspace root
 │                             #   as source TS; `exports` maps
 │                             #   `@pinai/domain/<path>` to `src/<path>.ts`.
 └── apps/
+    ├── mobile/               # The Expo app (@pinai/mobile), Android first: SDK 58,
+    │                         #   Expo Router (`src/app/`), Unistyles 3 themes generated
+    │                         #   from the design system's tokens. Runs as a development
+    │                         #   build (`pnpm --filter @pinai/mobile android`, then
+    │                         #   `pnpm dev:mobile`); no android/ or ios/ in git. Same
+    │                         #   layers and lint boundaries as the web; see its CLAUDE.md
+    │                         #   and README. Out of release-please (`exclude-paths`).
     ├── desktop/              # Electron shell (@pinai/desktop).
     │                         #   electron.vite.config.ts builds src/main and serves
     │                         #   apps/web as the renderer, loading web's own
@@ -162,8 +169,9 @@ only call. Pure functions survive a change of state container; a slice does
 not. See "Where does a change go?" below.
 
 What stays in `apps/web` for good is the platform-specific remainder — WASM,
-WebCrypto, IndexedDB, web storage and navigation. `apps/mobile/` is
-deliberately absent until that work begins.
+WebCrypto, IndexedDB, web storage and navigation. `apps/mobile/` has its own
+remainder (the keychain, the system's sign-in sheet, SQLite, the native MLS
+binding) and nothing else: a notion both apps need goes in the domain first.
 
 
 ### Dependency principle
