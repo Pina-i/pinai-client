@@ -1,0 +1,10 @@
+// Metro hands back an asset id for a bundled image.
+declare module "*.png" {
+    const source: number
+    export default source
+}
+
+declare module "*.gif" {
+    const source: number
+    export default source
+}
