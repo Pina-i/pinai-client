@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { avatarToneFor } from "@/presentation/_libs/avatar-tone"
+import { avatarToneFor } from "@pinai/domain/models/avatar-tone"
 
 describe("avatarToneFor", () => {
     it("returns the same tone for the same seed", () => {

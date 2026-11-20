@@ -1166,6 +1166,10 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `instanceOrigin(uri)` — the instance a URL belongs to, as an origin: an
   actor's attests its devices, and names itself so in their credentials.
 
+### models/avatar-tone.ts
+- `avatarToneFor(seed)` — a person's tone from their address, the same on every client (`sec` is
+  left to groups); each client paints `AvatarTone` in its own palette.
+
 ### models/presence.ts
 - `UserStatus` — presence as the UI models it (`online | idle | dnd |
   invisible | offline`); domain vocabulary because `setPresenceUseCase`
