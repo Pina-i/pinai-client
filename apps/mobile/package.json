@@ -52,7 +52,7 @@
     "@expo-google-fonts/instrument-serif": "^0.4.1",
     "@resvg/resvg-js": "2.6.2",
     "@types/culori": "^4.0.1",
-    "@types/node": "^24.13.6",
+    "@types/node": "^26.6.6",
     "@types/react": "~19.3.0",
     "culori": "^4.0.2",
     "typescript": "~6.0.3",
