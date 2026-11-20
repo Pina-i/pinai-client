@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "turbo run dev --filter=@pinai/web",
     "dev:desktop": "turbo run dev --filter=@pinai/desktop",
+    "dev:mobile": "pnpm --filter @pinai/mobile dev",
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",

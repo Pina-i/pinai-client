@@ -1,0 +1,49 @@
+{
+  "name": "@pinai/mobile",
+  "private": true,
+  "version": "0.0.0",
+  "license": "AGPL-3.0-or-later",
+  "description": "The Pīna'i mobile app",
+  "author": "Kilian Tozzini",
+  "main": "index.ts",
+  "scripts": {
+    "dev": "expo start --dev-client",
+    "android": "expo run:android",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "themes": "node scripts/generate-themes.mjs"
+  },
+  "dependencies": {
+    "@pinai/domain": "workspace:*",
+    "@react-native/normalize-colors": "^0.88.1",
+    "expo": "~58.0.26",
+    "expo-constants": "~58.0.16",
+    "expo-dev-client": "~58.0.21",
+    "expo-font": "~58.0.12",
+    "expo-linking": "~58.0.17",
+    "expo-router": "~58.0.32",
+    "expo-splash-screen": "~58.0.14",
+    "expo-status-bar": "~58.0.5",
+    "expo-system-ui": "~58.0.7",
+    "lucide-react-native": "^1.76.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-native": "0.88.1",
+    "react-native-nitro-modules": "0.37.2",
+    "react-native-safe-area-context": "~5.11.1",
+    "react-native-screens": "~4.30.1",
+    "react-native-svg": "15.16.0",
+    "react-native-unistyles": "3.8.2"
+  },
+  "devDependencies": {
+    "@expo-google-fonts/azeret-mono": "^0.4.1",
+    "@expo-google-fonts/dm-sans": "^0.4.2",
+    "@expo-google-fonts/instrument-serif": "^0.4.1",
+    "@types/culori": "^4.0.1",
+    "@types/react": "~19.3.0",
+    "culori": "^4.0.2",
+    "react-native-svg-transformer": "^1.5.3",
+    "typescript": "~6.0.3",
+    "vitest": "^5.1.1"
+  }
+}
