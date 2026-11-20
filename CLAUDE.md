@@ -309,7 +309,12 @@ for a known IdP.
    the IdP's answer to `io.github.pina-i:/callback` into the app's `/callback`. The refresh token
    is handed to the main process once, sealed with the OS keychain, renewed there; a restart
    picks the session up. Signing out revokes the token (`/revoke`).
-   `AuthPlatform.browserSession` is what tells the two apart
+   `AuthPlatform.browserSession` is what tells the two apart. **The mobile app** holds an app
+   session too: its client is the IdP's own `/clients/mobile.json`, the IdP's pages open in the
+   system's sheet (Chrome Custom Tabs through `expo-web-browser`), whose answer to
+   `io.github.pina-i:/callback` the app's `/callback` route exchanges; the refresh token sits in
+   the keychain (`expo-secure-store`) and is revoked as its store clears it; a launch resumes the
+   session (`resumeSessionUseCase`, an instance out of reach saying so, the token kept)
 11. Once the account's device storage is open and its E2EE device exists, `requireSession` names
    the device to the IdP (`PUT /api/sessions/current/device`, once per page load —
    `presentation/_libs/session-device.ts`) with its proof — its root key's signature over the

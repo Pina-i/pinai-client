@@ -22,6 +22,16 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
   `fontFamily: "DM Sans"` with a `fontWeight`, never a face's file name.
 - **Motifs** are PNG masks tinted with a token (`<Motif>`), the grain a GIF animated by
   `expo-image` (`<Grain>`, once, in the root layout, above everything).
+- **Signing in** is the domain's flow over the phone's adapters (`src/ioc/index.ts`): the client
+  `<issuer>/clients/mobile.json` (`browserSession: false`, as the desktop), PKCE over
+  `expo-crypto`, the sign-in's scratch in memory, the refresh token in the keychain (emptied by a
+  synchronous write, revoked when cleared), the IdP's pages through `openAuthSessionAsync`. Routes:
+  Welcome (`index`, which sends a session to `home`) → `server` (a form sheet) → `opening` →
+  the system's sheet → `callback`; `unreachable` at launch. `presentation/_libs/session.ts` wires
+  the domain's `SessionKeeper` to `AppState` and the tick, resumes at launch, signs out.
+- The store (`src/store/store.ts`, the composition root): the access token in memory, the
+  instance signed in to persisted through the kv-store's synchronous half.
+- No typed routes: they are generated into the gitignored `.expo/`.
 - No `android/` or `ios/` in git (prebuild). The debug variants allow cleartext HTTP, release
   doesn't.
 - Tests: Vitest in `test/` (node), for what doesn't import React Native.

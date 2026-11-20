@@ -49,7 +49,11 @@ USB phone alike, so the instance keeps the address it was set up with:
 adb reverse tcp:8080 tcp:8080   # the instance's port
 ```
 
-Only the development build may use plain HTTP; a release build refuses it.
+Only the development build may use plain HTTP; a release build refuses it. Signing in needs an
+instance recent enough to serve `/clients/mobile.json` (`curl <instance>/clients/mobile.json`
+answers it): type its address in "Your
+server" (`localhost:8080`), and its pages open in the system's sheet. A phone running a build from
+before a native dependency was added shows a red error on reload: build again.
 
 ## Generated files
 
