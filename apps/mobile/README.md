@@ -21,11 +21,13 @@ Router. It runs as a development build, not in Expo Go: it carries native code o
 ## Run it
 
 On a phone: turn on **Developer options → USB debugging**, plug it in, check it shows in
-`adb devices`, then from the repository's root:
+`adb devices`. Or start an emulator. Then, from the repository's root:
 
 ```sh
-pnpm --filter @pinai/mobile android --device   # builds, installs and starts Metro
+pnpm android:mobile   # forwards Metro and Alice's port, then builds, installs and starts Metro
 ```
+
+It stops at once when no phone or emulator is connected.
 
 On the emulator: start one (`emulator -avd <name>`, or from Android Studio), then
 `pnpm --filter @pinai/mobile android`.

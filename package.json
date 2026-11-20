@@ -10,6 +10,7 @@
     "dev:desktop": "turbo run dev --filter=@pinai/desktop",
     "dev:mobile": "pnpm --filter @pinai/mobile dev",
     "reverse:mobile": "pnpm --filter @pinai/mobile reverse",
+    "android:mobile": "pnpm --filter @pinai/mobile android:device",
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
