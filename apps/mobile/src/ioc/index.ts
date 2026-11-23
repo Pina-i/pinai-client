@@ -9,6 +9,7 @@ import type { IAccountSettingsPort, IUserSettingsStorePort } from "@pinai/domain
 import type { IWsPort } from "@pinai/domain/ports/ws.port"
 import { type Renewal, renewSessionUseCase } from "@pinai/domain/usecases/auth/renew-session.usecase"
 import { loadUserSettingsUseCase } from "@pinai/domain/usecases/user-settings/load-user-settings.usecase"
+import type { MlsEngine } from "@pinai/mls/engine"
 import * as Crypto from "expo-crypto"
 import { router } from "expo-router"
 import * as SecureStore from "expo-secure-store"
@@ -19,6 +20,7 @@ import { MOBILE_DOCUMENT_PATH, MobileAuthNavigationAdapter } from "@/adapters/au
 import { MemoryAuthSessionStore } from "@/adapters/auth/auth-session-memory.adapter"
 import { ExpoPkceAdapter } from "@/adapters/auth/pkce-expo.adapter"
 import { KeychainSessionTokenStore } from "@/adapters/auth/session-token-keychain.adapter"
+import { nativeMlsEngine } from "@/adapters/mls/native-engine"
 import { LastInstanceKvAdapter, RecentInstancesKvAdapter } from "@/adapters/storage/kv-storage"
 import { UserSettingsKvAdapter } from "@/adapters/storage/user-settings-kv.adapter"
 
@@ -95,4 +97,9 @@ export function getAccountSettingsPort(): IAccountSettingsPort {
 
 export function getWsPort(): IWsPort {
     return wsPort
+}
+
+// The app's own engine, with its storage, comes later.
+export function createMlsEngine(): MlsEngine {
+    return nativeMlsEngine()
 }

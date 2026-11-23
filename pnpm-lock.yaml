@@ -232,6 +232,9 @@ importers:
       '@pinai/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@pinai/mls':
+        specifier: workspace:*
+        version: link:../../packages/mls
       '@react-native/normalize-colors':
         specifier: ^0.88.1
         version: 0.88.1
