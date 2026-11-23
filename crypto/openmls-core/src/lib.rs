@@ -4,6 +4,7 @@
 mod config;
 mod error;
 mod group;
+pub mod hpke;
 mod identity;
 mod key_package;
 mod processed;
