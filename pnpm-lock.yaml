@@ -229,6 +229,9 @@ importers:
       '@pinai/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@pinai/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
       '@pinai/domain':
         specifier: workspace:*
         version: link:../../packages/domain

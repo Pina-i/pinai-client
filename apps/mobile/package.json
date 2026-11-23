@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@pinai/api": "workspace:*",
+    "@pinai/crypto": "workspace:*",
     "@pinai/domain": "workspace:*",
     "@pinai/mls": "workspace:*",
     "@react-native/normalize-colors": "^0.88.1",
