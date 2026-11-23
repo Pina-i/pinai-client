@@ -69,3 +69,22 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
   `scripts/mls-check.mjs` (`mls:check`) opens the link through adb and reads the `[mls-check]`
   lines the view model logs (`ReactNativeJS`).
 - A release build will need R8 keep rules for JNA and the `uniffi.openmls_native` package.
+
+## The encrypted store
+
+- `createSealedStorage(account)` in `src/ioc/index.ts`: `@pinai/crypto`'s `SealedStorage` (the schema and
+  the sealing, the web's) over the phone's two adapters, a store and a key per account
+  (`adapters/storage/account-store-names.ts`) — `clear()` wipes the key, which must not erase another
+  account's store.
+- `SqliteKeyValueStore`: the account's own `expo-sqlite` database, one table of (collection, key, BLOB).
+  Two stores over one file share expo-sqlite's native connection; a file is deleted only once every
+  store over it is closed.
+- `KeystoreDeviceKeyAdapter` over **`modules/device-key`** (native module `DeviceKey`, Android only):
+  AES-256-GCM in the Keystore's TEE, not StrongBox (too slow for a snapshot of megabytes), no user
+  authentication; seal, open and wipe by alias, off the JS thread. The key is minted only when no entry
+  has the alias, so a key that fails to read is never replaced.
+- `src/web-crypto.ts`, imported first by `index.ts`: Hermes has no Web Crypto, so `expo-crypto` gives
+  the shared code `crypto.randomUUID` and `crypto.getRandomValues`.
+- `android.allowBackup: false`: a backup would carry the store, never its key; a new phone is a new
+  device to approve.
+- Its proof is `@pinai/crypto/contract/storage`, played on the phone (25c).
