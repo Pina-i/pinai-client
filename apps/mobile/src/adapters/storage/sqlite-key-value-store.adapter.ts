@@ -1,0 +1,68 @@
+import { openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite"
+import type { IKeyValueStore } from "@pinai/domain/ports/key-value-store.port"
+
+const SCHEMA = `
+PRAGMA journal_mode = WAL;
+CREATE TABLE IF NOT EXISTS rows (
+    collection TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value BLOB NOT NULL,
+    PRIMARY KEY (collection, key)
+) WITHOUT ROWID;
+`
+
+/** The encrypted store's bytes in a SQLite database of the account's own: one table, every collection in it. */
+export class SqliteKeyValueStore implements IKeyValueStore {
+    private readonly name: string
+    #db: Promise<SQLiteDatabase> | null = null
+
+    constructor(name: string) {
+        this.name = name
+    }
+
+    // Opened on first use; a failed open is tried again on the next call.
+    #open(): Promise<SQLiteDatabase> {
+        this.#db ??= openDatabaseAsync(this.name)
+            .then(async (db) => {
+                await db.execAsync(SCHEMA)
+                return db
+            })
+            .catch((e: unknown) => {
+                this.#db = null
+                throw e
+            })
+        return this.#db
+    }
+
+    async get(collection: string, key: string): Promise<Uint8Array | undefined> {
+        const db = await this.#open()
+        const row = await db.getFirstAsync<{ value: Uint8Array }>("SELECT value FROM rows WHERE collection = ? AND key = ?", collection, key)
+        return row?.value
+    }
+
+    async put(collection: string, key: string, value: Uint8Array): Promise<void> {
+        const db = await this.#open()
+        await db.runAsync(
+            "INSERT INTO rows (collection, key, value) VALUES (?, ?, ?) ON CONFLICT (collection, key) DO UPDATE SET value = excluded.value",
+            collection,
+            key,
+            value
+        )
+    }
+
+    async delete(collection: string, key: string): Promise<void> {
+        const db = await this.#open()
+        await db.runAsync("DELETE FROM rows WHERE collection = ? AND key = ?", collection, key)
+    }
+
+    async clear(): Promise<void> {
+        const db = await this.#open()
+        await db.runAsync("DELETE FROM rows")
+    }
+
+    async close(): Promise<void> {
+        const opening = this.#db
+        this.#db = null
+        if (opening) await (await opening).closeAsync()
+    }
+}
