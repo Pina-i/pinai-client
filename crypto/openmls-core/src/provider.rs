@@ -63,37 +63,40 @@ impl Provider {
 }
 
 fn decode_snapshot(bytes: &[u8]) -> Result<HashMap<Vec<u8>, Vec<u8>>, MlsError> {
-    let truncated = |detail: &'static str| MlsError::malformed("Storage snapshot", detail);
-    let mut new_map = HashMap::new();
-    let mut cursor = 0usize;
-    if bytes.len() < 8 {
-        return Err(truncated("shorter than its header"));
-    }
-    let count = u64::from_be_bytes(
-        bytes[cursor..cursor + 8]
-            .try_into()
-            .map_err(|_| truncated("its count can't be read"))?,
-    ) as usize;
-    cursor += 8;
-
+    let mut reader = Reader { bytes, at: 0 };
+    let count = reader.length()?;
+    let mut values = HashMap::new();
     for _ in 0..count {
-        if cursor + 16 > bytes.len() {
-            return Err(truncated("an entry's lengths read past its end"));
-        }
-        let k_len = u64::from_be_bytes(bytes[cursor..cursor + 8].try_into().unwrap()) as usize;
-        let v_len = u64::from_be_bytes(bytes[cursor + 8..cursor + 16].try_into().unwrap()) as usize;
-        cursor += 16;
-        if cursor + k_len + v_len > bytes.len() {
-            return Err(truncated("an entry's data reads past its end"));
-        }
-        let k = bytes[cursor..cursor + k_len].to_vec();
-        cursor += k_len;
-        let v = bytes[cursor..cursor + v_len].to_vec();
-        cursor += v_len;
-        new_map.insert(k, v);
+        let (key_len, value_len) = (reader.length()?, reader.length()?);
+        let key = reader.take(key_len)?.to_vec();
+        let value = reader.take(value_len)?.to_vec();
+        values.insert(key, value);
     }
-    Ok(new_map)
+    Ok(values)
 }
 
+struct Reader<'a> {
+    bytes: &'a [u8],
+    at: usize,
+}
+
+impl<'a> Reader<'a> {
+    fn take(&mut self, len: usize) -> Result<&'a [u8], MlsError> {
+        let end = self
+            .at
+            .checked_add(len)
+            .filter(|end| *end <= self.bytes.len())
+            .ok_or_else(|| MlsError::malformed("Storage snapshot", "it ends before what it announces"))?;
+        let taken = &self.bytes[self.at..end];
+        self.at = end;
+        Ok(taken)
+    }
+
+    /// A u64 length, refused past what this platform can address: wasm32's `usize` is 32 bits.
+    fn length(&mut self) -> Result<usize, MlsError> {
+        let raw = u64::from_be_bytes(self.take(8)?.try_into().expect("eight bytes taken"));
+        usize::try_from(raw).map_err(|_| MlsError::malformed("Storage snapshot", "a length past this platform's memory"))
+    }
+}
 #[cfg(test)]
 mod tests;

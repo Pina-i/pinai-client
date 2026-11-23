@@ -112,3 +112,13 @@ fn the_groups_of_a_snapshot_written_before_the_split_still_talk() {
     let to_alice = bob.encrypt_application(&bob_p, b"read you").unwrap();
     assert_eq!(alice.receive(&alice_p, &to_alice).unwrap().application(), b"read you");
 }
+
+#[test]
+fn a_snapshot_announcing_more_than_it_holds_is_malformed() {
+    let mut bytes = 1u64.to_be_bytes().to_vec();
+    bytes.extend_from_slice(&u64::MAX.to_be_bytes());
+    bytes.extend_from_slice(&1u64.to_be_bytes());
+    bytes.push(0);
+
+    assert!(matches!(Provider::new().deserialize_storage(&bytes), Err(MlsError::Malformed { .. })));
+}
