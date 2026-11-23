@@ -2,6 +2,8 @@ import { OidcAdapter } from "@pinai/api/auth/oidc.adapter"
 import { NodeInfoApiAdapter } from "@pinai/api/instance/nodeinfo-api.adapter"
 import { UserSettingsApiAdapter } from "@pinai/api/user-settings/user-settings-api.adapter"
 import { IdpWsAdapter } from "@pinai/api/ws/idp-ws.adapter"
+import { SealedStorage } from "@pinai/crypto/sealed-storage"
+import type { ActorUri } from "@pinai/domain/models/e2ee"
 import { appearanceHints, resolveMode } from "@pinai/domain/models/user-settings"
 import type { AuthPlatform, IAuthPort } from "@pinai/domain/ports/auth.port"
 import type { ILastInstancePort, INodeInfoPort, IRecentInstancesPort } from "@pinai/domain/ports/instance.port"
@@ -21,7 +23,10 @@ import { MemoryAuthSessionStore } from "@/adapters/auth/auth-session-memory.adap
 import { ExpoPkceAdapter } from "@/adapters/auth/pkce-expo.adapter"
 import { KeychainSessionTokenStore } from "@/adapters/auth/session-token-keychain.adapter"
 import { nativeMlsEngine } from "@/adapters/mls/native-engine"
+import { accountStoreNames } from "@/adapters/storage/account-store-names"
+import { KeystoreDeviceKeyAdapter } from "@/adapters/storage/keystore-device-key.adapter"
 import { LastInstanceKvAdapter, RecentInstancesKvAdapter } from "@/adapters/storage/kv-storage"
+import { SqliteKeyValueStore } from "@/adapters/storage/sqlite-key-value-store.adapter"
 import { UserSettingsKvAdapter } from "@/adapters/storage/user-settings-kv.adapter"
 
 const authPort: IAuthPort = new OidcAdapter()
@@ -102,4 +107,10 @@ export function getWsPort(): IWsPort {
 // The app's own engine, with its storage, comes later.
 export function createMlsEngine(): MlsEngine {
     return nativeMlsEngine()
+}
+
+// An account's encrypted store: its own SQLite database, its own Keystore key.
+export function createSealedStorage(account: ActorUri): SealedStorage {
+    const { database, keyAlias } = accountStoreNames(account)
+    return new SealedStorage(new SqliteKeyValueStore(database), new KeystoreDeviceKeyAdapter(keyAlias))
 }

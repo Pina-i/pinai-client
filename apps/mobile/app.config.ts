@@ -70,6 +70,9 @@ const config: ExpoConfig = {
             backgroundColor: "#040c0c",
         },
         predictiveBackGestureEnabled: false,
+        // A backup would carry the encrypted store but never its key, which stays in this phone's Keystore:
+        // restored, the store wouldn't open. A new phone is a new device to approve.
+        allowBackup: false,
     },
     ios: {
         bundleIdentifier: "io.github.pina-i.mobile",
