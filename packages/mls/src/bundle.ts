@@ -2,7 +2,8 @@
  * What the engine needs of a build of the Rust crate (`crypto/`): its objects and functions, named
  * as the facades export them, every call synchronous. `openmls-wasm` is one as it is built
  * (`wasm.adapter.ts` checks it); a native build is one through a shim. A handle's `free` gives its
- * memory back now rather than when it is collected.
+ * memory back now rather than when it is collected. Epochs come as `bigint` (WASM) or `number`
+ * (native), absent values as `undefined` or `null`: the engine reads both.
  */
 
 export interface BundleProvider {
@@ -42,7 +43,7 @@ export interface BundleAddOutput extends BundleCommitOutput {
 export interface BundleExternalJoin {
     readonly commit: Uint8Array
     readonly group_info: Uint8Array
-    readonly epoch: bigint
+    readonly epoch: bigint | number
     into_group(): BundleGroup
 }
 
@@ -50,18 +51,18 @@ export interface BundleProcessedMessage {
     readonly kind: number
     readonly application: Uint8Array
     readonly leaves_met: BundleGroupMember[]
-    readonly joiner: BundleGroupMember | undefined
+    readonly joiner: BundleGroupMember | null | undefined
     readonly removed: BundleGroupMember[]
     free(): void
 }
 
 export interface BundleGroup {
-    rejoin(provider: BundleProvider, welcome: Uint8Array): BundleGroup | undefined
+    rejoin(provider: BundleProvider, welcome: Uint8Array): BundleGroup | null | undefined
     delete(provider: BundleProvider): void
     export_ratchet_tree(): Uint8Array
     list_members(): BundleGroupMember[]
     own_leaf_index(): number
-    epoch(): bigint
+    epoch(): bigint | number
     add_member(provider: BundleProvider, keyPackage: BundleKeyPackage): BundleAddOutput
     remove_member(provider: BundleProvider, leafIndex: number): BundleCommitOutput
     update(provider: BundleProvider): BundleCommitOutput
@@ -98,7 +99,7 @@ export interface MlsBundle {
     }
     Group: {
         create_new(provider: BundleProvider, founder: BundleIdentity, groupId: Uint8Array): BundleGroup
-        load_from_provider(provider: BundleProvider, groupId: Uint8Array): BundleGroup | undefined
+        load_from_provider(provider: BundleProvider, groupId: Uint8Array): BundleGroup | null | undefined
         join(provider: BundleProvider, welcome: Uint8Array, ratchetTree: Uint8Array | null): BundleGroup
         join_by_external_commit(
             provider: BundleProvider,

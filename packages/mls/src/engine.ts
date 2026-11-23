@@ -202,7 +202,7 @@ export class MlsEngine<LoadInput = void> implements IMlsEngine, IHpkePort {
             encodeGroupId(conversationId),
             groupInfo,
         )
-        const out = { commit: join.commit, group_info: join.group_info, epoch: join.epoch }
+        const out = { commit: join.commit, group_info: join.group_info, epoch: BigInt(join.epoch) }
         const group = join.into_group()
         this.pendingJoins.set(conversationId, group)
         const own = group.own_leaf_index()
@@ -257,7 +257,7 @@ export class MlsEngine<LoadInput = void> implements IMlsEngine, IHpkePort {
 
     /** Current epoch — used by catch-up logic. */
     async getEpoch(conversationId: ConversationId): Promise<bigint> {
-        return this.requireGroup(conversationId).epoch()
+        return BigInt(this.requireGroup(conversationId).epoch())
     }
 
     // ─── Membership changes ──────────────────────────────────────────
