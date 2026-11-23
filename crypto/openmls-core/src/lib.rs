@@ -3,5 +3,7 @@
 
 mod config;
 mod error;
+mod wire;
 
 pub use error::MlsError;
+pub use wire::{IncomingGroupInfo, IncomingMessage, IncomingWelcome, RatchetTree};
