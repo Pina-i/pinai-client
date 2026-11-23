@@ -80,6 +80,16 @@ Three collaborators could not come, and the shape of each is the mobile work:
   encrypted under the same per-device key; the key is also re-used
   by the Zustand `persist` middleware so the message-plaintext cache
   lives behind the same key material.
+- **`contract/storage/`** — the storage contract: what every `IKeyValueStore` and `IDeviceKeyPort` does, and
+  `SealedStorage` over them (`byte-store.ts`, `device-key.ts`, `sealed-storage.ts`, listed in `scenarios.ts`). A
+  scenario gets a world (`world.ts`): per account, a byte store and a key; each `open` is a new instance of the
+  app over the same rows and key, and the world is disposed of at the scenario's end. Plain TypeScript with no
+  randomness of its own, so a phone plays it: on IndexedDB + WebCrypto by `apps/web/test/storage-contract.spec.ts`,
+  on SQLite + the Keystore by the mobile app. A store and a key are an account's own: `SealedStorage.clear()`
+  wipes the key, so one key for every account would let one account's clear erase the others'. What only
+  IndexedDB or a spy shows stays in `storage-adapter.spec.ts` (set-aside rows by name, a store before sign-in,
+  other tabs) and `device-key.spec.ts` (non-extractable, never exposed, never minted over a key that failed to
+  read).
 - **`@pinai/api/e2ee/key-directory.adapter`** — `KeyDirectoryApiAdapter`
   implementing `IKeyDirectoryPort`, outside this package. REST client for
   the `/api/keys/*` and `/api/mls/*` endpoints; the identity methods are no-op

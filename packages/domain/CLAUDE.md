@@ -440,6 +440,12 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   the latest arguments, answering them all. The fanout's sync and the page's one accept of
   a key share (`apps/web/src/presentation/_libs/accept-share.ts`) go through it.
 
+### lib/contract.ts
+- What the contracts share (`@pinai/mls/contract`, `@pinai/crypto/contract/storage`): the
+  runner — `runScenarios`, one after the other, each timed, a failure stopping none;
+  `summaryLine(label, …)`, the line the mobile app's check scripts wait for — and the
+  assertions (`check`, `same`, `refused`, `alike`). Plain TypeScript, so a phone plays them.
+
 ### lib/bytes.ts
 - Base64 ↔ bytes, `base64url` for JWS/JWK and padded `base64` elsewhere
 - In the domain because base64 is the wire format for every binary field the
