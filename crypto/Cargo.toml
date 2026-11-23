@@ -1,7 +1,7 @@
 # Pīna'i's MLS engine: the core and its facades (README.md). One lock, one target/.
 [workspace]
 resolver = "2"
-members = ["openmls-wasm"]
+members = ["openmls-core", "openmls-wasm"]
 
 [workspace.package]
 edition = "2021"
