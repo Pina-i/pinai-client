@@ -12,6 +12,7 @@
     "reverse": "node scripts/adb-reverse.mjs",
     "android:device": "node scripts/adb-reverse.mjs && node scripts/build-native-mls.mjs && expo run:android --device",
     "native-mls": "node scripts/build-native-mls.mjs",
+    "mls:check": "node scripts/mls-check.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "themes": "node scripts/generate-themes.mjs",
