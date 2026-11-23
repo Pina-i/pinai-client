@@ -15,17 +15,13 @@ crate-type = ["cdylib", "rlib"]
 default = ["console_error_panic_hook"]
 
 [dependencies]
+openmls-core = { path = "../openmls-core" }
 wasm-bindgen = { workspace = true }
 js-sys       = { workspace = true }
-openmls                  = { workspace = true, features = ["js"] }
-openmls_traits           = { workspace = true }
-openmls_rust_crypto      = { workspace = true }
-openmls_basic_credential = { workspace = true }
-tls_codec                = { workspace = true }
-zeroize                  = { workspace = true }
 console_error_panic_hook = { workspace = true, optional = true }
-# openmls_rust_crypto + openmls_basic_credential transitively need a JS-shim
-# of `getrandom` for randomness in the browser.
+# Only the browser needs these: openmls's and getrandom's JavaScript time and randomness, which
+# the core's openmls and openmls_rust_crypto take when built with this crate.
+openmls   = { workspace = true, features = ["js"] }
 getrandom = { workspace = true, features = ["js"] }
 
 [dev-dependencies]
