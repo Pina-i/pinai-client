@@ -8,6 +8,7 @@
 import type { ConversationId } from "@pinai/domain/models/e2ee"
 import type { ProcessOutcome } from "@pinai/domain/ports/mls-engine.port"
 import { check, fromUtf8, hex, refused, same, utf8 } from "./check"
+import { readsTheWasmFixture } from "./fixture-scenario"
 import { ALICE, BOB, CAROL, MALLORY, device, testCredential, type ContractEngine, type MakeEngine } from "./devices"
 
 export interface Scenario {
@@ -298,4 +299,5 @@ export const SCENARIOS: readonly Scenario[] = [
             await reads(alice.engine, bob.engine, "still fine")
         },
     },
+    readsTheWasmFixture,
 ]
