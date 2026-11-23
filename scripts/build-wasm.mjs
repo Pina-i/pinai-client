@@ -42,9 +42,17 @@ const installCandidates = [
     join(root, "node_modules", "openmls-wasm"),
 ]
 
-/** Inputs that invalidate the build. Deliberately not the crate root — that
- *  would sweep in `target/`, whose mtime moves on every build. */
-const inputs = ["src", "Cargo.toml", "Cargo.lock"].map((p) => join(crate, p))
+/** Inputs that invalidate the build: the crates the bundle compiles and the workspace's manifest
+ *  and lock. Deliberately not the crate roots — that would sweep in `target/`, whose mtime moves
+ *  on every build. A path not there yet counts for nothing. */
+const inputs = [
+    "openmls-core/src",
+    "openmls-core/Cargo.toml",
+    "openmls-wasm/src",
+    "openmls-wasm/Cargo.toml",
+    "Cargo.toml",
+    "Cargo.lock",
+].map((p) => join(root, "crypto", p))
 
 const wasmPackArgs = [
     "build",

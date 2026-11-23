@@ -1,9 +1,9 @@
 [package]
 name    = "openmls-wasm"
 version = "0.1.0"
-edition = "2021"
-license = "AGPL-3.0-or-later"
-publish = false
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
 description = "Pina'i WASM bundle around openmls — minimum surface needed by the web client (KeyPackage, MlsGroup ops, Welcome handling, application encrypt/decrypt, secret export) and the HPKE key shares are sealed with."
 
 # Two crate types so the same source can be wasm-pack-built (cdylib) and
@@ -15,32 +15,21 @@ crate-type = ["cdylib", "rlib"]
 default = ["console_error_panic_hook"]
 
 [dependencies]
-wasm-bindgen = "0.2"
-js-sys       = "0.3"
-
-# Pinned so a minor openmls bump never silently changes the wrapper's
-# behaviour. Treat upgrades as deliberate work — see the implementation
-# plan's "Risks / decisions still open" section.
-openmls                  = { version = "=0.8.1", features = ["js"] }
-openmls_traits           = { version = "=0.5.0" }
-openmls_rust_crypto      = { version = "=0.5.1" }
-openmls_basic_credential = { version = "=0.5.0" }
-tls_codec                = { version = "=0.4.2" }
-zeroize                  = "1.8"
-
-# Better panic messages in dev. Cheap; we keep it always-on for now —
-# Phase 4b can flip it off behind a release-only flag if WASM size becomes
-# a problem (the plan budgets 1–3 MiB which already swallows it).
-console_error_panic_hook = { version = "0.1", optional = true }
-
+wasm-bindgen = { workspace = true }
+js-sys       = { workspace = true }
+openmls                  = { workspace = true, features = ["js"] }
+openmls_traits           = { workspace = true }
+openmls_rust_crypto      = { workspace = true }
+openmls_basic_credential = { workspace = true }
+tls_codec                = { workspace = true }
+zeroize                  = { workspace = true }
+console_error_panic_hook = { workspace = true, optional = true }
 # openmls_rust_crypto + openmls_basic_credential transitively need a JS-shim
-# of `getrandom` for randomness in the browser. Forcing the `js` feature
-# here makes that work — without it, the build fails with a "no global
-# getrandom backend" link error.
-getrandom = { version = "0.2", features = ["js"] }
+# of `getrandom` for randomness in the browser.
+getrandom = { workspace = true, features = ["js"] }
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3"
+wasm-bindgen-test = { workspace = true }
 
 # Disable wasm-opt — earlier release builds exhibited a pathology where
 # `SignatureKeyPair`'s `signature_scheme` and `public/private` Vec<u8>
