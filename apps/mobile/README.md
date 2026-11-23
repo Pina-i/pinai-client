@@ -71,6 +71,22 @@ answers it): type its address in "Your
 server" (`localhost:8080`), and its pages open in the system's sheet. A phone running a build from
 before a native dependency was added shows a red error on reload: build again.
 
+### Checking the MLS engine
+
+The development build has a control screen, `io.github.pina-i://dev/mls-check`, that plays the
+MLS engine's contract (`@pinai/mls/contract`) on the native library: each scenario with its time,
+the errors in full, and "Run again". With the app open and Metro serving it, from the repository's
+root:
+
+```sh
+pnpm --filter @pinai/mobile mls:check                 # one phone or emulator connected
+pnpm --filter @pinai/mobile mls:check --serial <id>   # several: pick one (adb devices)
+```
+
+It opens the screen, prints each failure and the result — `[mls-check] 18/18 passed in … ms` — and
+exits non-zero when a scenario failed or no result came within three minutes. A release build has
+no such screen.
+
 ## Generated files
 
 - `pnpm themes` — `src/theme/themes.generated.ts` from `design-system/tokens.json`, a copy of the

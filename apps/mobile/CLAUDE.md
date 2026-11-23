@@ -62,4 +62,10 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
 - `src/adapters/mls/native-engine.ts`: `nativeMlsEngine()` is `new MlsEngine(…)` over
   `requireNativeModule<MlsBundle>("OpenMls")`, a cast `@pinai/mls/contract` checks at run time.
   `createMlsEngine()` in `src/ioc/index.ts` makes fresh engines.
+- **The control screen**, `src/app/dev/mls-check.tsx` → `presentation/pages/dev/mls-check/`, plays
+  `@pinai/mls/contract` on `createMlsEngine()`. The route imports its page behind `__DEV__`, so a
+  release bundle drops it, and the contract and the fixture with it. A link to the screen already
+  open changes no route: the view model listens for it itself and plays the contract again.
+  `scripts/mls-check.mjs` (`mls:check`) opens the link through adb and reads the `[mls-check]`
+  lines the view model logs (`ReactNativeJS`).
 - A release build will need R8 keep rules for JNA and the `uniffi.openmls_native` package.

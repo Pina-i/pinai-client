@@ -74,7 +74,9 @@ do.
   `wasm-fixture.ts`, a conversation the WASM engine wrote — Bob's storage, then Alice's messages, an update, a
   removal, a GroupInfo — which every other build must read (`fixture-scenario.ts`). The fixture is generated:
   `WRITE_MLS_FIXTURE=1 pnpm --filter @pinai/web exec vitest run test/mls-contract.spec.ts`. It adds no KeyPackage
-  after the snapshot: openmls checks a KeyPackage's lifetime, and it would expire.
+  after the snapshot: openmls checks a KeyPackage's lifetime, and it would expire. `run.ts` plays scenarios where
+  no test runner is: one after the other, each timed, a failure stopping none (`runScenarios`), and the line a run
+  ends with (`summaryLine`), which the control screen logs and `mls:check` waits for.
 
 ## Why one package
 
