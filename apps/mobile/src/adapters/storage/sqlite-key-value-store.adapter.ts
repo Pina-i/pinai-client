@@ -1,4 +1,4 @@
-import { openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite"
+import { deleteDatabaseAsync, openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite"
 import type { IKeyValueStore } from "@pinai/domain/ports/key-value-store.port"
 
 const SCHEMA = `
@@ -60,9 +60,17 @@ export class SqliteKeyValueStore implements IKeyValueStore {
         await db.runAsync("DELETE FROM rows")
     }
 
-    async close(): Promise<void> {
+    /** Lets go of the connection; `true` when one was open. */
+    async close(): Promise<boolean> {
         const opening = this.#db
         this.#db = null
-        if (opening) await (await opening).closeAsync()
+        if (!opening) return false
+        await (await opening).closeAsync()
+        return true
     }
+}
+
+/** expo-sqlite refuses while any store over the file is still open: close them all first. */
+export function deleteSqliteDatabase(name: string): Promise<void> {
+    return deleteDatabaseAsync(name)
 }
