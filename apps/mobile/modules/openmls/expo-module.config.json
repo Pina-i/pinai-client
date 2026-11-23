@@ -1,0 +1,6 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": ["io.github.pina_i.openmls.OpenMlsModule"]
+  }
+}
