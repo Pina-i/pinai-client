@@ -62,12 +62,14 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
 - `src/adapters/mls/native-engine.ts`: `nativeMlsEngine()` is `new MlsEngine(…)` over
   `requireNativeModule<MlsBundle>("OpenMls")`, a cast `@pinai/mls/contract` checks at run time.
   `createMlsEngine()` in `src/ioc/index.ts` makes fresh engines.
-- **The control screen**, `src/app/dev/mls-check.tsx` → `presentation/pages/dev/mls-check/`, plays
-  `@pinai/mls/contract` on `createMlsEngine()`. The route imports its page behind `__DEV__`, so a
-  release bundle drops it, and the contract and the fixture with it. A link to the screen already
-  open changes no route: the view model listens for it itself and plays the contract again.
-  `scripts/mls-check.mjs` (`mls:check`) opens the link through adb and reads the `[mls-check]`
-  lines the view model logs (`ReactNativeJS`).
+- **The control screens** play a contract on the phone: `presentation/pages/dev/contract-check.tsx` (the
+  view) and `contract-check.viewmodel.ts` (`useContractCheck(label, scenarios, make, link)`), used by
+  `pages/dev/mls-check/` (`@pinai/mls/contract` on `createMlsEngine()`) and `pages/dev/storage-check/`.
+  Each route (`src/app/dev/*.tsx`) imports its page behind `__DEV__`, so a release bundle drops it, the
+  contracts and fixtures with it. A link to the screen already open changes no route: the view model
+  listens for it itself and plays the contract again. It logs `[label] ✗ …` per failure and the
+  summary line, which `scripts/device-check.mjs` reads from `ReactNativeJS` for `mls:check` and
+  `storage:check` (one device through adb, the app's links, a relaunch on Metro's bundle).
 - A release build will need R8 keep rules for JNA and the `uniffi.openmls_native` package.
 
 ## The encrypted store
@@ -87,4 +89,13 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
   the shared code `crypto.randomUUID` and `crypto.getRandomValues`.
 - `android.allowBackup: false`: a backup would carry the store, never its key; a new phone is a new
   device to approve.
-- Its proof is `@pinai/crypto/contract/storage`, played on the phone (25c).
+- **Its proof**, `storage:check` (`scripts/storage-check.mjs`):
+  - `/dev/storage-check` plays `@pinai/crypto/contract/storage` on `phoneStorageWorld`.
+    `src/ioc/check-stores.ts` gives each scenario's stores names of their own, never the app's, and
+    closes then deletes them after. They are built in `src/ioc` because screens may not import adapters.
+  - `/dev/storage-restart?phase=write` founds Alice's group with Bob, then saves both MLS states and a
+    sealed marker under `restart-check` names, closing the stores but keeping them.
+  - The script kills the app and starts it again.
+  - `?phase=read` reads everything back and checks Bob reads what Alice writes, then deletes it all.
+  - Each phase logs its `[storage-check] restart: …` line whatever happens to the screen: a launch may
+    send the app elsewhere.

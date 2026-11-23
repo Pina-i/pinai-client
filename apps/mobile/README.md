@@ -75,21 +75,34 @@ answers it): type its address in "Your
 server" (`localhost:8080`), and its pages open in the system's sheet. A phone running a build from
 before a native dependency was added shows a red error on reload: build again.
 
-### Checking the MLS engine
+### Checking on a device
 
-The development build has a control screen, `io.github.pina-i://dev/mls-check`, that plays the
-MLS engine's contract (`@pinai/mls/contract`) on the native library: each scenario with its time,
-the errors in full, and "Run again". With the app open and Metro serving it, from the repository's
-root:
+The development build has control screens that play a contract on the phone: each scenario with its
+time, the errors in full, and "Run again". A release build has none of them. From the repository's
+root, with one phone or emulator connected (`--serial <id>` picks one among several, as `adb devices`
+lists them):
 
 ```sh
-pnpm --filter @pinai/mobile mls:check                 # one phone or emulator connected
-pnpm --filter @pinai/mobile mls:check --serial <id>   # several: pick one (adb devices)
+pnpm --filter @pinai/mobile mls:check       # the app open, Metro serving it
+pnpm --filter @pinai/mobile storage:check   # Metro serving the app; it starts the app itself
 ```
 
-It opens the screen, prints each failure and the result — `[mls-check] 18/18 passed in … ms` — and
-exits non-zero when a scenario failed or no result came within three minutes. A release build has
-no such screen.
+- `mls:check` opens `io.github.pina-i://dev/mls-check`: the MLS engine's contract
+  (`@pinai/mls/contract`) on the native library. It prints each failure and the result,
+  `[mls-check] 18/18 passed in … ms`.
+- `storage:check` checks the encrypted store on the phone's SQLite and Keystore, never touching the
+  app's own store:
+  1. It plays the store's contract (`@pinai/crypto/contract/storage`) on throwaway databases and keys,
+     deleted after: `[storage-check] 26/26 passed in … ms`.
+  2. It writes a sealed marker and two members' MLS groups (`restart: written`).
+  3. It kills the app and starts it again.
+  4. It checks everything came back and that one member reads what the other writes
+     (`restart: all back`).
+
+  It starts the app on Metro at `http://localhost:8081`, the address `pnpm android:mobile` forwards;
+  `--metro <url>` gives another.
+
+Each exits non-zero when a scenario failed or no answer came in time.
 
 ## Generated files
 
