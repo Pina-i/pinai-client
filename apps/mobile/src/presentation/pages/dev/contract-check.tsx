@@ -2,12 +2,12 @@ import { ScrollView, Text, View } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { StyleSheet } from "react-native-unistyles"
 import { Button } from "@/presentation/atoms/button/button"
-import { useMlsCheckViewModel } from "./mls-check.viewmodel"
+import type { ContractCheck } from "./contract-check.viewmodel"
 
-/** Development builds only: the MLS engine's contract, played on the native build. */
-export function MlsCheckPage() {
+/** Development builds only: a contract played on this phone, each scenario with its time and error. */
+export function ContractCheckView({ title, check }: { title: string; check: ContractCheck }) {
     const insets = useSafeAreaInsets()
-    const { results, running, passed, total, runAgain } = useMlsCheckViewModel()
+    const { results, running, passed, total, runAgain } = check
     const failed = results.length - passed
 
     return (
@@ -16,7 +16,7 @@ export function MlsCheckPage() {
                 accessibilityRole="header"
                 style={styles.title}
             >
-                MLS engine
+                {title}
             </Text>
             <Text
                 accessibilityLiveRegion="polite"
