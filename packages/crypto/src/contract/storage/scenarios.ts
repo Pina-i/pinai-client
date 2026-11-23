@@ -7,6 +7,7 @@
 
 import { BYTE_STORE_SCENARIOS } from "./byte-store"
 import { DEVICE_KEY_SCENARIOS } from "./device-key"
+import { SEALED_STORAGE_SCENARIOS } from "./sealed-storage"
 import type { StorageScenario } from "./world"
 
-export const STORAGE_SCENARIOS: readonly StorageScenario[] = [...BYTE_STORE_SCENARIOS, ...DEVICE_KEY_SCENARIOS]
+export const STORAGE_SCENARIOS: readonly StorageScenario[] = [...BYTE_STORE_SCENARIOS, ...DEVICE_KEY_SCENARIOS, ...SEALED_STORAGE_SCENARIOS]
