@@ -4,7 +4,8 @@ The MLS engine, over any build of the Rust crate (`crypto/`).
 
 The contract callers depend on is not here — `IMlsEngine` lives in `@pinai/domain/ports`. This package supplies the
 engine that satisfies it (`engine.ts`), once for every platform, over a bundle (`bundle.ts`): the WASM build, loaded
-by `wasm.adapter.ts`, or the mobile app's native build, which the app hands it. `contract/` is what every build must
+by `wasm.adapter.ts`, or the mobile app's native build (`apps/mobile/modules/openmls`, handed over through
+`apps/mobile/src/adapters/mls/native-engine.ts`). `contract/` is what every build must
 do.
 
 ## Files

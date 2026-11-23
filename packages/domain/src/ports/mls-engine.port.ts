@@ -54,11 +54,11 @@ export type ProcessOutcome =
  * WASM, or native on the phone —, whose calls are synchronous. The port is
  * nonetheless asynchronous throughout, for two reasons:
  *
- * 1. Hermes has no WebAssembly, so React Native will drive the same Rust
- *    crate through a native binding (uniffi + JSI). Whether that binding can
- *    be synchronous is a property of the binding technology, decided later —
- *    and retrofitting `sync → async` through `e2ee.adapter.ts` afterwards
- *    would be a rework of the whole message path.
+ * 1. Hermes has no WebAssembly, so the mobile app drives the same Rust crate
+ *    through a native binding — an Expo module over uniffi, synchronous like
+ *    the WASM. The port was made asynchronous before that was known, and
+ *    stays so: retrofitting `sync → async` through `e2ee.adapter.ts` would
+ *    rework the whole message path.
  * 2. MLS work on the JS thread blocks the UI on both platforms. An
  *    asynchronous surface leaves room to move it off-thread without another
  *    signature change.

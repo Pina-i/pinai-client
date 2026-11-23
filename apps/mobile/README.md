@@ -29,6 +29,19 @@ pnpm android:mobile   # forwards Metro and Alice's port, then builds, installs a
 
 It stops at once when no phone or emulator is connected.
 
+The app carries the MLS engine as a native Rust library, which `android` builds first (`pnpm
+android:mobile` does): a minute or two the first time, then only when the Rust sources changed.
+It needs, once:
+
+```sh
+rustup target add aarch64-linux-android x86_64-linux-android
+cargo install cargo-ndk --locked
+```
+
+and an Android NDK (Android Studio → SDK Manager → SDK Tools → NDK, found under `$ANDROID_HOME/ndk`,
+or set `ANDROID_NDK_HOME`). The script names whatever is missing. `pnpm --filter @pinai/mobile
+native-mls --force` rebuilds it regardless.
+
 An emulator is started from Android Studio's Device Manager, or with `emulator -avd <name>`.
 
 The first build compiles the native code (a quarter of an hour). After that, `pnpm dev:mobile`

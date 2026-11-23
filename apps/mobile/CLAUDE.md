@@ -44,3 +44,22 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
 - No `android/` or `ios/` in git (prebuild). The debug variants allow cleartext HTTP, release
   doesn't.
 - Tests: Vitest in `test/` (node), for what doesn't import React Native.
+
+## The native MLS engine
+
+- **`modules/openmls`** is a local Expo module (Android only) over `crypto/openmls-native`, native
+  module `OpenMls`. `android/generated/` (the `.so` per architecture and the uniffi Kotlin) is
+  `scripts/build-native-mls.mjs`'s output, gitignored; `android` and `android:device` run the script first.
+- Each uniffi object is an Expo `SharedRef`, not a `SharedObject`: Expo requires a JS constructor
+  for a `SharedObject` class, and JavaScript makes none of these but `Provider`. Names are the WASM
+  facade's: `Constructor` for `Provider`, `StaticFunction`s for the statics, synchronous
+  `Function`s for methods, records (outputs, members, HPKE pairs) read through `Property` getters,
+  the `ProcessedKind` constant with the WASM's numbers. `free` closes the uniffi object, as does
+  Expo releasing it.
+- A core error is thrown as a `CodedException`: `ERR_MLS_MALFORMED`, `ERR_MLS_REFUSED` or
+  `ERR_MLS_STATE`. Epochs come as numbers (Kotlin `Long`), absent values as `null`: what
+  `@pinai/mls`'s engine reads.
+- `src/adapters/mls/native-engine.ts`: `nativeMlsEngine()` is `new MlsEngine(…)` over
+  `requireNativeModule<MlsBundle>("OpenMls")`, a cast `@pinai/mls/contract` checks at run time.
+  `createMlsEngine()` in `src/ioc/index.ts` makes fresh engines.
+- A release build will need R8 keep rules for JNA and the `uniffi.openmls_native` package.

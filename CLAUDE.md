@@ -91,6 +91,10 @@ pinai-client/                 # pnpm workspace root
 │   │                         #   `./build.sh` in it.
 │   │                         #   At the root, not inside apps/web: the mobile
 │   │                         #   app's native build uses the same core.
+│   ├── openmls-native/       #   Its uniffi facade for the mobile app's Kotlin; built
+│   │                         #   for Android by apps/mobile/scripts/build-native-mls.mjs
+│   │                         #   (cargo-ndk, arm64-v8a + x86_64, 16 KB pages).
+│   ├── uniffi-bindgen/       #   uniffi's generator, at the facade's exact version.
 │   └── openmls-pkg/          #   Generated npm package — wasm-pack output.
 │                             #   ~1.5–2 MiB .wasm + JS glue + .d.ts. Never
 │                             #   committed — wasm-pack writes a `.gitignore` of `*`
@@ -122,9 +126,13 @@ pinai-client/                 # pnpm workspace root
     │                         #   Expo Router (`src/app/`), Unistyles 3 themes generated
     │                         #   from the design system's tokens. Runs as a development
     │                         #   build (`pnpm --filter @pinai/mobile android`, then
-    │                         #   `pnpm dev:mobile`); no android/ or ios/ in git. Same
-    │                         #   layers and lint boundaries as the web; see its CLAUDE.md
-    │                         #   and README. Out of release-please (`exclude-paths`).
+    │                         #   `pnpm dev:mobile`); no android/ or ios/ in git.
+    │                         #   `modules/openmls`: the native MLS engine, an Expo
+    │                         #   module over `openmls-native`; `android` builds the
+    │                         #   Rust library first (Rust Android targets, cargo-ndk,
+    │                         #   an NDK). Same layers and lint boundaries as the web;
+    │                         #   see its CLAUDE.md and README. Out of release-please
+    │                         #   (`exclude-paths`).
     ├── desktop/              # Electron shell (@pinai/desktop).
     │                         #   electron.vite.config.ts builds src/main and serves
     │                         #   apps/web as the renderer, loading web's own
@@ -179,7 +187,7 @@ not. See "Where does a change go?" below.
 What stays in `apps/web` for good is the platform-specific remainder — WASM,
 WebCrypto, IndexedDB, web storage and navigation. `apps/mobile/` has its own
 remainder (the keychain, the system's sign-in sheet, SQLite, the native MLS
-binding) and nothing else: a notion both apps need goes in the domain first.
+module) and nothing else: a notion both apps need goes in the domain first.
 
 
 ### Dependency principle

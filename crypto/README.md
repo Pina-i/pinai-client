@@ -8,6 +8,8 @@ One Cargo workspace, one `Cargo.lock`, one `target/`:
 |---|---|
 | `openmls-core/` | The engine in plain Rust, a module per notion. Every failure is an `MlsError`: `Malformed` (bytes from elsewhere that aren't what they claim), `Refused` (openmls said no), `State` (this device's state forbids it). Bytes from the network are parsed into its types at the entry (`IncomingWelcome`, `IncomingGroupInfo`, `IncomingMessage`, `RatchetTree`, `KeyPackage::parse`). Its tests are the engine's. |
 | `openmls-wasm/` | Its wasm-bindgen facade: the same objects for the web client, bytes as `Uint8Array`, an `MlsError` thrown as an `Error`. wasm-pack builds it into `openmls-pkg/`, the npm package `@pinai/mls` loads. |
+| `openmls-native/` | Its uniffi facade: the same objects for the mobile app's Kotlin, each one's state in a `Mutex` (uniffi shares objects by `Arc`; every call comes from one thread), an `MlsError` an `MlsFailure` of the same kind. Statics are functions (`group_join`, `identity_bind`…): a uniffi constructor answers neither `None` nor another type. Built by `apps/mobile/scripts/build-native-mls.mjs` with cargo-ndk (profile `android`: LTO, stripped; 16 KB pages, `.cargo/config.toml`). |
+| `uniffi-bindgen/` | uniffi's generator at the facade's exact version: the Kotlin bindings check the library they load. |
 
 A facade holds no rule: what the engine does, every platform must do alike, so it goes in the core.
 
@@ -94,6 +96,10 @@ cargo test --workspace
 You rarely need the last step by hand: `apps/web`'s `dev`, `build`, `test`
 and `typecheck` scripts run `scripts/build-wasm.mjs` first, which rebuilds
 only when a crate's sources, a manifest or the lock are newer than the output.
+
+The Android library and its Kotlin bindings: `pnpm --filter @pinai/mobile native-mls` (the mobile app's
+`android` scripts run it first). It needs `rustup target add aarch64-linux-android x86_64-linux-android`,
+`cargo install cargo-ndk --locked` and an Android NDK.
 
 The produced `../openmls-pkg/` is a self-contained npm package —
 `package.json`, `.wasm`, `.d.ts`, JS glue. `@pinai/mls` and `apps/web`
