@@ -5,16 +5,13 @@
  * are tested in Rust (`crypto/openmls-core`); this checks a build carries them all, byte for byte.
  */
 
+import { check, type ContractScenario, fromUtf8, hex, refused, same, utf8 } from "@pinai/domain/lib/contract"
 import type { ConversationId } from "@pinai/domain/models/e2ee"
 import type { ProcessOutcome } from "@pinai/domain/ports/mls-engine.port"
-import { check, fromUtf8, hex, refused, same, utf8 } from "./check"
 import { readsTheWasmFixture } from "./fixture-scenario"
 import { ALICE, BOB, CAROL, MALLORY, device, testCredential, type ContractEngine, type MakeEngine } from "./devices"
 
-export interface Scenario {
-    readonly name: string
-    run(make: MakeEngine): Promise<void>
-}
+export type Scenario = ContractScenario<MakeEngine>
 
 const GROUP: ConversationId = "00112233-4455-6677-8899-aabbccddeeff"
 const OTHER_GROUP: ConversationId = "ffeeddcc-bbaa-9988-7766-554433221100"

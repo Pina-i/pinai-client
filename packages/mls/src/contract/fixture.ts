@@ -7,8 +7,8 @@
  */
 
 import { bytesToBase64 } from "@pinai/domain/lib/bytes"
+import { utf8 } from "@pinai/domain/lib/contract"
 
-import { utf8 } from "./check"
 import { ALICE, BOB, CAROL, device, type MakeEngine } from "./devices"
 
 export interface WasmFixture {

@@ -1,6 +1,6 @@
 import { base64ToBytes } from "@pinai/domain/lib/bytes"
+import { check, fromUtf8 } from "@pinai/domain/lib/contract"
 
-import { check, fromUtf8 } from "./check"
 import { ALICE, device } from "./devices"
 import type { Scenario } from "./scenarios"
 import { WASM_FIXTURE } from "./wasm-fixture"

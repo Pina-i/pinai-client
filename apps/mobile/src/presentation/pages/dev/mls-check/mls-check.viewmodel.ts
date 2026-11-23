@@ -1,5 +1,5 @@
 import type { ContractEngine } from "@pinai/mls/contract/devices"
-import { type ScenarioResult, runScenarios, summaryLine } from "@pinai/mls/contract/run"
+import { type ScenarioResult, runScenarios, summaryLine } from "@pinai/domain/lib/contract"
 import { SCENARIOS } from "@pinai/mls/contract/scenarios"
 import { useEffect, useEffectEvent, useState } from "react"
 import { Linking } from "react-native"
@@ -25,7 +25,7 @@ export function useMlsCheckViewModel() {
             if (result.error !== null) console.log(`[mls-check] ✗ ${result.name}: ${result.error}`)
         }).then((all) => {
             // eslint-disable-next-line no-console -- the line scripts/mls-check.mjs waits for
-            console.log(summaryLine(all))
+            console.log(summaryLine("mls-check", all))
             if (current) setRunning(false)
         })
         return () => {
