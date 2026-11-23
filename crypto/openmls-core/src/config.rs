@@ -2,8 +2,8 @@ use openmls::group::MlsGroupJoinConfig;
 use openmls_traits::types::Ciphersuite;
 
 /// Single ciphersuite — pinned to keep the WASM bundle small and to
-/// avoid a runtime negotiation step. X25519 + ChaCha20Poly1305 + SHA256
-/// + Ed25519 is RFC 9420's mandatory-to-implement suite and the same one
+/// avoid a runtime negotiation step. X25519, ChaCha20Poly1305, SHA256 and
+/// Ed25519 is RFC 9420's mandatory-to-implement suite and the same one
 /// the openmls reference WASM example pins.
 pub(crate) const CIPHERSUITE: Ciphersuite =
     Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519;

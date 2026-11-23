@@ -450,6 +450,6 @@ You should have received a copy of the GNU Affero General Public License along
 with this program, in [`LICENSE`](LICENSE). If not, see
 <https://www.gnu.org/licenses/>.
 
-Every package here, the Rust crate under `crypto/openmls-wasm/` included, is
+Every package here, the Rust crates under `crypto/` included, is
 under this license. Anyone who serves a modified version of the web app to
 users must offer them its source code (§ 13).

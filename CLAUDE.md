@@ -43,7 +43,7 @@ The user configures their identity provider URL (e.g. `idp.alice.com`) and the c
 | WebSocket | Native WebSocket API with a custom hook layer |
 | Auth | OIDC Authorization Code + PKCE (no implicit flow) |
 | Routing | Tanstack Router |
-| E2EE | MLS (RFC 9420) via `openmls 0.8.1` WASM bundle (`crypto/openmls-wasm/`); identity + the history key via `@noble/curves` + `@noble/hashes` + `@noble/ciphers` |
+| E2EE | MLS (RFC 9420) via `openmls 0.8.1`, a Rust core and its WASM facade (`crypto/`); identity + the history key via `@noble/curves` + `@noble/hashes` + `@noble/ciphers` |
 | At-rest persistence | `SealedStorage` (schema + sealing) over an `IKeyValueStore`; on the web that is IndexedDB (`idb`), with AES-256-GCM under a non-extractable device key behind `IDeviceKeyPort`. The zustand cache's inner format is **msgpack** (`msgpackr`) — preserves `Uint8Array` round-trip natively |
 
 ## Related Repository
@@ -71,20 +71,26 @@ pinai-client/                 # pnpm workspace root
 ├── turbo.json                # build / test / typecheck fan-out
 ├── eslint.config.js          # one config for the whole workspace — the layer
 │                             #   rules are cross-cutting, so they live here
-├── crypto/                   # Out-of-app crypto bundles (E2EE Phase 4+).
-│   ├── openmls-wasm/         #   Standalone Cargo project: `openmls` WASM wrapper.
-│   │                         #   Pinned to openmls 0.8.1; single ciphersuite
+├── crypto/                   # The MLS engine in Rust: one Cargo workspace
+│   │                         #   (crypto/README.md). Pinned to openmls 0.8.1;
+│   │                         #   single ciphersuite
 │   │                         #   (MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519).
+│   │                         #   `cargo test --workspace` from crypto/ runs the
+│   │                         #   engine's native tests.
+│   ├── openmls-core/         #   The engine in plain Rust, a module per notion;
+│   │                         #   every failure an `MlsError`, network bytes parsed
+│   │                         #   at the entry. Every rule lives here.
+│   ├── openmls-wasm/         #   Its wasm-bindgen facade, no rule of its own.
 │   │                         #   Built automatically: apps/web's `dev`, `build`,
 │   │                         #   `test` and `typecheck` scripts chain
 │   │                         #   scripts/build-wasm.mjs, as do apps/desktop's
-│   │                         #   `dev` and `build`. It rebuilds only when
-│   │                         #   src/, Cargo.toml or Cargo.lock are newer than the
-│   │                         #   output. `pnpm run wasm --force` to force.
-│   │                         #   Directly: `./build.sh`. `cargo test` runs native
-│   │                         #   unit tests.
-│   │                         #   Lives at the root, not inside apps/web: the native
-│   │                         #   build for React Native will consume the same crate.
+│   │                         #   `dev` and `build`. It rebuilds only when a crate's
+│   │                         #   src/ or Cargo.toml, or the workspace's Cargo.toml
+│   │                         #   or Cargo.lock, is newer than the output.
+│   │                         #   `pnpm run wasm --force` to force. Directly:
+│   │                         #   `./build.sh` in it.
+│   │                         #   At the root, not inside apps/web: the mobile
+│   │                         #   app's native build uses the same core.
 │   └── openmls-pkg/          #   Generated npm package — wasm-pack output.
 │                             #   ~1.5–2 MiB .wasm + JS glue + .d.ts. Never
 │                             #   committed — wasm-pack writes a `.gitignore` of `*`
@@ -243,7 +249,7 @@ release PR — the root `README.md` § Releasing.
   (`--platform=$BUILDPLATFORM`); the per-platform stage only copies files, so arm64 needs no
   emulation.
 - **The build context is the repo root**: the build needs `packages/*`, the workspace files
-  and `crypto/openmls-wasm`. The web stage gets `crypto/openmls-pkg` from the WASM stage and
+  and the `crypto/` workspace. The web stage gets `crypto/openmls-pkg` from the WASM stage and
   not the crate's sources, so `scripts/build-wasm.mjs` finds it current and never looks for
   `wasm-pack`. `.dockerignore` keeps local `.env*` files out of the image.
 - **SPA routing**: every path that isn't a file falls back to `index.html`. `/assets/*` is

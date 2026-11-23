@@ -61,7 +61,7 @@ because Hermes has no WebAssembly.
     thrown unapplied, as an invalid commit; RFC 9420 § 12.4.3.2 leaves that check to the
     application. An applied one answers its `joiner`, at the index it took.
   - No join — by Welcome, again by Welcome, by external commit — checks the
-    tree's leaf lifetimes (`crypto/openmls-wasm/README.md`); a KeyPackage added
+    tree's leaf lifetimes (`crypto/README.md`); a KeyPackage added
     still is, by every member applying the add: KeyPackages live a year.
     `joinGroup` deletes first what a join never kept left in the provider under
     that group id (a reload while it was pending).
@@ -97,11 +97,10 @@ earn their keep by driving the real engine.
 
 ## Adding the native implementation
 
-The crate is at `crypto/openmls-wasm/` (root of the repo, not inside the web
-app, precisely so a second build target can consume it). It is one
-`#[wasm_bindgen]`-annotated `lib.rs`; nothing JS-specific crosses its
-boundary except `JsError` in the error position. Splitting it into a
-binding-agnostic core plus two thin binding layers is what the native build
-needs, and `apps/web/test/e2ee.spec.ts`, `apps/web/test/hpke.spec.ts` plus
+The engine is the `crypto/` workspace (root of the repo, not inside the web
+app, precisely so a second build target can consume it): `openmls-core` holds
+every rule, binding-agnostic, its failures `MlsError`s; `openmls-wasm` is a
+thin wasm-bindgen facade over it. The native build is a second facade beside
+it, and `apps/web/test/e2ee.spec.ts`, `apps/web/test/hpke.spec.ts` plus
 `apps/web/test/leaf-credential.spec.ts` are the conformance suite the second
 implementation has to pass.
