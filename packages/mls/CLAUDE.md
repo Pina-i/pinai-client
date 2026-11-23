@@ -1,12 +1,11 @@
 # @pinai/mls
 
-The MLS engine, one implementation per platform.
+The MLS engine, over any build of the Rust crate (`crypto/`).
 
-The contract is not here — `IMlsEngine` lives in `@pinai/domain/ports`, so
-callers depend on the port and this package supplies something that satisfies
-it. Today that is `wasm.adapter.ts`, the openmls WASM bundle. A React Native
-build adds `native.adapter.ts` over the same Rust crate compiled natively,
-because Hermes has no WebAssembly.
+The contract callers depend on is not here — `IMlsEngine` lives in `@pinai/domain/ports`. This package supplies the
+engine that satisfies it (`engine.ts`), once for every platform, over a bundle (`bundle.ts`): the WASM build, loaded
+by `wasm.adapter.ts`, or the mobile app's native build, which the app hands it. `contract/` is what every build must
+do.
 
 ## Files
 
@@ -27,12 +26,13 @@ because Hermes has no WebAssembly.
     kind's fields in that order. None is written as no key at all, and read so. An
     approval that doesn't read — another kind, a field missing or mistyped — is left
     out, the credential kept: it proves nothing, and is no reason to refuse a leaf.
-- **`wasm.adapter.ts`** — `MlsAdapter`, the WASM `IMlsEngine`, and the
-  bundle's HPKE (`IHpkePort`, one load for both). Owns one
-  `Provider` + one `Identity` + a `Map<conversation_id, Group>`. The only
-  place `openmls-wasm` is imported. Every method is `async` to satisfy the
-  port even though the wasm calls underneath are synchronous — see the port
-  for why that was decided before the native binding exists.
+- **`bundle.ts`** — `MlsBundle`: what the engine needs of a build — the facades' objects and functions, named as they
+  export them (`Group.create_new`, `add_member`…), every call synchronous. `openmls-wasm` is one as built; a native
+  build is one through its app's shim.
+- **`engine.ts`** — `MlsEngine`, the `IMlsEngine` and the build's HPKE (`IHpkePort`, one load for both). Owns one
+  provider + one identity + a `Map<conversation_id, group>`, over the bundle its loader gives (`initialize(input)`
+  hands `input` to it, once; the bundle stays across `resetProvider`). Every method is `async` to satisfy the port;
+  the bundle's calls are synchronous, so no two operations interleave on a group.
   A group signs with the keypair of its own leaf, read from the provider's
   storage, not with the bound `Identity`: a device that reloads before it
   joins anything binds a new key, while the KeyPackages it published carry
@@ -65,35 +65,22 @@ because Hermes has no WebAssembly.
     still is, by every member applying the add: KeyPackages live a year.
     `joinGroup` deletes first what a join never kept left in the provider under
     that group id (a reload while it was pending).
+- **`wasm.adapter.ts`** — `MlsAdapter`, the engine over `openmls-wasm`: the web's and the desktop's. The only place
+  `openmls-wasm` is imported; `const bundle: MlsBundle = wasm` fails to compile when the facade drifts.
+- **`contract/`** — the engine's contract, plain TypeScript (no test runner, nothing Node- or browser-only: it runs on
+  Hermes): `scenarios.ts`, one scenario per behaviour a build must carry, played on WASM by
+  `apps/web/test/mls-contract.spec.ts` and on the native build by the mobile app's control screen;
+  `wasm-fixture.ts`, a conversation the WASM engine wrote — Bob's storage, then Alice's messages, an update, a
+  removal, a GroupInfo — which every other build must read (`fixture-scenario.ts`). The fixture is generated:
+  `WRITE_MLS_FIXTURE=1 pnpm --filter @pinai/web exec vitest run test/mls-contract.spec.ts`. It adds no KeyPackage
+  after the snapshot: openmls checks a KeyPackage's lifetime, and it would expire.
 
-## When to split this package
+## Why one package
 
-One package, one file per implementation, is deliberate while there is only
-one implementation: `leaf-credential.ts` is shared by all of them, and they
-stay pinned to one openmls version and one ciphersuite because they are
-installed together.
-
-The trigger to split is concrete — **the moment the native side needs a
-non-TypeScript file of its own.** It will: a compiled Rust library per
-architecture, an Expo config plugin to wire the build, probably a podspec and
-a Gradle hook. That is build machinery the web app has no use for, and by
-then `@pinai/web` would be installing it.
-
-The split at that point is three packages:
-
-- `@pinai/mls` — `leaf-credential.ts` and the conformance suite. Depends on
-  `@pinai/domain` and nothing else.
-- `@pinai/mls-wasm` — the current adapter plus `openmls-wasm`.
-- `@pinai/mls-native` — the uniffi binding plus its native artifacts.
-
-Doing it before then would be three packages for twenty shared lines, and the
-shape of the native one is not knowable until the spike says what it ships.
-
-A third implementation worth having eventually is a **fake** in-memory engine,
-so tests above this layer need not compile a 2 MB wasm bundle. It belongs
-here with the others, for the same reason the package exists — it has to
-encode leaf credentials the same way. Keep it out of the E2EE specs, which
-earn their keep by driving the real engine.
+The native build's machinery — the compiled Rust library per architecture, its Kotlin module, the build script —
+lives in the mobile app (`apps/mobile`), which hands the engine its bundle. What is shared stays here, one package:
+the engine, the leaf credential, the contract, and the WASM loader the web and desktop apps use. The mobile app never
+imports `wasm.adapter.ts`, so it never loads `openmls-wasm`.
 
 ## Adding the native implementation
 
@@ -101,6 +88,4 @@ The engine is the `crypto/` workspace (root of the repo, not inside the web
 app, precisely so a second build target can consume it): `openmls-core` holds
 every rule, binding-agnostic, its failures `MlsError`s; `openmls-wasm` is a
 thin wasm-bindgen facade over it. The native build is a second facade beside
-it, and `apps/web/test/e2ee.spec.ts`, `apps/web/test/hpke.spec.ts` plus
-`apps/web/test/leaf-credential.spec.ts` are the conformance suite the second
-implementation has to pass.
+it, and `contract/`'s scenarios are what it has to pass, on the phone.

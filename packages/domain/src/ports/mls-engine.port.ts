@@ -50,9 +50,9 @@ export type ProcessOutcome =
 /**
  * The MLS engine, as the rest of the client sees it.
  *
- * Today the only implementation wraps the `openmls` WASM bundle, whose calls
- * are synchronous once the module is instantiated. The port is nonetheless
- * asynchronous throughout, for two reasons:
+ * Its implementation (`@pinai/mls`'s engine) drives a build of the Rust crate —
+ * WASM, or native on the phone —, whose calls are synchronous. The port is
+ * nonetheless asynchronous throughout, for two reasons:
  *
  * 1. Hermes has no WebAssembly, so React Native will drive the same Rust
  *    crate through a native binding (uniffi + JSI). Whether that binding can
@@ -65,7 +65,7 @@ export type ProcessOutcome =
  *
  * Bytes in, bytes out: everything crossing this interface is wire-format, so
  * a native implementation has to agree with the WASM one byte-for-byte. The
- * conformance specs in `test/` are the contract.
+ * `@pinai/mls/contract` is the contract, played on every build.
  */
 export interface IMlsEngine {
     /** Load the engine. Idempotent and race-safe. */

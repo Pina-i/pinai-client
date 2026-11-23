@@ -101,11 +101,13 @@ pinai-client/                 # pnpm workspace root
 ├── packages/
 │   ├── api/                  # @pinai/api — the IdP's HTTP + WebSocket surface.
 │   │                         #   Depends on domain + ky. Nothing browser-only.
-│   ├── mls/                  # @pinai/mls — the MLS engine, one implementation
-│   │                         #   per platform. `leaf-credential.ts` is shared by
-│   │                         #   all of them (those bytes travel to peers);
-│   │                         #   `wasm.adapter.ts` is the only importer of
-│   │                         #   openmls-wasm. The native binding lands here.
+│   ├── mls/                  # @pinai/mls — the MLS engine (`engine.ts`), once for
+│   │                         #   every platform, over a build of the crate
+│   │                         #   (`bundle.ts`). `wasm.adapter.ts` loads the WASM
+│   │                         #   one, the only importer of openmls-wasm; the
+│   │                         #   mobile app hands it its native one.
+│   │                         #   `leaf-credential.ts` is shared (those bytes travel
+│   │                         #   to peers). `contract/` — what every build must do.
 │   ├── crypto/               # @pinai/crypto — the E2EE core: MLS orchestration,
 │   │                         #   identity, the history key, the code handshake, attestation,
 │   │                         #   attachment sealing, the sealed store's schema.

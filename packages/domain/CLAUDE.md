@@ -144,7 +144,7 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   that binding can be synchronous is not yet known. Retrofitting
   `sync → async` later would rework the whole message path.
 - Bytes in, bytes out — every implementation must agree byte-for-byte;
-  the specs in `test/` are the contract.
+  `@pinai/mls/contract` is the contract, played on every build.
 - The leaf key before its credential (`generateSignatureKey`, then
   `setIdentity(credential, key)`), so the device's root key signs it in. What
   the leaf checks need: `inspectKeyPackage`, `groupLeaves` (`MlsLeaf`, `own`
