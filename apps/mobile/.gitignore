@@ -10,6 +10,7 @@ expo-env.d.ts
 
 # Native
 .kotlin/
+/modules/*/android/build/
 *.jks
 *.p8
 *.p12
@@ -18,7 +19,6 @@ expo-env.d.ts
 *.pem
 # The native MLS library and its bindings: scripts/build-native-mls.mjs
 /modules/openmls/android/generated/
-/modules/openmls/android/build/
 
 # Metro
 .metro-health-check*
