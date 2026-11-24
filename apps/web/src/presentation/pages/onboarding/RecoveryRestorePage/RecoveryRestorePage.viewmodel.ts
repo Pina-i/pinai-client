@@ -3,6 +3,17 @@ import { useLocation, useNavigate, useRouter } from "@tanstack/react-router"
 
 import { replacedOn, resetCause, type ResetCause } from "@pinai/domain/models/admission"
 import type { DeviceId } from "@pinai/domain/models/e2ee"
+import {
+    RESTORE_TABS,
+    listensForShare,
+    offersStartOver as offersStartOverRule,
+    offersWayIn,
+    openingTab,
+    shareRefused,
+    shownTab,
+    type RestoreTab,
+    type RestoreVariant,
+} from "@pinai/domain/models/restore-page"
 import { logoutUseCase } from "@pinai/domain/usecases/auth/logout.usecase"
 import type { AwaitedShareState } from "@pinai/domain/usecases/e2ee/accept-history-share.usecase"
 import { checkAdmissionUseCase } from "@pinai/domain/usecases/e2ee/check-admission.usecase"
@@ -24,15 +35,10 @@ import { useAppStore } from "@/store/store"
 
 export type RestoreStatus = "initializing" | "ready" | "restoring" | "done" | "error"
 
-/** § 5.2's page for a device that never held the account's passphrase; § 5.4's for one whose words no longer give it. */
-export type RestoreVariant = "new-device" | "reset"
-
-/** "Another device" / "That device", "My 24 words" / "Its 24 words", "Start over" / "Start over from here". */
-export type RestoreTab = "device" | "words" | "start-over"
+export type { RestoreTab, RestoreVariant }
 
 /** `?tab=start-over` opens the page on that tab: where a sign-in asked for the password comes back to. */
 const TAB_PARAM = "tab"
-const TABS: readonly RestoreTab[] = ["device", "words", "start-over"]
 
 export interface RecoveryRestoreViewModel {
     status: RestoreStatus
@@ -217,8 +223,13 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
         }
     }, [idpUrl, signedIn, ownActorUri, attempt, navigate, variant])
 
-    // A start over takes the words itself: a share kept meanwhile must not carry the page off before they are shown.
-    const listening = lacksWords && status !== "initializing" && status !== "error" && !startingOver && newWords === null
+    const listening = listensForShare({
+        lacksWords,
+        settingUp: status === "initializing",
+        failed: status === "error",
+        startingOver,
+        showingNewWords: newWords !== null,
+    })
     // Approved here, the section goes on itself once the restore settles; typed words go on their own way.
     const awaited = useAwaitedShare(listening, () => {
         if (!approvedRef.current && !typing.current) void navigate({ to: "/home" })
@@ -285,13 +296,12 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
 
     const onRolledBack = useCallback(() => setRolledBack(true), [])
 
-    // A request this device asked, or how it ended, is said on its own tab: the page opens there, unless the user chose one.
     const own = useOwnStartOver(deviceReady && !isIn && !approvedHere)
     const [tabChosen, setTabChosen] = useState(askedTab !== null)
     const ownState = own.state?.kind ?? null
     if (!tabChosen && ownState !== null) {
         setTabChosen(true)
-        if (ownState === "waiting" || ownState === "ready" || ownState === "cancelled" || ownState === "superseded") {
+        if (openingTab(ownState) === "start-over") {
             setTab("start-over")
             showStartOver(true)
         }
@@ -313,9 +323,7 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
     }, [])
 
     const deviceLabel = useThisDeviceName()
-    const offersStartOver = !isIn
-    // A device found in has no Start over tab: it opens on another way in.
-    const shownTab = !offersStartOver && tab === "start-over" ? "device" : tab
+    const offersStartOver = offersStartOverRule(isIn)
 
     return {
         status: typed.restoring ? "restoring" : status,
@@ -324,11 +332,11 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
         resetCause: variant === "reset" ? reset.cause : null,
         replacedOn: variant === "reset" ? reset.replacedOn : null,
         refused: variant === "reset" ? reset.refused : null,
-        offersWayIn: variant === "new-device" || reset.cause === "newer-generation",
+        offersWayIn: offersWayIn(variant, reset.cause),
         instance: instanceHost(idpUrl),
         offersStartOver,
         deviceLabel,
-        tab: shownTab,
+        tab: shownTab(tab, isIn),
         setTab: chooseTab,
         busy: startingOver || typed.restoring,
         startOverShown,
@@ -345,7 +353,7 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
         onSignOut,
         share,
         onApproved,
-        shareRefused: share?.kind === "unusable" && !approvedHere,
+        shareRefused: shareRefused(share, approvedHere),
         startOverReturn,
         onStartOverBusy,
         newWords,
@@ -358,5 +366,5 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
 
 function askedIn(searchStr: string): RestoreTab | null {
     const asked = new URLSearchParams(searchStr).get(TAB_PARAM)
-    return TABS.find((tab) => tab === asked) ?? null
+    return RESTORE_TABS.find((tab) => tab === asked) ?? null
 }
