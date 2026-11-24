@@ -101,7 +101,6 @@ export function NewDevicePage() {
                             share={vm.share}
                             onApproved={vm.onApproved}
                             onIn={vm.onIn}
-                            onUseWords={() => pick("words")}
                         />
                     </View>
                     <View style={styles.way(width)}>
