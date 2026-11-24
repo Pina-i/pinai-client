@@ -12,6 +12,7 @@
     "reverse": "node scripts/adb-reverse.mjs",
     "android:device": "node scripts/adb-reverse.mjs && node scripts/build-native-mls.mjs && expo run:android --device",
     "android:prebuild": "expo prebuild --platform android",
+    "android:rebuild": "expo prebuild --platform android && pnpm run android:device",
     "native-mls": "node scripts/build-native-mls.mjs",
     "mls:check": "node scripts/mls-check.mjs",
     "argon2:check": "node scripts/argon2-check.mjs",

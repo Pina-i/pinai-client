@@ -47,8 +47,9 @@ An emulator is started from Android Studio's Device Manager, or with `emulator -
 The first build compiles the native code (a quarter of an hour). After that, `pnpm dev:mobile`
 starts Metro alone, and changes to the JavaScript reload in place; rebuild only when a native
 dependency or `app.config.ts` changes. `pnpm android:mobile` generates `android/` only when it is
-missing: after a change to `app.config.ts`, regenerate it with `pnpm prebuild:mobile` (Expo's
-`prebuild --platform android`; the next build compiles the native code again).
+missing: after a change to `app.config.ts`, `pnpm rebuild:mobile` regenerates it (Expo's
+`prebuild --platform android`) then builds and runs as `pnpm android:mobile` does — the native code
+compiled again; `pnpm prebuild:mobile` regenerates it alone.
 
 Metro's QR code points at the computer's Wi-Fi address: the phone must be on the same Wi-Fi. Over
 USB instead, `pnpm dev:mobile --localhost` and `adb reverse tcp:8081 tcp:8081` (the build sets it

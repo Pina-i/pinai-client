@@ -12,6 +12,7 @@
     "reverse:mobile": "pnpm --filter @pinai/mobile reverse",
     "android:mobile": "pnpm --filter @pinai/mobile android:device",
     "prebuild:mobile": "pnpm --filter @pinai/mobile android:prebuild",
+    "rebuild:mobile": "pnpm --filter @pinai/mobile android:rebuild",
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
