@@ -129,14 +129,15 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
   After another account's device was wiped it checks again: the phone keeps no account's messages yet.
 - **"Save your 24 words"** (`/onboarding/setup`, `pages/onboarding/setup/`): the domain's
   `setUpFirstDeviceUseCase` — a loader by stage, then the words; a start over's new words on the same
-  screen ("Your new 24 words", Continue forgetting them: `dismissNewWords`); a pending key tried again
-  after its delay; another device's key sent where the gate says; a failure with "Try again". "Start
-  using Pīna'i" once "I've written them down somewhere safe" is on, then `/home`, whose gate decides.
-  No copy button: the phone's clipboard is every app's.
-- `molecules/words-card` — the 24 words in two numbered columns, masked until held ("Hold to show the
-  words") or "Keep words visible"; hidden again when the app leaves the front; while a card is up,
-  screenshots and the app switcher's preview are blocked (`expo-screen-capture`, FLAG_SECURE, one key
-  per card). `molecules/switch-row` — a `Group` row that is its switch. `app.config.ts` blocks the
-  storage and photos permissions `expo-screen-capture` declares to detect screenshots before Android 14
-  (the app only blocks them); `DETECT_SCREEN_CAPTURE` must stay — from Android 14 the library registers
-  its detector as it loads, and the app fails to start without it ("Permission Denial").
+  screen ("Your new 24 words", no step line, Continue forgetting them: `dismissNewWords`); a pending key tried
+  again after its delay; another device's key sent where the gate says; a failure with "Try again". "Start
+  using Pīna'i" once the words were shown or copied and "I've saved them somewhere safe" is on, then `/home`,
+  whose gate decides. No "Settings › Devices" line: the phone has no Devices screen yet.
+- `molecules/words-card` — the 24 words in two numbered columns, blurred until "Show words" (a `filter` blur, which
+  Android draws from 12 on: hidden, the cells hold dots, never the words); hidden again when the app leaves the
+  front; "Copy words" copies them hidden or not, marked sensitive (`expo-clipboard`'s `android.isSensitive`: no
+  preview in Android's overlay nor the keyboards'). While a card is up, screenshots and the app switcher's preview
+  are blocked (`expo-screen-capture`, FLAG_SECURE, one key per card). `molecules/switch-row` — a `Group` row that is
+  its switch. `app.config.ts` blocks the storage and photos permissions `expo-screen-capture` declares to detect
+  screenshots before Android 14 (the app only blocks them); `DETECT_SCREEN_CAPTURE` must stay — from Android 14 the
+  library registers its detector as it loads, and the app fails to start without it ("Permission Denial").
