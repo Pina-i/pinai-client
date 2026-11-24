@@ -6,7 +6,7 @@
  */
 
 import { sameBytes } from "./bytes"
-import type { DeviceListEntry } from "./device"
+import type { DeviceKind, DeviceListEntry } from "./device"
 import { actsOnApproval, duplicateDeviceIds, type HandshakeKeysRefusal, type HandshakePartner } from "./device-trust"
 import type { DeviceId } from "./e2ee"
 import type { HistoryKeyStanding } from "./history-key"
@@ -243,6 +243,16 @@ export function codeDigits(text: string): string {
 
 export function isWholeCode(code: string): boolean {
     return code.length === APPROVAL_CODE_LENGTH && /^\d+$/.test(code)
+}
+
+/** The account's other devices still signed in to it, by their shown name: where a code shown here can be typed. */
+export function approvingDevices(
+    devices: readonly DeviceListEntry[],
+    thisDeviceId: string | null
+): { deviceId: string; label: string; kind: DeviceKind }[] {
+    return devices
+        .filter((device) => device.device_id !== thisDeviceId && device.revoked_at === null)
+        .map((device) => ({ deviceId: device.device_id, label: device.display_name.trim() || "A device", kind: device.kind }))
 }
 
 /** The code as it is shown and typed: 3 + 3. */
