@@ -187,6 +187,12 @@ export interface AnsweringView {
     refused: "used-code" | "other-tab" | null
 }
 
+/** The device the Door was called for (a new device's notice), while it shows no code to type yet. */
+export interface DoorSummons {
+    deviceId: DeviceId
+    displayName: string
+}
+
 /** What Settings → Devices' waiting seats read of the answering side the Door shares with them. */
 export interface SeatsView {
     /** Another device's, open, nobody's answer yet — the Door's set aside included; none unless this device holds the words. */

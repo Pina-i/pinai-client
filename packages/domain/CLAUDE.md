@@ -472,7 +472,9 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   unanswered request moves to its seat; `answerAt` — a seat answers through the same run;
   a wrong code's next request stays in the seat. `leaveSeat` — the pane went: a run under way
   (or a code waited for, unless set aside) goes on at the Door, a settled one goes, and the
-  Door picks again. `seatAnswer` (`models/approval-handshake.ts`) — what a seat offers: its
+  Door picks again. `summon(device)` — the Door called for a device (a new device's notice): its request shows, one
+  set aside included, and only its own until `dismiss`; with none yet, `summons` (`DoorSummons`) is what the Door waits
+  for; `unsummon` — that device came in another way or went. `seatAnswer` (`models/approval-handshake.ts`) — what a seat offers: its
   run, the Door's, its newest open request, or nothing. Errors the flows swallow go to
   `HandshakeContext.report`.
 
