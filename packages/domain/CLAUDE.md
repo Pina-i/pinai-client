@@ -949,6 +949,16 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   `startOverToPromptUseCase` (`{ request, answersCodes }`: `mayAnswer` over the standing, which
   only decides whether "It's me" is offered), `endStartOverUseCase`. `startOverUseCase` is the
   finishing: a `finishRefusal` erases the pending key like a conflict's.
+  The panel's rules, every client's: `startOverStage` (the choice until it may ask or when the read
+  failed, a loader until read, waiting while held back), `readyAtOnce`, `endedNote`,
+  `sightStartOver` (seen open here, then approved or superseded: told once per request; only read
+  ended after a reload, nothing), `matureRereadDelay` (a second after it matures, within a timer's
+  range). `StartOverFlow` (`start-over-flow.usecase.ts`) — ask, finish, withdraw, one at a time,
+  over the functions and hooks it's given (`known`, `held`, `reread`, `step`): asked and matured, or
+  not needed, it finishes at once; a too-early finish is held (`holdAfterRefusal`) and the request
+  read again; a failed finish shows new words it may have set (`newWordsToShow`). It answers a
+  `StartOverFlowResult` the platform words: `started-over`, `needs-recent-sign-in`, `went-otherwise`,
+  `rolled-back`, `too-many`, `failed` (during ask, finish or withdraw), `quiet`.
 - `take-device-baseline.usecase.ts` — `takeDeviceBaseline`, best effort: bootstrap after
   generation 1 is set, typed words and an accepted share once kept, `finishNewGeneration`
   (with its intent), the settle of a lost answer's pending key (the intent minted with it).
