@@ -4,6 +4,7 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import uniffi.openmls_native.ProcessedKind
 import uniffi.openmls_native.Provider
+import uniffi.openmls_native.argon2id
 import uniffi.openmls_native.groupCreateNew
 import uniffi.openmls_native.groupJoin
 import uniffi.openmls_native.groupJoinByExternalCommit
@@ -151,6 +152,11 @@ class OpenMlsModule : Module() {
     }
     Function("hpke_open") { privateKey: ByteArray, enc: ByteArray, ciphertext: ByteArray, info: ByteArray, aad: ByteArray ->
       mls { hpkeOpen(privateKey, enc, ciphertext, info, aad) }
+    }
+
+    // The 24 words take a good part of a second: off the JS thread, unlike the MLS calls.
+    AsyncFunction("argon2id") { password: ByteArray, salt: ByteArray, passes: Int, memoryKib: Int, lanes: Int, length: Int ->
+      mls { argon2id(password, salt, passes.toUInt(), memoryKib.toUInt(), lanes.toUInt(), length.toUInt()) }
     }
   }
 }

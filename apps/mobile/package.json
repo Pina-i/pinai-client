@@ -13,6 +13,7 @@
     "android:device": "node scripts/adb-reverse.mjs && node scripts/build-native-mls.mjs && expo run:android --device",
     "native-mls": "node scripts/build-native-mls.mjs",
     "mls:check": "node scripts/mls-check.mjs",
+    "argon2:check": "node scripts/argon2-check.mjs",
     "storage:check": "node scripts/storage-check.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

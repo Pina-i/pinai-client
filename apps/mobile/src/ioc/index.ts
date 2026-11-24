@@ -2,6 +2,7 @@ import { OidcAdapter } from "@pinai/api/auth/oidc.adapter"
 import { NodeInfoApiAdapter } from "@pinai/api/instance/nodeinfo-api.adapter"
 import { UserSettingsApiAdapter } from "@pinai/api/user-settings/user-settings-api.adapter"
 import { IdpWsAdapter } from "@pinai/api/ws/idp-ws.adapter"
+import type { Argon2id } from "@pinai/crypto/argon2"
 import { SealedStorage } from "@pinai/crypto/sealed-storage"
 import type { ActorUri } from "@pinai/domain/models/e2ee"
 import { appearanceHints, resolveMode } from "@pinai/domain/models/user-settings"
@@ -22,6 +23,7 @@ import { MOBILE_DOCUMENT_PATH, MobileAuthNavigationAdapter } from "@/adapters/au
 import { MemoryAuthSessionStore } from "@/adapters/auth/auth-session-memory.adapter"
 import { ExpoPkceAdapter } from "@/adapters/auth/pkce-expo.adapter"
 import { KeychainSessionTokenStore } from "@/adapters/auth/session-token-keychain.adapter"
+import { nativeArgon2id } from "@/adapters/crypto/native-argon2id"
 import { nativeMlsEngine } from "@/adapters/mls/native-engine"
 import { accountStoreNames } from "@/adapters/storage/account-store-names"
 import { KeystoreDeviceKeyAdapter } from "@/adapters/storage/keystore-device-key.adapter"
@@ -107,6 +109,11 @@ export function getWsPort(): IWsPort {
 // The app's own engine, with its storage, comes later.
 export function createMlsEngine(): MlsEngine {
     return nativeMlsEngine()
+}
+
+// The native library's Argon2id, for the history key and the approval code.
+export function createArgon2id(): Argon2id {
+    return nativeArgon2id()
 }
 
 // An account's encrypted store: its own SQLite database, its own Keystore key.
