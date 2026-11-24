@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useLocation, useNavigate, useRouter } from "@tanstack/react-router"
 
-import { replacedOn, resetCause, type ResetCause } from "@pinai/domain/models/admission"
+import type { ResetCause } from "@pinai/domain/models/admission"
 import type { DeviceId } from "@pinai/domain/models/e2ee"
 import {
     RESTORE_TABS,
@@ -17,7 +17,8 @@ import {
 import { logoutUseCase } from "@pinai/domain/usecases/auth/logout.usecase"
 import type { AwaitedShareState } from "@pinai/domain/usecases/e2ee/accept-history-share.usecase"
 import { checkAdmissionUseCase } from "@pinai/domain/usecases/e2ee/check-admission.usecase"
-import { gateThisDeviceUseCase, pendingKeyRoute } from "@pinai/domain/usecases/e2ee/gate-this-device.usecase"
+import { enterRestorePageUseCase } from "@pinai/domain/usecases/e2ee/enter-restore-page.usecase"
+import { gateThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/gate-this-device.usecase"
 import { setUpThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/set-up-this-device.usecase"
 import { getAuthPlatform, getDeviceDirectoryPort, getE2eePort, getSessionPort } from "@/ioc"
 import { admissionDeps } from "@/presentation/_libs/admission-deps"
@@ -158,66 +159,53 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
         if (!idpUrl || !accessToken || !ownActorUri) return
         const e2eePort = getE2eePort()
         let cancelled = false
-        // The gate recorded the standing it sent the device here on: an unknown change is said at once.
-        void e2eePort.historyKeyStanding().then(
-            (standing) => {
-                if (cancelled || resetCause(standing) !== "unknown-change") return
-                setReset((known) => (known.cause ? known : { cause: "unknown-change", replacedOn: null, refused: null }))
-            },
-            () => undefined,
-        )
-        bootstrapRef.current = (async () => {
-            // A start over cut short by a reload: the setup page settles its key, and shows its words once set.
-            const pending = await pendingKeyRoute(e2eePort)
-            if (pending) {
-                if (!cancelled) void navigate({ to: GATE_PAGES[pending] })
-                return
-            }
-            const unseen = await e2eePort.newWordsToShow()
-            if (unseen) {
-                if (!cancelled) setNewWords(unseen.words)
-                return
-            }
-            await setUpThisDeviceUseCase({ e2eePort, sessionPort: getSessionPort() })(idpUrl, accessToken, ownActorUri)
-            if (!cancelled) setDeviceReady(true)
-            try {
-                const { standing, admission } = await checkAdmissionUseCase(admissionDeps())(idpUrl, accessToken, ownActorUri)
-                if (cancelled) return
-                // The reset page is for a device that is out: one let in meanwhile goes back to the app.
-                if (variant === "reset" && admission.kind === "in") {
+        const entering = enterRestorePageUseCase({
+            e2eePort,
+            setUp: (session) => setUpThisDeviceUseCase({ e2eePort, sessionPort: getSessionPort() })(session.idpUrl, session.accessToken, session.actorUri),
+            checkAdmission: (session) => checkAdmissionUseCase(admissionDeps())(session.idpUrl, session.accessToken, session.actorUri),
+            listDevices: async (session) => (await getDeviceDirectoryPort().listDevices(session.idpUrl, session.accessToken)).devices,
+            signInAgainOnDeviceMismatch,
+            warn: warnE2ee,
+        })({ idpUrl, accessToken, actorUri: ownActorUri }, variant, {
+            onEarlyCause: (cause) => setReset((known) => (known.cause ? known : { cause, replacedOn: null, refused: null })),
+            onDeviceReady: () => setDeviceReady(true),
+            cancelled: () => cancelled,
+        })
+        // A setup that failed fails the actions awaiting it too.
+        const bootstrap = entering.then((entry) => {
+            if (entry.kind === "failed" || entry.kind === "signing-in-again") throw entry.error
+        })
+        bootstrap.catch(() => undefined)
+        bootstrapRef.current = bootstrap
+        void entering.then((entry) => {
+            if (cancelled) return
+            switch (entry.kind) {
+                case "go":
+                    void navigate({ to: GATE_PAGES[entry.route] })
+                    break
+                case "new-words":
+                    setNewWords(entry.words)
+                    break
+                case "home":
                     void navigate({ to: "/home" })
-                    return
-                }
-                setIsIn(admission.kind === "in")
-                setLacksWords(standing.kind !== "holds")
-                const cause = resetCause(standing)
-                let setterLabel: string | null = null
-                let refused: DeviceId | null = null
-                if (variant === "reset" && cause === "newer-generation") {
-                    try {
-                        const { devices } = await getDeviceDirectoryPort().listDevices(idpUrl, accessToken)
-                        const setter = await e2eePort.resetSetter(devices)
-                        setterLabel = replacedOn(standing, setter, devices)
-                        refused = setter && !setter.self ? setter.deviceId : null
-                    } catch (e) {
-                        warnE2ee("reading who replaced the words", e)
+                    break
+                case "ready":
+                    if (entry.read) {
+                        setIsIn(entry.read.isIn)
+                        setLacksWords(entry.read.lacksWords)
+                        setReset(entry.read.reset)
                     }
-                }
-                if (!cancelled) setReset({ cause, replacedOn: setterLabel, refused })
-            } catch (e) {
-                // eslint-disable-next-line no-console
-                console.warn("Reading whether this device is in failed:", e)
+                    break
+                case "failed":
+                    setStatus("error")
+                    setError(entry.message)
+                    return
+                case "signing-in-again":
+                case "cancelled":
+                    return
             }
-        })()
-        bootstrapRef.current
-            .then(() => {
-                if (!cancelled) setStatus("ready")
-            })
-            .catch(async (e: unknown) => {
-                if (cancelled || (await signInAgainOnDeviceMismatch(e))) return
-                setStatus("error")
-                setError(e instanceof Error ? e.message : "Could not set up this device.")
-            })
+            setStatus("ready")
+        })
         return () => {
             cancelled = true
         }
