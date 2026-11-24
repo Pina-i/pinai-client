@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef } from "react"
 
 import { cn } from "@/presentation/_libs/utils"
-import { RECOVERY_WORD_COUNT, WORDLIST_SET, type SlotStatus } from "./RecoveryPassphraseInput.helper"
+import { RECOVERY_WORD_COUNT, WORDLIST_SET, wordsOf, type SlotStatus } from "./RecoveryPassphraseInput.helper"
 
 interface RecoveryPassphraseInputProps {
     /** 24-element array. Empty string for unfilled slots. */
@@ -43,11 +43,7 @@ export function RecoveryPassphraseInput({ value, onChange, disabled }: RecoveryP
 
     const handlePaste = useCallback(
         (e: React.ClipboardEvent<HTMLInputElement>, startIndex: number) => {
-            const tokens = e.clipboardData
-                .getData("text")
-                .split(/\s+/)
-                .map((t) => t.toLowerCase().trim())
-                .filter(Boolean)
+            const tokens = wordsOf(e.clipboardData.getData("text"))
             // One word pastes into its slot as usual.
             if (tokens.length <= 1) return
             e.preventDefault()
