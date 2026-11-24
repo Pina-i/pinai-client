@@ -5,6 +5,7 @@ import type { DeviceKind } from "@pinai/domain/models/device"
 import {
     RESTORE_WAIT_MS,
     SHARE_WAIT_AFTER_IN_MS,
+    approvingDevices,
     codeHalves,
     nextCodeWording,
     requestLifeLeft,
@@ -303,9 +304,7 @@ export function useApproveFromAnotherDeviceViewModel(input: {
     })
 
     const own = devices?.find((d) => d.device_id === thisDeviceId)
-    const approvers = (devices ?? [])
-        .filter((d) => d.device_id !== thisDeviceId && d.revoked_at === null)
-        .map((d) => ({ deviceId: d.device_id, label: d.display_name.trim() || "A device", kind: d.kind }))
+    const approvers = approvingDevices(devices ?? [], thisDeviceId)
     const shown = state.kind === "showing" ? state : null
 
     return {
