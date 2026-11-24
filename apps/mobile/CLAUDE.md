@@ -125,8 +125,19 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
   checked again at a route change and when the app comes back to the front (`AppState`). The `(app)`
   layout shows nothing of the app before the device is known to be in; a failed check is
   `pages/gate-failed` ("Try again", "Sign out"). Out, it sends the device to `/onboarding/setup`,
-  `/new-device` or `/reset` (`GATE_ROUTES`) — those two stubs (`pages/onboarding-stub`) until 26f–26g.
+  `/new-device` or `/reset` (`GATE_ROUTES`) — `/reset` a stub (`pages/onboarding-stub`) until 26g.
   After another account's device was wiped it checks again: the phone keeps no account's messages yet.
+- **"New device"** (`/onboarding/new-device`, `pages/onboarding/new-device/`): the domain's `enterRestorePageUseCase`
+  (`new-device`) as it opens — the device set up, sent where the gate says, else its ways as a pager
+  (`molecules/segmented-tabs`, a swipe or a tab): **Device** (`device-way/`, `hooks/use-approval-asking.ts`: the
+  domain's `ApprovalAsking`, ticked only in front, paused off the tab; approved, `ApprovedEntry` until in;
+  `molecules/code-cells`; the devices it can be typed on, `approvingDevices`) and **24 words** (`words-way/`,
+  `hooks/use-typed-words.ts`: one field, Paste, `wordsOf`, a misspelt word said, screenshots blocked on that way).
+  Meanwhile `hooks/use-awaited-share.ts` waits for the key share (`ShareWait`, `_libs/app-visibility.ts`,
+  `_libs/accept-share.ts`); kept, on to `/home`. Start over is 26g's. "Sign out" under the ways.
+- **No history restore yet** (`_libs/history-restore.ts`): the phone keeps no messages, and `HistoryRestore` run with
+  nowhere to put them would count the restore applied, then clear it. It isn't run: the restore stays due for when
+  conversations come to the phone.
 - **"Save your 24 words"** (`/onboarding/setup`, `pages/onboarding/setup/`): the domain's
   `setUpFirstDeviceUseCase` — a loader by stage, then the words; a start over's new words on the same
   screen ("Your new 24 words", no step line, Continue forgetting them: `dismissNewWords`); a pending key tried

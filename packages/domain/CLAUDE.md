@@ -424,6 +424,8 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   10 minutes ran out on this device's clock (`renewsByItself`): § 2 promises each
   of the instance's guesses costs the user an action. The relay's `expires_at`
   never counts — it can shorten it.
+- `approvingDevices(devices, thisDeviceId)` — where a code shown here can be typed: the account's other devices,
+  unrevoked, by their shown name ("A device" without one), kind and client.
 - Rules: `mayAsk` / `mayAnswer` (holding the words **settled**: approved and the
   generation reported, so the asker finds it listed at the current one); `canonicalId`
   (lowercase UUIDs, else none);
