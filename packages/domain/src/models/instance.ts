@@ -75,6 +75,8 @@ export const PINAI_SOFTWARE = "pinai"
 
 export interface InstanceInfo {
     name: string
+    /** How the instance introduces itself, when it does. */
+    description: string | null
     /** Accounts on the instance, when it says. */
     users: number | null
     openRegistrations: boolean
@@ -105,10 +107,11 @@ export function nodeInfoHref(links: unknown, base: string): string | null {
 export function parseNodeInfo(raw: unknown, address: InstanceAddress): InstanceInfo | null {
     const doc = record(raw)
     if (record(doc.software).name !== PINAI_SOFTWARE) return null
-    const name = record(doc.metadata).nodeName
+    const { nodeName: name, nodeDescription: description } = record(doc.metadata)
     const total = record(record(doc.usage).users).total
     return {
         name: typeof name === "string" && name.trim() ? name.trim() : address.host,
+        description: typeof description === "string" && description.trim() ? description.trim() : null,
         users: typeof total === "number" && Number.isInteger(total) && total >= 0 ? total : null,
         // Required by the schema; a document without it is not taken for a closed instance.
         openRegistrations: doc.openRegistrations !== false,

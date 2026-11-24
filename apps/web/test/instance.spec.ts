@@ -99,13 +99,21 @@ describe("nodeInfoHref", () => {
 
 describe("parseNodeInfo", () => {
     it("reads the name, the count of accounts and whether anyone may register", () => {
-        expect(parseNodeInfo(nodeInfo(), AOTEAROA)).toEqual({ name: "Aotearoa", users: 1204, openRegistrations: true })
+        expect(parseNodeInfo(nodeInfo(), AOTEAROA)).toEqual({ name: "Aotearoa", description: null, users: 1204, openRegistrations: true })
         expect(parseNodeInfo(nodeInfo({ openRegistrations: false }), AOTEAROA)?.openRegistrations).toBe(false)
+    })
+
+    it("reads the description the instance introduces itself with, when it gives one", () => {
+        const described = nodeInfo({ metadata: { nodeName: "Aotearoa", nodeDescription: "  Design and type people.  " } })
+        expect(parseNodeInfo(described, AOTEAROA)?.description).toBe("Design and type people.")
+        expect(parseNodeInfo(nodeInfo({ metadata: { nodeName: "Aotearoa", nodeDescription: " " } }), AOTEAROA)?.description).toBeNull()
+        expect(parseNodeInfo(nodeInfo({ metadata: { nodeName: "Aotearoa", nodeDescription: 7 } }), AOTEAROA)?.description).toBeNull()
     })
 
     it("names the instance by its host when it gives no name, and leaves out a count it doesn't give", () => {
         expect(parseNodeInfo(nodeInfo({ metadata: {}, usage: {} }), LOCAL)).toEqual({
             name: "localhost:8080",
+            description: null,
             users: null,
             openRegistrations: true,
         })
@@ -119,13 +127,13 @@ describe("parseNodeInfo", () => {
 
 describe("describeInstance", () => {
     it("says what resolved, how many people are there and when it takes invitations only", () => {
-        expect(describeInstance({ name: "Aotearoa", users: 1204, openRegistrations: true })).toBe(
+        expect(describeInstance({ name: "Aotearoa", description: null, users: 1204, openRegistrations: true })).toBe(
             "✓ resolved · Aotearoa · 1,204 people",
         )
-        expect(describeInstance({ name: "Kauai Studio", users: 1, openRegistrations: false })).toBe(
+        expect(describeInstance({ name: "Kauai Studio", description: null, users: 1, openRegistrations: false })).toBe(
             "✓ resolved · Kauai Studio · 1 person · invite only",
         )
-        expect(describeInstance({ name: "localhost:8080", users: 0, openRegistrations: true })).toBe(
+        expect(describeInstance({ name: "localhost:8080", description: null, users: 0, openRegistrations: true })).toBe(
             "✓ resolved · localhost:8080",
         )
     })
@@ -151,6 +159,7 @@ describe("resolveInstanceUseCase", () => {
         const nodeInfoPort = port({ links: [{ rel: SCHEMA_21, href: "https://aotearoa.nz/nodeinfo/2.1" }] }, nodeInfo())
         expect(await resolveInstanceUseCase(AOTEAROA, nodeInfoPort)).toEqual({
             name: "Aotearoa",
+            description: null,
             users: 1204,
             openRegistrations: true,
         })
@@ -220,7 +229,7 @@ describe("the last instance submitted", () => {
 
 describe("instanceResolution", () => {
     const aotearoa = instanceAddress("aotearoa.nz")!
-    const info = { name: "Aotearoa", users: 1204, openRegistrations: true }
+    const info = { name: "Aotearoa", description: null, users: 1204, openRegistrations: true }
 
     it("waits while nothing is typed, or while the address typed hasn't answered", () => {
         expect(instanceResolution("", null)).toEqual({ kind: "pending" })

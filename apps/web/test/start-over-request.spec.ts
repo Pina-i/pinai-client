@@ -140,7 +140,7 @@ describe("the prompt on an approved device", () => {
     })
 
     it("words the password change by the instance's mode", () => {
-        const info = (open: boolean) => ({ name: "Aotearoa", users: 3, openRegistrations: open })
+        const info = (open: boolean) => ({ name: "Aotearoa", description: null, users: 3, openRegistrations: open })
         expect(passwordChange(info(true), false)).toBe("forgot-password")
         expect(passwordChange(info(true), true)).toBe("forgot-password")
         expect(passwordChange(info(false), false)).toBe("ask-an-admin")

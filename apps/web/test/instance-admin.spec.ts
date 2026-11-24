@@ -39,7 +39,7 @@ function member(change: Partial<InstanceMember>): InstanceMember {
 }
 
 describe("managesInstance", () => {
-    const invite = { name: "Aotearoa", users: 9, openRegistrations: false }
+    const invite = { name: "Aotearoa", description: null, users: 9, openRegistrations: false }
 
     it("is an admin's, on an invite-only instance and an open one alike", () => {
         expect(managesInstance(true, invite)).toBe(true)
@@ -54,8 +54,8 @@ describe("managesInstance", () => {
 
 describe("managesRoster", () => {
     it("is an invite-only instance's: on an open one, people sign up and reset their passwords themselves", () => {
-        expect(managesRoster({ name: "Aotearoa", users: 9, openRegistrations: false })).toBe(true)
-        expect(managesRoster({ name: "Aotearoa", users: 9, openRegistrations: true })).toBe(false)
+        expect(managesRoster({ name: "Aotearoa", description: null, users: 9, openRegistrations: false })).toBe(true)
+        expect(managesRoster({ name: "Aotearoa", description: null, users: 9, openRegistrations: true })).toBe(false)
     })
 })
 
@@ -123,6 +123,7 @@ describe("managedInstanceUseCase", () => {
         const { port } = nodeInfo(false)
         expect(await managedInstanceUseCase("https://aotearoa.nz", true, port)).toEqual({
             name: "Aotearoa",
+            description: null,
             users: 9,
             openRegistrations: false,
         })
