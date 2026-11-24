@@ -322,3 +322,22 @@ describe("thisDeviceLabel", () => {
         expect((await source.settled()).name).toBe("Chrome on Pixel 8")
     })
 })
+
+describe("composeDeviceLabel — the mobile app", () => {
+    const phone = (model: string | null, deviceName: string | null, kind: "phone" | "tablet" = "phone") =>
+        composeDeviceLabel({ client: "phone-app", os: "Android", kind, model, deviceName })
+
+    it("names the phone by its model, then the name its owner gave it in brackets", () => {
+        expect(phone("Pixel 9 Pro", "Kilian's phone")).toEqual({ name: "Pixel 9 Pro (Kilian's phone)", kind: "phone", client: "app" })
+    })
+
+    it("names it by its own name alone when that holds the model", () => {
+        expect(phone("Pixel 9 Pro", "Pixel 9 Pro").name).toBe("Pixel 9 Pro")
+        expect(phone("Galaxy S24", "Ana's Galaxy S24").name).toBe("Ana's Galaxy S24")
+    })
+
+    it("goes by its system when nothing else is known, and keeps a tablet a tablet", () => {
+        expect(phone(null, null)).toEqual({ name: "Android", kind: "phone", client: "app" })
+        expect(phone("Pixel Tablet", null, "tablet")).toEqual({ name: "Pixel Tablet", kind: "tablet", client: "app" })
+    })
+})
