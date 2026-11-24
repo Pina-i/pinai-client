@@ -76,6 +76,15 @@ answers it): type its address in "Your
 server" (`localhost:8080`), and its pages open in the system's sheet. A phone running a build from
 before a native dependency was added shows a red error on reload: build again.
 
+Recreating an instance doesn't clear the phone: it still holds its words and its device for the account,
+and may go straight in by them. Clear the app's data on every phone and emulator
+connected — no build needed —, which signs it out and makes it a new device at the next sign-in:
+
+```sh
+pnpm clear:mobile   # the app's data cleared, nothing built
+pnpm fresh:mobile   # cleared, then built and run as pnpm android:mobile does
+```
+
 ### Checking on a device
 
 The development build has control screens that play a contract on the phone: each scenario with its

@@ -13,6 +13,8 @@
     "android:mobile": "pnpm --filter @pinai/mobile android:device",
     "prebuild:mobile": "pnpm --filter @pinai/mobile android:prebuild",
     "rebuild:mobile": "pnpm --filter @pinai/mobile android:rebuild",
+    "clear:mobile": "pnpm --filter @pinai/mobile clear",
+    "fresh:mobile": "pnpm --filter @pinai/mobile android:fresh",
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
