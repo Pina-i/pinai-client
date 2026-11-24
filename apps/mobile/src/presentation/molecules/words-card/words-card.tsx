@@ -1,91 +1,94 @@
-import { Eye } from "lucide-react-native"
+import { Check, Copy, Eye, EyeOff } from "lucide-react-native"
 import { Pressable, Text, View } from "react-native"
 import { StyleSheet, useUnistyles } from "react-native-unistyles"
 import { Group } from "@/presentation/molecules/group/group"
-import { SwitchRow } from "@/presentation/molecules/switch-row/switch-row"
 import { useWordsCard } from "./words-card.viewmodel"
 
-const MASK = "••••••"
+// Hidden, the cells hold dots, never the words: Android draws the blur from 12 on only.
+const mask = (i: number) => "•".repeat(5 + ((i * 3) % 4))
 
-/** The account's 24 words, numbered in two columns read in rows: hidden until held, or kept visible. */
-export function WordsCard({ words }: { words: string[] }) {
-    const card = useWordsCard()
+/** The account's 24 words, numbered in two columns read in rows: blurred until shown, copied hidden or not. */
+export function WordsCard({ words, onSeen }: { words: string[]; onSeen?: () => void }) {
+    const card = useWordsCard(words, onSeen)
     const { theme } = useUnistyles()
+    const ShowIcon = card.shown ? EyeOff : Eye
+    const CopyIcon = card.copied ? Check : Copy
+    const copyColor = card.copied ? theme.colors.online : theme.colors.foreground
 
     return (
-        <View style={styles.stack}>
-            <Group>
-                <View style={styles.card}>
-                    <View
-                        style={styles.grid}
-                        accessibilityElementsHidden={!card.shown}
-                        importantForAccessibility={card.shown ? "auto" : "no-hide-descendants"}
-                    >
-                        {words.map((word, i) => (
-                            <View
-                                key={i}
-                                style={styles.cell}
-                                accessible
-                                accessibilityLabel={`${i + 1}: ${word}`}
-                            >
-                                <Text style={styles.number}>{String(i + 1).padStart(2, "0")}</Text>
-                                <Text style={styles.word(card.shown)}>{card.shown ? word : MASK}</Text>
-                            </View>
-                        ))}
-                    </View>
+        <Group>
+            <View style={styles.card}>
+                <View
+                    style={[styles.grid, !card.shown && styles.blurred]}
+                    accessibilityElementsHidden={!card.shown}
+                    importantForAccessibility={card.shown ? "auto" : "no-hide-descendants"}
+                >
+                    {words.map((word, i) => (
+                        <View
+                            key={i}
+                            style={styles.cell}
+                            accessible
+                            accessibilityLabel={`${i + 1}: ${word}`}
+                        >
+                            <Text style={styles.number}>{i + 1}</Text>
+                            <Text style={styles.word}>{card.shown ? word : mask(i)}</Text>
+                        </View>
+                    ))}
+                </View>
+                <View style={styles.buttons}>
                     <Pressable
                         accessibilityRole="button"
-                        accessibilityHint="Release to hide them again"
-                        onPressIn={card.hold}
-                        onPressOut={card.release}
-                        style={({ pressed }) => [styles.hold, pressed && styles.holding]}
+                        accessibilityState={{ selected: card.shown }}
+                        onPress={card.toggle}
+                        style={({ pressed }) => [styles.button, pressed && styles.pressed]}
                     >
-                        <Eye
+                        <ShowIcon
                             size={17}
                             color={theme.colors.foreground}
                             strokeWidth={1.9}
                         />
-                        <Text style={styles.holdLabel}>
-                            {card.keepVisible ? "Words are visible" : card.held ? "Showing the words" : "Hold to show the words"}
-                        </Text>
+                        <Text style={styles.buttonLabel}>{card.shown ? "Hide words" : "Show words"}</Text>
                     </Pressable>
-                    <Text
-                        importantForAccessibility="no"
-                        accessibilityElementsHidden
-                        style={styles.help}
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Copy your 24 words"
+                        onPress={card.copy}
+                        style={({ pressed }) => [styles.button, pressed && styles.pressed]}
                     >
-                        Release to hide them again
-                    </Text>
+                        <CopyIcon
+                            size={17}
+                            color={copyColor}
+                            strokeWidth={card.copied ? 2.2 : 1.9}
+                        />
+                        <Text style={[styles.buttonLabel, { color: copyColor }]}>{card.copied ? "Copied" : "Copy words"}</Text>
+                    </Pressable>
                 </View>
-            </Group>
-            <Group>
-                <SwitchRow
-                    label="Keep words visible"
-                    value={card.keepVisible}
-                    onValueChange={card.setKeepVisible}
-                />
-            </Group>
-        </View>
+                <Text
+                    accessibilityLiveRegion="polite"
+                    style={styles.note}
+                >
+                    {card.copied ? "In your clipboard — paste it somewhere safe, then clear it." : "Copy works even while the words are hidden."}
+                </Text>
+            </View>
+        </Group>
     )
 }
 
 const styles = StyleSheet.create((theme) => ({
-    stack: { gap: 14 },
-    card: {
-        paddingHorizontal: 16,
-        paddingVertical: 14,
-    },
+    card: { padding: 16 },
     grid: {
         flexDirection: "row",
         flexWrap: "wrap",
         rowGap: 6,
     },
+    blurred: { filter: [{ blur: 7 }] },
     cell: {
         width: "50%",
         minHeight: 26,
         flexDirection: "row",
         alignItems: "baseline",
         gap: 8,
+        paddingRight: 9,
     },
     number: {
         width: 18,
@@ -93,13 +96,18 @@ const styles = StyleSheet.create((theme) => ({
         fontSize: 11,
         color: theme.colors.mutedForeground,
     },
-    word: (shown: boolean) => ({
+    word: {
         fontFamily: "Azeret Mono",
         fontSize: 14,
-        color: shown ? theme.colors.foreground : theme.colors.mutedForeground,
-    }),
-    hold: {
-        marginTop: 14,
+        color: theme.colors.foreground,
+    },
+    buttons: {
+        flexDirection: "row",
+        gap: 10,
+        marginTop: 16,
+    },
+    button: {
+        flex: 1,
         minHeight: 48,
         flexDirection: "row",
         alignItems: "center",
@@ -108,15 +116,15 @@ const styles = StyleSheet.create((theme) => ({
         borderRadius: 16,
         backgroundColor: theme.colors.surface2,
     },
-    holding: { backgroundColor: theme.colors.surface3 },
-    holdLabel: {
+    pressed: { backgroundColor: theme.colors.surface3 },
+    buttonLabel: {
         fontFamily: "DM Sans",
         fontSize: 15,
-        fontWeight: "500",
+        fontWeight: "700",
         color: theme.colors.foreground,
     },
-    help: {
-        marginTop: 8,
+    note: {
+        marginTop: 10,
         textAlign: "center",
         fontFamily: "Azeret Mono",
         fontSize: 11,
