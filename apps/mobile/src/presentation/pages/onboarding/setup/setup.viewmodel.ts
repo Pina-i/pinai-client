@@ -26,6 +26,7 @@ export function useSetupViewModel() {
     const actorUri = useAppStore((s) => s.user?.actor_uri ?? null)
     const [view, setView] = useState<SetupView>({ kind: "loading", stage: "running" })
     const [saved, setSaved] = useState(false)
+    const [seen, setSeen] = useState(false)
     const [attempt, setAttempt] = useState(0)
 
     useEffect(() => {
@@ -95,5 +96,5 @@ export function useSetupViewModel() {
         setAttempt((n) => n + 1)
     }, [])
 
-    return { view, saved, setSaved, onStart, onRetry, onSignOut: signOut }
+    return { view, saved, setSaved, markSeen: () => setSeen(true), canStart: saved && seen, onStart, onRetry, onSignOut: signOut }
 }

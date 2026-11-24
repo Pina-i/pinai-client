@@ -12,7 +12,7 @@ import { useSetupViewModel } from "./setup.viewmodel"
 export function SetupPage() {
     const insets = useSafeAreaInsets()
     const { theme } = useUnistyles()
-    const { view, saved, setSaved, onStart, onRetry, onSignOut } = useSetupViewModel()
+    const { view, saved, setSaved, markSeen, canStart, onStart, onRetry, onSignOut } = useSetupViewModel()
 
     if (view.kind === "loading") {
         return (
@@ -58,18 +58,33 @@ export function SetupPage() {
     return (
         <View style={styles.screen(insets.top, insets.bottom)}>
             <ScrollView contentContainerStyle={styles.scroll}>
+                {!view.fresh && (
+                    <View style={styles.step}>
+                        <Text style={styles.stepLabel}>Step 2 of 2</Text>
+                        <View
+                            importantForAccessibility="no-hide-descendants"
+                            style={styles.stepBars}
+                        >
+                            <View style={styles.stepBar} />
+                            <View style={styles.stepBar} />
+                        </View>
+                    </View>
+                )}
                 <Text
                     accessibilityRole="header"
                     style={styles.title}
                 >
                     {view.fresh ? "Your new 24 words" : "Save your 24 words"}
                 </Text>
-                <Text style={styles.lede}>
+                <Text style={[styles.lede, styles.intro]}>
                     {view.fresh
                         ? "You started your history over: these words replace the old ones. Your other devices need them to come back."
                         : "On a new phone, with no other device around, they bring your conversation history back. Made on this device — we never see them."}
                 </Text>
-                <WordsCard words={view.words} />
+                <WordsCard
+                    words={view.words}
+                    onSeen={markSeen}
+                />
                 <View style={styles.warning}>
                     <View style={styles.warningIcon}>
                         <TriangleAlert
@@ -79,21 +94,25 @@ export function SetupPage() {
                         />
                     </View>
                     <Text style={styles.warningText}>
-                        Anyone with these words can read your history. Write them on paper — don&apos;t screenshot them.
+                        Anyone with these words can read your history. Write them on paper or keep them in a password manager —
+                        don&apos;t screenshot them.
                     </Text>
                 </View>
-                <Group>
-                    <SwitchRow
-                        label="I've written them down somewhere safe"
-                        value={saved}
-                        onValueChange={setSaved}
-                    />
-                </Group>
+                <View style={styles.saved}>
+                    <Group>
+                        <SwitchRow
+                            label="I've saved them somewhere safe"
+                            value={saved}
+                            onValueChange={setSaved}
+                            minHeight={64}
+                        />
+                    </Group>
+                </View>
             </ScrollView>
             <View style={styles.actions}>
                 <Button
                     label={view.fresh ? "Continue" : "Start using Pīna'i"}
-                    disabled={!saved}
+                    disabled={!canStart}
                     onPress={onStart}
                 />
             </View>
@@ -111,11 +130,34 @@ const styles = StyleSheet.create((theme) => ({
     }),
     centered: { alignItems: "center", justifyContent: "center", gap: 14 },
     body: { flex: 1, justifyContent: "center", gap: 12 },
-    scroll: { gap: 16, paddingTop: 16, paddingBottom: 16 },
+    scroll: { paddingTop: 16, paddingBottom: 16 },
+    step: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        marginBottom: 14,
+    },
+    stepLabel: {
+        fontFamily: "DM Sans",
+        fontSize: 13,
+        color: theme.colors.mutedForeground,
+    },
+    stepBars: {
+        flexDirection: "row",
+        gap: 4,
+        marginLeft: "auto",
+    },
+    stepBar: {
+        width: 22,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: theme.colors.chat,
+    },
     title: {
         fontFamily: "Instrument Serif",
-        fontSize: 32,
-        letterSpacing: -0.48,
+        fontSize: 34,
+        lineHeight: 36,
+        letterSpacing: -0.51,
         color: theme.colors.foreground,
     },
     lede: {
@@ -124,12 +166,15 @@ const styles = StyleSheet.create((theme) => ({
         lineHeight: 22.5,
         color: theme.colors.mutedForeground,
     },
+    intro: { marginTop: 8, marginBottom: 20 },
     warning: {
         flexDirection: "row",
         alignItems: "flex-start",
         gap: 6,
+        marginTop: 8,
         paddingHorizontal: 16,
     },
+    saved: { marginTop: 18 },
     warningIcon: { marginTop: 2 },
     warningText: {
         flex: 1,

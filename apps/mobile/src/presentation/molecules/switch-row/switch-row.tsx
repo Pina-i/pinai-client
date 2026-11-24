@@ -5,10 +5,11 @@ interface SwitchRowProps {
     label: string
     value: boolean
     onValueChange: (value: boolean) => void
+    minHeight?: number
 }
 
 /** A row of a `Group`: what it sets, and its switch. The whole row is the switch, to touch and to a screen reader. */
-export function SwitchRow({ label, value, onValueChange }: SwitchRowProps) {
+export function SwitchRow({ label, value, onValueChange, minHeight = 52 }: SwitchRowProps) {
     const { theme } = useUnistyles()
     return (
         <Pressable
@@ -16,7 +17,7 @@ export function SwitchRow({ label, value, onValueChange }: SwitchRowProps) {
             accessibilityLabel={label}
             accessibilityState={{ checked: value }}
             onPress={() => onValueChange(!value)}
-            style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.row, { minHeight }, pressed && styles.pressed]}
         >
             <Text style={styles.label}>{label}</Text>
             <Switch
@@ -32,7 +33,6 @@ export function SwitchRow({ label, value, onValueChange }: SwitchRowProps) {
 
 const styles = StyleSheet.create((theme) => ({
     row: {
-        minHeight: 52,
         flexDirection: "row",
         alignItems: "center",
         gap: 12,
