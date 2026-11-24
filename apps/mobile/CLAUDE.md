@@ -125,5 +125,17 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
   checked again at a route change and when the app comes back to the front (`AppState`). The `(app)`
   layout shows nothing of the app before the device is known to be in; a failed check is
   `pages/gate-failed` ("Try again", "Sign out"). Out, it sends the device to `/onboarding/setup`,
-  `/new-device` or `/reset` (`GATE_ROUTES`) — stubs (`pages/onboarding-stub`) until 26e–26g. After
-  another account's device was wiped it checks again: the phone keeps no account's messages yet.
+  `/new-device` or `/reset` (`GATE_ROUTES`) — those two stubs (`pages/onboarding-stub`) until 26f–26g.
+  After another account's device was wiped it checks again: the phone keeps no account's messages yet.
+- **"Save your 24 words"** (`/onboarding/setup`, `pages/onboarding/setup/`): the domain's
+  `setUpFirstDeviceUseCase` — a loader by stage, then the words; a start over's new words on the same
+  screen ("Your new 24 words", Continue forgetting them: `dismissNewWords`); a pending key tried again
+  after its delay; another device's key sent where the gate says; a failure with "Try again". "Start
+  using Pīna'i" once "I've written them down somewhere safe" is on, then `/home`, whose gate decides.
+  No copy button: the phone's clipboard is every app's.
+- `molecules/words-card` — the 24 words in two numbered columns, masked until held ("Hold to show the
+  words") or "Keep words visible"; hidden again when the app leaves the front; while a card is up,
+  screenshots and the app switcher's preview are blocked (`expo-screen-capture`, FLAG_SECURE, one key
+  per card). `molecules/switch-row` — a `Group` row that is its switch. `app.config.ts` blocks the
+  storage, photos and screenshot-detection permissions `expo-screen-capture` declares: the app only
+  blocks screenshots, which asks nothing.
