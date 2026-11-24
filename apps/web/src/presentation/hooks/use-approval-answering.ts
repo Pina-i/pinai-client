@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react"
 
-import { POLL_BACKOFF_MS, pollDelay, type AnsweringView, type SeatsView } from "@pinai/domain/models/approval-handshake"
+import { POLL_BACKOFF_MS, pollDelay, type AnsweringView, type DoorSummons, type SeatsView } from "@pinai/domain/models/approval-handshake"
+import type { DeviceId } from "@pinai/domain/models/e2ee"
 import { ApprovalAnswering, type AnswerLock } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
 import { getApprovalRelayPort, getDeviceDirectoryPort, getE2eePort } from "@/ioc"
 import { shareDeps, warnE2ee, warnOf } from "@/presentation/_libs/key-share-deps"
@@ -9,6 +10,9 @@ import { useAppStore } from "@/store/store"
 
 // For the page load: a code tried here is never tried again, whatever mounts the Door.
 const usedCodes = new Set<string>()
+
+// Pushes reach live sessions only: while the Door waits for a device's code, the list is read again too.
+const SUMMONS_REFRESH_MS = 10_000
 
 /** Held for as long as the exchange runs, so one tab answers a request; none where the platform can't tell. */
 const webLock: AnswerLock | undefined =
@@ -82,6 +86,13 @@ export function useApprovalAnsweringRuntime(): ApprovalAnswering | null {
         if (socketUp && controller) controller.refresh().catch(warnOf("reading the approval requests"))
     }, [socketUp, controller])
 
+    const summons = useDoorSummons(controller)
+    useEffect(() => {
+        if (!summons || !controller) return
+        const timer = setInterval(() => void controller.refresh().catch(warnOf("reading the approval requests")), SUMMONS_REFRESH_MS)
+        return () => clearInterval(timer)
+    }, [summons, controller])
+
     const view = useDoorView(controller)
     const seats = useSeats(controller)
     const working = view?.stage === "working" || seats.seat?.stage === "working"
@@ -122,6 +133,21 @@ export function useDoorView(answering: ApprovalAnswering | null): AnsweringView 
     return useSyncExternalStore(answering?.subscribe ?? noSubscription, answering?.snapshot ?? noView)
 }
 
+/** The device the Door was called for while it shows no code yet. */
+export function useDoorSummons(answering: ApprovalAnswering | null): DoorSummons | null {
+    return useSyncExternalStore(answering?.subscribe ?? noSubscription, answering?.summons ?? noSummons)
+}
+
+/** A new device's notice calls the Door for it: its code once it shows one, "Not me" at once. */
+export function summonDoor(device: DoorSummons): void {
+    void shared?.summon(device).catch(warnOf("reading the approval requests"))
+}
+
+/** That device came in another way, or went: the Door waits for it no more. */
+export function unsummonDoor(deviceId: DeviceId): void {
+    shared?.unsummon(deviceId)
+}
+
 /** What the seats read of `answering`: nothing before the Door made it. */
 export function useSeats(answering: ApprovalAnswering | null): SeatsView {
     return useSyncExternalStore(answering?.subscribe ?? noSubscription, answering?.seats ?? noSeats)
@@ -130,4 +156,5 @@ export function useSeats(answering: ApprovalAnswering | null): SeatsView {
 const NO_SEATS: SeatsView = { open: [], atDoor: null, seat: null, busy: false, unsettled: false }
 const noSubscription = () => () => undefined
 const noView = (): AnsweringView | null => null
+const noSummons = (): DoorSummons | null => null
 const noSeats = (): SeatsView => NO_SEATS

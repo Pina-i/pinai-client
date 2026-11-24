@@ -27,8 +27,8 @@ function subscribe(listener: () => void): () => void {
 
 const nothingToWatch = () => () => undefined
 
-/** "asked 2 minutes ago · kauai.studio", read again every 30 s while a request shows. */
-export function useAskedLine(createdAt: string | number | null): string {
+/** "asked 2 minutes ago · kauai.studio" ("signed in …" for a device), read again every 30 s while a request shows. */
+export function useAskedLine(createdAt: string | number | null, verb = "asked"): string {
     const idpUrl = useAppStore((s) => s.idpUrl)
     // A new subscription for each request reads the clock again: never a time from before it showed.
     const watch = useCallback((listener: () => void) => (createdAt === null ? nothingToWatch() : subscribe(listener)), [createdAt])
@@ -36,5 +36,5 @@ export function useAskedLine(createdAt: string | number | null): string {
     const iso = typeof createdAt === "number" ? new Date(createdAt).toISOString() : createdAt
     const since = iso ? formatLastSeen(iso, new Date(Math.max(at, Date.parse(iso)))) : null
     const host = instanceHost(idpUrl)
-    return `asked ${since ?? "just now"}${host ? ` · ${host}` : ""}`
+    return `${verb} ${since ?? "just now"}${host ? ` · ${host}` : ""}`
 }

@@ -28,6 +28,7 @@ import {
     type HandshakeDeps,
 } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
 import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstrap-first-device.usecase"
+import { summonDoor } from "@/presentation/hooks/use-approval-answering"
 import { ApprovalDoor } from "@/presentation/organisms/ApprovalDoor/ApprovalDoor"
 import {
     doorTitle,
@@ -204,6 +205,57 @@ describe("the Door's controller", () => {
         // A tab that missed the push answers, is told it's taken, and lets the request go.
         await late.answer(codeOf(asker.state))
         expect(late.snapshot()).toBeNull()
+    })
+
+    it("called for a device that asked nothing yet, waits for it, then shows its request", async () => {
+        const { laptop, phone, net } = await account()
+        const prompt = door(net, laptop)
+        await prompt.refresh()
+
+        await prompt.summon({ deviceId: phone.storage.deviceId, displayName: "Chrome on Android" })
+        expect(prompt.snapshot()).toBeNull()
+        expect(prompt.summons()).toEqual({ deviceId: phone.storage.deviceId, displayName: "Chrome on Android" })
+
+        await asking(net, phone)
+        await prompt.onPush(requested(net, phone))
+        expect(prompt.snapshot()).toMatchObject({ request: { deviceId: phone.storage.deviceId }, stage: "entry" })
+        expect(prompt.summons()).toBeNull()
+    })
+
+    it("called for a device, shows its request again after it was set aside", async () => {
+        const { laptop, phone, net } = await account()
+        await asking(net, phone)
+        const prompt = door(net, laptop)
+        await prompt.refresh()
+        await prompt.dismiss()
+        expect(prompt.snapshot()).toBeNull()
+
+        await prompt.summon({ deviceId: phone.storage.deviceId, displayName: "Chrome on Android" })
+
+        expect(prompt.snapshot()).toMatchObject({ request: { deviceId: phone.storage.deviceId }, stage: "entry" })
+    })
+
+    it("called for one device, shows no other's request until it closes, and waits no more once that device is in", async () => {
+        const { idp, laptop, phone, net } = await account()
+        const tablet = historyDevice(idp, "tablet", new MemoryHistoryStorage(), issuers.jwks)
+        net.enrol(tablet, "Galaxy Tab")
+        await asking(net, tablet)
+        const prompt = door(net, laptop)
+        await prompt.refresh()
+        expect(prompt.snapshot()?.request.deviceId).toBe(tablet.storage.deviceId)
+
+        await prompt.summon({ deviceId: phone.storage.deviceId, displayName: "Chrome on Android" })
+        expect(prompt.snapshot()).toBeNull()
+        expect(prompt.summons()?.deviceId).toBe(phone.storage.deviceId)
+
+        prompt.unsummon(phone.storage.deviceId)
+        expect(prompt.summons()).toBeNull()
+        expect(prompt.snapshot()?.request.deviceId).toBe(tablet.storage.deviceId)
+
+        await prompt.summon({ deviceId: phone.storage.deviceId, displayName: "Chrome on Android" })
+        await prompt.dismiss()
+        expect(prompt.summons()).toBeNull()
+        expect(prompt.snapshot()?.request.deviceId).toBe(tablet.storage.deviceId)
     })
 
     it("leaves an unanswered request alone when closed, and ends one it took part in", async () => {
@@ -401,6 +453,28 @@ describe("the Door's view model", () => {
         })
         return null
     }
+
+    it("opens for a device a notice calls it for, waits for its code, then takes it", async () => {
+        const { laptop, phone, net } = await account()
+        signIn(laptop, net.deps(laptop))
+        await render(Door)
+        await advance(50)
+        expect(vm.isOpen).toBe(false)
+
+        await act(async () => summonDoor({ deviceId: phone.storage.deviceId, displayName: "Chrome on Android" }))
+        await until(() => vm.isOpen)
+        expect(vm.waiting).toBe(true)
+        expect(vm.device).toBe("Chrome on Android")
+        expect(vm.asked).toMatch(/^signed in .+ · idp\.test$/)
+
+        await asking(net, phone)
+        await until(() => vm.view?.stage === "entry", 1_000)
+        expect(vm.waiting).toBe(false)
+        expect(vm.asked).toBe("asked just now · idp.test")
+
+        await act(async () => vm.onClose())
+        await until(() => !vm.isOpen)
+    })
 
     it("names the device asking and when it asked, and takes six digits, pasted or typed", async () => {
         const { laptop, phone, net } = await account()

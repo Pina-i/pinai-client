@@ -1,7 +1,7 @@
 /**
  * A device nobody approved, told outside Settings → Devices (`identity-provider/specs/e2ee.md § 3.9`):
  * one toast the first time this device sees it — not again for a review, a remount or a reload —,
- * with the way to Settings → Devices, gone once it no longer stands. The review is the real engine's.
+ * whose "Review" calls the Door for it, gone once it no longer stands. The review is the real engine's.
  */
 import { RouterProvider, createMemoryHistory, createRootRoute, createRouter, type AnyRouter } from "@tanstack/react-router"
 import { act, createElement } from "react"
@@ -16,8 +16,10 @@ import { FakeIssuers, approvedBy, approvedByPassphrase, listedDevice, testDevice
 
 const wired = vi.hoisted(() => ({ e2ee: null as unknown }))
 const toast = vi.hoisted(() => Object.assign(vi.fn(), { dismiss: vi.fn() }))
+const door = vi.hoisted(() => ({ summonDoor: vi.fn(), unsummonDoor: vi.fn() }))
 vi.mock("@/ioc", () => ({ getE2eePort: () => wired.e2ee, getAuthPort: vi.fn(), getAuthPlatform: vi.fn() }))
 vi.mock("sonner", () => ({ toast }))
+vi.mock("@/presentation/hooks/use-approval-answering", () => door)
 
 const issuers = new FakeIssuers()
 
@@ -63,6 +65,8 @@ beforeEach(() => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined)
     toast.mockReset()
     toast.dismiss.mockReset()
+    door.summonDoor.mockReset()
+    door.unsummonDoor.mockReset()
 })
 
 afterEach(async () => {
@@ -71,13 +75,12 @@ afterEach(async () => {
 })
 
 describe("a device nobody approved, told outside the pane", () => {
-    it("is told once, with the way to Settings → Devices, and taken back once approved", async () => {
+    it("is told once, its Review calling the Door for it, and taken back once approved", async () => {
         const { laptop, self, laptopRow } = await account()
         wired.e2ee = laptop.e2ee
         const phone = testDevice(issuers, ACTOR)
         const phoneRow = listedDevice(phone, [], { display_name: "Chrome on Android" })
         await render()
-        const told = router
 
         await act(async () => void (await laptop.e2ee.reviewDevices(IDP, laptop.token, ACTOR, [laptopRow, phoneRow])))
         await act(async () => void (await laptop.e2ee.reviewDevices(IDP, laptop.token, ACTOR, [laptopRow, phoneRow])))
@@ -87,13 +90,14 @@ describe("a device nobody approved, told outside the pane", () => {
         expect(toast).toHaveBeenCalledTimes(1)
         const [message, options] = toast.mock.calls[0] as [string, { id: string; action: { label: string; onClick: () => void } }]
         expect(message).toBe("New device not approved: Chrome on Android. Not you? Sign it out.")
-        expect(options.action.label).toBe("Open Devices")
+        expect(options.action.label).toBe("Review")
         await act(async () => options.action.onClick())
-        await vi.waitFor(() => expect(told.history.location.search).toBe("?settings=devices"))
+        expect(door.summonDoor).toHaveBeenCalledWith({ deviceId: phone.deviceId, displayName: "Chrome on Android" })
 
         const approved = { ...phoneRow, approvals: [approvedBy(self, phone)] }
         await act(async () => void (await laptop.e2ee.reviewDevices(IDP, laptop.token, ACTOR, [laptopRow, approved])))
         expect(toast.dismiss).toHaveBeenCalledWith(options.id)
+        expect(door.unsummonDoor).toHaveBeenCalledWith(phone.deviceId)
     })
 
     it("tells nothing of a device seen before this page load", async () => {

@@ -1,5 +1,5 @@
-import { useQueryClient } from "@tanstack/react-query"
-import { useCallback, useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useCallback, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 import { codeDigits, isWholeCode, type AnsweringView } from "@pinai/domain/models/approval-handshake"
@@ -8,7 +8,7 @@ import { getDeviceDirectoryPort, getE2eePort } from "@/ioc"
 import { refusalWording } from "@/presentation/_libs/approval-wording"
 import { devicesQueryKey } from "@/presentation/hooks/useDevices"
 import { warnOf as warn } from "@/presentation/_libs/key-share-deps"
-import { useApprovalAnsweringRuntime, useDoorView } from "@/presentation/hooks/use-approval-answering"
+import { useApprovalAnsweringRuntime, useDoorSummons, useDoorView } from "@/presentation/hooks/use-approval-answering"
 import { useAskedLine } from "@/presentation/hooks/use-asked-line"
 import { type RecentSignIn, useRecentSignIn } from "@/presentation/hooks/use-recent-sign-in"
 import { useAppStore } from "@/store/store"
@@ -23,6 +23,10 @@ export function doorTitle(view: AnsweringView | null): string {
 
 export interface ApprovalDoorViewModel {
     view: AnsweringView | null
+    /** Up: a request shows, or a notice called the Door for a device. */
+    isOpen: boolean
+    /** Called for a device that shows no code yet: the Door waits for it. */
+    waiting: boolean
     /** The device asking, by name. */
     device: string
     /** "asked 2 minutes ago · kauai.studio" */
@@ -55,6 +59,7 @@ export function useApprovalDoorViewModel(): ApprovalDoorViewModel {
 
     const controller = useApprovalAnsweringRuntime()
     const view = useDoorView(controller)
+    const summons = useDoorSummons(controller)
     const requestId = view?.request.id ?? null
     // Typed for one request: a new request starts empty.
     const [typed, setTyped] = useState<{ requestId: string | null; code: string; error: string | null }>({
@@ -66,6 +71,14 @@ export function useApprovalDoorViewModel(): ApprovalDoorViewModel {
     const error = typed.requestId === requestId ? typed.error : null
     const [isSigningOut, setIsSigningOut] = useState(false)
     const asked = useAskedLine(view?.request.createdAt ?? null)
+    const { data: devices } = useQuery({
+        queryKey: devicesQueryKey(idpUrl ?? ""),
+        queryFn: async () => (await getDeviceDirectoryPort().listDevices(idpUrl!, useAppStore.getState().accessToken!)).devices,
+        enabled: summons !== null && !!idpUrl,
+    })
+    const signedIn = useAskedLine(devices?.find((d) => d.device_id === summons?.deviceId)?.paired_at ?? null, "signed in")
+    // The device asking, or the one the Door was called for.
+    const target = useMemo(() => (view ? { deviceId: view.request.deviceId, displayName: view.request.displayName } : summons), [view, summons])
 
     const onApprove = useCallback(() => {
         if (!controller || !isWholeCode(code)) return
@@ -78,31 +91,33 @@ export function useApprovalDoorViewModel(): ApprovalDoorViewModel {
 
     const onNotMe = useCallback(async () => {
         const token = useAppStore.getState().accessToken
-        if (!view || !idpUrl || !token || !actorUri || !controller) return
+        if (!target || !idpUrl || !token || !actorUri || !controller) return
         setIsSigningOut(true)
         try {
             await revokeDeviceUseCase({ e2eePort: getE2eePort(), deviceDirectoryPort: getDeviceDirectoryPort() })({
                 idpUrl,
                 accessToken: token,
                 actorUri,
-                deviceId: view.request.deviceId,
+                deviceId: target.deviceId,
                 conversationIds: localDmConvos.map((c) => c.id),
             })
             await controller.dismiss()
             await queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
-            toast.success(`${view.request.displayName || "That device"} is signed out`)
+            toast.success(`${target.displayName || "That device"} is signed out`)
         } catch (e) {
             if (refused(e, "sign that device out")) return
             toast.error(e instanceof Error ? e.message : "Couldn't sign it out")
         } finally {
             setIsSigningOut(false)
         }
-    }, [view, idpUrl, actorUri, controller, localDmConvos, queryClient, refused])
+    }, [target, idpUrl, actorUri, controller, localDmConvos, queryClient, refused])
 
     return {
         view,
-        device: view?.request.displayName.trim() || "A device",
-        asked,
+        isOpen: view !== null || summons !== null,
+        waiting: view === null && summons !== null,
+        device: target?.displayName.trim() || "A device",
+        asked: view ? asked : signedIn,
         title: doorTitle(view),
         code,
         setCode: (text: string) => setTyped({ requestId, code: codeDigits(text), error: null }),
