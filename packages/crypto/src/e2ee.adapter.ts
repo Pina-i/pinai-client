@@ -112,6 +112,7 @@ import type { HpkeKeyPair, IHpkePort } from "@pinai/domain/ports/hpke.port"
 import type { IJwksCachePort } from "@pinai/domain/ports/jwks-cache.port"
 
 import { ApprovalHandshake, newApprovalCode } from "./approval-handshake"
+import { type Argon2id, nobleArgon2id } from "./argon2"
 import {
     attestedUntil,
     checkListedDevices,
@@ -223,6 +224,7 @@ export class E2eeAdapter implements IE2eePort {
     // IoC provides these in production; tests can omit.
     private readonly historyArchive: IHistoryArchivePort | null
     private readonly historyCrypto: HistoryArchiveAdapter | null
+    private readonly argon2id: Argon2id
 
     constructor(
         identity: IdentityAdapter,
@@ -233,6 +235,7 @@ export class E2eeAdapter implements IE2eePort {
         jwks: IJwksCachePort,
         historyArchive: IHistoryArchivePort | null = null,
         historyCrypto: HistoryArchiveAdapter | null = null,
+        argon2id: Argon2id = nobleArgon2id,
     ) {
         this.identity = identity
         this.mls = mls
@@ -242,6 +245,7 @@ export class E2eeAdapter implements IE2eePort {
         this.jwks = jwks
         this.historyArchive = historyArchive
         this.historyCrypto = historyCrypto
+        this.argon2id = argon2id
     }
 
     // ─── Device Root Key attestation ─────────────────────────────────
@@ -2118,7 +2122,7 @@ export class E2eeAdapter implements IE2eePort {
         if (!attestation?.hpke) throw new Error("This device has no root key or HPKE key yet")
         const deviceId = await this.storage.getOrCreateDeviceId()
         const own = { rootKey: attestation.drk_public, hpkeKey: attestation.hpke.public_key }
-        return ApprovalHandshake.start({ ...input, deviceId, own })
+        return ApprovalHandshake.start({ ...input, deviceId, own, argon2id: this.argon2id })
     }
 
     async checkHandshakePeer(
