@@ -3,7 +3,19 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import { clockLeadOf } from "@pinai/domain/models/auth"
 import type { DeviceId } from "@pinai/domain/models/e2ee"
-import { heldBack, holdAfterRefusal, startOverReady, type FinishHold, type StartOverRead } from "@pinai/domain/models/start-over"
+import {
+    endedNote,
+    heldBack,
+    holdAfterRefusal,
+    readyAtOnce,
+    sightStartOver,
+    startOverReady,
+    startOverStage,
+    type FinishHold,
+    type StartOverRead,
+    type StartOverSighting,
+    type StartOverStage,
+} from "@pinai/domain/models/start-over"
 import { askToStartOverUseCase, endStartOverUseCase } from "@pinai/domain/usecases/e2ee/start-over-request.usecase"
 import { startOverUseCase } from "@pinai/domain/usecases/e2ee/start-over.usecase"
 import { getE2eePort, getHistoryArchivePort, getKeySharePort, getSessionPort, getStartOverPort } from "@/ioc"
@@ -52,11 +64,9 @@ export const START_OVER_NOTICES: Record<StartOverNotice, string> = {
     superseded: "One of your approved devices set new words, which ended your request to start over.",
 }
 
-type Stage = "loading" | "choice" | "waiting" | "ready" | "elsewhere"
-
 export interface StartOverPanelViewModel {
     /** `choice`: the warning and "Erase and start over"; the others follow this device's request. */
-    stage: Stage
+    stage: StartOverStage
     /** While it waits: the day and hour it may finish, as the reader writes them. */
     readyOn: string | null
     /** The IdP said "not yet" to a finish this device's clock thought due. */
@@ -259,11 +269,10 @@ export function useStartOverPanelViewModel({
     }, [idpUrl, requestId, refetch, holdStill])
 
     // Seen open here, then approved or superseded: the holder says so and checks. After a reload, the gate already decided.
-    const [seen, setSeen] = useState<{ open: string | null; told: string | null }>({ open: null, told: null })
-    if ((state?.kind === "waiting" || state?.kind === "ready") && seen.open !== state.request.id) setSeen({ ...seen, open: state.request.id })
-    const endedSeen = (state?.kind === "approved" || state?.kind === "superseded") && seen.open === state.request.id ? state : null
-    if (endedSeen && seen.told !== endedSeen.request.id) setSeen({ ...seen, told: endedSeen.request.id })
-    const tellKind = endedSeen && seen.told === endedSeen.request.id ? endedSeen.kind : null
+    const [seen, setSeen] = useState<StartOverSighting>({ open: null, told: null })
+    const sighted = sightStartOver(seen, state)
+    if (sighted.seen !== seen) setSeen(sighted.seen)
+    const tellKind = sighted.tell
     const tell = useRef(onWentOtherwise)
     useEffect(() => {
         tell.current = onWentOtherwise
@@ -272,25 +281,14 @@ export function useStartOverPanelViewModel({
         if (tellKind) tell.current(tellKind)
     }, [tellKind, seen.told])
 
-    const stage: Stage = !ready
-        ? "choice"
-        : state === null
-          ? own.failed
-              ? "choice"
-              : "loading"
-          : held
-            ? "waiting"
-            : state.kind === "waiting" || state.kind === "ready" || state.kind === "elsewhere"
-              ? state.kind
-              : "choice"
+    const stage = startOverStage({ mayAsk: ready, state, readFailed: own.failed, held })
 
     return {
         stage,
         readyOn: stage === "waiting" && request ? momentLabel(held && hold ? hold.readyAt : request.readyAt) : null,
         notYet: held,
-        readyAtOnce: state?.kind === "ready" && state.request.readyAt <= state.request.createdAt,
-        // A superseded request the holder was told of is said there.
-        ended: state?.kind === "cancelled" ? "cancelled" : state?.kind === "superseded" && tellKind === null ? "superseded" : null,
+        readyAtOnce: readyAtOnce(state),
+        ended: endedNote(state, tellKind),
         tooMany,
         asking,
         starting,
