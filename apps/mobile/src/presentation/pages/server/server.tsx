@@ -1,8 +1,9 @@
-import { ChevronRight, Globe, Search } from "lucide-react-native"
+import { Check, ChevronRight, Globe, Search } from "lucide-react-native"
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native"
 import { StyleSheet, useUnistyles } from "react-native-unistyles"
 import { InitialTile } from "@/presentation/atoms/initial-tile/initial-tile"
 import { Group, GroupFooter, GroupHeader, GroupRow } from "@/presentation/molecules/group/group"
+import { tint } from "@/theme/tint"
 import { useServerViewModel } from "./server.viewmodel"
 
 /** "Your server": the address typed, or one this phone signed in to before. */
@@ -99,20 +100,44 @@ export function ServerSheet() {
                             {vm.list.rows.map((row) => (
                                 <GroupRow
                                     key={row.address.origin}
-                                    minHeight={64}
+                                    minHeight={0}
                                     onPress={() => vm.pick(row.address, row.info)}
-                                    accessibilityLabel={`${row.name}, ${row.meta}`}
+                                    accessibilityLabel={row.label}
+                                    style={[styles.instance, row.found && styles.found]}
                                 >
-                                    <InitialTile>{row.initial}</InitialTile>
-                                    <View style={styles.rowText}>
-                                        <Text style={styles.name}>{row.name}</Text>
-                                        <Text style={styles.meta}>{row.meta}</Text>
+                                    {row.found && <View style={styles.foundEdge} />}
+                                    <InitialTile accent={row.found ? theme.colors.online : undefined}>{row.initial}</InitialTile>
+                                    <View style={styles.instanceText}>
+                                        <View style={styles.nameLine}>
+                                            <Text style={styles.name}>{row.name}</Text>
+                                            {row.found && (
+                                                <Check
+                                                    size={15}
+                                                    color={theme.colors.online}
+                                                    strokeWidth={2.4}
+                                                />
+                                            )}
+                                        </View>
+                                        {row.description && (
+                                            <Text
+                                                numberOfLines={2}
+                                                style={styles.description}
+                                            >
+                                                {row.description}
+                                            </Text>
+                                        )}
+                                        <Text style={styles.facts}>
+                                            {row.address.host} ·{" "}
+                                            <Text style={row.found && row.info ? styles.foundRegistration(row.info.openRegistrations) : undefined}>{row.registration}</Text>
+                                        </Text>
                                     </View>
-                                    <ChevronRight
-                                        size={18}
-                                        color={theme.colors.mutedForeground}
-                                        strokeWidth={1.9}
-                                    />
+                                    <View style={styles.chevron}>
+                                        <ChevronRight
+                                            size={18}
+                                            color={theme.colors.mutedForeground}
+                                            strokeWidth={1.9}
+                                        />
+                                    </View>
                                 </GroupRow>
                             ))}
                         </Group>
@@ -186,11 +211,57 @@ const styles = StyleSheet.create((theme) => ({
         fontWeight: "500",
         color: theme.colors.foreground,
     },
+    instance: {
+        alignItems: "flex-start",
+        paddingVertical: 14,
+    },
+    found: {
+        backgroundColor: tint(theme.colors.online, 0.09),
+    },
+    foundEdge: {
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        left: 0,
+        width: 3,
+        backgroundColor: theme.colors.online,
+    },
+    instanceText: {
+        flex: 1,
+        minWidth: 0,
+        gap: 3,
+    },
+    nameLine: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+    },
     name: {
         fontFamily: "DM Sans",
         fontSize: 16,
         fontWeight: "700",
         color: theme.colors.foreground,
+    },
+    description: {
+        fontFamily: "DM Sans",
+        fontSize: 13.5,
+        lineHeight: 19,
+        color: theme.colors.mutedForeground,
+    },
+    facts: {
+        marginTop: 2,
+        fontFamily: "Azeret Mono",
+        fontSize: 10.5,
+        letterSpacing: 0.21,
+        color: theme.colors.mutedForeground,
+        opacity: 0.8,
+    },
+    foundRegistration: (open: boolean) => ({
+        fontWeight: "500",
+        color: open ? theme.colors.online : theme.colors.idle,
+    }),
+    chevron: {
+        alignSelf: "center",
     },
     meta: {
         fontFamily: "Azeret Mono",
