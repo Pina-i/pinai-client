@@ -395,6 +395,16 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
 - `ShareWait` (`share-wait.usecase.ts`) — `AwaitedShare` read on its backoff while a `Visibility`
   says the app is in front (a page's visibility, an app's state), at once when it comes back;
   `device_mismatch` ending the wait signs in again, any other end is warned of.
+- The new-device and reset page (`models/restore-page.ts`, its `RestoreVariant` and `RestoreTab`):
+  `offersWayIn` (never on a reset no start over explains), `offersStartOver` / `shownTab` (no Start
+  over for a device already in), `listensForShare` (set up, lacking the words, no start over or new
+  words holding the page), `openingTab` (a request of this device's waiting, matured, cancelled or
+  superseded opens Start over), `shareRefused`. `enterRestorePageUseCase`
+  (`enter-restore-page.usecase.ts`, `RestorePageEntry`) — as it opens: a pending key → `go` setup, a
+  start over's new words, else the device set up (`onDeviceReady` at once), then whether it is in
+  and lacks the words, with a reset's cause and, after a newer generation, the device found approved
+  that set it — named (`replacedOn`) and refused; the reset page sends a device let in back `home`;
+  an unknown change the gate recorded is said at once (`onEarlyCause`).
 - `registerIdentityUseCase` publishes KeyPackages (`IE2eePort.register`) only once in,
   and answers the admission; a flow that has just decided it (`bootstrap-first-device`,
   `restore-history-from-passphrase`) passes it in, recorded, not read again. Paths: the
