@@ -103,3 +103,27 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
   - `?phase=read` reads everything back and checks Bob reads what Alice writes, then deletes it all.
   - Each phase logs its `[storage-check] restart: …` line whatever happens to the screen: a launch may
     send the app elsewhere.
+
+## This device
+
+- **The account's E2EE core** (`src/ioc/index.ts`): `openAccountE2ee(actorUri)` builds one `E2eeAdapter`
+  per account — the native MLS engine (its HPKE too), `createSealedStorage`, `KeyDirectoryApiAdapter`
+  with the device's label, the `@pinai/api` ports, `JwksCache` over the kv-store (`kvStrings`), native
+  Argon2id for the history key and the code. One at a time: its engine holds the account's groups in
+  memory; another account replaces it (the previous account's stores stay open, its files untouched).
+  `getE2eePort()` throws before one is open; `getPendingKeyLock()` is the account's `inProcessLock` —
+  one process, no tabs, but flows that mustn't overlap.
+- **Its name**: `ExpoDeviceFactsAdapter` (`expo-device`) gives the domain's `PhoneFacts` — the model,
+  phone or tablet, the name its owner gave it —, which `composeDeviceLabel` turns into "Pixel 9 Pro
+  (Kilian's phone)", as the desktop app names a computer.
+- `presentation/_libs/this-device.ts` — `enterAccount(actorUri)`: the core opened, then the domain's
+  `ThisDeviceStart` (once settled, a run; again at the next call while the IdP is out of reach). Every
+  signed-in screen calls it: the gate, and `src/app/onboarding/_layout.tsx`. `_libs/admission-deps.ts`,
+  `_libs/device-mismatch.ts` (the domain's sign-in-again rule: the session ended, the system's sheet
+  opened again) and `_libs/warn-e2ee.ts` (`[e2ee]` lines in the device's log) are what the flows take.
+- **The gate** (`presentation/hooks/use-onboarding-gate.ts`): the domain's `OnboardingGate` — once in,
+  checked again at a route change and when the app comes back to the front (`AppState`). The `(app)`
+  layout shows nothing of the app before the device is known to be in; a failed check is
+  `pages/gate-failed` ("Try again", "Sign out"). Out, it sends the device to `/onboarding/setup`,
+  `/new-device` or `/reset` (`GATE_ROUTES`) — stubs (`pages/onboarding-stub`) until 26e–26g. After
+  another account's device was wiped it checks again: the phone keeps no account's messages yet.
