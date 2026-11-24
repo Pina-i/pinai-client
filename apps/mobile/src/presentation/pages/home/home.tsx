@@ -59,7 +59,6 @@ export function HomePage() {
                         name={name}
                         seed={user.address}
                         imageUrl={user.avatar_url}
-                        status={status}
                     />
                     <View style={styles.meText}>
                         <Text
