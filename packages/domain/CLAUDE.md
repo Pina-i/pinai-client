@@ -226,8 +226,9 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
 - The device names itself: `composeDeviceLabel(facts)` makes the `label` its registration and
   uploads carry (the web's `KeyDirectoryApiAdapter` is given it), so every platform's quirks stay
   on the client. `DeviceFacts` is a union by `client`, one branch a kind of client: `browser` (the
-  `User-Agent`, Chromium's hints or `null`) and `app` (`ComputerFacts`: the system, the
-  computer's model and name, as the desktop app's main process reads them).
+  `User-Agent`, Chromium's hints or `null`), `app` (`ComputerFacts`: the system, the
+  computer's model and name, as the desktop app's main process reads them) and `phone-app`
+  (`PhoneFacts`: the mobile app's system, phone or tablet, model and the name its owner gave it).
 - The desktop app: the model, else the system, then the computer's name in brackets —
   "Lenovo ThinkPad X1 Carbon Gen 9 (alice-thinkpad)", "Windows (alice-pc)", "Linux"; the computer's
   name alone when it holds the model, as whole words ("Alice's MacBook Air"; "iMac" is not in
@@ -235,6 +236,9 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   card's icon says it; `laptop`, `app`. Past 100 characters the computer's name is shortened with
   "…", its bracket kept. `desktopOsOf` — the system the app's `User-Agent` names, for what it
   knows before its main process answers.
+- The mobile app: the same rule (`appName`) — the model, else the system, then the name its owner
+  gave the phone in brackets, or that name alone when it holds the model ("Pixel 9 Pro (Kilian's
+  phone)", "Ana's Galaxy S24", "Android"); `phone` or `tablet`, `app`.
 - A browser: "<browser> on <system>" from the `User-Agent`. Close to the IdP's own reading of one,
   not the same: ChromeOS is named, and Edge and Opera on Android too, where the IdP says Chrome.
   Chromium's hints put an Android model in the system's place (`SM-` codes get "Samsung";

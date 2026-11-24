@@ -946,9 +946,10 @@ for the full design.
 
 ### New adapters
 
-- **`apps/web/src/adapters/jwks/jwks-cache.adapter.ts`** — `JwksCacheAdapter`.
-  Lazy fetch of `<issuer>/.well-known/jwks.json` with 1-hour
-  `localStorage` TTL, in-flight dedup per issuer, refresh-on-
+- **`@pinai/api/e2ee/jwks-cache.adapter.ts`** — `JwksCache` (the web's `JwksCacheAdapter` over
+  `localStorage`, the phone's over its kv-store).
+  Lazy fetch of `<issuer>/.well-known/jwks.json` with a 1-hour
+  TTL in the storage it's given, in-flight dedup per issuer, refresh-on-
   invalidate for IdP key-rotation safety. Returns raw 32-byte
   Ed25519 public keys ready for `@noble/curves` verify.
 - **`attestation-chain.adapter.ts`** — pure
