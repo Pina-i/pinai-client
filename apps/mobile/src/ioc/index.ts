@@ -1,4 +1,5 @@
 import { OidcAdapter } from "@pinai/api/auth/oidc.adapter"
+import { ApprovalRelayApiAdapter } from "@pinai/api/device-directory/approval-relay-api.adapter"
 import { DeviceDirectoryApiAdapter } from "@pinai/api/device-directory/device-directory-api.adapter"
 import { HistoryArchiveApiAdapter } from "@pinai/api/e2ee/history-archive-api.adapter"
 import { JwksCache } from "@pinai/api/e2ee/jwks-cache.adapter"
@@ -16,6 +17,7 @@ import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
 import { SealedStorage } from "@pinai/crypto/sealed-storage"
 import type { ActorUri } from "@pinai/domain/models/e2ee"
 import { appearanceHints, resolveMode } from "@pinai/domain/models/user-settings"
+import type { IApprovalRelayPort } from "@pinai/domain/ports/approval-relay.port"
 import type { AuthPlatform, IAuthPort } from "@pinai/domain/ports/auth.port"
 import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
@@ -148,6 +150,7 @@ const deviceDirectoryPort: IDeviceDirectoryPort = new DeviceDirectoryApiAdapter(
 const historyArchivePort: IHistoryArchivePort = new HistoryArchiveApiAdapter()
 const keySharePort: IKeySharePort = new KeyShareApiAdapter()
 const startOverPort: IStartOverPort = new StartOverApiAdapter()
+const approvalRelayPort: IApprovalRelayPort = new ApprovalRelayApiAdapter()
 const deviceLabel: ThisDeviceLabel = thisDeviceLabel(new ExpoDeviceFactsAdapter())
 const jwksCache = new JwksCache(kvStrings)
 
@@ -203,6 +206,10 @@ export function getKeySharePort(): IKeySharePort {
 
 export function getStartOverPort(): IStartOverPort {
     return startOverPort
+}
+
+export function getApprovalRelayPort(): IApprovalRelayPort {
+    return approvalRelayPort
 }
 
 export function getThisDeviceLabel(): ThisDeviceLabel {
