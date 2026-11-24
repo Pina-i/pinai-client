@@ -85,3 +85,19 @@ fn hpke_seals_what_its_key_pair_opens() {
     assert_eq!(opened, b"the 24 words");
     assert!(matches!(hpke_seal(vec![0; 32], vec![], vec![], vec![1]), Err(MlsFailure::Refused(_))));
 }
+
+#[test]
+fn argon2id_gives_the_reference_vector() {
+    let answer = argon2id(b"password".to_vec(), b"somesalt".to_vec(), 2, 1 << 16, 1, 32).unwrap();
+    assert_eq!(answer, hex_to_bytes("09316115d5cf24ed5a15a31a3ba326e5cf32edc24702987c02b6566f61913cf7"));
+}
+
+#[test]
+fn argon2id_refuses_a_setting_argon2_does_not_allow() {
+    assert!(argon2id(b"pinai".to_vec(), vec![1; 16], 1, 4, 1, 32).is_err());
+    assert!(argon2id(b"pinai".to_vec(), vec![1; 16], 0, 64, 1, 32).is_err());
+}
+
+fn hex_to_bytes(text: &str) -> Vec<u8> {
+    (0..text.len()).step_by(2).map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap()).collect()
+}

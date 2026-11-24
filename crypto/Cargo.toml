@@ -20,6 +20,8 @@ zeroize                  = "1.8"
 thiserror                = "2"
 # The facade and its generator at one exact version: generated bindings check the library's.
 uniffi                   = { version = "=0.32.2" }
+# The phone's Argon2id (openmls-native): byte for byte what @noble gives the web.
+argon2                   = { version = "=0.5.3", default-features = false, features = ["alloc"] }
 
 wasm-bindgen             = "0.2"
 js-sys                   = "0.3"

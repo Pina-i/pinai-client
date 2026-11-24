@@ -8,6 +8,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use openmls_core::{self as mls, IncomingGroupInfo, IncomingMessage, IncomingWelcome, MlsError, RatchetTree};
 
+mod kdf;
+
+pub use kdf::argon2id;
+
 uniffi::setup_scaffolding!();
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
