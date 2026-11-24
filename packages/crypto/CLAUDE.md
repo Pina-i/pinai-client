@@ -90,6 +90,9 @@ Three collaborators could not come, and the shape of each is the mobile work:
   IndexedDB or a spy shows stays in `storage-adapter.spec.ts` (set-aside rows by name, a store before sign-in,
   other tabs) and `device-key.spec.ts` (non-extractable, never exposed, never minted over a key that failed to
   read).
+- **`recovery-words.ts`** — the 24 words' completeness (`RECOVERY_WORD_COUNT`, `WORDLIST_SET`,
+  `isPassphraseComplete`: every slot a BIP-39 word): here, not in the domain, because it reads the
+  BIP-39 list. The web's passphrase input and the phone's words field share it.
 - **`argon2.ts`** — `Argon2id`, the function the history key (`HistoryArchiveAdapter`, the 24 words) and the
   approval code (`codeScalar` / `ApprovalHandshake.start`, given `E2eeAdapter`'s 9th parameter) derive with;
   `nobleArgon2id` by default. A parameter because the phone computes it natively: in JavaScript on Hermes the

@@ -16,9 +16,11 @@ an index: most of the models, ports and use cases are exactly what their
 names say, and listing all fifty-odd would age badly and help nobody.
 
 `tsconfig.json` explains the one compromise: `DOM` is in `lib` because `URL`,
-`URLSearchParams`, `AbortSignal` and `atob` have no smaller lib to come from.
-Those four are the entire platform surface this package assumes, and eslint
-blocks the browser-only globals that admitting `DOM` would otherwise allow.
+`URLSearchParams`, `AbortSignal`, `atob`, `TextEncoder` / `TextDecoder` and the
+timers (`setTimeout` / `clearTimeout`: `ShareWait`) have no smaller lib to come from.
+They are the entire platform surface this package assumes — all present in browsers,
+on Hermes and in Node —, and eslint blocks the browser-only globals that admitting
+`DOM` would otherwise allow.
 
 ## Modules
 
@@ -381,6 +383,18 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   the IdP (an `IdpError`: a revoked device); `device_mismatch` signs in afresh; anything else — the
   IdP out of reach — is tried at the next `run()`. A failed registration or history-key check is
   warned of.
+- The onboarding pages' sequences, over the functions they're given (the bootstrap, the gate's
+  route, the restore from words, the restore due, signing in again), each answering what the
+  screen shows: `setUpFirstDeviceUseCase` (`set-up-first-device.usecase.ts`, `SetupOutcome`) —
+  the first device's words once the IdP took them, a start over's new words first, a key set
+  elsewhere → `go` the gate's route, a pending key written moments ago → `retry` after
+  `PENDING_RECHECK_MS`, offline the first generation's words kept (`firstWordsShownOffline`);
+  `typeWordsUseCase` (`type-words.usecase.ts`, `TypedWordsOutcome`) — the screen's setup awaited,
+  the words checked, kept, the history restored (`refused` with the reason, `kept` with the
+  restore's count or failure).
+- `ShareWait` (`share-wait.usecase.ts`) — `AwaitedShare` read on its backoff while a `Visibility`
+  says the app is in front (a page's visibility, an app's state), at once when it comes back;
+  `device_mismatch` ending the wait signs in again, any other end is warned of.
 - `registerIdentityUseCase` publishes KeyPackages (`IE2eePort.register`) only once in,
   and answers the admission; a flow that has just decided it (`bootstrap-first-device`,
   `restore-history-from-passphrase`) passes it in, recorded, not read again. Paths: the
