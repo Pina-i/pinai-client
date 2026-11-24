@@ -137,5 +137,6 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
   words") or "Keep words visible"; hidden again when the app leaves the front; while a card is up,
   screenshots and the app switcher's preview are blocked (`expo-screen-capture`, FLAG_SECURE, one key
   per card). `molecules/switch-row` — a `Group` row that is its switch. `app.config.ts` blocks the
-  storage, photos and screenshot-detection permissions `expo-screen-capture` declares: the app only
-  blocks screenshots, which asks nothing.
+  storage and photos permissions `expo-screen-capture` declares to detect screenshots before Android 14
+  (the app only blocks them); `DETECT_SCREEN_CAPTURE` must stay — from Android 14 the library registers
+  its detector as it loads, and the app fails to start without it ("Permission Denial").

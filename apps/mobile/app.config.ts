@@ -73,12 +73,9 @@ const config: ExpoConfig = {
         // A backup would carry the encrypted store but never its key, which stays in this phone's Keystore:
         // restored, the store wouldn't open. A new phone is a new device to approve.
         allowBackup: false,
-        // expo-screen-capture asks these to detect screenshots; the app only blocks them (FLAG_SECURE), which asks nothing.
-        blockedPermissions: [
-            "android.permission.READ_EXTERNAL_STORAGE",
-            "android.permission.READ_MEDIA_IMAGES",
-            "android.permission.DETECT_SCREEN_CAPTURE",
-        ],
+        // expo-screen-capture asks these to detect screenshots before Android 14; the app only blocks them (FLAG_SECURE).
+        // DETECT_SCREEN_CAPTURE stays: from Android 14 the library registers its detector as it loads, and throws without it.
+        blockedPermissions: ["android.permission.READ_EXTERNAL_STORAGE", "android.permission.READ_MEDIA_IMAGES"],
     },
     ios: {
         bundleIdentifier: "io.github.pina-i.mobile",
