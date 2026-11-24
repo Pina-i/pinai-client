@@ -23,8 +23,9 @@ export function useContractCheck<Make>(label: string, scenarios: readonly Contra
         let current = true
         void runScenarios(scenarios, make, (result) => {
             if (current) setResults((done) => [...done, result])
+            const ms = Math.round(result.ms)
             // eslint-disable-next-line no-console -- read from the device's log by scripts/device-check.mjs
-            if (result.error !== null) console.log(`[${label}] ✗ ${result.name}: ${result.error}`)
+            console.log(result.error === null ? `[${label}] ✓ ${result.name} — ${ms} ms` : `[${label}] ✗ ${result.name}: ${result.error}`)
         }).then((all) => {
             // eslint-disable-next-line no-console -- the line scripts/device-check.mjs waits for
             console.log(summaryLine(label, all))
