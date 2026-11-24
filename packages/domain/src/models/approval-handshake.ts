@@ -6,7 +6,7 @@
  */
 
 import { sameBytes } from "./bytes"
-import type { DeviceKind, DeviceListEntry } from "./device"
+import type { DeviceClient, DeviceKind, DeviceListEntry } from "./device"
 import { actsOnApproval, duplicateDeviceIds, type HandshakeKeysRefusal, type HandshakePartner } from "./device-trust"
 import type { DeviceId } from "./e2ee"
 import type { HistoryKeyStanding } from "./history-key"
@@ -249,10 +249,15 @@ export function isWholeCode(code: string): boolean {
 export function approvingDevices(
     devices: readonly DeviceListEntry[],
     thisDeviceId: string | null
-): { deviceId: string; label: string; kind: DeviceKind }[] {
+): { deviceId: string; label: string; kind: DeviceKind; client: DeviceClient }[] {
     return devices
         .filter((device) => device.device_id !== thisDeviceId && device.revoked_at === null)
-        .map((device) => ({ deviceId: device.device_id, label: device.display_name.trim() || "A device", kind: device.kind }))
+        .map((device) => ({
+            deviceId: device.device_id,
+            label: device.display_name.trim() || "A device",
+            kind: device.kind,
+            client: device.client,
+        }))
 }
 
 /** The code as it is shown and typed: 3 + 3. */

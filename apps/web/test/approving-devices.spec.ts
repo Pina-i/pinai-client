@@ -29,7 +29,7 @@ describe("approvingDevices", () => {
             device("laptop"),
             device("gone", { revoked_at: "2026-11-03T00:00:00Z" }),
         ]
-        expect(approvingDevices(devices, "here")).toEqual([{ deviceId: "laptop", label: "Firefox on Windows", kind: "laptop" }])
+        expect(approvingDevices(devices, "here")).toEqual([{ deviceId: "laptop", label: "Firefox on Windows", kind: "laptop", client: "browser" }])
     })
 
     it("names a device without a shown name, and lists them all while this one isn't known", () => {
