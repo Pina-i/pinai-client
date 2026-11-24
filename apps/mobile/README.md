@@ -84,12 +84,17 @@ lists them):
 
 ```sh
 pnpm --filter @pinai/mobile mls:check       # the app open, Metro serving it
+pnpm --filter @pinai/mobile argon2:check    # the app open, Metro serving it
 pnpm --filter @pinai/mobile storage:check   # Metro serving the app; it starts the app itself
 ```
 
+Each prints every scenario with its time, each failure in full, and the result.
+
 - `mls:check` opens `io.github.pina-i://dev/mls-check`: the MLS engine's contract
-  (`@pinai/mls/contract`) on the native library. It prints each failure and the result,
-  `[mls-check] 18/18 passed in … ms`.
+  (`@pinai/mls/contract`) on the native library, `[mls-check] 18/18 passed in … ms`.
+- `argon2:check` opens `dev/argon2-check`: Argon2id's known answers (`@pinai/crypto/contract/argon2`) on
+  the native library, `[argon2-check] 6/6 passed in … ms` — the 24 words' case shows how long checking
+  words takes on this phone.
 - `storage:check` checks the encrypted store on the phone's SQLite and Keystore, never touching the
   app's own store:
   1. It plays the store's contract (`@pinai/crypto/contract/storage`) on throwaway databases and keys,

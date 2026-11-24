@@ -90,6 +90,14 @@ Three collaborators could not come, and the shape of each is the mobile work:
   IndexedDB or a spy shows stays in `storage-adapter.spec.ts` (set-aside rows by name, a store before sign-in,
   other tabs) and `device-key.spec.ts` (non-extractable, never exposed, never minted over a key that failed to
   read).
+- **`argon2.ts`** — `Argon2id`, the function the history key (`HistoryArchiveAdapter`, the 24 words) and the
+  approval code (`codeScalar` / `ApprovalHandshake.start`, given `E2eeAdapter`'s 9th parameter) derive with;
+  `nobleArgon2id` by default. A parameter because the phone computes it natively: in JavaScript on Hermes the
+  words' setting (64 MiB, 3 passes, 4 lanes) would take tens of seconds.
+- **`contract/argon2/`** — what every `Argon2id` answers, byte for byte: the reference implementation's vector,
+  a small setting, the words' and the code's settings, inputs left untouched, a setting Argon2 refuses. Played on
+  `@noble` by `apps/web/test/argon2-contract.spec.ts`, on the native library by the mobile app's
+  `/dev/argon2-check`. Two Argon2ids that disagreed would leave a phone unable to check words made on the web.
 - **`@pinai/api/e2ee/key-directory.adapter`** — `KeyDirectoryApiAdapter`
   implementing `IKeyDirectoryPort`, outside this package. REST client for
   the `/api/keys/*` and `/api/mls/*` endpoints; the identity methods are no-op

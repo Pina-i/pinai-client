@@ -62,6 +62,10 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
 - `src/adapters/mls/native-engine.ts`: `nativeMlsEngine()` is `new MlsEngine(…)` over
   `requireNativeModule<MlsBundle>("OpenMls")`, a cast `@pinai/mls/contract` checks at run time.
   `createMlsEngine()` in `src/ioc/index.ts` makes fresh engines.
+- `OpenMls.argon2id` is the module's one `AsyncFunction` (the MLS calls are synchronous): the 24 words'
+  Argon2id takes a good part of a second, off the JS thread. `src/adapters/crypto/native-argon2id.ts`,
+  handed out by `createArgon2id()`; `/dev/argon2-check` (`argon2:check`) plays `@pinai/crypto/contract/argon2`
+  on it, each case timed.
 - **The control screens** play a contract on the phone: `presentation/pages/dev/contract-check.tsx` (the
   view) and `contract-check.viewmodel.ts` (`useContractCheck(label, scenarios, make, link)`), used by
   `pages/dev/mls-check/` (`@pinai/mls/contract` on `createMlsEngine()`) and `pages/dev/storage-check/`.
