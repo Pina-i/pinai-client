@@ -1,16 +1,34 @@
 import { OidcAdapter } from "@pinai/api/auth/oidc.adapter"
+import { DeviceDirectoryApiAdapter } from "@pinai/api/device-directory/device-directory-api.adapter"
+import { HistoryArchiveApiAdapter } from "@pinai/api/e2ee/history-archive-api.adapter"
+import { JwksCache } from "@pinai/api/e2ee/jwks-cache.adapter"
+import { KeyDirectoryApiAdapter } from "@pinai/api/e2ee/key-directory.adapter"
+import { KeyShareApiAdapter } from "@pinai/api/e2ee/key-share-api.adapter"
+import { StartOverApiAdapter } from "@pinai/api/e2ee/start-over-api.adapter"
 import { NodeInfoApiAdapter } from "@pinai/api/instance/nodeinfo-api.adapter"
+import { SessionApiAdapter } from "@pinai/api/session/session-api.adapter"
 import { UserSettingsApiAdapter } from "@pinai/api/user-settings/user-settings-api.adapter"
 import { IdpWsAdapter } from "@pinai/api/ws/idp-ws.adapter"
 import type { Argon2id } from "@pinai/crypto/argon2"
+import { E2eeAdapter } from "@pinai/crypto/e2ee.adapter"
+import { HistoryArchiveAdapter } from "@pinai/crypto/history-archive.adapter"
+import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
 import { SealedStorage } from "@pinai/crypto/sealed-storage"
 import type { ActorUri } from "@pinai/domain/models/e2ee"
 import { appearanceHints, resolveMode } from "@pinai/domain/models/user-settings"
 import type { AuthPlatform, IAuthPort } from "@pinai/domain/ports/auth.port"
+import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
+import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
+import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
 import type { ILastInstancePort, INodeInfoPort, IRecentInstancesPort } from "@pinai/domain/ports/instance.port"
+import type { IKeySharePort } from "@pinai/domain/ports/key-share.port"
+import type { ISessionPort } from "@pinai/domain/ports/session.port"
+import type { IStartOverPort } from "@pinai/domain/ports/start-over.port"
 import type { IAccountSettingsPort, IUserSettingsStorePort } from "@pinai/domain/ports/user-settings.port"
 import type { IWsPort } from "@pinai/domain/ports/ws.port"
 import { type Renewal, renewSessionUseCase } from "@pinai/domain/usecases/auth/renew-session.usecase"
+import type { PendingKeyLock } from "@pinai/domain/usecases/e2ee/settle-pending-history-key.usecase"
+import { thisDeviceLabel, type ThisDeviceLabel } from "@pinai/domain/usecases/e2ee/this-device-label.usecase"
 import { loadUserSettingsUseCase } from "@pinai/domain/usecases/user-settings/load-user-settings.usecase"
 import type { MlsEngine } from "@pinai/mls/engine"
 import * as Crypto from "expo-crypto"
@@ -24,10 +42,13 @@ import { MemoryAuthSessionStore } from "@/adapters/auth/auth-session-memory.adap
 import { ExpoPkceAdapter } from "@/adapters/auth/pkce-expo.adapter"
 import { KeychainSessionTokenStore } from "@/adapters/auth/session-token-keychain.adapter"
 import { nativeArgon2id } from "@/adapters/crypto/native-argon2id"
+import { ExpoDeviceFactsAdapter } from "@/adapters/device/device-facts-expo.adapter"
 import { nativeMlsEngine } from "@/adapters/mls/native-engine"
 import { accountStoreNames } from "@/adapters/storage/account-store-names"
+import { inProcessLock } from "@/adapters/storage/in-process-lock"
 import { KeystoreDeviceKeyAdapter } from "@/adapters/storage/keystore-device-key.adapter"
 import { LastInstanceKvAdapter, RecentInstancesKvAdapter } from "@/adapters/storage/kv-storage"
+import { kvStrings } from "@/adapters/storage/kv-strings"
 import { SqliteKeyValueStore } from "@/adapters/storage/sqlite-key-value-store.adapter"
 import { UserSettingsKvAdapter } from "@/adapters/storage/user-settings-kv.adapter"
 
@@ -106,7 +127,7 @@ export function getWsPort(): IWsPort {
     return wsPort
 }
 
-// The app's own engine, with its storage, comes later.
+// A fresh engine at each call: the account's core keeps its own (`openAccountE2ee`).
 export function createMlsEngine(): MlsEngine {
     return nativeMlsEngine()
 }
@@ -120,4 +141,70 @@ export function createArgon2id(): Argon2id {
 export function createSealedStorage(account: ActorUri): SealedStorage {
     const { database, keyAlias } = accountStoreNames(account)
     return new SealedStorage(new SqliteKeyValueStore(database), new KeystoreDeviceKeyAdapter(keyAlias))
+}
+
+const sessionPort: ISessionPort = new SessionApiAdapter()
+const deviceDirectoryPort: IDeviceDirectoryPort = new DeviceDirectoryApiAdapter()
+const historyArchivePort: IHistoryArchivePort = new HistoryArchiveApiAdapter()
+const keySharePort: IKeySharePort = new KeyShareApiAdapter()
+const startOverPort: IStartOverPort = new StartOverApiAdapter()
+const deviceLabel: ThisDeviceLabel = thisDeviceLabel(new ExpoDeviceFactsAdapter())
+const jwksCache = new JwksCache(kvStrings)
+
+// One account's core at a time: its MLS engine holds the account's groups in memory.
+let account: { actorUri: ActorUri; e2ee: E2eeAdapter; lock: PendingKeyLock } | null = null
+
+/** The signed-in account's E2EE core, opened before anything touches its device storage. Idempotent. */
+export function openAccountE2ee(actorUri: ActorUri): void {
+    if (account?.actorUri === actorUri) return
+    const engine = createMlsEngine()
+    const argon2id = createArgon2id()
+    account = {
+        actorUri,
+        e2ee: new E2eeAdapter(
+            new NobleIdentityAdapter(),
+            engine,
+            createSealedStorage(actorUri),
+            new KeyDirectoryApiAdapter(() => deviceLabel.settled()),
+            engine,
+            jwksCache,
+            historyArchivePort,
+            new HistoryArchiveAdapter(argon2id),
+            argon2id
+        ),
+        lock: inProcessLock(),
+    }
+}
+
+export function getE2eePort(): IE2eePort {
+    if (!account) throw new Error("No account's E2EE is open: sign in first")
+    return account.e2ee
+}
+
+export function getPendingKeyLock(): PendingKeyLock | undefined {
+    return account?.lock
+}
+
+export function getSessionPort(): ISessionPort {
+    return sessionPort
+}
+
+export function getDeviceDirectoryPort(): IDeviceDirectoryPort {
+    return deviceDirectoryPort
+}
+
+export function getHistoryArchivePort(): IHistoryArchivePort {
+    return historyArchivePort
+}
+
+export function getKeySharePort(): IKeySharePort {
+    return keySharePort
+}
+
+export function getStartOverPort(): IStartOverPort {
+    return startOverPort
+}
+
+export function getThisDeviceLabel(): ThisDeviceLabel {
+    return deviceLabel
 }
