@@ -366,6 +366,21 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   a pending key goes to setup unchecked; an IdP out of reach (`isUnreachable`) decides
   on the recorded standing and admission, so a device let in, by its words, a partner or its
   kept words, reloads offline; any other failure, or nothing recorded, is thrown.
+- `OnboardingGate` (`onboarding-gate.usecase.ts`, shaped like `SessionKeeper`) — the gate for one
+  signed-in account, every client's: `probe()` wipes a device bound to another account first
+  (`wiped`: the platform starts afresh), then answers `gateDecisionUseCase`'s decision as a
+  `GateVerdict` (`in` with its `reset`, `go` to a route, `failed`); once in, `watch(onVerdict)`
+  re-checks at once on the trust events `forcesRecheck` names (those replayed as it subscribes
+  skipped) and on their withdrawal (`withdrawalRechecks`), and `recheck(force)` when the platform
+  asks — unforced, `routeRechecks`' spacing. The newest check decides; one that fails changes
+  nothing and answers `failed`; none is delivered after `close()` or a sign-out
+  (`session()` → `null`). `RecheckOutcome`: `checked`, `offline`, `failed`. When to call it and
+  what to show are the platform's (the web's `useIdentityOnboardingGate`).
+- `ThisDeviceStart` (`this-device-start.usecase.ts`) — `startThisDeviceUseCase` once per load (the
+  page's, the app's), one run at a time: settled once linked with its words checked, or refused by
+  the IdP (an `IdpError`: a revoked device); `device_mismatch` signs in afresh; anything else — the
+  IdP out of reach — is tried at the next `run()`. A failed registration or history-key check is
+  warned of.
 - `registerIdentityUseCase` publishes KeyPackages (`IE2eePort.register`) only once in,
   and answers the admission; a flow that has just decided it (`bootstrap-first-device`,
   `restore-history-from-passphrase`) passes it in, recorded, not read again. Paths: the
