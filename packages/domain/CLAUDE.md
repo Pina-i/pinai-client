@@ -307,6 +307,12 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   and the root key listed now (Settings → Devices).
 
 ### models/device-roster.ts
+- `rosterRows` — the list as every screen reads it, this device marked (`is_current`), a kind the
+  client doesn't draw `unknown`. `devicesPane` — the pane: rows not seated with their flags, this
+  device (the verdict's when the list doesn't mark it), the from-before heading by the verdict's
+  cause, who waits as a screen reader hears it, `listRefused`, "held by N", `uncounted`; the
+  `ONLY_APPROVED_*` reasons. `wordsOffers` — the words shown only where current, "Restore history"
+  only off them and never under the history-reset banner, "Replace my words" only holding them.
 - Settings → Devices' rules, each from this device's own verdict. `waitingDevices` — on an
   acting verdict only, newest first: the rows an `unapproved-device` event stands for, and
   one asking (a request a seat may answer) that no review judged yet; once judged, an event
@@ -477,6 +483,22 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   for; `unsummon` — that device came in another way or went. `seatAnswer` (`models/approval-handshake.ts`) — what a seat offers: its
   run, the Door's, its newest open request, or nothing. Errors the flows swallow go to
   `HandshakeContext.report`.
+
+### models/approval-door.ts + models/waiting-seat.ts + models/approval-wording.ts + usecases/e2ee/answering-runtime.usecase.ts
+- What the Door and a waiting seat show, for every client: `doorState` (open, waiting for a summoned
+  device, the device named — `shownDeviceName`, "A device" without one), `doorTitle`, `doorCanApprove`;
+  `seatState` (a refused device offered no code, "asked N ago" else "paired <day>" or its activity,
+  the hold while this device's words aren't settled, Not mine until an exchange works), `seatCanApprove`.
+  Dates through the platform's `day(iso)`: `activityLabel` (`models/device.ts`) takes it too.
+- `failureWording` / `refusalWording` / `UNREACHABLE_LINE` — the lines both apps say. `askedLine`
+  (`models/relative-time.ts`), `instanceHost` (`models/instance.ts`), `passwordAdvice`
+  (`models/instance-admin.ts`) likewise. Lines that differ by platform on purpose stay there (a
+  start over refusal's "Reload" / "Restart", "Settings → Devices" / "›").
+- `arrivalToTell` (`models/device-trust.ts`) — an `unapproved-device` that `arrived`, told once a run:
+  the web's toast, the phone's Door.
+- `AnsweringRuntime` — keeps an `ApprovalAnswering` current with only the platform's timers: the
+  first read and its backoff, `reconnected()`, every `SUMMONS_REFRESH_MS` while summoned, a chained
+  poll on `pollDelay` while the Door's or a seat's exchange works; `stop()` dismisses.
 
 ### models/bytes.ts
 - `sameBytes`, `hexOf` — the models' byte helpers: the lint boundary keeps models

@@ -90,6 +90,8 @@ Three collaborators could not come, and the shape of each is the mobile work:
   IndexedDB or a spy shows stays in `storage-adapter.spec.ts` (set-aside rows by name, a store before sign-in,
   other tabs) and `device-key.spec.ts` (non-extractable, never exposed, never minted over a key that failed to
   read).
+- **`device-short-id.ts`** — `deviceShortId`, a device's "XXXX-XXXX" in Settings → Devices on every
+  client: sha256 of its id, here because the domain has no hash. Display only; nothing checks it.
 - **`recovery-words.ts`** — the 24 words' completeness (`RECOVERY_WORD_COUNT`, `WORDLIST_SET`,
   `isPassphraseComplete`: every slot a BIP-39 word; `wordsOf`, typed or pasted text split at any whitespace and
   lower-cased; `unknownWord`, the first one off the list): here, not in the domain, because it reads the
@@ -926,7 +928,8 @@ number written here is wrong by the next commit.
 - **Pure helpers**:
   - `formatLastSeen` (`@pinai/domain/models/relative-time`) — "just now" /
     "N minutes ago" / "yesterday" / "N days ago" / etc.
-  - `device-fingerprint.ts` (`presentation/_libs/`) — `sha256(uuid)` → RFC 4648 base32 →
+  - `device-short-id.ts` (`deviceShortId`, here since the phone shows it too; was the web's
+    `presentation/_libs/device-fingerprint.ts`) — `sha256(uuid)` → RFC 4648 base32 →
     8 chars formatted "XXXX-XXXX". Display-only.
 - **Test additions**: `test/relative-time.spec.ts`,
   `test/device-fingerprint.spec.ts`.
