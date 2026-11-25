@@ -1,7 +1,8 @@
 import { useEffect, useSyncExternalStore } from "react"
 
-import { POLL_BACKOFF_MS, pollDelay, type AnsweringView, type DoorSummons, type SeatsView } from "@pinai/domain/models/approval-handshake"
+import type { AnsweringView, DoorSummons, SeatsView } from "@pinai/domain/models/approval-handshake"
 import type { DeviceId } from "@pinai/domain/models/e2ee"
+import { AnsweringRuntime } from "@pinai/domain/usecases/e2ee/answering-runtime.usecase"
 import { ApprovalAnswering, type AnswerLock } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
 import { getApprovalRelayPort, getDeviceDirectoryPort, getE2eePort } from "@/ioc"
 import { shareDeps, warnE2ee, warnOf } from "@/presentation/_libs/key-share-deps"
@@ -10,9 +11,6 @@ import { useAppStore } from "@/store/store"
 
 // For the page load: a code tried here is never tried again, whatever mounts the Door.
 const usedCodes = new Set<string>()
-
-// Pushes reach live sessions only: while the Door waits for a device's code, the list is read again too.
-const SUMMONS_REFRESH_MS = 10_000
 
 /** Held for as long as the exchange runs, so one tab answers a request; none where the platform can't tell. */
 const webLock: AnswerLock | undefined =
@@ -40,7 +38,7 @@ function subscribeShared(listener: () => void): () => void {
     return () => sharedListeners.delete(listener)
 }
 
-/** Mounted once, by the Door: the answering side kept current, and polled while an exchange works, wherever it started. */
+/** Mounted once, by the Door: the answering side kept current (`AnsweringRuntime`), wherever an exchange started. */
 export function useApprovalAnsweringRuntime(): ApprovalAnswering | null {
     const idpUrl = useAppStore((s) => s.idpUrl)
     const signedIn = useAppStore((s) => s.accessToken !== null)
@@ -55,29 +53,13 @@ export function useApprovalAnsweringRuntime(): ApprovalAnswering | null {
             { idpUrl, actorUri, accessToken: () => useAppStore.getState().accessToken, report: warnE2ee },
             { usedCodes, lock: webLock },
         )
-        let live = true
-        let retry: ReturnType<typeof setTimeout> | undefined
+        const runtime = new AnsweringRuntime(made, warnE2ee)
         const unregister = registerApprovalHandler((push) => void made.onPush(push).catch(warnOf(`handling ${push.type}`)))
-        const refresh = (failures: number) => {
-            made.refresh().then(
-                () => {
-                    if (live) share(made)
-                },
-                (e: unknown) => {
-                    warnE2ee("reading the approval requests", e)
-                    if (!live) return
-                    share(made)
-                    retry = setTimeout(() => refresh(failures + 1), POLL_BACKOFF_MS[Math.min(failures + 1, POLL_BACKOFF_MS.length - 1)])
-                },
-            )
-        }
-        refresh(0)
+        runtime.start(() => share(made))
         return () => {
-            live = false
-            clearTimeout(retry)
             unregister()
             if (shared === made) share(null)
-            void made.dismiss().catch(warnOf("leaving the approval prompt"))
+            void runtime.stop().catch(warnOf("leaving the approval prompt"))
         }
     }, [signedIn, idpUrl, actorUri])
 
@@ -85,40 +67,6 @@ export function useApprovalAnsweringRuntime(): ApprovalAnswering | null {
     useEffect(() => {
         if (socketUp && controller) controller.refresh().catch(warnOf("reading the approval requests"))
     }, [socketUp, controller])
-
-    const summons = useDoorSummons(controller)
-    useEffect(() => {
-        if (!summons || !controller) return
-        const timer = setInterval(() => void controller.refresh().catch(warnOf("reading the approval requests")), SUMMONS_REFRESH_MS)
-        return () => clearInterval(timer)
-    }, [summons, controller])
-
-    const view = useDoorView(controller)
-    const seats = useSeats(controller)
-    const working = view?.stage === "working" || seats.seat?.stage === "working"
-    useEffect(() => {
-        if (!working || !controller) return
-        let live = true
-        let timer: ReturnType<typeof setTimeout> | undefined
-        const next = (failures: number, lastError: unknown) => {
-            timer = setTimeout(() => {
-                controller.poll().then(
-                    () => {
-                        if (live) next(0, null)
-                    },
-                    (e: unknown) => {
-                        warnE2ee("reading the exchange", e)
-                        if (live) next(failures + 1, e)
-                    },
-                )
-            }, pollDelay(failures, lastError))
-        }
-        next(0, null)
-        return () => {
-            live = false
-            clearTimeout(timer)
-        }
-    }, [working, controller])
 
     return controller
 }
