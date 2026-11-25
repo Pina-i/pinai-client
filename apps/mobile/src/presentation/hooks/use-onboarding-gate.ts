@@ -1,6 +1,6 @@
-import type { GateRoute } from "@pinai/domain/models/admission"
+import type { GateRoute, KeptWordsReset } from "@pinai/domain/models/admission"
 import { gateDecisionUseCase } from "@pinai/domain/usecases/e2ee/gate-this-device.usecase"
-import { OnboardingGate, type GateVerdict } from "@pinai/domain/usecases/e2ee/onboarding-gate.usecase"
+import { OnboardingGate, type GateVerdict, type RecheckOutcome } from "@pinai/domain/usecases/e2ee/onboarding-gate.usecase"
 import { router, usePathname } from "expo-router"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { AppState } from "react-native"
@@ -21,16 +21,17 @@ export type GateStatus = "checking" | "in" | "elsewhere" | "failed"
 
 /**
  * The domain's `OnboardingGate` on the phone: the account's core opened and the device started, then where the
- * device belongs. Once in, checked again at a route change and when the app comes back to the front.
+ * device belongs. Once in, checked again at a route change and when the app comes back to the front; in by its kept
+ * words over a reset it didn't make, why (`reset`), which the history-reset banner says.
  */
-export function useOnboardingGate(): { status: GateStatus; retry: () => void } {
+export function useOnboardingGate(): { status: GateStatus; retry: () => void; reset: KeptWordsReset | null; recheck: () => Promise<RecheckOutcome> } {
     const signedIn = useAppStore((s) => s.accessToken !== null)
     const idpUrl = useAppStore((s) => s.idpUrl)
     const actorUri = useAppStore((s) => s.user?.actor_uri ?? null)
     const pathname = usePathname()
     const [attempt, setAttempt] = useState(0)
     const key = signedIn && idpUrl && actorUri ? `${idpUrl}|${actorUri}|${attempt}` : null
-    const [probed, setProbed] = useState<{ key: string; status: GateStatus } | null>(null)
+    const [probed, setProbed] = useState<{ key: string; status: GateStatus; reset: KeptWordsReset | null } | null>(null)
     const status: GateStatus = key !== null && probed?.key === key ? probed.status : "checking"
     const watching = useRef<OnboardingGate | null>(null)
 
@@ -48,11 +49,11 @@ export function useOnboardingGate(): { status: GateStatus; retry: () => void } {
         })
         const show = (verdict: GateVerdict) => {
             if (verdict.kind === "in") {
-                setProbed({ key, status: "in" })
+                setProbed({ key, status: "in", reset: verdict.reset })
             } else if (verdict.kind === "go") {
                 gate.close()
                 if (watching.current === gate) watching.current = null
-                setProbed({ key, status: "elsewhere" })
+                setProbed({ key, status: "elsewhere", reset: null })
                 router.replace(GATE_ROUTES[verdict.route])
             }
         }
@@ -61,7 +62,7 @@ export function useOnboardingGate(): { status: GateStatus; retry: () => void } {
             if (cancelled) return
             // The phone keeps no account's messages yet: after another account's device was wiped, it checks again.
             if (verdict.kind === "wiped") return setAttempt((n) => n + 1)
-            if (verdict.kind === "failed") return setProbed({ key, status: "failed" })
+            if (verdict.kind === "failed") return setProbed({ key, status: "failed", reset: null })
             show(verdict)
             if (verdict.kind === "in") {
                 gate.watch(show)
@@ -88,5 +89,7 @@ export function useOnboardingGate(): { status: GateStatus; retry: () => void } {
     }, [])
 
     const retry = useCallback(() => setAttempt((n) => n + 1), [])
-    return { status, retry }
+    // "Check again": now, whatever the spacing between route changes' checks.
+    const recheck = useCallback(async (): Promise<RecheckOutcome> => (watching.current ? watching.current.recheck(true) : "failed"), [])
+    return { status, retry, reset: status === "in" && probed ? probed.reset : null, recheck }
 }
