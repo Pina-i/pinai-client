@@ -6,6 +6,7 @@ import { Pressable, ScrollView, Text, View } from "react-native"
 import { StyleSheet, useUnistyles } from "react-native-unistyles"
 import { Avatar } from "@/presentation/atoms/avatar/avatar"
 import { Motif } from "@/presentation/atoms/motif/motif"
+import { HistoryResetBanner } from "@/presentation/organisms/history-reset-banner/history-reset-banner"
 import { statusWords } from "@/presentation/pages/status/status-choices"
 import { useAppStore } from "@/store/store"
 import { statusColor } from "@/theme/status"
@@ -24,6 +25,7 @@ export function HomePage() {
                 variant="field"
                 style={styles.fill}
             />
+            <HistoryResetBanner />
             <Text
                 accessibilityRole="header"
                 style={styles.welcome}

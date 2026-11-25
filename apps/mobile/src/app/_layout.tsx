@@ -45,6 +45,15 @@ export default function RootLayout() {
                     }}
                 />
                 <Stack.Screen
+                    name="history-reset"
+                    options={{
+                        presentation: "formSheet",
+                        sheetAllowedDetents: [0.92],
+                        sheetCornerRadius: 22,
+                        contentStyle: { backgroundColor: theme.colors.popover },
+                    }}
+                />
+                <Stack.Screen
                     name="server"
                     options={{
                         presentation: "formSheet",
