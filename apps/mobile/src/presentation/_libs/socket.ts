@@ -1,3 +1,4 @@
+import type { WsServerEvent } from "@pinai/domain/models/ws"
 import { restatePresenceUseCase } from "@pinai/domain/usecases/presence/restate-presence.usecase"
 import { sendHeartbeatUseCase } from "@pinai/domain/usecases/presence/send-heartbeat.usecase"
 import { AppState } from "react-native"
@@ -11,6 +12,22 @@ const HEARTBEAT_MS = 30_000
 
 let started = false
 let open = false
+
+// The socket port takes one handler of each kind, which this module owns: it hands them on.
+const eventListeners = new Set<(event: WsServerEvent) => void>()
+const connectedListeners = new Set<() => void>()
+
+/** Every event the IdP pushes, from the next one on. */
+export function onSocketEvent(listener: (event: WsServerEvent) => void): () => void {
+    eventListeners.add(listener)
+    return () => eventListeners.delete(listener)
+}
+
+/** Each time a connection is up: pushes sent while it was down are lost, so a listener reads again. */
+export function onSocketConnected(listener: () => void): () => void {
+    connectedListeners.add(listener)
+    return () => connectedListeners.delete(listener)
+}
 
 /**
  * The IdP's socket, open while someone is signed in and the app is in front: in the background
@@ -29,6 +46,7 @@ export function keepSocketOpen(): void {
         sendHeartbeatUseCase(ws)
         heartbeat = setInterval(() => sendHeartbeatUseCase(ws), HEARTBEAT_MS)
         restatePresenceUseCase(ws, useAppStore.getState().myStatus)
+        for (const listener of connectedListeners) listener()
     })
     // Its session ended (`1008`): renewed, the socket goes again with the new token.
     ws.onSessionEnded(() => {
@@ -37,6 +55,7 @@ export function keepSocketOpen(): void {
     })
     ws.onEvent((event) => {
         if (event.type === "settings_updated") receiveAccountSettings(event.data.settings)
+        for (const listener of eventListeners) listener(event)
     })
 
     AppState.addEventListener("change", follow)
