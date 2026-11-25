@@ -1,20 +1,22 @@
 import { personName } from "@pinai/domain/models/identity"
 import { router } from "expo-router"
-import { ChevronLeft, ChevronRight, LogOut } from "lucide-react-native"
+import { ChevronLeft, ChevronRight, LogOut, MonitorSmartphone } from "lucide-react-native"
 import { Pressable, ScrollView, Text, View } from "react-native"
 import { StyleSheet, useUnistyles } from "react-native-unistyles"
 import { Avatar } from "@/presentation/atoms/avatar/avatar"
 import { Motif } from "@/presentation/atoms/motif/motif"
 import { signOut } from "@/presentation/_libs/session"
+import { useDeviceRoster } from "@/presentation/hooks/use-device-roster"
 import { statusWords } from "@/presentation/pages/status/status-choices"
 import { useAppStore } from "@/store/store"
 import { statusColor } from "@/theme/status"
 
-/** Settings: the account, and the way out. Its other sections come with their features. */
+/** Settings: the account, its devices, and the way out. Its other sections come with their features. */
 export function SettingsPage() {
     const { theme } = useUnistyles()
     const user = useAppStore((s) => s.user)
     const status = useAppStore((s) => s.myStatus)
+    const waiting = useDeviceRoster().waiting.length
     if (!user) return null
     const name = personName(user.actor_uri, user.display_name)
 
@@ -77,6 +79,36 @@ export function SettingsPage() {
                             <View style={styles.statusDot(status)} />
                             <Text style={styles.statusLabel}>{statusWords(status)}</Text>
                         </View>
+                    </View>
+                    <ChevronRight
+                        size={18}
+                        color={theme.colors.mutedForeground}
+                        strokeWidth={1.9}
+                    />
+                </Pressable>
+
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={waiting > 0 ? `Devices, ${waiting} waiting for you` : "Devices"}
+                    onPress={() => router.push("/devices")}
+                    style={({ pressed }) => [styles.section, pressed && styles.pressed]}
+                >
+                    <View style={styles.sectionIcon}>
+                        <MonitorSmartphone
+                            size={17}
+                            color={theme.colors.foreground}
+                            strokeWidth={1.9}
+                        />
+                    </View>
+                    <View style={styles.sectionText}>
+                        <Text style={styles.sectionLabel}>Devices</Text>
+                        <Text style={styles.sectionNote}>Phones and laptops you&apos;re signed in on.</Text>
+                        {waiting > 0 && (
+                            <View style={styles.statusLine}>
+                                <View style={styles.waitingDot} />
+                                <Text style={styles.waitingLabel}>{waiting} waiting</Text>
+                            </View>
+                        )}
                     </View>
                     <ChevronRight
                         size={18}
@@ -199,6 +231,49 @@ const styles = StyleSheet.create((theme, rt) => ({
         fontFamily: "DM Sans",
         fontSize: 12,
         color: theme.colors.mutedForeground,
+    },
+    section: {
+        minHeight: 64,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        paddingVertical: 12,
+        paddingHorizontal: 12,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        backgroundColor: theme.colors.surface1,
+    },
+    sectionIcon: {
+        width: 30,
+        height: 30,
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: 8,
+        backgroundColor: theme.colors.surface2,
+    },
+    sectionText: { flex: 1, gap: 2 },
+    sectionLabel: {
+        fontFamily: "DM Sans",
+        fontSize: 15,
+        fontWeight: "600",
+        color: theme.colors.foreground,
+    },
+    sectionNote: {
+        fontFamily: "DM Sans",
+        fontSize: 12.5,
+        color: theme.colors.mutedForeground,
+    },
+    waitingDot: {
+        width: 7,
+        height: 7,
+        borderRadius: 4,
+        backgroundColor: theme.colors.idle,
+    },
+    waitingLabel: {
+        fontFamily: "DM Sans",
+        fontSize: 12,
+        color: theme.colors.idleInk,
     },
     signOut: {
         marginTop: 8,
