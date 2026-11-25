@@ -1,6 +1,7 @@
 import { Redirect, Stack } from "expo-router"
 import { useEffect } from "react"
 import { View } from "react-native"
+import { startAppRuntime } from "@/presentation/_libs/app-runtime"
 import { publishHistoryReset } from "@/presentation/_libs/history-reset"
 import { useOnboardingGate } from "@/presentation/hooks/use-onboarding-gate"
 import { GateFailedPage } from "@/presentation/pages/gate-failed/gate-failed"
@@ -15,6 +16,8 @@ export default function AppLayout() {
         publishHistoryReset({ reset, recheck })
         return () => publishHistoryReset(null)
     }, [reset, recheck])
+    const isIn = signedIn && gate.status === "in"
+    useEffect(() => (isIn ? startAppRuntime() : undefined), [isIn])
     if (!signedIn) return <Redirect href="/" />
     if (gate.status === "failed") return <GateFailedPage onRetry={gate.retry} />
     // Nothing of the app shows before the device is known to be in.
