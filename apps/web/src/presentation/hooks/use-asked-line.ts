@@ -1,7 +1,7 @@
 import { useCallback, useSyncExternalStore } from "react"
 
-import { formatLastSeen } from "@pinai/domain/models/relative-time"
-import { instanceHost } from "@/presentation/_libs/instance-host"
+import { instanceHost } from "@pinai/domain/models/instance"
+import { askedLine } from "@pinai/domain/models/relative-time"
 import { useAppStore } from "@/store/store"
 
 const TICK_MS = 30_000
@@ -33,8 +33,6 @@ export function useAskedLine(createdAt: string | number | null, verb = "asked"):
     // A new subscription for each request reads the clock again: never a time from before it showed.
     const watch = useCallback((listener: () => void) => (createdAt === null ? nothingToWatch() : subscribe(listener)), [createdAt])
     const at = useSyncExternalStore(watch, () => now)
-    const iso = typeof createdAt === "number" ? new Date(createdAt).toISOString() : createdAt
-    const since = iso ? formatLastSeen(iso, new Date(Math.max(at, Date.parse(iso)))) : null
     const host = instanceHost(idpUrl)
-    return `${verb} ${since ?? "just now"}${host ? ` · ${host}` : ""}`
+    return createdAt === null ? `${verb} just now${host ? ` · ${host}` : ""}` : askedLine(createdAt, at, host, verb)
 }

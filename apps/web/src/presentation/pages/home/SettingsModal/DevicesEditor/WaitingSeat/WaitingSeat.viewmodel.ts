@@ -3,7 +3,8 @@ import { useEffect, useState } from "react"
 import { codeDigits, isWholeCode, seatAnswer, type SeatAnswer, type SeatsView } from "@pinai/domain/models/approval-handshake"
 import { formatLastSeen } from "@pinai/domain/models/relative-time"
 import type { ApprovalAnswering } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
-import { failureWording, refusalWording } from "@/presentation/_libs/approval-wording"
+import { failureWording, refusalWording, UNREACHABLE_LINE } from "@pinai/domain/models/approval-wording"
+import { shownDeviceName } from "@pinai/domain/models/device"
 import { dayLabel } from "@/presentation/_libs/day-label"
 import { activityLabel } from "@/presentation/_libs/device-activity"
 import { warnOf as warn } from "@/presentation/_libs/key-share-deps"
@@ -67,11 +68,11 @@ export function useWaitingSeatViewModel(input: {
         setTyped({ requestId, code, error: null })
         answering.answerAt(requestId, code).catch((e: unknown) => {
             warn("answering the request")(e)
-            setTyped({ requestId, code, error: "Couldn't reach your instance. Try again." })
+            setTyped({ requestId, code, error: UNREACHABLE_LINE })
         })
     }
 
-    const label = device.display_name.trim() || "A device"
+    const label = shownDeviceName(device.display_name)
     const takesCode = answer.kind === "code"
     const idle = kind === "waiting" ? `paired ${dayLabel(device.paired_at)}` : activityLabel(device, new Date(now))
     return {

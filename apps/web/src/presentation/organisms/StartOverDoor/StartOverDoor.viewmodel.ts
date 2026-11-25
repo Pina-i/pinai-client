@@ -8,8 +8,8 @@ import {
     startOverToPromptUseCase,
     type StartOverPrompt,
 } from "@pinai/domain/usecases/e2ee/start-over-request.usecase"
+import { instanceHost } from "@pinai/domain/models/instance"
 import { getE2eePort, getStartOverPort } from "@/ioc"
-import { instanceHost } from "@/presentation/_libs/instance-host"
 import { warnE2ee } from "@/presentation/_libs/key-share-deps"
 import { startOverRefusalLine } from "@/presentation/_libs/start-over-wording"
 import { useAskedLine } from "@/presentation/hooks/use-asked-line"

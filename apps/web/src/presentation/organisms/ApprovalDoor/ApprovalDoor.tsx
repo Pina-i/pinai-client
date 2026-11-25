@@ -1,4 +1,5 @@
 import { Check, LoaderCircle, ShieldCheck } from "lucide-react"
+import { failureWording } from "@pinai/domain/models/approval-wording"
 
 import { Button } from "@/presentation/atoms/Button/Button"
 import { OtpInput } from "@/presentation/atoms/OtpInput/OtpInput"
@@ -6,7 +7,6 @@ import { DoorHead } from "@/presentation/molecules/DoorHead/DoorHead"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { modalSurface } from "@/presentation/molecules/Modal/modal-surface"
 import { RecentSignInModal } from "@/presentation/molecules/RecentSignInModal/RecentSignInModal"
-import { failureWording } from "@/presentation/_libs/approval-wording"
 import { cn } from "@/presentation/_libs/utils"
 
 import { useApprovalDoorViewModel } from "./ApprovalDoor.viewmodel"

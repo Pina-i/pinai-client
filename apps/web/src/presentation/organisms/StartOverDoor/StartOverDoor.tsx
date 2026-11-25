@@ -1,10 +1,10 @@
 import { KeyRound, ShieldAlert } from "lucide-react"
+import { passwordAdvice } from "@pinai/domain/models/instance-admin"
 
 import { Button } from "@/presentation/atoms/Button/Button"
 import { DoorHead } from "@/presentation/molecules/DoorHead/DoorHead"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { modalSurface } from "@/presentation/molecules/Modal/modal-surface"
-import { passwordAdvice } from "@/presentation/_libs/password-advice"
 import { cn } from "@/presentation/_libs/utils"
 
 import { useStartOverDoorViewModel, type StartOverDoorViewModel } from "./StartOverDoor.viewmodel"

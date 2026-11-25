@@ -4,8 +4,9 @@ import { toast } from "sonner"
 
 import { codeDigits, isWholeCode, type AnsweringView } from "@pinai/domain/models/approval-handshake"
 import { revokeDeviceUseCase } from "@pinai/domain/usecases/e2ee/revoke-device.usecase"
+import { refusalWording, UNREACHABLE_LINE } from "@pinai/domain/models/approval-wording"
+import { shownDeviceName } from "@pinai/domain/models/device"
 import { getDeviceDirectoryPort, getE2eePort } from "@/ioc"
-import { refusalWording } from "@/presentation/_libs/approval-wording"
 import { devicesQueryKey } from "@/presentation/hooks/useDevices"
 import { warnOf as warn } from "@/presentation/_libs/key-share-deps"
 import { useApprovalAnsweringRuntime, useDoorSummons, useDoorView } from "@/presentation/hooks/use-approval-answering"
@@ -85,7 +86,7 @@ export function useApprovalDoorViewModel(): ApprovalDoorViewModel {
         setTyped({ requestId, code, error: null })
         controller.answer(code).catch((e: unknown) => {
             warn("answering the request")(e)
-            setTyped({ requestId, code, error: "Couldn't reach your instance. Try again." })
+            setTyped({ requestId, code, error: UNREACHABLE_LINE })
         })
     }, [controller, code, requestId])
 
@@ -116,7 +117,7 @@ export function useApprovalDoorViewModel(): ApprovalDoorViewModel {
         view,
         isOpen: view !== null || summons !== null,
         waiting: view === null && summons !== null,
-        device: target?.displayName.trim() || "A device",
+        device: shownDeviceName(target?.displayName),
         asked: view ? asked : signedIn,
         title: doorTitle(view),
         code,
