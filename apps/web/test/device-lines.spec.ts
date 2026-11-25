@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { failureWording, refusalWording, UNREACHABLE_LINE } from "@pinai/domain/models/approval-wording"
-import { shownDeviceName } from "@pinai/domain/models/device"
+import { activityLabel, shownDeviceName, type DeviceListEntry } from "@pinai/domain/models/device"
 import { instanceHost } from "@pinai/domain/models/instance"
 import { passwordAdvice } from "@pinai/domain/models/instance-admin"
 import { askedLine } from "@pinai/domain/models/relative-time"
@@ -39,4 +39,39 @@ describe("the lines both apps say", () => {
             "Ask an admin of kauai.studio for a password reset link: it signs every device out, theirs too.",
         )
     })
+})
+
+const day = (iso: string) => `day ${iso.slice(0, 10)}`
+const row = (over: Partial<DeviceListEntry> = {}): DeviceListEntry => ({
+    device_id: "d1",
+    display_name: "Pixel 8",
+    automatic_name: "Pixel 8",
+    chosen_name: null,
+    kind: "phone",
+    client: "app",
+    paired_at: "2026-11-01T10:00:00Z",
+    last_seen_at: "2026-11-24T10:00:00Z",
+    revoked_at: null,
+    signed_in: true,
+    last_active_at: "2026-11-25T09:00:00Z",
+    drk_public_key: null,
+    attestation_signature: null,
+    attestation_kid: null,
+    attestation_expires_at: null,
+    hpke_public_key: null,
+    hpke_key_signature: null,
+    history_generation: null,
+    approvals: [],
+    ...over,
+})
+
+describe("a device's activity", () => {
+    const now = new Date("2026-11-25T10:00:00Z")
+
+    it("reads this device as in use", () => expect(activityLabel({ ...row(), is_current: true }, now, day)).toBe("Active now"))
+    it("reads a live session's last use", () => expect(activityLabel(row(), now, day)).toBe("Active 1 hour ago"))
+    it("reads a session never renewed", () => expect(activityLabel(row({ last_active_at: null }), now, day)).toBe("Signed in"))
+    it("reads a signed-out device", () => expect(activityLabel(row({ signed_in: false, last_active_at: null }), now, day)).toBe("Last seen yesterday"))
+    it("dates a revocation as the platform reads dates", () =>
+        expect(activityLabel(row({ revoked_at: "2026-11-04T08:00:00Z" }), now, day)).toBe("Revoked day 2026-11-04"))
 })
