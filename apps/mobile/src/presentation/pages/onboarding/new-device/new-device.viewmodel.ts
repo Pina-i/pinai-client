@@ -1,7 +1,8 @@
 import { instanceAddress } from "@pinai/domain/models/instance"
-import { listensForShare, type RestoreTab } from "@pinai/domain/models/restore-page"
+import { listensForShare, openingTab, type RestoreTab } from "@pinai/domain/models/restore-page"
 import { checkAdmissionUseCase } from "@pinai/domain/usecases/e2ee/check-admission.usecase"
 import { enterRestorePageUseCase } from "@pinai/domain/usecases/e2ee/enter-restore-page.usecase"
+import { gateThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/gate-this-device.usecase"
 import { setUpThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/set-up-this-device.usecase"
 import { router, useLocalSearchParams } from "expo-router"
 import { useCallback, useEffect, useRef, useState } from "react"
@@ -13,15 +14,19 @@ import { enterAccount } from "@/presentation/_libs/this-device"
 import { warnE2ee } from "@/presentation/_libs/warn-e2ee"
 import { useAwaitedShare } from "@/presentation/hooks/use-awaited-share"
 import { GATE_ROUTES } from "@/presentation/hooks/use-onboarding-gate"
+import { useOwnStartOver } from "@/presentation/hooks/use-own-start-over"
 import { useAppStore } from "@/store/store"
+import { START_OVER_NOTICES, type StartOverNotice } from "./start-over-way/start-over-wording"
 
 export type NewDeviceView = { kind: "loading" } | { kind: "ready" } | { kind: "failed"; message: string }
 
-/** Start over is 26g's: the phone offers the code and the words for now. */
 export const WAYS: readonly { id: RestoreTab; label: string }[] = [
     { id: "device", label: "Device" },
     { id: "words", label: "24 words" },
+    { id: "start-over", label: "Start over" },
 ]
+
+const RETURN_TO_START_OVER = "/onboarding/new-device?tab=start-over"
 
 /**
  * A device that never held the account's words: set up as it opens (registered, named, no KeyPackage), sent on where the
@@ -37,9 +42,14 @@ export function useNewDeviceViewModel() {
     // `?tab=` — where a sign-in asked for the password comes back to — opens that way, then leaves the address.
     const { tab: askedTab } = useLocalSearchParams<{ tab?: string }>()
     const [tab, setTab] = useState<RestoreTab>(() => WAYS.find((way) => way.id === askedTab)?.id ?? "device")
+    const [tabChosen, setTabChosen] = useState(askedTab !== undefined)
     useEffect(() => {
         if (askedTab) router.setParams({ tab: undefined })
     }, [askedTab])
+    const [startingOver, setStartingOver] = useState(false)
+    const [approvedHere, setApprovedHere] = useState(false)
+    const [notice, setNotice] = useState<string | null>(null)
+    const [rolledBack, setRolledBack] = useState(false)
     const [attempt, setAttempt] = useState(0)
     // Both ways await it, so a press mid-setup doesn't race the registration.
     const setUpRef = useRef<Promise<void> | null>(null)
@@ -107,7 +117,7 @@ export function useNewDeviceViewModel() {
         lacksWords,
         settingUp: view.kind === "loading",
         failed: view.kind === "failed",
-        startingOver: false,
+        startingOver,
         showingNewWords: false,
     })
     const awaited = useAwaitedShare(listening, () => {
@@ -117,8 +127,43 @@ export function useNewDeviceViewModel() {
 
     const onApproved = useCallback(() => {
         approved.current = true
+        setApprovedHere(true)
         again()
     }, [again])
+
+    // This device's own request, read once for the page and its Start over way: one waiting or ended opens there.
+    const own = useOwnStartOver(deviceReady && !approvedHere)
+    const ownState = own.state?.kind ?? null
+    if (!tabChosen && ownState !== null) {
+        setTabChosen(true)
+        if (openingTab(ownState) === "start-over") setTab("start-over")
+    }
+    const chooseTab = useCallback((next: RestoreTab) => {
+        setTabChosen(true)
+        setNotice(null)
+        setTab(next)
+    }, [])
+
+    // Another device's generation landed, or one approved this device: the gate decides where it goes.
+    const onWentOtherwise = useCallback(
+        (how: StartOverNotice) => {
+            const accessToken = useAppStore.getState().accessToken
+            if (!idpUrl || !accessToken || !actorUri) return
+            setNotice(START_OVER_NOTICES[how])
+            void gateThisDeviceUseCase(admissionDeps())(idpUrl, accessToken, actorUri).then(
+                (route) => {
+                    if (route !== "new-device") {
+                        router.replace(route === "app" ? "/home" : GATE_ROUTES[route])
+                        return
+                    }
+                    setTab("device")
+                    setAttempt((n) => n + 1)
+                },
+                (error: unknown) => warnE2ee("deciding where this device goes", error)
+            )
+        },
+        [idpUrl, actorUri]
+    )
     const setUp = useCallback(() => setUpRef.current, [])
     const onTyping = useCallback((busy: boolean) => {
         typing.current = busy
@@ -129,8 +174,22 @@ export function useNewDeviceViewModel() {
         view,
         host: (idpUrl && instanceAddress(idpUrl)?.host) ?? "",
         tab,
-        setTab,
+        setTab: chooseTab,
+        busy: startingOver,
+        notice,
         deviceReady,
+        own,
+        startOverReady: deviceReady && !approvedHere,
+        returnTo: useCallback(() => RETURN_TO_START_OVER, []),
+        onStartOverBusy: useCallback((busy: boolean) => {
+            if (busy) setNotice(null)
+            setStartingOver(busy)
+        }, []),
+        // The setup page shows a start over's new words.
+        onStartedOver: useCallback(() => router.replace(GATE_ROUTES.setup), []),
+        onWentOtherwise,
+        rolledBack,
+        onRolledBack: useCallback(() => setRolledBack(true), []),
         share: awaited.share,
         onApproved,
         setUp,

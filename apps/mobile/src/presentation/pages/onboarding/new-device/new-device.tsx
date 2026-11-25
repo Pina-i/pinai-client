@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ActivityIndicator, ScrollView, type ScrollViewInstance, Text, useWindowDimensions, View } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { StyleSheet, useUnistyles } from "react-native-unistyles"
@@ -6,6 +6,7 @@ import { Button } from "@/presentation/atoms/button/button"
 import { SegmentedTabs } from "@/presentation/molecules/segmented-tabs/segmented-tabs"
 import { DeviceWay } from "./device-way/device-way"
 import { useNewDeviceViewModel, WAYS } from "./new-device.viewmodel"
+import { StartOverWay } from "./start-over-way/start-over-way"
 import { WordsWay } from "./words-way/words-way"
 
 /** "New device", after the prototype's: the ways into the account's history, one page each, swiped or picked. */
@@ -16,7 +17,25 @@ export function NewDevicePage() {
     const pager = useRef<ScrollViewInstance>(null)
     const vm = useNewDeviceViewModel()
     // The way it opens on, once: later picks scroll the pager themselves.
-    const [openedAt] = useState(() => ({ x: Math.max(0, WAYS.findIndex((way) => way.id === vm.tab)) * width, y: 0 }))
+    const [openedAt] = useState(() => ({
+        x:
+            Math.max(
+                0,
+                WAYS.findIndex((way) => way.id === vm.tab)
+            ) * width,
+        y: 0,
+    }))
+    // A tab picked, or one the page opens by itself: the pager follows; a swipe sets the tab where it already is.
+    useEffect(() => {
+        pager.current?.scrollTo({
+            x:
+                Math.max(
+                    0,
+                    WAYS.findIndex((way) => way.id === vm.tab)
+                ) * width,
+            animated: true,
+        })
+    }, [vm.tab, width])
 
     if (vm.view.kind === "loading") {
         return (
@@ -57,11 +76,6 @@ export function NewDevicePage() {
         )
     }
 
-    const pick = (id: (typeof WAYS)[number]["id"]) => {
-        vm.setTab(id)
-        pager.current?.scrollTo({ x: WAYS.findIndex((way) => way.id === id) * width, animated: true })
-    }
-
     return (
         <View style={styles.screen(insets.top, insets.bottom)}>
             <ScrollView
@@ -77,61 +91,103 @@ export function NewDevicePage() {
                         New device
                     </Text>
                     <Text style={[styles.lede, styles.intro]}>Your account is signed in. To bring your conversations here, choose one way.</Text>
-                    <SegmentedTabs
-                        label="Ways to bring your history"
-                        tabs={WAYS}
-                        selected={vm.tab}
-                        onSelect={pick}
-                    />
+                    {vm.notice && (
+                        <Text
+                            accessibilityLiveRegion="polite"
+                            style={styles.notice}
+                        >
+                            {vm.notice}
+                        </Text>
+                    )}
+                    {vm.rolledBack ? (
+                        <View style={styles.rolledBack}>
+                            <Text style={styles.eyebrow}>What happened</Text>
+                            <Text style={styles.lede}>
+                                Your instance went back on your account&apos;s history key: it now serves an older one than your devices have seen. No
+                                device can start over from it — only your instance can put the key back.
+                            </Text>
+                            <Button
+                                label="Check again"
+                                variant="secondary"
+                                onPress={vm.onIn}
+                            />
+                        </View>
+                    ) : (
+                        <SegmentedTabs
+                            label="Ways to bring your history"
+                            tabs={WAYS}
+                            selected={vm.tab}
+                            onSelect={vm.setTab}
+                            disabled={vm.busy}
+                        />
+                    )}
                 </View>
-                <ScrollView
-                    ref={pager}
-                    horizontal
-                    pagingEnabled
-                    contentOffset={openedAt}
-                    showsHorizontalScrollIndicator={false}
-                    keyboardShouldPersistTaps="handled"
-                    onMomentumScrollEnd={(event) => {
-                        const way = WAYS[Math.round(event.nativeEvent.contentOffset.x / width)]
-                        if (way) vm.setTab(way.id)
-                    }}
-                    style={styles.pager}
-                >
-                    <View style={styles.way(width)}>
-                        <DeviceWay
-                            active={vm.tab === "device"}
-                            deviceReady={vm.deviceReady}
-                            share={vm.share}
-                            onApproved={vm.onApproved}
-                            onIn={vm.onIn}
-                        />
-                    </View>
-                    <View style={styles.way(width)}>
-                        <WordsWay
-                            active={vm.tab === "words"}
-                            setUp={vm.setUp}
-                            onTyping={vm.onTyping}
-                            onIn={vm.onIn}
-                        />
-                    </View>
-                </ScrollView>
-                <View
-                    importantForAccessibility="no-hide-descendants"
-                    style={styles.dots}
-                >
-                    {WAYS.map((way) => (
+                {!vm.rolledBack && (
+                    <>
+                        <ScrollView
+                            ref={pager}
+                            horizontal
+                            pagingEnabled
+                            contentOffset={openedAt}
+                            scrollEnabled={!vm.busy}
+                            showsHorizontalScrollIndicator={false}
+                            keyboardShouldPersistTaps="handled"
+                            onMomentumScrollEnd={(event) => {
+                                const way = WAYS[Math.round(event.nativeEvent.contentOffset.x / width)]
+                                if (way) vm.setTab(way.id)
+                            }}
+                            style={styles.pager}
+                        >
+                            <View style={styles.way(width)}>
+                                <DeviceWay
+                                    active={vm.tab === "device"}
+                                    deviceReady={vm.deviceReady}
+                                    share={vm.share}
+                                    onApproved={vm.onApproved}
+                                    onIn={vm.onIn}
+                                />
+                            </View>
+                            <View style={styles.way(width)}>
+                                <WordsWay
+                                    active={vm.tab === "words"}
+                                    setUp={vm.setUp}
+                                    onTyping={vm.onTyping}
+                                    onIn={vm.onIn}
+                                />
+                            </View>
+                            <View style={styles.way(width)}>
+                                <StartOverWay
+                                    reason="lost-everything"
+                                    own={vm.own}
+                                    ready={vm.startOverReady}
+                                    returnTo={vm.returnTo}
+                                    onStartedOver={vm.onStartedOver}
+                                    onWentOtherwise={vm.onWentOtherwise}
+                                    onRolledBack={vm.onRolledBack}
+                                    onBusy={vm.onStartOverBusy}
+                                    onApproveInstead={() => vm.setTab("device")}
+                                />
+                            </View>
+                        </ScrollView>
                         <View
-                            key={way.id}
-                            style={styles.dot(way.id === vm.tab)}
-                        />
-                    ))}
-                </View>
-                <Text
-                    importantForAccessibility="no"
-                    style={styles.swipe}
-                >
-                    Swipe between the ways
-                </Text>
+                            importantForAccessibility="no-hide-descendants"
+                            style={styles.dots}
+                        >
+                            {WAYS.map((way) => (
+                                <View
+                                    key={way.id}
+                                    style={styles.dot(way.id === vm.tab)}
+                                />
+                            ))}
+                        </View>
+                        <Text
+                            importantForAccessibility="no"
+                            style={styles.swipe}
+                        >
+                            Swipe between the ways
+                        </Text>
+                    </>
+                )}
                 <View style={styles.padded}>
                     <Button
                         label="Sign out"
@@ -176,6 +232,21 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.mutedForeground,
     },
     intro: { marginTop: 8, marginBottom: 18 },
+    notice: {
+        marginBottom: 14,
+        fontFamily: "DM Sans",
+        fontSize: 13,
+        lineHeight: 19,
+        color: theme.colors.idleInk,
+    },
+    rolledBack: { gap: 10 },
+    eyebrow: {
+        fontFamily: "DM Sans",
+        fontSize: 11,
+        fontWeight: "500",
+        letterSpacing: 0.11,
+        color: theme.colors.mutedForeground,
+    },
     pager: { marginTop: 18 },
     way: (width: number) => ({
         width,
