@@ -15,6 +15,8 @@ export interface DeviceWayProps {
     share: AwaitedShareState | null
     onApproved: () => void
     onIn: () => void
+    /** Where to type the code: any device signed in, or the one that reset the history. */
+    instruction?: string
 }
 
 function deviceIcon(kind: DeviceKind, client: DeviceClient) {
@@ -40,7 +42,9 @@ export function DeviceWay(props: DeviceWayProps) {
                     <View style={styles.cells}>
                         <CodeCells halves={vm.halves} />
                     </View>
-                    <Text style={styles.instruction}>On a phone or laptop where you&apos;re signed in, open Pīna&apos;i and type this code.</Text>
+                    <Text style={styles.instruction}>
+                        {props.instruction ?? "On a phone or laptop where you're signed in, open Pīna'i and type this code."}
+                    </Text>
                     {vm.line && (
                         <Text
                             accessibilityLiveRegion="polite"

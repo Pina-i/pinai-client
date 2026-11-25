@@ -5,17 +5,33 @@ import { StyleSheet, useUnistyles } from "react-native-unistyles"
 import { Button } from "@/presentation/atoms/button/button"
 import { SegmentedTabs } from "@/presentation/molecules/segmented-tabs/segmented-tabs"
 import { DeviceWay } from "./device-way/device-way"
-import { useNewDeviceViewModel, WAYS } from "./new-device.viewmodel"
+import type { RestoreVariant } from "@pinai/domain/models/restore-page"
+import { useNewDeviceViewModel } from "./new-device.viewmodel"
+import { ResetNote } from "./reset-note"
+import { setterOf } from "./start-over-way/start-over-wording"
 import { StartOverWay } from "./start-over-way/start-over-way"
 import { WordsWay } from "./words-way/words-way"
 
-/** "New device", after the prototype's: the ways into the account's history, one page each, swiped or picked. */
-export function NewDevicePage() {
+const ROLLED_BACK =
+    "Your instance went back on your account's history key: it now serves an older one than your devices have seen. No device can start over from it — only your instance can put the key back."
+
+const UNKNOWN_CHANGE = [
+    "None of your devices set a new passphrase: your instance replaced your history key, went back to an older one, or swapped how it approves devices. Until it's settled, this device trusts nothing new and stays here.",
+    "• Your instance puts the key back: “Check again” lets this device in.",
+    "• Or start over from here: this device becomes your reference.",
+]
+
+/**
+ * "New device", after the prototype's — and the reset page, the same with the web's words: the ways into the account's
+ * history, one page each, swiped or picked.
+ */
+export function NewDevicePage({ variant = "new-device" }: { variant?: RestoreVariant }) {
     const insets = useSafeAreaInsets()
     const { theme } = useUnistyles()
     const { width } = useWindowDimensions()
     const pager = useRef<ScrollViewInstance>(null)
-    const vm = useNewDeviceViewModel()
+    const vm = useNewDeviceViewModel(variant)
+    const WAYS = vm.ways
     // The way it opens on, once: later picks scroll the pager themselves.
     const [openedAt] = useState(() => ({
         x:
@@ -35,7 +51,7 @@ export function NewDevicePage() {
                 ) * width,
             animated: true,
         })
-    }, [vm.tab, width])
+    }, [vm.tab, width, WAYS])
 
     if (vm.view.kind === "loading") {
         return (
@@ -88,9 +104,13 @@ export function NewDevicePage() {
                         accessibilityRole="header"
                         style={styles.title}
                     >
-                        New device
+                        {vm.title}
                     </Text>
-                    <Text style={[styles.lede, styles.intro]}>Your account is signed in. To bring your conversations here, choose one way.</Text>
+                    {variant === "new-device" ? (
+                        <Text style={[styles.lede, styles.intro]}>Your account is signed in. To bring your conversations here, choose one way.</Text>
+                    ) : (
+                        <View style={styles.intro} />
+                    )}
                     {vm.notice && (
                         <Text
                             accessibilityLiveRegion="polite"
@@ -100,16 +120,47 @@ export function NewDevicePage() {
                         </Text>
                     )}
                     {vm.rolledBack ? (
-                        <View style={styles.rolledBack}>
-                            <Text style={styles.eyebrow}>What happened</Text>
-                            <Text style={styles.lede}>
-                                Your instance went back on your account&apos;s history key: it now serves an older one than your devices have seen. No
-                                device can start over from it — only your instance can put the key back.
-                            </Text>
+                        <ResetNote
+                            eyebrow="What happened"
+                            lines={[ROLLED_BACK]}
+                            onCheckAgain={vm.onIn}
+                        />
+                    ) : !vm.offersWayIn && vm.resetCause === null ? (
+                        <ResetNote
+                            eyebrow="Your history key"
+                            lines={["Reading what changed on your instance…"]}
+                            onCheckAgain={vm.onIn}
+                        />
+                    ) : !vm.offersWayIn && !vm.startOverShown ? (
+                        <ResetNote
+                            eyebrow="What happened"
+                            lines={UNKNOWN_CHANGE}
+                            onCheckAgain={vm.onIn}
+                            actions={
+                                <Button
+                                    label="Start over from here"
+                                    variant="erase"
+                                    onPress={() => vm.showStartOver(true)}
+                                />
+                            }
+                        />
+                    ) : !vm.offersWayIn ? (
+                        <View>
+                            <StartOverWay
+                                reason="unknown-change"
+                                own={vm.own}
+                                ready={vm.startOverReady}
+                                returnTo={vm.returnTo}
+                                onStartedOver={vm.onStartedOver}
+                                onWentOtherwise={vm.onWentOtherwise}
+                                onRolledBack={vm.onRolledBack}
+                                onBusy={vm.onStartOverBusy}
+                            />
                             <Button
-                                label="Check again"
-                                variant="secondary"
-                                onPress={vm.onIn}
+                                label="← What happened"
+                                variant="quiet"
+                                disabled={vm.busy}
+                                onPress={() => vm.showStartOver(false)}
                             />
                         </View>
                     ) : (
@@ -122,7 +173,7 @@ export function NewDevicePage() {
                         />
                     )}
                 </View>
-                {!vm.rolledBack && (
+                {!vm.rolledBack && vm.offersWayIn && (
                     <>
                         <ScrollView
                             ref={pager}
@@ -145,6 +196,11 @@ export function NewDevicePage() {
                                     share={vm.share}
                                     onApproved={vm.onApproved}
                                     onIn={vm.onIn}
+                                    instruction={
+                                        variant === "reset"
+                                            ? `Open Pīna'i on ${vm.replacedOn ?? "the device that reset your history"} and type this code when it asks.`
+                                            : undefined
+                                    }
                                 />
                             </View>
                             <View style={styles.way(width)}>
@@ -153,11 +209,36 @@ export function NewDevicePage() {
                                     setUp={vm.setUp}
                                     onTyping={vm.onTyping}
                                     onIn={vm.onIn}
+                                    help={
+                                        variant === "reset"
+                                            ? `The new words, from ${vm.replacedOn ?? "the device that reset your history"}: your old ones no longer open your history. Pasting all of them at once works.`
+                                            : undefined
+                                    }
                                 />
                             </View>
                             <View style={styles.way(width)}>
+                                {variant === "reset" && (
+                                    <View style={styles.passwordFirst}>
+                                        <Text style={styles.passwordEyebrow}>First, your password</Text>
+                                        <Text
+                                            accessibilityRole="header"
+                                            style={styles.passwordHeading}
+                                        >
+                                            Change your password
+                                        </Text>
+                                        <Text style={styles.passwordBody}>
+                                            Whoever has {setterOf("not-me", vm.replacedOn)} has your password too. Change it with a reset link —
+                                            &ldquo;Forgot password?&rdquo; on your instance&apos;s sign-in page, or ask its admin for one. That signs
+                                            every session out, theirs and this one: once you&apos;ve signed in again, come back here to start over.
+                                            This device then waits until that device has gone 7 days unused. As long as they can still use it, it
+                                            never finishes — which is why the password comes first.
+                                        </Text>
+                                    </View>
+                                )}
                                 <StartOverWay
-                                    reason="lost-everything"
+                                    reason={variant === "reset" ? "not-me" : "lost-everything"}
+                                    replacedOn={vm.replacedOn}
+                                    refused={vm.refused}
                                     own={vm.own}
                                     ready={vm.startOverReady}
                                     returnTo={vm.returnTo}
@@ -239,7 +320,36 @@ const styles = StyleSheet.create((theme) => ({
         lineHeight: 19,
         color: theme.colors.idleInk,
     },
-    rolledBack: { gap: 10 },
+    passwordFirst: {
+        marginBottom: 14,
+        paddingVertical: 16,
+        paddingHorizontal: 16,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        backgroundColor: theme.colors.surface1,
+    },
+    passwordEyebrow: {
+        fontFamily: "DM Sans",
+        fontSize: 11,
+        fontWeight: "500",
+        letterSpacing: 0.11,
+        color: theme.colors.dndInk,
+    },
+    passwordHeading: {
+        marginTop: 4,
+        fontFamily: "DM Sans",
+        fontSize: 17,
+        fontWeight: "700",
+        color: theme.colors.dndInk,
+    },
+    passwordBody: {
+        marginTop: 8,
+        fontFamily: "DM Sans",
+        fontSize: 14,
+        lineHeight: 21,
+        color: theme.colors.mutedForeground,
+    },
     eyebrow: {
         fontFamily: "DM Sans",
         fontSize: 11,

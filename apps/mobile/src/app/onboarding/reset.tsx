@@ -1,5 +1,5 @@
-import { OnboardingStubPage } from "@/presentation/pages/onboarding-stub/onboarding-stub"
+import { NewDevicePage } from "@/presentation/pages/onboarding/new-device/new-device"
 
 export default function Reset() {
-    return <OnboardingStubPage title="Your history was reset" />
+    return <NewDevicePage variant="reset" />
 }

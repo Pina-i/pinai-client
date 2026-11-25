@@ -1,5 +1,7 @@
 import { instanceAddress } from "@pinai/domain/models/instance"
-import { listensForShare, openingTab, type RestoreTab } from "@pinai/domain/models/restore-page"
+import type { ResetCause } from "@pinai/domain/models/admission"
+import type { DeviceId } from "@pinai/domain/models/e2ee"
+import { listensForShare, offersWayIn, openingTab, type RestoreTab, type RestoreVariant } from "@pinai/domain/models/restore-page"
 import { checkAdmissionUseCase } from "@pinai/domain/usecases/e2ee/check-admission.usecase"
 import { enterRestorePageUseCase } from "@pinai/domain/usecases/e2ee/enter-restore-page.usecase"
 import { gateThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/gate-this-device.usecase"
@@ -26,13 +28,33 @@ export const WAYS: readonly { id: RestoreTab; label: string }[] = [
     { id: "start-over", label: "Start over" },
 ]
 
-const RETURN_TO_START_OVER = "/onboarding/new-device?tab=start-over"
+// On the reset page the ways are the device that reset the history and its words.
+const RESET_WAYS: readonly { id: RestoreTab; label: string }[] = [
+    { id: "device", label: "That device" },
+    { id: "words", label: "Its 24 words" },
+    { id: "start-over", label: "Start over" },
+]
+
+const RESET_TITLES: Record<ResetCause | "unknown", string> = {
+    "newer-generation": "Your history was reset from another device",
+    "unknown-change": "Your instance changed your history key",
+    "unknown": "Your history key changed",
+}
+
+interface ResetReading {
+    cause: ResetCause | null
+    /** The setter's name, when this device found it approved. */
+    replacedOn: string | null
+    /** "It wasn't me": the device the key names. */
+    refused: DeviceId | null
+}
 
 /**
- * A device that never held the account's words: set up as it opens (registered, named, no KeyPackage), sent on where the
- * gate says, then waiting for its key share — kept, on to the app. The code and the typed words are its ways in.
+ * A device that never held the account's words (`new-device`), or whose words no longer give the account's key (`reset`):
+ * set up as it opens (registered, named, no KeyPackage), sent on where the gate says, then waiting for its key share —
+ * kept, on to the app. The code, the typed words and starting over are its ways in.
  */
-export function useNewDeviceViewModel() {
+export function useNewDeviceViewModel(variant: RestoreVariant) {
     const signedIn = useAppStore((s) => s.accessToken !== null)
     const idpUrl = useAppStore((s) => s.idpUrl)
     const actorUri = useAppStore((s) => s.user?.actor_uri ?? null)
@@ -43,6 +65,10 @@ export function useNewDeviceViewModel() {
     const { tab: askedTab } = useLocalSearchParams<{ tab?: string }>()
     const [tab, setTab] = useState<RestoreTab>(() => WAYS.find((way) => way.id === askedTab)?.id ?? "device")
     const [tabChosen, setTabChosen] = useState(askedTab !== undefined)
+    // Set together: the title never changes under the user's eyes.
+    const [reset, setReset] = useState<ResetReading>({ cause: null, replacedOn: null, refused: null })
+    // After an unknown change, Start over is shown in place of what happened.
+    const [startOverShown, showStartOver] = useState(askedTab === "start-over")
     useEffect(() => {
         if (askedTab) router.setParams({ tab: undefined })
     }, [askedTab])
@@ -65,12 +91,14 @@ export function useNewDeviceViewModel() {
         let cancelled = false
         const entering = enterRestorePageUseCase({
             e2eePort,
-            setUp: (session) => setUpThisDeviceUseCase({ e2eePort, sessionPort: getSessionPort() })(session.idpUrl, session.accessToken, session.actorUri),
+            setUp: (session) =>
+                setUpThisDeviceUseCase({ e2eePort, sessionPort: getSessionPort() })(session.idpUrl, session.accessToken, session.actorUri),
             checkAdmission: (session) => checkAdmissionUseCase(admissionDeps())(session.idpUrl, session.accessToken, session.actorUri),
             listDevices: async (session) => (await getDeviceDirectoryPort().listDevices(session.idpUrl, session.accessToken)).devices,
             signInAgainOnDeviceMismatch,
             warn: warnE2ee,
-        })({ idpUrl, accessToken, actorUri }, "new-device", {
+        })({ idpUrl, accessToken, actorUri }, variant, {
+            onEarlyCause: (cause) => setReset((known) => (known.cause ? known : { cause, replacedOn: null, refused: null })),
             onDeviceReady: () => setDeviceReady(true),
             cancelled: () => cancelled,
         })
@@ -98,6 +126,7 @@ export function useNewDeviceViewModel() {
                         return
                     }
                     setLacksWords(entry.read?.lacksWords ?? false)
+                    if (entry.read) setReset(entry.read.reset)
                     setView({ kind: "ready" })
                     return
                 case "failed":
@@ -111,7 +140,7 @@ export function useNewDeviceViewModel() {
         return () => {
             cancelled = true
         }
-    }, [signedIn, idpUrl, actorUri, attempt])
+    }, [signedIn, idpUrl, actorUri, attempt, variant])
 
     const listening = listensForShare({
         lacksWords,
@@ -152,17 +181,18 @@ export function useNewDeviceViewModel() {
             setNotice(START_OVER_NOTICES[how])
             void gateThisDeviceUseCase(admissionDeps())(idpUrl, accessToken, actorUri).then(
                 (route) => {
-                    if (route !== "new-device") {
+                    if (route !== variant) {
                         router.replace(route === "app" ? "/home" : GATE_ROUTES[route])
                         return
                     }
                     setTab("device")
+                    showStartOver(false)
                     setAttempt((n) => n + 1)
                 },
                 (error: unknown) => warnE2ee("deciding where this device goes", error)
             )
         },
-        [idpUrl, actorUri]
+        [idpUrl, actorUri, variant]
     )
     const setUp = useCallback(() => setUpRef.current, [])
     const onTyping = useCallback((busy: boolean) => {
@@ -170,8 +200,25 @@ export function useNewDeviceViewModel() {
     }, [])
     const onIn = useCallback(() => router.replace("/home"), [])
 
+    const isReset = variant === "reset"
     return {
         view,
+        variant,
+        ways: isReset ? RESET_WAYS : WAYS,
+        title: !isReset
+            ? "New device"
+            : reset.replacedOn
+              ? `Your words were replaced on ${reset.replacedOn}`
+              : RESET_TITLES[reset.cause ?? "unknown"],
+        offersWayIn: offersWayIn(variant, reset.cause),
+        resetCause: isReset ? reset.cause : null,
+        replacedOn: isReset ? reset.replacedOn : null,
+        refused: isReset ? reset.refused : null,
+        startOverShown,
+        showStartOver: useCallback((shown: boolean) => {
+            setNotice(null)
+            showStartOver(shown)
+        }, []),
         host: (idpUrl && instanceAddress(idpUrl)?.host) ?? "",
         tab,
         setTab: chooseTab,
@@ -180,7 +227,7 @@ export function useNewDeviceViewModel() {
         deviceReady,
         own,
         startOverReady: deviceReady && !approvedHere,
-        returnTo: useCallback(() => RETURN_TO_START_OVER, []),
+        returnTo: useCallback(() => `${GATE_ROUTES[variant]}?tab=start-over`, [variant]),
         onStartOverBusy: useCallback((busy: boolean) => {
             if (busy) setNotice(null)
             setStartingOver(busy)

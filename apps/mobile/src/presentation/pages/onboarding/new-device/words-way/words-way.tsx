@@ -10,6 +10,8 @@ export interface WordsWayProps {
     setUp: () => Promise<void> | null
     onTyping: (busy: boolean) => void
     onIn: () => void
+    /** Whose words: the account's own, or the new ones another device set. */
+    help?: string
 }
 
 /** "24 words": the account's words, typed or pasted into one field. */
@@ -66,7 +68,7 @@ export function WordsWay(props: WordsWayProps) {
                     </Text>
                 )
             )}
-            <Text style={styles.help}>The words you saved when you created your account. Order matters; capitals don&apos;t.</Text>
+            <Text style={styles.help}>{props.help ?? "The words you saved when you created your account. Order matters; capitals don't."}</Text>
             <View style={styles.action}>
                 <Button
                     label={vm.checking ? "Checking your words…" : "Bring my history"}
