@@ -3,7 +3,7 @@ import { listensForShare, type RestoreTab } from "@pinai/domain/models/restore-p
 import { checkAdmissionUseCase } from "@pinai/domain/usecases/e2ee/check-admission.usecase"
 import { enterRestorePageUseCase } from "@pinai/domain/usecases/e2ee/enter-restore-page.usecase"
 import { setUpThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/set-up-this-device.usecase"
-import { router } from "expo-router"
+import { router, useLocalSearchParams } from "expo-router"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { getDeviceDirectoryPort, getE2eePort, getSessionPort } from "@/ioc"
 import { admissionDeps } from "@/presentation/_libs/admission-deps"
@@ -34,7 +34,12 @@ export function useNewDeviceViewModel() {
     const [view, setView] = useState<NewDeviceView>({ kind: "loading" })
     const [deviceReady, setDeviceReady] = useState(false)
     const [lacksWords, setLacksWords] = useState(false)
-    const [tab, setTab] = useState<RestoreTab>("device")
+    // `?tab=` — where a sign-in asked for the password comes back to — opens that way, then leaves the address.
+    const { tab: askedTab } = useLocalSearchParams<{ tab?: string }>()
+    const [tab, setTab] = useState<RestoreTab>(() => WAYS.find((way) => way.id === askedTab)?.id ?? "device")
+    useEffect(() => {
+        if (askedTab) router.setParams({ tab: undefined })
+    }, [askedTab])
     const [attempt, setAttempt] = useState(0)
     // Both ways await it, so a press mid-setup doesn't race the registration.
     const setUpRef = useRef<Promise<void> | null>(null)

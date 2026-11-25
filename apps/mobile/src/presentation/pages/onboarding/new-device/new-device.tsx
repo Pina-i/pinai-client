@@ -1,4 +1,4 @@
-import { useRef } from "react"
+import { useRef, useState } from "react"
 import { ActivityIndicator, ScrollView, type ScrollViewInstance, Text, useWindowDimensions, View } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { StyleSheet, useUnistyles } from "react-native-unistyles"
@@ -15,6 +15,8 @@ export function NewDevicePage() {
     const { width } = useWindowDimensions()
     const pager = useRef<ScrollViewInstance>(null)
     const vm = useNewDeviceViewModel()
+    // The way it opens on, once: later picks scroll the pager themselves.
+    const [openedAt] = useState(() => ({ x: Math.max(0, WAYS.findIndex((way) => way.id === vm.tab)) * width, y: 0 }))
 
     if (vm.view.kind === "loading") {
         return (
@@ -86,6 +88,7 @@ export function NewDevicePage() {
                     ref={pager}
                     horizontal
                     pagingEnabled
+                    contentOffset={openedAt}
                     showsHorizontalScrollIndicator={false}
                     keyboardShouldPersistTaps="handled"
                     onMomentumScrollEnd={(event) => {
