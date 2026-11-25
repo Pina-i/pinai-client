@@ -52,6 +52,11 @@ export async function resumeKeptSession(): Promise<ResumeOutcome | null> {
     return outcome
 }
 
+/** When this token reached the phone, on its own clock: how recent the password is, read on the IdP's clock. */
+export function accessTokenArrivedAt(token: string): number | null {
+    return keeper.arrivalOf(token)
+}
+
 /** Renews the session now: a refused request, a socket its session closed. The new token, or `null`. */
 export function renewAccessToken(): Promise<string | null> {
     return keeper.renewNow()
