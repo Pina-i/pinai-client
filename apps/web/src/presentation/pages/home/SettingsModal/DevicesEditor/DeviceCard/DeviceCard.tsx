@@ -1,10 +1,10 @@
 import { HelpCircle, KeyRound, Laptop, Pencil, Smartphone, Tablet } from "lucide-react"
 
+import { deviceShortId } from "@pinai/crypto/device-short-id"
 import { MAX_DEVICE_NAME_LENGTH, activityLabel, deviceStatus } from "@pinai/domain/models/device"
 
 import type { DeviceRow } from "@/presentation/hooks/useDevices"
 import { dayLabel } from "@/presentation/_libs/day-label"
-import { deviceFingerprint } from "@/presentation/_libs/device-fingerprint"
 import { cn } from "@/presentation/_libs/utils"
 import { IconButton } from "@/presentation/atoms/IconButton/IconButton"
 import { Logo } from "@/presentation/atoms/Logo/Logo"
@@ -61,7 +61,7 @@ export function DeviceCard({ device, holdsHistory, approvedBy, onRevoke, revokeW
         ...(device.chosen_name !== null ? [device.automatic_name] : []),
         ...(approvedBy ? [`approved by ${approvedBy}`] : []),
         `paired ${dayLabel(device.paired_at)}`,
-        deviceFingerprint(device.device_id),
+        deviceShortId(device.device_id),
     ]
 
     // Out of use: its icon, name and tags step back; the facts, the pencil and Revoke keep their contrast.
