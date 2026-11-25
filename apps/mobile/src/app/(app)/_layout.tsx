@@ -5,6 +5,7 @@ import { startAppRuntime } from "@/presentation/_libs/app-runtime"
 import { publishHistoryReset } from "@/presentation/_libs/history-reset"
 import { useOnboardingGate } from "@/presentation/hooks/use-onboarding-gate"
 import { ApprovalDoor } from "@/presentation/organisms/approval-door/approval-door"
+import { StartOverPrompt } from "@/presentation/organisms/start-over-prompt/start-over-prompt"
 import { GateFailedPage } from "@/presentation/pages/gate-failed/gate-failed"
 import { ReachShell } from "@/presentation/templates/reach/reach-shell"
 import { useAppStore } from "@/store/store"
@@ -27,6 +28,7 @@ export default function AppLayout() {
         <ReachShell>
             <Stack screenOptions={{ headerShown: false, animation: "fade", contentStyle: { backgroundColor: "transparent" } }} />
             <ApprovalDoor />
+            <StartOverPrompt />
         </ReachShell>
     )
 }
