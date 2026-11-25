@@ -5,7 +5,7 @@ import {
     endedLine,
     insteadLine,
     startOverRefusalLine,
-} from "../src/presentation/pages/onboarding/new-device/start-over-way/start-over-wording"
+} from "../src/presentation/organisms/start-over-way/start-over-wording"
 
 describe("the Start over way's words", () => {
     it("says what starting over does, and that approved devices are told first", () => {

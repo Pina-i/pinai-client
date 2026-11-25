@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { arrivalLine, askingLine } from "../src/presentation/pages/onboarding/new-device/device-way/device-way-wording"
+import { arrivalLine, askingLine } from "../src/presentation/organisms/device-way/device-way-wording"
 
 const at = () => "14:05"
 

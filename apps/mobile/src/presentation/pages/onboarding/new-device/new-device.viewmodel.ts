@@ -18,7 +18,7 @@ import { useAwaitedShare } from "@/presentation/hooks/use-awaited-share"
 import { GATE_ROUTES } from "@/presentation/hooks/use-onboarding-gate"
 import { useOwnStartOver } from "@/presentation/hooks/use-own-start-over"
 import { useAppStore } from "@/store/store"
-import { START_OVER_NOTICES, type StartOverNotice } from "./start-over-way/start-over-wording"
+import { START_OVER_NOTICES, type StartOverNotice } from "@/presentation/organisms/start-over-way/start-over-wording"
 
 export type NewDeviceView = { kind: "loading" } | { kind: "ready" } | { kind: "failed"; message: string }
 

@@ -1,6 +1,6 @@
 import { wordsOf } from "@pinai/crypto/recovery-words"
 import { describe, expect, it } from "vitest"
-import { misspeltWord } from "../src/presentation/pages/onboarding/new-device/words-way/words-way-choices"
+import { misspeltWord } from "../src/presentation/organisms/words-way/words-way-choices"
 
 const misspelt = (text: string) => misspeltWord(text, wordsOf(text))
 
