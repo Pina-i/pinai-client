@@ -78,11 +78,13 @@ export function momentLabel(at: number): string {
 }
 
 /** A start over request's refusal, in plain words: never the IdP's codes or descriptions. */
-export function startOverRefusalLine(error: unknown, action: "ask" | "withdraw"): string {
+export function startOverRefusalLine(error: unknown, action: "ask" | "cancel" | "withdraw"): string {
     if (isUnreachable(error) || !(error instanceof IdpError)) return "Couldn't reach your instance. Try again."
     switch (error.code) {
         case APPROVAL_REQUIRED:
-            return "Your instance doesn't let this device do that."
+            return action === "cancel"
+                ? "Only an approved device can cancel it, and your instance doesn't count this one as approved."
+                : "Your instance doesn't let this device do that."
         case "access_denied":
             return "This device has been signed out of your account."
         case "device_required":

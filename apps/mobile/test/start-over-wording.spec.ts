@@ -30,6 +30,10 @@ describe("the Start over way's words", () => {
     it("says a refusal in plain words, never the instance's codes", () => {
         expect(startOverRefusalLine(new TypeError("Failed to fetch"), "ask")).toBe("Couldn't reach your instance. Try again.")
         expect(startOverRefusalLine(new IdpError(403, "access_denied", "nope"), "withdraw")).toBe("This device has been signed out of your account.")
+        expect(startOverRefusalLine(new IdpError(403, "approval_required", "nope"), "cancel")).toBe(
+            "Only an approved device can cancel it, and your instance doesn't count this one as approved."
+        )
+        expect(startOverRefusalLine(new IdpError(403, "approval_required", "nope"), "ask")).toBe("Your instance doesn't let this device do that.")
         expect(startOverRefusalLine(new IdpError(409, "something_else", "x"), "ask")).toBe("Your instance didn't take the request. Try again later.")
     })
 })
