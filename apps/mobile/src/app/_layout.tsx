@@ -57,6 +57,24 @@ export default function RootLayout() {
                         }}
                     />
                     <Stack.Screen
+                        name="words"
+                        options={{
+                            presentation: "formSheet",
+                            sheetAllowedDetents: [0.92],
+                            sheetCornerRadius: 22,
+                            contentStyle: { backgroundColor: theme.colors.popover },
+                        }}
+                    />
+                    <Stack.Screen
+                        name="restore-words"
+                        options={{
+                            presentation: "formSheet",
+                            sheetAllowedDetents: [0.92],
+                            sheetCornerRadius: 22,
+                            contentStyle: { backgroundColor: theme.colors.popover },
+                        }}
+                    />
+                    <Stack.Screen
                         name="server"
                         options={{
                             presentation: "formSheet",
