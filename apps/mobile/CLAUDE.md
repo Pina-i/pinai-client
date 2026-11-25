@@ -158,6 +158,16 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
   key…" ("Check again", "Start over from here") —, each way a form sheet route, `/history-reset?way=` (`pages/history-reset/`:
   the code or the new words; the password first, then Start over refusing the setter; Start over alone), each end checking
   again. Routes, not `molecules/sheet` (a `Modal`, its own Android window): screenshots stay blocked in the app's window.
+- **What runs once in** (`_libs/app-runtime.ts`, started by the `(app)` layout while signed in and `in`, stopped as it
+  leaves): `_libs/device-review.ts` — the domain's `syncOwnGroupsUseCase` with no conversation (the phone holds no group:
+  the review and the passphrase's shares only), at once, on `device_joined` / `device_approved`, when the socket or the app
+  comes back; without it the phone would announce nobody and share with nobody. `_libs/history-share.ts` — a share owed
+  taken at once and on `history_key_ready`, the device's own approval by its words made again on a reconnect.
+  `_libs/approval-answering.ts` — the app's one `ApprovalAnswering`, kept current by the domain's `AnsweringRuntime`,
+  read again when the socket or the app comes back (the socket closes in the background); `useAnswering`, `useDoorView`,
+  `useDoorSummons`, `useSeats`, `summonDoor`. `_libs/arrivals.ts` — a device arriving unapproved (`arrivalToTell`) opens
+  the Door for it; the web shows a toast. `_libs/socket.ts` hands its one handler of each kind on (`onSocketEvent`,
+  `onSocketConnected`, `isSocketConnected`).
 - **No history restore yet** (`_libs/history-restore.ts`): the phone keeps no messages, and `HistoryRestore` run with
   nowhere to put them would count the restore applied, then clear it. It isn't run: the restore stays due for when
   conversations come to the phone.
