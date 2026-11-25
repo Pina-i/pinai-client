@@ -10,14 +10,18 @@ import type { DeviceListEntry } from "@pinai/domain/models/device"
 import {
     approvedByWording,
     approverOf,
+    devicesPane,
     fromBeforeDevices,
     refusedDevice,
     historyHolders,
     holdsCurrentWords,
     holdsHistory,
     mayRename,
+    rosterRows,
     waitingDevices,
+    wordsOffers,
 } from "@pinai/domain/models/device-roster"
+import type { HistoryKeyStanding, PendingHistoryKey } from "@pinai/domain/models/history-key"
 import {
     approvedDevicesBy,
     undecided,
@@ -360,5 +364,112 @@ describe("who may rename a device", () => {
     it("never offers it on a revoked device", () => {
         expect(mayRename(counted, "laptop", row("old", 5, { revoked_at: "2026-11-03T00:00:00Z" }))).toBe(false)
         expect(mayRename(null, "laptop", row("old", 5, { revoked_at: "2026-11-03T00:00:00Z" }))).toBe(false)
+    })
+})
+
+describe("the pane's rows", () => {
+    it("marks this device and reads a kind the client doesn't draw as unknown", () => {
+        const rows = rosterRows([row("laptop", 1, { kind: "phone" }), row("watch", 2, { kind: "watch" as never })], "laptop")
+
+        expect(rows.map((d) => [d.device_id, d.is_current, d.kind])).toEqual([
+            ["laptop", true, "phone"],
+            ["watch", false, "unknown"],
+        ])
+        expect(rosterRows([row("laptop", 1)], null)[0].is_current).toBe(false)
+    })
+
+    const rows = rosterRows([row("laptop", 1), row("phone", 2, { display_name: "Pixel 8" }), row("tablet", 3, { display_name: "iPad" })], "laptop")
+    const acting = verdict({
+        approved: [
+            { deviceId: "laptop", rootKey: root(1) },
+            { deviceId: "phone", rootKey: root(2) },
+        ],
+        approvedBy: [{ deviceId: "phone", rootKey: root(2), approver: { by: "device", deviceId: "laptop" } }],
+    })
+
+    it("leaves the seated devices out of the list, each row with its flags", () => {
+        const pane = devicesPane({ rows, events: [], verdict: acting, waiting: [rows[2]], fromBefore: [], approvedByInstance: null })
+
+        expect(pane.thisDevice).toBe("laptop")
+        expect(pane.listed.map((r) => r.device.device_id)).toEqual(["laptop", "phone"])
+        expect(pane.listed[1]).toMatchObject({ approvedBy: "this device", revokeWithheld: false, renamable: true })
+        expect(pane.waitingAnnouncement).toBe("1 waiting for you: iPad")
+        expect(pane.fromBeforeHeading).toBeNull()
+        expect(pane.listRefused).toBe(false)
+        expect(pane.uncounted).toBe(false)
+    })
+
+    it("heads the devices from before by what this device did", () => {
+        const before = (cause: "start-over" | "replacement") =>
+            devicesPane({
+                rows,
+                events: [],
+                verdict: verdict({ before: { generation: 2, cause, devices: [], refused: [] } }),
+                waiting: [],
+                fromBefore: [rows[2]],
+                approvedByInstance: null,
+            }).fromBeforeHeading
+
+        expect(before("start-over")).toBe("From before you started over")
+        expect(before("replacement")).toBe("From before you replaced your words")
+    })
+
+    it("falls back on the verdict for this device, and says a list naming a device twice", () => {
+        const others = rosterRows([row("phone", 2)], null)
+        const pane = devicesPane({
+            rows: others,
+            events: [{ kind: "device-list-refused", duplicates: ["phone"] }],
+            verdict: acting,
+            waiting: [],
+            fromBefore: [],
+            approvedByInstance: null,
+        })
+
+        expect(pane.thisDevice).toBe("laptop")
+        expect(pane.listRefused).toBe(true)
+    })
+
+    it("withholds what the instance refuses a device it doesn't count approved", () => {
+        const pane = devicesPane({ rows, events: [], verdict: acting, waiting: [], fromBefore: [], approvedByInstance: new Set(["phone"]) })
+
+        expect(pane.uncounted).toBe(true)
+        expect(pane.listed.find((r) => r.device.device_id === "phone")).toMatchObject({ revokeWithheld: true, renamable: false })
+    })
+})
+
+describe("the words' offers", () => {
+    const WORDS = Array.from({ length: 24 }, (_, i) => `word${i}`)
+    const holds: HistoryKeyStanding = { kind: "holds", generation: 2, settled: true }
+    const lacks: HistoryKeyStanding = { kind: "no-passphrase", generation: 2 }
+    const pending = (change: Partial<PendingHistoryKey> = {}): PendingHistoryKey => ({
+        generation: 3,
+        salt: new Uint8Array(16),
+        checkValue: new Uint8Array(32),
+        approvalPublicKey: new Uint8Array(32),
+        mintedAt: null,
+        ...change,
+    })
+
+    it("shows the words only where they are the current ones", () => {
+        expect(wordsOffers({ standing: holds, words: WORDS, pending: null }, false)).toEqual({
+            passphraseWords: WORDS,
+            offersRestore: false,
+            offersReplace: true,
+        })
+        expect(wordsOffers({ standing: lacks, words: WORDS, pending: null }, false).passphraseWords).toBeNull()
+    })
+
+    it("offers restoring only off the banner", () => {
+        expect(wordsOffers({ standing: lacks, words: null, pending: null }, false).offersRestore).toBe(true)
+        expect(wordsOffers({ standing: lacks, words: null, pending: null }, true).offersRestore).toBe(false)
+    })
+
+    it("knows nothing before the standing is read", () => {
+        expect(wordsOffers(null, false)).toEqual({ passphraseWords: null, offersRestore: null, offersReplace: false })
+    })
+
+    it("offers replacing again only over a replacement's own pending key", () => {
+        expect(wordsOffers({ standing: holds, words: WORDS, pending: pending({ rearchive: true }) }, false).offersReplace).toBe(true)
+        expect(wordsOffers({ standing: holds, words: WORDS, pending: pending() }, false).offersReplace).toBe(false)
     })
 })
