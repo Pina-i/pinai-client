@@ -4,6 +4,7 @@ import * as SplashScreen from "expo-splash-screen"
 import { StatusBar } from "expo-status-bar"
 import { useEffect } from "react"
 import { View } from "react-native"
+import { GestureHandlerRootView } from "react-native-gesture-handler"
 import { StyleSheet, useUnistyles } from "react-native-unistyles"
 import { getAuthNavigation } from "@/ioc"
 import { Grain } from "@/presentation/atoms/grain/grain"
@@ -33,40 +34,43 @@ export default function RootLayout() {
     }, [])
 
     return (
-        <View style={styles.root}>
-            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.colors.background } }}>
-                <Stack.Screen
-                    name="status"
-                    options={{
-                        presentation: "formSheet",
-                        sheetAllowedDetents: "fitToContents",
-                        sheetCornerRadius: 22,
-                        contentStyle: { backgroundColor: theme.colors.popover },
-                    }}
-                />
-                <Stack.Screen
-                    name="history-reset"
-                    options={{
-                        presentation: "formSheet",
-                        sheetAllowedDetents: [0.92],
-                        sheetCornerRadius: 22,
-                        contentStyle: { backgroundColor: theme.colors.popover },
-                    }}
-                />
-                <Stack.Screen
-                    name="server"
-                    options={{
-                        presentation: "formSheet",
-                        sheetAllowedDetents: [0.86],
-                        sheetCornerRadius: 22,
-                        contentStyle: { backgroundColor: theme.colors.popover },
-                    }}
-                />
-            </Stack>
-            <Grain />
-            <StatusBar style={light ? "dark" : "light"} />
-            <NavigationBar style={light ? "dark" : "light"} />
-        </View>
+        // Gestures (a row swiped open) need their root above every screen.
+        <GestureHandlerRootView style={{ flex: 1 }}>
+            <View style={styles.root}>
+                <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.colors.background } }}>
+                    <Stack.Screen
+                        name="status"
+                        options={{
+                            presentation: "formSheet",
+                            sheetAllowedDetents: "fitToContents",
+                            sheetCornerRadius: 22,
+                            contentStyle: { backgroundColor: theme.colors.popover },
+                        }}
+                    />
+                    <Stack.Screen
+                        name="history-reset"
+                        options={{
+                            presentation: "formSheet",
+                            sheetAllowedDetents: [0.92],
+                            sheetCornerRadius: 22,
+                            contentStyle: { backgroundColor: theme.colors.popover },
+                        }}
+                    />
+                    <Stack.Screen
+                        name="server"
+                        options={{
+                            presentation: "formSheet",
+                            sheetAllowedDetents: [0.86],
+                            sheetCornerRadius: 22,
+                            contentStyle: { backgroundColor: theme.colors.popover },
+                        }}
+                    />
+                </Stack>
+                <Grain />
+                <StatusBar style={light ? "dark" : "light"} />
+                <NavigationBar style={light ? "dark" : "light"} />
+            </View>
+        </GestureHandlerRootView>
     )
 }
 
