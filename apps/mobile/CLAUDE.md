@@ -125,16 +125,39 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
   checked again at a route change and when the app comes back to the front (`AppState`). The `(app)`
   layout shows nothing of the app before the device is known to be in; a failed check is
   `pages/gate-failed` ("Try again", "Sign out"). Out, it sends the device to `/onboarding/setup`,
-  `/new-device` or `/reset` (`GATE_ROUTES`) — `/reset` a stub (`pages/onboarding-stub`) until 26g.
+  `/new-device` or `/reset` (`GATE_ROUTES`). In by its kept words over a reset it didn't make, the gate keeps why
+  (`reset`) and offers `recheck`, handed through `_libs/history-reset.ts` to the banner and its sheet.
   After another account's device was wiped it checks again: the phone keeps no account's messages yet.
-- **"New device"** (`/onboarding/new-device`, `pages/onboarding/new-device/`): the domain's `enterRestorePageUseCase`
-  (`new-device`) as it opens — the device set up, sent where the gate says, else its ways as a pager
-  (`molecules/segmented-tabs`, a swipe or a tab): **Device** (`device-way/`, `hooks/use-approval-asking.ts`: the
-  domain's `ApprovalAsking`, ticked only in front, paused off the tab; approved, `ApprovedEntry` until in;
-  `molecules/code-cells`; the devices it can be typed on, `approvingDevices`) and **24 words** (`words-way/`,
-  `hooks/use-typed-words.ts`: one field, Paste, `wordsOf`, a misspelt word said, screenshots blocked on that way).
+- **"New device"** (`/onboarding/new-device`, `pages/onboarding/new-device/`) — and **the reset page** (`/onboarding/reset`,
+  the same page, `variant="reset"`, with the web's words: the title by cause or "Your words were replaced on <device>", "That
+  device" / "Its 24 words", an unknown change's "What happened", "Check again", "Start over from here", `reset-note.tsx`): the
+  domain's `enterRestorePageUseCase` as it opens — the device set up, sent where the gate says, else its ways as a pager
+  (`molecules/segmented-tabs`, a swipe or a tab; `?tab=` opens one, and a request of this device's waiting or ended opens
+  Start over, `openingTab`). The ways are organisms, the banner's sheet uses them too:
+  - **Device** (`organisms/device-way/`, `hooks/use-approval-asking.ts`: the domain's `ApprovalAsking`, ticked only in front,
+    paused off the tab; approved, `ApprovedEntry` until in; `molecules/code-cells`; the devices it can be typed on,
+    `approvingDevices`).
+  - **24 words** (`organisms/words-way/`, `hooks/use-typed-words.ts`: one field, Paste, `wordsOf`, a misspelt word said,
+    screenshots blocked on that way).
+  - **Start over** (`organisms/start-over-way/`, the domain's `StartOverFlow`; this device's request read by
+    `hooks/use-own-start-over.ts` as it opens, every 5 min and back in front, and at the date it matures): the prototype's
+    card and its confirmation sheet ("Erase your saved history?"), then the web's stages and words — waiting 7 days with its
+    date, ready, another device's first, withdraw, "Approve with another device instead"; the reset page's "It wasn't me"
+    (the setter refused, "First, your password"). The password asked again goes through the system's sheet
+    (`hooks/use-recent-sign-in.ts`, `molecules/recent-sign-in-sheet`) and comes back to `?tab=start-over`: the user presses
+    again. New words → `/onboarding/setup`, which shows them with the devices they left behind (`setup/from-before.ts`:
+    the phone answers no code yet, so a device left behind comes back with these words).
   Meanwhile `hooks/use-awaited-share.ts` waits for the key share (`ShareWait`, `_libs/app-visibility.ts`,
-  `_libs/accept-share.ts`); kept, on to `/home`. Start over is 26g's. "Sign out" under the ways.
+  `_libs/accept-share.ts`); kept, on to `/home`. "Sign out" under the ways.
+- **Back where the password was asked**: `prepareLoginUseCase`'s `post_login_redirect` is where the callback goes (Welcome's
+  sign-in passes `/home`); a cancel asked for the password goes to `returnTo`, and a sheet the user closed to
+  `MobileAuthNavigationAdapter`'s `closedTo` (the same, while `reauthenticating`). `_libs/session.ts`'s
+  `accessTokenArrivedAt` is how recent the password is, on the IdP's clock.
+- **The history-reset banner** (`organisms/history-reset-banner/`, at the top of the home panel): in by its kept words — "Your
+  history was reset from a device this one doesn't know…" ("It was me", "It wasn't me") or "Your instance changed your history
+  key…" ("Check again", "Start over from here") —, each way a form sheet route, `/history-reset?way=` (`pages/history-reset/`:
+  the code or the new words; the password first, then Start over refusing the setter; Start over alone), each end checking
+  again. Routes, not `molecules/sheet` (a `Modal`, its own Android window): screenshots stay blocked in the app's window.
 - **No history restore yet** (`_libs/history-restore.ts`): the phone keeps no messages, and `HistoryRestore` run with
   nowhere to put them would count the restore applied, then clear it. It isn't run: the restore stays due for when
   conversations come to the phone.
@@ -144,6 +167,8 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
   again after its delay; another device's key sent where the gate says; a failure with "Try again". "Start
   using Pīna'i" once the words were shown or copied and "I've saved them somewhere safe" is on, then `/home`,
   whose gate decides. No "Settings › Devices" line: the phone has no Devices screen yet.
+- `molecules/sheet` — a sheet from the bottom over a `Modal` (a question: the start over's confirmation, the password asked
+  again); never for the words, which a `Modal`'s own window would leave capturable.
 - `molecules/words-card` — the 24 words in two numbered columns, blurred until "Show words" (a `filter` blur, which
   Android draws from 12 on: hidden, the cells hold dots, never the words); hidden again when the app leaves the
   front; "Copy words" copies them hidden or not, marked sensitive (`expo-clipboard`'s `android.isSensitive`: no
