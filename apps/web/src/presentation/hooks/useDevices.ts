@@ -1,14 +1,11 @@
 import { useQuery } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 
-import type { DeviceKind, DeviceListEntry } from "@pinai/domain/models/device"
+import { rosterRows, type RosterDevice } from "@pinai/domain/models/device-roster"
 import { getDeviceDirectoryPort, getE2eePort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 
-export interface DeviceRow extends DeviceListEntry {
-    /** Local-only — derived by comparing `device_id` to this device's UUID. */
-    is_current: boolean
-}
+export type DeviceRow = RosterDevice
 
 export const devicesQueryKey = (idpUrl: string) => ["devices", idpUrl] as const
 
@@ -57,11 +54,7 @@ export function useDevices(): {
         enabled: !!idpUrl && !!accessToken,
     })
 
-    const rows = query.data?.map((d) => ({
-        ...d,
-        kind: (["laptop", "phone", "tablet"].includes(d.kind) ? d.kind : "unknown") as DeviceKind,
-        is_current: currentDeviceId !== null && d.device_id === currentDeviceId,
-    }))
+    const rows = query.data && rosterRows(query.data, currentDeviceId)
 
     return {
         rows,
