@@ -168,6 +168,27 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
   `useDoorSummons`, `useSeats`, `summonDoor`. `_libs/arrivals.ts` — a device arriving unapproved (`arrivalToTell`) opens
   the Door for it; the web shows a toast. `_libs/socket.ts` hands its one handler of each kind on (`onSocketEvent`,
   `onSocketConnected`, `isSocketConnected`).
+- **"Is this you?"** (`organisms/approval-door/`, mounted by the `(app)` layout): the prototype's bottom sheet over every
+  screen, over the domain's `doorState` — a device summoned on arrival waits for its code ("Not me", "Close"), a request
+  takes the code on `molecules/typed-code` + `molecules/number-pad` (the system keyboard would cover the cells),
+  "Checking the code with…", "<device> is in", the web's failure lines. "Not me" signs it out (`_libs/sign-out-device.ts`:
+  revoked, no commit — the phone holds no group —, the list reviewed again; the password asked again first through the
+  system's sheet, back on the same route), then "Signed it out" and "Change password", which says how by the instance's
+  mode (`hooks/use-password-change.ts`, `passwordAdvice`). An RN `Modal`: a one-time code needs no blocked screenshots.
+- **Another device's start over request** (`organisms/start-over-prompt/`, `_libs/start-over-prompt.ts`): the web's
+  prompt in the Door's look — "Cancel — it wasn't me" (no password), "It's me — approve with a code instead" only when
+  this device answers codes, "Not now" for the app run (a new push brings it back); once cancelled, the password advice
+  and "Sign <device> out". Read at start, on `start_over_requested`, when the socket or the app comes back.
+- **Settings › Devices** (`/devices`, `pages/devices/`; Settings' row says who waits): `hooks/use-device-roster.ts` (the
+  list read with each review, `rosterRows`; `hooks/use-trust-events.ts`), the domain's `devicesPane` and `wordsOffers`.
+  "Waiting for you" (dashed; a tap opens `seat-sheet.tsx`, "Approve <device>", answered through the Door's
+  `ApprovalAnswering` — `showSeats` while the screen is up, so the Door starts nothing), the refused device ("Reset your
+  history — not yours", "Sign out"), "From before you started over", "This device", "Other devices" (`device-row.tsx`:
+  `ReanimatedSwipeable` — swipe left for "Sign out", a screen reader's action too —, a tap for `device-sheet.tsx`: last
+  active, approved by, paired, short id, "Sign out this device" or why not), "History": "Your 24 words — held by N"
+  (`/words`, a form sheet with `molecules/words-card`) and "Restore history from words" (`/restore-words`, the words way:
+  the phone holds the key again and approves others). Gestures need `GestureHandlerRootView` at the root (`app/_layout.tsx`).
+  Not on the phone yet: rename, "Sign out other devices", "Clear history backup", "Replace my words".
 - **No history restore yet** (`_libs/history-restore.ts`): the phone keeps no messages, and `HistoryRestore` run with
   nowhere to put them would count the restore applied, then clear it. It isn't run: the restore stays due for when
   conversations come to the phone.
@@ -176,7 +197,7 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
   screen ("Your new 24 words", no step line, Continue forgetting them: `dismissNewWords`); a pending key tried
   again after its delay; another device's key sent where the gate says; a failure with "Try again". "Start
   using Pīna'i" once the words were shown or copied and "I've saved them somewhere safe" is on, then `/home`,
-  whose gate decides. No "Settings › Devices" line: the phone has no Devices screen yet.
+  whose gate decides. No "Settings › Devices" line under the words yet.
 - `molecules/sheet` — a sheet from the bottom over a `Modal` (a question: the start over's confirmation, the password asked
   again); never for the words, which a `Modal`'s own window would leave capturable.
 - `molecules/words-card` — the 24 words in two numbered columns, blurred until "Show words" (a `filter` blur, which
