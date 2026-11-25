@@ -12,6 +12,7 @@ const HEARTBEAT_MS = 30_000
 
 let started = false
 let open = false
+let connected = false
 
 // The socket port takes one handler of each kind, which this module owns: it hands them on.
 const eventListeners = new Set<(event: WsServerEvent) => void>()
@@ -21,6 +22,11 @@ const connectedListeners = new Set<() => void>()
 export function onSocketEvent(listener: (event: WsServerEvent) => void): () => void {
     eventListeners.add(listener)
     return () => eventListeners.delete(listener)
+}
+
+/** A connection is up now. */
+export function isSocketConnected(): boolean {
+    return connected
 }
 
 /** Each time a connection is up: pushes sent while it was down are lost, so a listener reads again. */
@@ -40,6 +46,7 @@ export function keepSocketOpen(): void {
     let heartbeat: ReturnType<typeof setInterval> | null = null
 
     ws.onStatusChange((status) => {
+        connected = status === "connected"
         if (heartbeat) clearInterval(heartbeat)
         heartbeat = null
         if (status !== "connected") return
