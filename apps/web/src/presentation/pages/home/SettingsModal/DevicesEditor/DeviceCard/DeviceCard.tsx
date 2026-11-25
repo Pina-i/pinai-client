@@ -1,9 +1,8 @@
 import { HelpCircle, KeyRound, Laptop, Pencil, Smartphone, Tablet } from "lucide-react"
 
-import { MAX_DEVICE_NAME_LENGTH, deviceStatus } from "@pinai/domain/models/device"
+import { MAX_DEVICE_NAME_LENGTH, activityLabel, deviceStatus } from "@pinai/domain/models/device"
 
 import type { DeviceRow } from "@/presentation/hooks/useDevices"
-import { activityLabel } from "@/presentation/_libs/device-activity"
 import { dayLabel } from "@/presentation/_libs/day-label"
 import { deviceFingerprint } from "@/presentation/_libs/device-fingerprint"
 import { cn } from "@/presentation/_libs/utils"
@@ -56,7 +55,7 @@ export function DeviceCard({ device, holdsHistory, approvedBy, onRevoke, revokeW
     const isCurrent = device.is_current
     const isSignedOut = !isRevoked && !isCurrent && deviceStatus(device).kind === "signed-out"
 
-    const lastSeenLabel = activityLabel(device)
+    const lastSeenLabel = activityLabel(device, new Date(), dayLabel)
     const showLivePulse = lastSeenLabel === "Active now" || lastSeenLabel === "Active just now"
     const facts = [
         ...(device.chosen_name !== null ? [device.automatic_name] : []),

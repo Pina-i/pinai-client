@@ -4,9 +4,8 @@ import { codeDigits, isWholeCode, seatAnswer, type SeatAnswer, type SeatsView } 
 import { formatLastSeen } from "@pinai/domain/models/relative-time"
 import type { ApprovalAnswering } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
 import { failureWording, refusalWording, UNREACHABLE_LINE } from "@pinai/domain/models/approval-wording"
-import { shownDeviceName } from "@pinai/domain/models/device"
+import { activityLabel, shownDeviceName } from "@pinai/domain/models/device"
 import { dayLabel } from "@/presentation/_libs/day-label"
-import { activityLabel } from "@/presentation/_libs/device-activity"
 import { warnOf as warn } from "@/presentation/_libs/key-share-deps"
 import type { DeviceRow } from "@/presentation/hooks/useDevices"
 
@@ -74,7 +73,7 @@ export function useWaitingSeatViewModel(input: {
 
     const label = shownDeviceName(device.display_name)
     const takesCode = answer.kind === "code"
-    const idle = kind === "waiting" ? `paired ${dayLabel(device.paired_at)}` : activityLabel(device, new Date(now))
+    const idle = kind === "waiting" ? `paired ${dayLabel(device.paired_at)}` : activityLabel(device, new Date(now), dayLabel)
     return {
         answer,
         label,
