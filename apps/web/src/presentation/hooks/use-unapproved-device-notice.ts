@@ -1,7 +1,7 @@
 import { useEffect } from "react"
 import { toast } from "sonner"
 
-import { trustEventKey } from "@pinai/domain/models/device-trust"
+import { arrivalToTell, trustEventKey } from "@pinai/domain/models/device-trust"
 import { getE2eePort } from "@/ioc"
 import { summonDoor, unsummonDoor } from "@/presentation/hooks/use-approval-answering"
 
@@ -16,16 +16,15 @@ export function useUnapprovedDeviceNotice(): void {
     useEffect(() => {
         const port = getE2eePort()
         const stopTold = port.onTrustEvent((event) => {
-            if (event.kind !== "unapproved-device" || !event.arrived) return
-            const key = trustEventKey(event)
-            if (told.has(key)) return
-            told.add(key)
-            toast(`New device not approved: ${event.displayName || "a device"}. Not you? Sign it out.`, {
-                id: key,
+            const arrival = arrivalToTell(event, told)
+            if (!arrival) return
+            told.add(arrival.key)
+            toast(`New device not approved: ${arrival.displayName || "a device"}. Not you? Sign it out.`, {
+                id: arrival.key,
                 duration: 15_000,
                 action: {
                     label: "Review",
-                    onClick: () => summonDoor({ deviceId: event.deviceId, displayName: event.displayName }),
+                    onClick: () => summonDoor({ deviceId: arrival.deviceId, displayName: arrival.displayName }),
                 },
             })
         })
