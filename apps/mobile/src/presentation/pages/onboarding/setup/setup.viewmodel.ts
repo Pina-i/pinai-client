@@ -1,4 +1,5 @@
 import { bootstrapFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/bootstrap-first-device.usecase"
+import { devicesFromBeforeUseCase } from "@pinai/domain/usecases/e2ee/devices-from-before.usecase"
 import { gateThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/gate-this-device.usecase"
 import { setUpFirstDeviceUseCase } from "@pinai/domain/usecases/e2ee/set-up-first-device.usecase"
 import { router } from "expo-router"
@@ -11,6 +12,7 @@ import { enterAccount } from "@/presentation/_libs/this-device"
 import { warnE2ee } from "@/presentation/_libs/warn-e2ee"
 import { GATE_ROUTES } from "@/presentation/hooks/use-onboarding-gate"
 import { useAppStore } from "@/store/store"
+import { fromBeforeLine } from "./from-before"
 
 export type SetupView =
     { kind: "loading"; stage: "checking" | "running" } | { kind: "words"; words: string[]; fresh: boolean } | { kind: "failed"; message: string }
@@ -26,6 +28,7 @@ export function useSetupViewModel() {
     const actorUri = useAppStore((s) => s.user?.actor_uri ?? null)
     const [view, setView] = useState<SetupView>({ kind: "loading", stage: "running" })
     const [saved, setSaved] = useState(false)
+    const [fromBefore, setFromBefore] = useState<string | null>(null)
     const [seen, setSeen] = useState(false)
     const [attempt, setAttempt] = useState(0)
 
@@ -81,6 +84,22 @@ export function useSetupViewModel() {
         }
     }, [signedIn, idpUrl, actorUri, attempt])
 
+    // A start over's words: the devices they left behind, named as Settings seats them.
+    const fresh = view.kind === "words" && view.fresh
+    useEffect(() => {
+        const accessToken = useAppStore.getState().accessToken
+        if (!fresh || !idpUrl || !actorUri || !accessToken) return
+        let live = true
+        devicesFromBeforeUseCase({ e2eePort: getE2eePort(), deviceDirectoryPort: getDeviceDirectoryPort() })(idpUrl, accessToken, actorUri)
+            .then((left) => {
+                if (live) setFromBefore(left ? fromBeforeLine(left) : null)
+            })
+            .catch((error: unknown) => warnE2ee("naming the devices from before", error))
+        return () => {
+            live = false
+        }
+    }, [fresh, idpUrl, actorUri])
+
     const onStart = useCallback(() => {
         if (view.kind !== "words") return
         // The gate at /home lets in only a device that is.
@@ -96,5 +115,5 @@ export function useSetupViewModel() {
         setAttempt((n) => n + 1)
     }, [])
 
-    return { view, saved, setSaved, markSeen: () => setSeen(true), canStart: saved && seen, onStart, onRetry, onSignOut: signOut }
+    return { view, fromBefore, saved, setSaved, markSeen: () => setSeen(true), canStart: saved && seen, onStart, onRetry, onSignOut: signOut }
 }

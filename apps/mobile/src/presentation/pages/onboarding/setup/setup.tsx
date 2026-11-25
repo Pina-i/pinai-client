@@ -12,7 +12,7 @@ import { useSetupViewModel } from "./setup.viewmodel"
 export function SetupPage() {
     const insets = useSafeAreaInsets()
     const { theme } = useUnistyles()
-    const { view, saved, setSaved, markSeen, canStart, onStart, onRetry, onSignOut } = useSetupViewModel()
+    const { view, fromBefore, saved, setSaved, markSeen, canStart, onStart, onRetry, onSignOut } = useSetupViewModel()
 
     if (view.kind === "loading") {
         return (
@@ -81,6 +81,7 @@ export function SetupPage() {
                         ? "You started your history over: these words replace the old ones. Your other devices need them to come back."
                         : "On a new phone, with no other device around, they bring your conversation history back. Made on this device — we never see them."}
                 </Text>
+                {view.fresh && fromBefore && <Text style={[styles.lede, styles.fromBefore]}>{fromBefore}</Text>}
                 <WordsCard
                     words={view.words}
                     onSeen={markSeen}
@@ -167,6 +168,7 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.mutedForeground,
     },
     intro: { marginTop: 8, marginBottom: 20 },
+    fromBefore: { marginTop: -8, marginBottom: 20, fontSize: 13.5, lineHeight: 20 },
     warning: {
         flexDirection: "row",
         alignItems: "flex-start",
