@@ -148,8 +148,8 @@ export function StartOverWay({ reason, replacedOn = null, onApproveInstead, ...i
                                 You can finish starting over
                             </Text>
                             <Text style={styles.body}>
-                                {vm.readyAtOnce ? "No approved device of yours to wait for." : "None of your other devices has been used for 7 days."} Finishing
-                                erases your saved history and gives this device new words; your password is asked first.
+                                {vm.readyAtOnce ? "No approved device of yours to wait for." : "None of your other devices has been used for 7 days."}{" "}
+                                Finishing erases your saved history and gives this device new words; your password is asked first.
                             </Text>
                         </View>
                     </Group>
@@ -178,8 +178,8 @@ export function StartOverWay({ reason, replacedOn = null, onApproveInstead, ...i
                                 Another device asked first
                             </Text>
                             <Text style={styles.body}>
-                                Another device has already asked to start your history over, and only one request can be open at a time: this one can ask once
-                                that one is cancelled or withdrawn. Your approved devices can cancel it.
+                                Another device has already asked to start your history over, and only one request can be open at a time: this one can
+                                ask once that one is cancelled or withdrawn. Your approved devices can cancel it.
                             </Text>
                         </View>
                     </Group>
@@ -199,7 +199,9 @@ export function StartOverWay({ reason, replacedOn = null, onApproveInstead, ...i
                 >
                     Erase your saved history?
                 </Text>
-                <Text style={styles.sheetBody}>This can&apos;t be undone once it&apos;s done: messages from before today won&apos;t come back on any device.</Text>
+                <Text style={styles.sheetBody}>
+                    This can&apos;t be undone once it&apos;s done: messages from before today won&apos;t come back on any device.
+                </Text>
                 <View style={styles.sheetActions}>
                     <Button
                         label="Erase and start over"

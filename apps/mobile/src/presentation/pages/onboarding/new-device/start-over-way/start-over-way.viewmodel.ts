@@ -1,6 +1,14 @@
 import { clockLeadOf } from "@pinai/domain/models/auth"
 import type { DeviceId } from "@pinai/domain/models/e2ee"
-import { endedNote, type FinishHold, heldBack, readyAtOnce, sightStartOver, type StartOverSighting, startOverStage } from "@pinai/domain/models/start-over"
+import {
+    endedNote,
+    type FinishHold,
+    heldBack,
+    readyAtOnce,
+    sightStartOver,
+    type StartOverSighting,
+    startOverStage,
+} from "@pinai/domain/models/start-over"
 import { StartOverFlow, type StartOverFlowResult, type StartOverStep } from "@pinai/domain/usecases/e2ee/start-over-flow.usecase"
 import { askToStartOverUseCase, endStartOverUseCase } from "@pinai/domain/usecases/e2ee/start-over-request.usecase"
 import { startOverUseCase } from "@pinai/domain/usecases/e2ee/start-over.usecase"
@@ -76,7 +84,8 @@ export function useStartOverWay({ own, ready, returnTo, refused = null, onStarte
                             report: warnE2ee,
                             pendingKeyLock: getPendingKeyLock(),
                         })({ ...session, tokenArrivedAt: accessTokenArrivedAt(session.accessToken), refused: refusedDevice }),
-                    end: (session, requestId) => endStartOverUseCase({ startOverPort: getStartOverPort() })(session.idpUrl, session.accessToken, requestId),
+                    end: (session, requestId) =>
+                        endStartOverUseCase({ startOverPort: getStartOverPort() })(session.idpUrl, session.accessToken, requestId),
                     newWordsToShow: () => getE2eePort().newWordsToShow(),
                     clockLead: (session) => clockLeadOf(session.accessToken, accessTokenArrivedAt(session.accessToken)),
                     signInAgainOnDeviceMismatch,
@@ -87,7 +96,9 @@ export function useStartOverWay({ own, ready, returnTo, refused = null, onStarte
                     held: (next) => {
                         setHold(next)
                         setRead((read) =>
-                            read?.kind === "request" && read.request.id === next.requestId ? { ...read, request: { ...read.request, readyAt: next.readyAt } } : read
+                            read?.kind === "request" && read.request.id === next.requestId
+                                ? { ...read, request: { ...read.request, readyAt: next.readyAt } }
+                                : read
                         )
                     },
                     reread,
@@ -116,7 +127,9 @@ export function useStartOverWay({ own, ready, returnTo, refused = null, onStarte
                 return
             case "failed":
                 setError(
-                    end.during === "finish" ? "Couldn't start over: your instance didn't answer. Try again." : startOverRefusalLine(end.error, end.during)
+                    end.during === "finish"
+                        ? "Couldn't start over: your instance didn't answer. Try again."
+                        : startOverRefusalLine(end.error, end.during)
                 )
                 return
         }

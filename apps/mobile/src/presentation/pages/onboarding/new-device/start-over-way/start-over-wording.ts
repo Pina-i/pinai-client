@@ -7,10 +7,10 @@ export type StartOverReason = "lost-everything" | "not-me" | "password-changed" 
 export type StartOverNotice = "conflict" | "key-changed" | "approved" | "superseded"
 
 export const START_OVER_NOTICES: Record<StartOverNotice, string> = {
-    conflict: "Another of your devices set a new passphrase at the same moment, so this one didn't start over.",
+    "conflict": "Another of your devices set a new passphrase at the same moment, so this one didn't start over.",
     "key-changed": "This device started over, then another of your devices set a newer passphrase: its words are the ones now.",
-    approved: "Another of your devices approved this one, so it doesn't need to start over.",
-    superseded: "One of your approved devices set new words, which ended your request to start over.",
+    "approved": "Another of your devices approved this one, so it doesn't need to start over.",
+    "superseded": "One of your approved devices set new words, which ended your request to start over.",
 }
 
 const STAYS =
