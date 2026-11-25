@@ -3,8 +3,11 @@ import { StyleSheet } from "react-native-unistyles"
 
 interface ButtonProps {
     label: string
-    /** `primary` commits (the palette's action colour); `quiet` is a text button in the accent. */
-    variant?: "primary" | "quiet"
+    /**
+     * `primary` commits (the palette's action colour); `secondary` sits on a surface; `quiet` is a text button in the
+     * accent; `erase` and `erase-filled` lead to erasing something, the second the last step before it.
+     */
+    variant?: "primary" | "secondary" | "quiet" | "erase" | "erase-filled"
     disabled?: boolean
     onPress?: () => void
 }
@@ -31,7 +34,10 @@ const styles = StyleSheet.create((theme) => ({
         variants: {
             variant: {
                 primary: { minHeight: 54, borderRadius: 16, backgroundColor: theme.colors.action },
+                secondary: { minHeight: 50, borderRadius: 16, backgroundColor: theme.colors.surface2 },
                 quiet: { minHeight: 44 },
+                erase: { minHeight: 50, borderRadius: 16, backgroundColor: theme.colors.surface2 },
+                "erase-filled": { minHeight: 54, borderRadius: 16, backgroundColor: theme.colors.destructive },
             },
         },
     },
@@ -46,7 +52,10 @@ const styles = StyleSheet.create((theme) => ({
         variants: {
             variant: {
                 primary: { fontSize: 16, fontWeight: "700", color: theme.colors.actionForeground },
+                secondary: { fontSize: 15, fontWeight: "700", color: theme.colors.foreground },
                 quiet: { fontSize: 15, fontWeight: "400", color: theme.colors.chat },
+                erase: { fontSize: 15, fontWeight: "700", color: theme.colors.dndInk },
+                "erase-filled": { fontSize: 16, fontWeight: "700", color: theme.colors.destructiveForeground },
             },
         },
     },
