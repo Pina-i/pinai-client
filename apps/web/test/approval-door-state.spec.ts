@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest"
 import { doorCanApprove, doorState } from "@pinai/domain/models/approval-door"
 import type { AnsweringView, ApprovalRequest, SeatsView } from "@pinai/domain/models/approval-handshake"
 import type { DeviceListEntry } from "@pinai/domain/models/device"
+import { arrivalToTell, type TrustEvent } from "@pinai/domain/models/device-trust"
 import { seatCanApprove, seatState } from "@pinai/domain/models/waiting-seat"
 
 const request: ApprovalRequest = {
@@ -102,5 +103,24 @@ describe("a seat's state", () => {
         expect(failed.offersNotMine).toBe(true)
         expect(seatState({ device, seats: seats({ seat: view("working") }), kind: "waiting", now, day }).offersNotMine).toBe(false)
         expect(seatState({ device, seats: seats({ seat: view("approved") }), kind: "waiting", now, day }).offersNotMine).toBe(false)
+    })
+})
+
+describe("a device arriving", () => {
+    const event: TrustEvent = { kind: "unapproved-device", deviceId: "d2", displayName: "Pixel 8", rootKey: new Uint8Array([1]), arrived: true }
+
+    it("is told once a run", () => {
+        const told = arrivalToTell(event, new Set())
+
+        expect(told).toMatchObject({ deviceId: "d2", displayName: "Pixel 8" })
+        expect(arrivalToTell(event, new Set([told!.key]))).toBeNull()
+    })
+
+    it("is not a device standing from before this device acted", () => {
+        expect(arrivalToTell({ ...event, arrived: false }, new Set())).toBeNull()
+    })
+
+    it("is only an unapproved device", () => {
+        expect(arrivalToTell({ kind: "device-list-refused", duplicates: [] }, new Set())).toBeNull()
     })
 })

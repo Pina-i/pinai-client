@@ -508,3 +508,10 @@ export function trustEventKey(event: TrustEvent): string {
             return `share-from:${event.deviceId}:${event.generation}`
     }
 }
+
+/** A device found unapproved the first time (`arrived`) and not told yet this run: told once, wherever the app is. */
+export function arrivalToTell(event: TrustEvent, told: ReadonlySet<string>): { key: string; deviceId: DeviceId; displayName: string } | null {
+    if (event.kind !== "unapproved-device" || !event.arrived) return null
+    const key = trustEventKey(event)
+    return told.has(key) ? null : { key, deviceId: event.deviceId, displayName: event.displayName }
+}
