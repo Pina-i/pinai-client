@@ -1,4 +1,4 @@
-import type { AnsweringView, HandshakeFailure } from "@pinai/domain/models/approval-handshake"
+import type { AnsweringView, HandshakeFailure } from "./approval-handshake"
 
 /** What a failed exchange tells the user, at the Door or in a waiting seat; nothing was approved in any of them. */
 export function failureWording(reason: HandshakeFailure, device: string): string {
@@ -24,3 +24,6 @@ export function refusalWording(refused: AnsweringView["refused"]): string | null
     if (refused === "other-tab") return "Another tab is answering this request."
     return null
 }
+
+/** A request to the instance that got no answer: nothing was done, the user may press again. */
+export const UNREACHABLE_LINE = "Couldn't reach your instance. Try again."

@@ -10,6 +10,11 @@ import { cutName, nameLength, readableName } from "./name"
 
 export type DeviceKind = "laptop" | "phone" | "tablet" | "unknown"
 
+/** A device as its rows and prompts name it: its shown name, or "A device" when it has none. */
+export function shownDeviceName(displayName: string | null | undefined): string {
+    return displayName?.trim() || "A device"
+}
+
 /** The Pīna'i app or a browser; `unknown` for a client that never said and whose `User-Agent` didn't tell. */
 export type DeviceClient = "app" | "browser" | "unknown"
 

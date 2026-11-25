@@ -47,3 +47,10 @@ export function expiryWording(at: string, now: Date): string | null {
     const [count, unit] = hours < 24 ? [hours, "hour"] : [Math.ceil(seconds / 86_400), "day"]
     return `expires in ${count} ${unit}${count === 1 ? "" : "s"}`
 }
+
+/** "asked 2 minutes ago · kauai.studio" ("signed in …" for a device): read on `now`, never ahead of it. */
+export function askedLine(at: string | number, now: number, host: string, verb = "asked"): string {
+    const iso = typeof at === "number" ? new Date(at).toISOString() : at
+    const since = formatLastSeen(iso, new Date(Math.max(now, Date.parse(iso))))
+    return `${verb} ${since ?? "just now"}${host ? ` · ${host}` : ""}`
+}
