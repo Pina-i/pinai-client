@@ -62,10 +62,14 @@ const userSettingsStore: IUserSettingsStorePort = new UserSettingsKvAdapter(Stor
 const accountSettingsPort: IAccountSettingsPort = new UserSettingsApiAdapter()
 const wsPort: IWsPort = new IdpWsAdapter()
 
-const navigation = new MobileAuthNavigationAdapter({
-    replace: (pathname, params) => router.replace({ pathname, params } as never),
-    openAuthSession: (url, redirectUrl) => WebBrowser.openAuthSessionAsync(url, redirectUrl),
-})
+const navigation = new MobileAuthNavigationAdapter(
+    {
+        replace: (pathname, params) => router.replace({ pathname, params } as never),
+        openAuthSession: (url, redirectUrl) => WebBrowser.openAuthSessionAsync(url, redirectUrl),
+    },
+    // Asked for the password again: back where it was asked, still signed in.
+    () => (authPlatform.session.get("reauthenticating") ? (authPlatform.session.get("post_login_redirect") ?? "/") : "/")
+)
 
 // The app holds a session of its own (offline_access, prompt=login), as the desktop does: its
 // client is the document every IdP serves for it.

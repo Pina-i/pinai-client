@@ -116,10 +116,10 @@ describe("KeychainSessionTokenStore", () => {
 })
 
 describe("MobileAuthNavigationAdapter", () => {
-    function navigation(result: { type: string; url?: string }) {
+    function navigation(result: { type: string; url?: string }, closedTo?: () => string) {
         const replace = vi.fn()
         const openAuthSession = vi.fn(async () => result)
-        return { adapter: new MobileAuthNavigationAdapter({ replace, openAuthSession }), replace, openAuthSession }
+        return { adapter: new MobileAuthNavigationAdapter({ replace, openAuthSession }, closedTo), replace, openAuthSession }
     }
 
     it("reads the IdP's answer off the callback", () => {
@@ -153,5 +153,22 @@ describe("MobileAuthNavigationAdapter", () => {
 
         expect(replace).toHaveBeenCalledWith("/")
         expect(openAuthSession).not.toHaveBeenCalled()
+
+        adapter.navigateTo("/onboarding/new-device?tab=start-over")
+        expect(replace).toHaveBeenLastCalledWith("/onboarding/new-device", { tab: "start-over" })
+    })
+
+    it("hands the IdP's answer to the callback, and goes back where it was asked from when the sheet is closed", async () => {
+        const answered = navigation({ type: "success", url: "io.github.pina-i:/callback?code=c&state=s" })
+        answered.adapter.navigateTo("http://localhost:8080/authorize")
+        await vi.waitFor(() => expect(answered.replace).toHaveBeenCalledWith("/callback", { code: "c", state: "s" }))
+
+        const closed = navigation({ type: "cancel" }, () => "/onboarding/new-device?tab=start-over")
+        closed.adapter.navigateTo("http://localhost:8080/authorize")
+        await vi.waitFor(() => expect(closed.replace).toHaveBeenCalledWith("/onboarding/new-device", { tab: "start-over" }))
+
+        const welcome = navigation({ type: "dismiss" })
+        welcome.adapter.navigateTo("http://localhost:8080/authorize")
+        await vi.waitFor(() => expect(welcome.replace).toHaveBeenCalledWith("/"))
     })
 })
