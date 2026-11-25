@@ -2,10 +2,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useMemo, useState } from "react"
 import { toast } from "sonner"
 
+import { doorCanApprove, doorState, doorTitle } from "@pinai/domain/models/approval-door"
 import { codeDigits, isWholeCode, type AnsweringView } from "@pinai/domain/models/approval-handshake"
 import { revokeDeviceUseCase } from "@pinai/domain/usecases/e2ee/revoke-device.usecase"
 import { refusalWording, UNREACHABLE_LINE } from "@pinai/domain/models/approval-wording"
-import { shownDeviceName } from "@pinai/domain/models/device"
 import { getDeviceDirectoryPort, getE2eePort } from "@/ioc"
 import { devicesQueryKey } from "@/presentation/hooks/useDevices"
 import { warnOf as warn } from "@/presentation/_libs/key-share-deps"
@@ -14,13 +14,7 @@ import { useAskedLine } from "@/presentation/hooks/use-asked-line"
 import { type RecentSignIn, useRecentSignIn } from "@/presentation/hooks/use-recent-sign-in"
 import { useAppStore } from "@/store/store"
 
-/** The dialog's name, as its stage reads. */
-export function doorTitle(view: AnsweringView | null): string {
-    if (view?.stage === "approved") return "Approved"
-    if (view?.stage === "working") return "Approving"
-    if (view?.stage === "failed") return "Not approved"
-    return "Is this you?"
-}
+export { doorTitle }
 
 export interface ApprovalDoorViewModel {
     view: AnsweringView | null
@@ -78,8 +72,8 @@ export function useApprovalDoorViewModel(): ApprovalDoorViewModel {
         enabled: summons !== null && !!idpUrl,
     })
     const signedIn = useAskedLine(devices?.find((d) => d.device_id === summons?.deviceId)?.paired_at ?? null, "signed in")
-    // The device asking, or the one the Door was called for.
-    const target = useMemo(() => (view ? { deviceId: view.request.deviceId, displayName: view.request.displayName } : summons), [view, summons])
+    const door = useMemo(() => doorState(view, summons), [view, summons])
+    const { target } = door
 
     const onApprove = useCallback(() => {
         if (!controller || !isWholeCode(code)) return
@@ -115,14 +109,14 @@ export function useApprovalDoorViewModel(): ApprovalDoorViewModel {
 
     return {
         view,
-        isOpen: view !== null || summons !== null,
-        waiting: view === null && summons !== null,
-        device: shownDeviceName(target?.displayName),
+        isOpen: door.isOpen,
+        waiting: door.waiting,
+        device: door.device,
         asked: view ? asked : signedIn,
         title: doorTitle(view),
         code,
         setCode: (text: string) => setTyped({ requestId, code: codeDigits(text), error: null }),
-        canApprove: view?.stage === "entry" && isWholeCode(code),
+        canApprove: doorCanApprove(view, code),
         error: error ?? refusalWording(view?.refused ?? null),
         onApprove,
         onCancel: () => void controller?.cancel().catch(warn("cancelling the exchange")),
