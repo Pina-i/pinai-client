@@ -6,6 +6,7 @@ import { router } from "expo-router"
 import { AppState } from "react-native"
 import { getAuthPlatform, getAuthPort, getSessionRenewal } from "@/ioc"
 import { useAppStore } from "@/store/store"
+import { forgetPushRegistration } from "./push-notices"
 
 const keeper = new SessionKeeper({
     renew: () => getSessionRenewal()(),
@@ -64,6 +65,7 @@ export function renewAccessToken(): Promise<string | null> {
 
 /** Signing out: the token revoked as its store clears it, then Welcome. */
 export function signOut(): void {
+    forgetPushRegistration()
     const { idpUrl, clearSession } = useAppStore.getState()
     if (idpUrl) logoutUseCase(idpUrl, clearSession, getAuthPlatform())
     else router.replace("/")

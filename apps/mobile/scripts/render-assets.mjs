@@ -86,3 +86,9 @@ const ICONS = {
 for (const [file, svg] of Object.entries(ICONS)) {
     writeFileSync(`${root}assets/icon/${file}`, new Resvg(svg).render().asPng())
 }
+
+// The status bar's notification icon: white on transparent, which Android tints; 96 px, as expo-notifications asks.
+writeFileSync(
+    `${root}assets/icon/notification.png`,
+    new Resvg(logoSvg({ box: 960, fill: "#ffffff" }), { fitTo: { mode: "width", value: 96 } }).render().asPng(),
+)

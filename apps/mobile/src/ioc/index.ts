@@ -1,6 +1,7 @@
 import { OidcAdapter } from "@pinai/api/auth/oidc.adapter"
 import { ApprovalRelayApiAdapter } from "@pinai/api/device-directory/approval-relay-api.adapter"
 import { DeviceDirectoryApiAdapter } from "@pinai/api/device-directory/device-directory-api.adapter"
+import { PushRegistrationApiAdapter } from "@pinai/api/device-directory/push-registration-api.adapter"
 import { HistoryArchiveApiAdapter } from "@pinai/api/e2ee/history-archive-api.adapter"
 import { JwksCache } from "@pinai/api/e2ee/jwks-cache.adapter"
 import { KeyDirectoryApiAdapter } from "@pinai/api/e2ee/key-directory.adapter"
@@ -24,6 +25,7 @@ import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
 import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
 import type { ILastInstancePort, INodeInfoPort, IRecentInstancesPort } from "@pinai/domain/ports/instance.port"
 import type { IKeySharePort } from "@pinai/domain/ports/key-share.port"
+import type { IPushRegistrationPort } from "@pinai/domain/ports/push-registration.port"
 import type { ISessionPort } from "@pinai/domain/ports/session.port"
 import type { IStartOverPort } from "@pinai/domain/ports/start-over.port"
 import type { IAccountSettingsPort, IUserSettingsStorePort } from "@pinai/domain/ports/user-settings.port"
@@ -151,6 +153,7 @@ export function createSealedStorage(account: ActorUri): SealedStorage {
 
 const sessionPort: ISessionPort = new SessionApiAdapter()
 const deviceDirectoryPort: IDeviceDirectoryPort = new DeviceDirectoryApiAdapter()
+const pushRegistrationPort: IPushRegistrationPort = new PushRegistrationApiAdapter()
 const historyArchivePort: IHistoryArchivePort = new HistoryArchiveApiAdapter()
 const keySharePort: IKeySharePort = new KeyShareApiAdapter()
 const startOverPort: IStartOverPort = new StartOverApiAdapter()
@@ -198,6 +201,10 @@ export function getSessionPort(): ISessionPort {
 
 export function getDeviceDirectoryPort(): IDeviceDirectoryPort {
     return deviceDirectoryPort
+}
+
+export function getPushRegistrationPort(): IPushRegistrationPort {
+    return pushRegistrationPort
 }
 
 export function getHistoryArchivePort(): IHistoryArchivePort {

@@ -50,9 +50,15 @@ const fontPlugin: [string, object] = [
     },
 ]
 
+// Firebase's file for this app, kept out of git: its path in `GOOGLE_SERVICES_JSON` (`.env.local`, say). Without
+// it the app builds all the same, with no push notices.
+const googleServicesFile = process.env.GOOGLE_SERVICES_JSON || undefined
+
 const config: ExpoConfig = {
     name: "Pīna'i",
     slug: "pinai",
+    // The Expo project the push tokens belong to: the organisation's, not a person's.
+    owner: "pinai",
     version: "0.0.0",
     orientation: "portrait",
     platforms: ["android", "ios"],
@@ -76,6 +82,7 @@ const config: ExpoConfig = {
         // expo-screen-capture asks these to detect screenshots before Android 14; the app only blocks them (FLAG_SECURE).
         // DETECT_SCREEN_CAPTURE stays: from Android 14 the library registers its detector as it loads, and throws without it.
         blockedPermissions: ["android.permission.READ_EXTERNAL_STORAGE", "android.permission.READ_MEDIA_IMAGES"],
+        ...(googleServicesFile && { googleServicesFile }),
     },
     ios: {
         bundleIdentifier: "io.github.pina-i.mobile",
@@ -89,6 +96,8 @@ const config: ExpoConfig = {
         "expo-web-browser",
         "expo-secure-store",
         "expo-sqlite",
+        // The status bar's icon, tinted with Black Pearl's ripple; the channel the instance's notices name.
+        ["expo-notifications", { icon: "./assets/icon/notification.png", color: "#65c6af", defaultChannel: "sign-ins" }],
         [
             "expo-splash-screen",
             {
@@ -104,6 +113,11 @@ const config: ExpoConfig = {
     // typecheck would differ between a checkout and CI.
     experiments: {
         reactCompiler: true,
+    },
+    extra: {
+        // What an Expo push token is minted for (`eas init`).
+        eas: { projectId: "ff49a041-dfde-4d07-b577-75115962ffb7" },
+        pushNotices: googleServicesFile !== undefined,
     },
 }
 
