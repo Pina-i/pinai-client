@@ -189,6 +189,16 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
   (`/words`, a form sheet with `molecules/words-card`) and "Restore history from words" (`/restore-words`, the words way:
   the phone holds the key again and approves others). Gestures need `GestureHandlerRootView` at the root (`app/_layout.tsx`).
   Not on the phone yet: rename, "Sign out other devices", "Clear history backup", "Replace my words".
+- **Push notices** (`_libs/push-notices.ts`, in the app runtime): while in, this device's registration on its instance
+  (`IPushRegistrationPort`, `PUT|DELETE /api/keys/devices/{id}/push`) as the permission stands — set at start, again
+  back in front and on a new token, removed when Android's settings withdrew the permission and, best effort, at
+  sign-out —, the relay Expo's push service (`https://exp.host/--/api/v2/push/send`). The `sign-ins` channel is made
+  first: Android neither asks nor mints a token before a channel exists. In front no notice shows (the Door or the
+  prompt does); opening the app clears those shown; a tap only opens the app, whose runtime reads again. A build
+  without Firebase's file (`GOOGLE_SERVICES_JSON`, `extra.pushNotices`) does none of it. Asked once by
+  `organisms/push-offer/` ("Know when a device signs in", "Turn on" then Android's prompt, "Not now"; `pushOffer` in
+  `src/ioc`, after the Door and the prompt), then Settings' "Notifications" row (`hooks/use-push-permission.ts`: asks
+  while Android may, else opens the app's settings).
 - **No history restore yet** (`_libs/history-restore.ts`): the phone keeps no messages, and `HistoryRestore` run with
   nowhere to put them would count the restore applied, then clear it. It isn't run: the restore stays due for when
   conversations come to the phone.

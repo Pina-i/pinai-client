@@ -85,6 +85,23 @@ pnpm clear:mobile   # the app's data cleared, nothing built
 pnpm fresh:mobile   # cleared, then built and run as pnpm android:mobile does
 ```
 
+### Push notices
+
+A phone told by its instance, with the app closed, that a device asks to sign in or to start the
+history over goes through Expo's push service, which holds the app's FCM key
+(`identity-provider/specs/push.md` in the `pinai` repository). A build needs Firebase's file for
+the app, kept out of git: its path in `GOOGLE_SERVICES_JSON`, which Expo reads from `.env.local`:
+
+```sh
+# apps/mobile/.env.local
+GOOGLE_SERVICES_JSON=/home/you/.config/Pinai/google-services.json
+```
+
+Without it the app builds all the same, and neither asks for the permission nor registers. The
+Expo project is `@pinai/pinai` (`extra.eas.projectId` in `app.config.ts`); its FCM V1 key is
+uploaded once in its credentials on expo.dev. A change of the file, like any of `app.config.ts`,
+takes `pnpm rebuild:mobile`.
+
 ### Checking on a device
 
 The development build has control screens that play a contract on the phone: each scenario with its
