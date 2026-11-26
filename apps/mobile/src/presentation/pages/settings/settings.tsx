@@ -1,22 +1,24 @@
 import { personName } from "@pinai/domain/models/identity"
 import { router } from "expo-router"
-import { ChevronLeft, ChevronRight, LogOut, MonitorSmartphone } from "lucide-react-native"
+import { BellRing, ChevronLeft, ChevronRight, LogOut, MonitorSmartphone } from "lucide-react-native"
 import { Pressable, ScrollView, Text, View } from "react-native"
 import { StyleSheet, useUnistyles } from "react-native-unistyles"
 import { Avatar } from "@/presentation/atoms/avatar/avatar"
 import { Motif } from "@/presentation/atoms/motif/motif"
 import { signOut } from "@/presentation/_libs/session"
 import { useDeviceRoster } from "@/presentation/hooks/use-device-roster"
+import { usePushPermission } from "@/presentation/hooks/use-push-permission"
 import { statusWords } from "@/presentation/pages/status/status-choices"
 import { useAppStore } from "@/store/store"
 import { statusColor } from "@/theme/status"
 
-/** Settings: the account, its devices, and the way out. Its other sections come with their features. */
+/** Settings: the account, its devices, its notices, and the way out. Its other sections come with their features. */
 export function SettingsPage() {
     const { theme } = useUnistyles()
     const user = useAppStore((s) => s.user)
     const status = useAppStore((s) => s.myStatus)
     const waiting = useDeviceRoster().waiting.length
+    const notices = usePushPermission()
     if (!user) return null
     const name = personName(user.actor_uri, user.display_name)
 
@@ -116,6 +118,28 @@ export function SettingsPage() {
                         strokeWidth={1.9}
                     />
                 </Pressable>
+
+                {notices.permission !== null && (
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Notifications, ${notices.permission === "granted" ? "on" : "off"}`}
+                        onPress={notices.change}
+                        style={({ pressed }) => [styles.section, pressed && styles.pressed]}
+                    >
+                        <View style={styles.sectionIcon}>
+                            <BellRing
+                                size={17}
+                                color={theme.colors.foreground}
+                                strokeWidth={1.9}
+                            />
+                        </View>
+                        <View style={styles.sectionText}>
+                            <Text style={styles.sectionLabel}>Notifications</Text>
+                            <Text style={styles.sectionNote}>When a device asks to sign in, or to start your history over.</Text>
+                        </View>
+                        <Text style={styles.sectionValue}>{notices.permission === "granted" ? "On" : "Off"}</Text>
+                    </Pressable>
+                )}
 
                 <Pressable
                     accessibilityRole="button"
@@ -253,6 +277,11 @@ const styles = StyleSheet.create((theme, rt) => ({
         backgroundColor: theme.colors.surface2,
     },
     sectionText: { flex: 1, gap: 2 },
+    sectionValue: {
+        fontFamily: "DM Sans",
+        fontSize: 13,
+        color: theme.colors.mutedForeground,
+    },
     sectionLabel: {
         fontFamily: "DM Sans",
         fontSize: 15,

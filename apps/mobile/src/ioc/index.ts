@@ -207,6 +207,12 @@ export function getPushRegistrationPort(): IPushRegistrationPort {
     return pushRegistrationPort
 }
 
+/** Whether this phone was offered push notices: once, whatever it answered. */
+export const pushOffer = {
+    made: (): boolean => Storage.getItemSync("pinai.push-offer") === "made",
+    markMade: (): void => Storage.setItemSync("pinai.push-offer", "made"),
+}
+
 export function getHistoryArchivePort(): IHistoryArchivePort {
     return historyArchivePort
 }
