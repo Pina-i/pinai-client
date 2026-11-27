@@ -10,20 +10,22 @@ import {
     receiveMessageUseCase,
     type ReceiveContext,
 } from "@pinai/domain/usecases/dm/receive-message.usecase"
+import { settleIncomingReadUseCase } from "@pinai/domain/usecases/dm/settle-incoming-read.usecase"
 import { reconcileGroupKeysUseCase } from "@pinai/domain/usecases/e2ee/reconcile-group-keys.usecase"
-import { getConversationCache, getE2eePort, getGroupPort } from "@/ioc"
+import { getConversationCache, getDmPort, getE2eePort, getGroupPort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 import { appVisibility } from "./app-visibility"
 import { conversationJoins, joinContext } from "./conversation-joins"
-import { conversationList, onConversationList, refreshConversationList } from "./conversation-list"
+import { conversationList, countUnread, onConversationList, refreshConversationList } from "./conversation-list"
+import { openConversationId } from "./open-conversation"
 import { isSocketConnected, onSocketConnected, onSocketEvent } from "./socket"
 import { warnE2ee } from "./warn-e2ee"
 
 /**
  * The account's conversations kept live while the device is in: the domain's `MessagingRuntime` (the archive's
  * uploads, the Welcomes, the commits, the joins), and what the socket pushes received into the conversation cache —
- * messages, edits, failed deliveries, a group's changes —, someone's new device among them. No ping and no unread
- * count: the phone shows neither yet.
+ * messages, edits, failed deliveries, a group's changes —, someone's new device among them. A message from someone else
+ * is read at once in the conversation on screen while the app is in front, else counted unread; no ping yet.
  */
 export function keepMessaging(): () => void {
     const { idpUrl, user } = useAppStore.getState()
@@ -44,10 +46,23 @@ export function keepMessaging(): () => void {
 
     const receive = async (event: WsServerEvent): Promise<void> => {
         switch (event.type) {
-            case "new_dm":
-                await receiveMessageUseCase(event.data, receiving(), { e2ee, cache })
-                if (!conversationList()?.rows.some((row) => row.id === event.data.conversation_id)) refreshConversationList()
+            case "new_dm": {
+                const conversationId = event.data.conversation_id
+                const arrival = await receiveMessageUseCase(event.data, receiving(), { e2ee, cache })
+                const listed = conversationList()?.rows.some((row) => row.id === conversationId)
+                if (arrival.kind !== "message" || arrival.mine) {
+                    if (!listed || arrival.kind === "message") refreshConversationList()
+                    return
+                }
+                const accessToken = useAppStore.getState().accessToken
+                // The phone keeps no block list: the IdP leaves a blocked sender out of the count the list reads next.
+                await settleIncomingReadUseCase(
+                    { conversationId, openId: openConversationId(), windowAttended: appVisibility.visible(), senderBlocked: false },
+                    accessToken ? { idpUrl, accessToken } : null,
+                    { port: getDmPort(), countUnread, refreshList: refreshConversationList }
+                )
                 return
+            }
             case "message_edited":
                 return receiveEditUseCase(event.data, receiving(), { e2ee, cache })
             case "dm_delivery_failed":
