@@ -3,14 +3,18 @@ import { getE2eePort, getKeySharePort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 import { acceptWaitingShare } from "./accept-share"
 import { admissionDeps } from "./admission-deps"
+import { restoreDueHistory } from "./history-restore"
 import { isSocketConnected, onSocketConnected, onSocketEvent } from "./socket"
 import { warnE2ee } from "./warn-e2ee"
 
 const failed = (error: unknown) => warnE2ee("reading the history key share", error)
 
-// Kept words need no share; the phone keeps no messages, so it has no restore to run either.
+// Kept words need no share: the restore left due runs instead.
 async function takeWhileLacking(): Promise<void> {
-    if ((await getE2eePort().historyKeyStanding()).kind === "holds") return
+    if ((await getE2eePort().historyKeyStanding()).kind === "holds") {
+        await restoreDueHistory()
+        return
+    }
     await acceptWaitingShare()
 }
 
@@ -24,7 +28,8 @@ async function approveIfUnsettled(): Promise<void> {
 /**
  * A device let in by its partner takes its key share in the app too (`identity-provider/specs/e2ee.md § 3.11`):
  * at once, on `history_key_ready` (read whatever the standing says: it may name a generation not met yet), and
- * when the socket comes back, its own approval by its words made again first.
+ * when the socket comes back, its own approval by its words made again first. A device holding them runs the
+ * restore left due instead.
  */
 export function keepShareTaken(): () => void {
     void takeWhileLacking().catch(failed)
