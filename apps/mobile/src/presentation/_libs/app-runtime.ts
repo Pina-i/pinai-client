@@ -2,6 +2,7 @@ import { startAnswering } from "./approval-answering"
 import { watchArrivals } from "./arrivals"
 import { keepDevicesInStep } from "./device-review"
 import { keepShareTaken } from "./history-share"
+import { keepKeyPackagesStocked } from "./key-packages"
 import { keepMessaging } from "./messaging"
 import { keepPushRegistered } from "./push-notices"
 import { watchStartOverPrompts } from "./start-over-prompt"
@@ -15,6 +16,7 @@ export function startAppRuntime(): () => void {
         keepShareTaken(),
         keepDevicesInStep(),
         keepMessaging(),
+        keepKeyPackagesStocked(),
         watchStartOverPrompts(),
         keepPushRegistered(),
     ]
