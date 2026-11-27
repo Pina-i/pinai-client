@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Message } from "@/lib/types"
-import { lastMessagePreview } from "./last-message-preview.helper"
+import { lastMessagePreview } from "@pinai/domain/models/conversation-list"
 
 function msg(overrides: Partial<Message>): Message {
     return {
