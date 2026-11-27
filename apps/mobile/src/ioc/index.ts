@@ -14,6 +14,7 @@ import { SessionApiAdapter } from "@pinai/api/session/session-api.adapter"
 import { UserSettingsApiAdapter } from "@pinai/api/user-settings/user-settings-api.adapter"
 import { IdpWsAdapter } from "@pinai/api/ws/idp-ws.adapter"
 import type { Argon2id } from "@pinai/crypto/argon2"
+import { NobleAttachmentCryptoAdapter } from "@pinai/crypto/attachment-crypto"
 import { E2eeAdapter } from "@pinai/crypto/e2ee.adapter"
 import { HistoryArchiveAdapter } from "@pinai/crypto/history-archive.adapter"
 import { NobleIdentityAdapter } from "@pinai/crypto/identity.adapter"
@@ -21,6 +22,7 @@ import { SealedStorage } from "@pinai/crypto/sealed-storage"
 import type { ActorUri } from "@pinai/domain/models/e2ee"
 import { appearanceHints, resolveMode } from "@pinai/domain/models/user-settings"
 import type { IApprovalRelayPort } from "@pinai/domain/ports/approval-relay.port"
+import type { IAttachmentCryptoPort } from "@pinai/domain/ports/attachment-crypto.port"
 import type { AuthPlatform, IAuthPort } from "@pinai/domain/ports/auth.port"
 import type { CachedTimelineMessage } from "@pinai/domain/ports/conversation-cache.port"
 import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
@@ -174,6 +176,8 @@ const startOverPort: IStartOverPort = new StartOverApiAdapter()
 const dmPort: IDmPort = new DmApiAdapter()
 const groupPort: IGroupPort = new GroupApiAdapter()
 const approvalRelayPort: IApprovalRelayPort = new ApprovalRelayApiAdapter()
+// Hermes has no Web Crypto: the attachments are opened with @noble, the same bytes as the web's.
+const attachmentCryptoPort: IAttachmentCryptoPort = new NobleAttachmentCryptoAdapter()
 const deviceLabel: ThisDeviceLabel = thisDeviceLabel(new ExpoDeviceFactsAdapter())
 const jwksCache = new JwksCache(kvStrings)
 
@@ -255,6 +259,10 @@ export function getDmPort(): IDmPort {
 
 export function getGroupPort(): IGroupPort {
     return groupPort
+}
+
+export function getAttachmentCryptoPort(): IAttachmentCryptoPort {
+    return attachmentCryptoPort
 }
 
 export function getStartOverPort(): IStartOverPort {
