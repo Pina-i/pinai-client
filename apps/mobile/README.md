@@ -68,6 +68,19 @@ and the Kotlin compiler in-process): its memory is given back before Metro runs.
 emulator together still want a lot of it: if the build dies, close the emulator while it builds, or
 give Gradle fewer workers (`--max-workers=6` in `android/`'s `./gradlew assembleDebug`).
 
+### On iOS
+
+Not built yet: iOS needs a Mac with Xcode. There, with an iPhone simulator or a phone, from the repository's root:
+
+```sh
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios   # once
+pnpm ios:mobile   # the native library for iOS, then builds, installs and starts Metro
+```
+
+The development control screens open by link (`xcrun simctl openurl booted io.github.pina-i://dev/mls-check`); the
+check scripts are adb's, Android only. Push notices on iOS take an Apple Developer account and its APNs key in the
+Expo project's credentials.
+
 ### A local instance
 
 The phone's `localhost` is not the computer's. `adb reverse` makes it so, for the emulator and a

@@ -1,7 +1,7 @@
 # @pinai/mobile
 
-The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and steps:
-`docs/plans/2026-11-20-mobile-app-design.md` (gitignored, like all of `docs/`).
+The Expo app (SDK 58, Expo Router, New Architecture), Android first; iOS written, not yet built (§ iOS). Design and
+steps: `docs/plans/2026-11-20-mobile-app-design.md` (gitignored, like all of `docs/`).
 
 - **One domain for every client.** A business notion useful to more than one client goes in
   `@pinai/domain` (and the web switches to it); only what is the phone's stays here. Same layers
@@ -41,15 +41,16 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
   the background; heartbeat 30 s; `1008` renews then reconnects; the chosen status restated once
   connected (`restatePresenceUseCase`).
 - No typed routes: they are generated into the gitignored `.expo/`.
-- No `android/` or `ios/` in git (prebuild). The debug variants allow cleartext HTTP, release
-  doesn't.
+- No `android/` or `ios/` in git (prebuild). Android's debug variants allow cleartext HTTP, release doesn't; Expo's
+  iOS template allows local networking (`NSAllowsLocalNetworking`) in every build.
 - Tests: Vitest in `test/` (node), for what doesn't import React Native.
 
 ## The native MLS engine
 
-- **`modules/openmls`** is a local Expo module (Android only) over `crypto/openmls-native`, native
-  module `OpenMls`. `android/generated/` (the `.so` per architecture and the uniffi Kotlin) is
-  `scripts/build-native-mls.mjs`'s output, gitignored; `android` and `android:device` run the script first.
+- **`modules/openmls`** is a local Expo module over `crypto/openmls-native`, native module `OpenMls`, in Kotlin and
+  Swift. `android/generated/` (the `.so` per architecture and the uniffi Kotlin) and `ios/generated/` (the static
+  libraries as `OpenMlsNative.xcframework`, the uniffi Swift, the C header) are `scripts/build-native-mls.mjs`'s output
+  (`ios` for the second), gitignored; `android`, `android:device` and `ios` run the script first.
 - Each uniffi object is an Expo `SharedRef`, not a `SharedObject`: Expo requires a JS constructor
   for a `SharedObject` class, and JavaScript makes none of these but `Provider`. Names are the WASM
   facade's: `Constructor` for `Provider`, `StaticFunction`s for the statics, synchronous
@@ -85,14 +86,15 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
 - `SqliteKeyValueStore`: the account's own `expo-sqlite` database, one table of (collection, key, BLOB).
   Two stores over one file share expo-sqlite's native connection; a file is deleted only once every
   store over it is closed.
-- `KeystoreDeviceKeyAdapter` over **`modules/device-key`** (native module `DeviceKey`, Android only):
-  AES-256-GCM in the Keystore's TEE, not StrongBox (too slow for a snapshot of megabytes), no user
-  authentication; seal, open and wipe by alias, off the JS thread. The key is minted only when no entry
-  has the alias, so a key that fails to read is never replaced.
+- `KeystoreDeviceKeyAdapter` over **`modules/device-key`** (native module `DeviceKey`): on Android AES-256-GCM in the
+  Keystore's TEE, not StrongBox (too slow for a snapshot of megabytes), no user authentication; on iOS CryptoKit
+  under a key kept as a Keychain item (`AfterFirstUnlockThisDeviceOnly`, not synchronizable: the Secure Enclave holds
+  no AES key). Seal, open and wipe by alias, off the JS thread; the ciphertext ends with its tag, the nonce 12 bytes.
+  The key is minted only when no entry has the alias, so a key that fails to read is never replaced.
 - `src/web-crypto.ts`, imported first by `index.ts`: Hermes has no Web Crypto, so `expo-crypto` gives
   the shared code `crypto.randomUUID` and `crypto.getRandomValues`.
-- `android.allowBackup: false`: a backup would carry the store, never its key; a new phone is a new
-  device to approve.
+- `android.allowBackup: false`, and on iOS `Documents/SQLite` excluded from backups (`DeviceKey` as it starts): a
+  backup would carry the store, never its key; a new phone is a new device to approve.
 - **Its proof**, `storage:check` (`scripts/storage-check.mjs`):
   - `/dev/storage-check` plays `@pinai/crypto/contract/storage` on `phoneStorageWorld`.
     `src/ioc/check-stores.ts` gives each scenario's stores names of their own, never the app's, and
@@ -213,8 +215,30 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
 - `molecules/words-card` — the 24 words in two numbered columns, blurred until "Show words" (a `filter` blur, which
   Android draws from 12 on: hidden, the cells hold dots, never the words); hidden again when the app leaves the
   front; "Copy words" copies them hidden or not, marked sensitive (`expo-clipboard`'s `android.isSensitive`: no
-  preview in Android's overlay nor the keyboards'). While a card is up, screenshots and the app switcher's preview
-  are blocked (`expo-screen-capture`, FLAG_SECURE, one key per card). `molecules/switch-row` — a `Group` row that is
+  preview in Android's overlay nor the keyboards'; on iOS `localOnly`, no Universal Clipboard, and gone after 5
+  minutes). While a card is up, and on the words way, screenshots and the app switcher's preview are blocked
+  (`_libs/words-privacy.ts`: `expo-screen-capture` a key per caller — FLAG_SECURE on Android; on iOS 13+ the block,
+  plus the switcher's blur, one switch counted). `molecules/switch-row` — a `Group` row that is
   its switch. `app.config.ts` blocks the storage and photos permissions `expo-screen-capture` declares to detect
   screenshots before Android 14 (the app only blocks them); `DETECT_SCREEN_CAPTURE` must stay — from Android 14 the
   library registers its detector as it loads, and the app fails to start without it ("Permission Denial").
+
+## iOS
+
+Written without a Mac, an iPhone or an Apple Developer account: nothing below has been compiled or run yet. What Linux
+checks: the Rust for the three iOS targets and its Swift bindings (`native-mls:ios`), `expo prebuild --platform ios`
+(the plist, the entitlements, both local modules linked), `expo export --platform ios`.
+
+- `modules/openmls/ios`: `OpenMlsModule.swift`, the Kotlin module one for one, over the uniffi Swift compiled into the
+  pod (`OpenMls.podspec` vendors `OpenMlsNative.xcframework`). Expo's Swift getters can't throw: an `ExternalJoin`'s and
+  a `ProcessedMessage`'s values are read as the object is made (`NativeObjects.swift`); `free` drops the reference,
+  uniffi then frees it.
+- `modules/device-key/ios`: see the encrypted store.
+- The device's name: iOS gives the name its owner chose only with an entitlement Apple grants on request; without it
+  "iPhone", which `composeDeviceLabel` drops — "iPhone 15 Pro".
+- On a Mac: `pnpm ios:mobile` (the native library's iOS mode, then `expo run:ios`). The adb scripts stay Android's: the
+  control screens open by link (`xcrun simctl openurl booted io.github.pina-i://dev/mls-check`). On the simulator
+  `localhost` is the Mac's; an iPhone reaches an instance by an address it can resolve, no `adb reverse`.
+- Push notices need the APNs key in the Expo project's credentials (an Apple Developer account); no code. The
+  `sign-ins` channel is Android's only.
+- Not run yet: the Swift compiling, the app starting, `mls-check`, `storage-check`, `argon2-check` on iOS, push.
