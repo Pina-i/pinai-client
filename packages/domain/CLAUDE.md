@@ -954,9 +954,9 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   the read marker.
 - `receiveEditUseCase` — `message_edited` names no conversation: each held one is tried until
   one decrypts an edit of that message, archived under the edited message's author. The first
-  conversation holding the message takes the text, marked edited, with the edit's time. Not decrypted, one of the
-  user's own is left (this device made it); a peer's shows the placeholder marked edited — a
-  known gap, kept.
+  conversation holding the message takes the text, marked edited, with the edit's time. One that doesn't
+  decrypt changes nothing: this device's own edit, or one read already and pushed again — the held text
+  is the best it has.
 - `receiveDeliveryFailureUseCase` — `applyFederationStatus` wherever the message is held.
 
 ### usecases/dm/load-conversation.usecase.ts

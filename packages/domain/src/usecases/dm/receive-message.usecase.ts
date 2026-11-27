@@ -156,14 +156,13 @@ export async function receiveEditUseCase<M extends CachedTimelineMessage>(
         }
         break
     }
+    // An edit that doesn't decrypt — this device's own, or one read already and pushed again — changes nothing:
+    // the held text is the best this device has, and history tries a later edit again.
+    if (text === null) return
     const held = await whereHeld(deps.cache, edit.message_id)
     if (!held) return
-    // One of the user's own that doesn't decrypt is this device's edit, applied when it was made.
-    if (text === null && held.message.authorAddress === context.myAddress) return
-    // Its time kept: history tries only a later edit again.
-    const read = text === null ? { content: UNDECRYPTABLE_TEXT } : { content: text, editedAt: edit.edited_at }
     await deps.cache.update(held.conversationId, (t) =>
-        withMessage(t, edit.message_id, (m) => ({ ...m, ...read, edited: true })),
+        withMessage(t, edit.message_id, (m) => ({ ...m, content: text, editedAt: edit.edited_at, edited: true })),
     )
 }
 

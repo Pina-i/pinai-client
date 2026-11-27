@@ -289,13 +289,14 @@ describe("receiveEditUseCase", () => {
         expect(timeline("c1")?.messages[0]).toBe(own)
     })
 
-    it("marks a peer's message edited with the placeholder when the edit doesn't decrypt, archiving nothing", async () => {
-        const { cache, timeline } = memoryCache({ c1: { messages: [message()] } })
+    it("leaves a peer's message as it is when the edit doesn't decrypt — one read already, pushed again —, archiving nothing", async () => {
+        const held = message({ content: "already edited", edited: true })
+        const { cache, timeline } = memoryCache({ c1: { messages: [held] } })
         const port = e2ee()
 
         await receiveEditUseCase(pushed, context, { e2ee: port, cache })
 
-        expect(timeline("c1")?.messages).toEqual([message({ content: UNDECRYPTABLE_TEXT, edited: true })])
+        expect(timeline("c1")?.messages[0]).toBe(held)
         expect(port.bufferEditForArchive).not.toHaveBeenCalled()
     })
 
