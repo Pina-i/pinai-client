@@ -10,7 +10,10 @@ interface DeviceKeyModule {
     wipe(alias: string): Promise<void>
 }
 
-/** The device key in the Android Keystore: sealing and opening run there, the key's bytes never reach JavaScript. */
+/**
+ * The device key in the Android Keystore, or the iOS Keychain: sealing and opening run natively, the key's bytes never
+ * reach JavaScript.
+ */
 export class KeystoreDeviceKeyAdapter implements IDeviceKeyPort {
     private readonly alias: string
     private readonly native: DeviceKeyModule
