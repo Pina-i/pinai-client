@@ -182,8 +182,8 @@ export async function receiveDeliveryFailureUseCase<M extends CachedTimelineMess
 }
 
 // Any failure — no group, an MLS error, a body that isn't JSON — is a message that didn't decrypt.
-async function decrypted(
-    e2ee: ReceiveDeps<unknown>["e2ee"],
+export async function decrypted(
+    e2ee: Pick<IE2eePort, "decryptInbound">,
     conversationId: string,
     ciphertext: Uint8Array | null,
     catchUp: ReceiveContext["catchUp"],
@@ -208,11 +208,11 @@ async function whereHeld<M extends { id: string }>(
     return null
 }
 
-function withMessages<M>(timeline: ConversationTimeline<M>, messages: M[]): ConversationTimeline<M> {
+export function withMessages<M>(timeline: ConversationTimeline<M>, messages: M[]): ConversationTimeline<M> {
     return messages === timeline.messages ? timeline : { ...timeline, messages }
 }
 
-function withMessage<M extends { id: string }>(
+export function withMessage<M extends { id: string }>(
     timeline: ConversationTimeline<M>,
     messageId: string,
     change: (message: M) => M,
