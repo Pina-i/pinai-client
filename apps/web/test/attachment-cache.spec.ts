@@ -1,11 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
+import { AttachmentCache } from "@pinai/domain/lib/attachment-cache"
 import type { AttachmentBlobKey } from "@pinai/domain/models/e2ee"
-
-vi.mock("@/ioc", () => ({ getDmPort: vi.fn(), getAttachmentCryptoPort: vi.fn() }))
-vi.mock("@/store/store", () => ({ useAppStore: { getState: () => ({ user: null }), subscribe: () => () => {} } }))
-
-const { AttachmentCache } = await import("@/presentation/_libs/attachment-cache")
 
 function key(id: string): AttachmentBlobKey {
     return {

@@ -1,9 +1,9 @@
 import { useState } from "react"
 import type { Attachment } from "@pinai/domain/models/dm"
 import type { AttachmentBlobKey } from "@pinai/domain/models/e2ee"
-import { imagePreviewOf } from "@pinai/domain/models/image-preview"
+import { imagePreviewOf, isImageAttachment } from "@pinai/domain/models/image-preview"
 import { useAttachmentBlobUrl } from "@/presentation/hooks/useAttachmentBlobUrl"
-import { extensionBadge, formatBytes, isImageAttachment } from "@/presentation/_libs/attachments"
+import { extensionBadge, formatBytes } from "@/presentation/_libs/attachments"
 import { blurhashImage } from "@/presentation/_libs/blurhash-image"
 import { cn } from "@/presentation/_libs/utils"
 
@@ -31,14 +31,9 @@ export function AttachmentFilmstrip({ attachments, attachmentKeys, onImageClick 
             <div className="flex gap-1.5 overflow-x-auto pb-1.5">
                 {attachments.map((a) => {
                     const key = attachmentKeys?.[a.id]
-                    // Image-vs-file decision uses the real MIME from
-                    // the decrypted key when available; the wire-shape
-                    // mime is "application/octet-stream" placeholder
-                    // post-Phase-5c.4.
                     const realFilename = key?.original_filename ?? a.original_filename
-                    const realMime = key?.mime_type ?? a.mime_type
                     const realSize = key?.byte_size ?? a.byte_size
-                    return isImageAttachment({ ...a, mime_type: realMime, original_filename: realFilename })
+                    return isImageAttachment(a, key)
                         ? (
                             <ImageTile
                                 key={a.id}

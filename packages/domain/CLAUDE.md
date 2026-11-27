@@ -517,6 +517,12 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   `summaryLine(label, …)`, the line the mobile app's check scripts wait for — and the
   assertions (`check`, `same`, `refused`, `alike`). Plain TypeScript, so a phone plays them.
 
+### lib/attachment-cache.ts
+- `AttachmentCache` — the attachments an app opened, decrypted, by id: downloaded and opened once however
+  many ask, past a budget the least recently used let go but never one held on screen, all of it on
+  `clear` (an account change), a load under way included. `AttachmentUrls` is how a platform shows bytes:
+  the web's object URLs, the phone's `data:` URIs.
+
 ### lib/bytes.ts
 - Base64 ↔ bytes, `base64url` for JWS/JWK and padded `base64` elsewhere
 - In the domain because base64 is the wire format for every binary field the
@@ -593,6 +599,8 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
 - `imagePreviewOf(key)` — the only way to read them, because a peer wrote them: a size whole and
   within `MAX_IMAGE_SIDE`, or no preview at all; a blurhash of base 83 whose length its first
   character gives, or none, the size kept. A key sent before these fields has no preview.
+- `isImageAttachment(attachment, key?)` — by the type its key carries: the IdP holds every attachment
+  as `application/octet-stream`.
 
 ### usecases/auth/startLogin.usecase.ts
 - `prepareLoginUseCase` — discovery, PKCE verifier + challenge (S256) and
