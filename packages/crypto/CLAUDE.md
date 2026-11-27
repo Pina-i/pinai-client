@@ -491,17 +491,18 @@ above, the sections above win.
   encrypt → REST send → rollback on failure.
 - **Edits** use `ApplicationMessage<EditBody>{kind:"edit"}` over the
   existing `PATCH /api/dm/:id/edit` endpoint. The server replaces the
-  row's `mls_ciphertext` + stamps `edited_at`; receivers' WS
-  `message_edited` handler decrypts the new ciphertext and applies
-  `body.new_text` to the target.
+  row's `mls_ciphertext` + stamps `edited_at`; receivers'
+  `message_edited` (the domain's `receiveEditUseCase`) decrypts the new
+  ciphertext and applies `body.new_text` to the target.
 - **Replies** inline `reply_meta` on the text body. Server only sees
   `reply_to_id`; the preview text + sender display name travel inside
   the encrypted MLS body. Receiver populates `Message.replyTo` from
   the decrypted body.
-- **`new_dm` dispatch on decrypted kind.** WS hook + REST history
-  load both decrypt once and hand it to the domain's `receivedMessage`
+- **`new_dm` dispatch on decrypted kind.** The socket's push (the
+  domain's `receiveMessageUseCase`) and the REST history load both
+  decrypt once and hand it to the domain's `receivedMessage`
   (`models/received-message.ts`): text → push as Message; reaction →
-  `applyReaction`; history's edited row → its placeholder, the edit
+  folded (`foldReaction`); history's edited row → its placeholder, the edit
   archived. The discriminated `MappedRow` from `mapApiMessage` keeps
   the two-pass history-load logic explicit (text first, reactions
   after — reactions need their target to exist).

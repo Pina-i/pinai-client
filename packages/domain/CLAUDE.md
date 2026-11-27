@@ -502,8 +502,8 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   poll on `pollDelay` while the Door's or a seat's exchange works; `stop()` dismisses.
 
 ### models/bytes.ts
-- `sameBytes`, `hexOf` — the models' byte helpers: the lint boundary keeps models
-  off `lib/`.
+- `sameBytes`, `hexOf`, `base64Bytes` (a wire ciphertext, `null` when it isn't base64) — the
+  models' and use cases' byte helpers: the lint boundary keeps the domain off `lib/`.
 
 ### lib/one-at-a-time.ts
 - `oneAtATime` — one run at a time; the calls made meanwhile are one run after it, with
@@ -716,6 +716,8 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   outcome (`dm_delivery_failed` live, `federation_status` from history)
   overrides the client's status: the IdP never retries, so it is final.
 - `awaitsResend(message)` — whether an own message still offers a retry.
+- `settleByEcho(message, at)` — an own message's echo: the IdP stored it, so a copy
+  still `sending` or `failed` was sent.
 - `settleStaleSend(message, now)` — a send `sending` for longer than
   `SEND_TIMEOUT_MS` becomes `failed`: a page closed mid-send leaves it
   `sending` in the cache. Every DM goes out over `POST /api/dm`, whose answer
@@ -893,8 +895,8 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
 - `isHeldHere` — a message from the user's own account is this device's
   echo only when it holds a copy of it (optimistic id, server id, or an
   applied reaction). Any other came from one of the user's other devices:
-  `useIdpWebSocket` and the history load decrypt it like anyone's, and
-  show nothing for one that doesn't decrypt (MLS never decrypts a
+  `receiveMessageUseCase` and the history load decrypt it like anyone's,
+  and show nothing for one that doesn't decrypt (MLS never decrypts a
   device's own).
 
 ### models/received-message.ts
@@ -910,14 +912,39 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   `message_edited`.
 - The account's own history rows take the user's name, a push the IdP's; only a
   history row carries `edited`. Decrypting, the cache checks before it and
-  archiving stay with the caller.
+  archiving stay with the caller (`receiveMessageUseCase` live).
 
 ### models/reaction.ts
 - `foldReaction(messages, appliedReactionIds, application, reactedByMe)` — once
   per reaction id, the id recorded even when neither the conversation nor the
   message is held: history decrypting a reaction the socket folded would count
-  it twice, or — its keys gone — show it as an undecryptable row. The store's
-  `applyReaction` calls it inside `set`.
+  it twice, or — its keys gone — show it as an undecryptable row. The receive
+  use case folds through `IConversationCache.update`, the store's
+  `applyReaction` (history, the restore) inside `set`.
+
+### ports/conversation-cache.port.ts + usecases/dm/receive-message.usecase.ts
+- `IConversationCache<M>` — one conversation's timeline (`ConversationTimeline`: messages,
+  applied reaction ids, group events, new-device lines), read, and changed by a pure function
+  over what is held as it runs: a field given back as it was is not written — the web's store
+  sets only what was replaced (its cache guard skips the rest), the phone writes only the row
+  that changed. Asynchronous: the phone's rows are sealed. Generic over each client's message
+  shape (`CachedTimelineMessage`, what the domain reads); `toCached` gives a message that shape
+  (the web's looks). `conversationIds` — for a push naming no conversation. The web's is
+  `presentation/_libs/conversation-cache.ts`, over the store's `changeTimeline`.
+- `receiveMessageUseCase` — a `new_dm`. One of the account's own held here (`isHeldHere`) is
+  this device's echo, never decrypted: with its client id the optimistic copy becomes the sent
+  one (`reconcileSent`), archived from its text (the send's answer may never come); without,
+  a copy `sending` or `failed` is sent (`settleByEcho`). Any other is decrypted once (every
+  failure a message that didn't decrypt), built by `receivedMessage`, folded or added, and
+  archived. It answers `DmArrival` — `message` (`mine`: from another of the user's devices),
+  `reaction`, `echo`, `nothing` — and the platform decides the ping, the unread count and
+  the read marker.
+- `receiveEditUseCase` — `message_edited` names no conversation: each held one is tried until
+  one decrypts an edit of that message, archived under the edited message's author. The first
+  conversation holding the message takes the text, marked edited. Not decrypted, one of the
+  user's own is left (this device made it); a peer's shows the placeholder marked edited — a
+  known gap, kept.
+- `receiveDeliveryFailureUseCase` — `applyFederationStatus` wherever the message is held.
 
 ### models/history-key.ts + the history key's use cases
 - The account's passphrase in generations (`identity-provider/specs/e2ee.md § 3.6–3.9`).
