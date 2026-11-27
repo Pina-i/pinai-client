@@ -1,6 +1,6 @@
 import type { StateCreator } from "zustand"
 import type { WsConnectionStatus, WsNotification } from "@pinai/domain/models/ws"
-import { addToTimeline, mergeMessageHistory, reconcileOptimistic } from "@pinai/domain/models/dm"
+import { addToTimeline, mergeMessageHistory, reconcileSent } from "@pinai/domain/models/dm"
 import type { GroupEvent } from "@pinai/domain/models/group-event"
 import { withNewDeviceLine, type NewDeviceLine } from "@pinai/domain/models/new-device"
 import { foldReaction, type ReactionApplication } from "@pinai/domain/models/reaction"
@@ -118,21 +118,9 @@ export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]]
         set(
             (s) => {
                 const existing = s.dmMessages[conversationKey] ?? []
-                const idx = existing.findIndex((m) => m.id === clientId)
-                if (idx !== -1) {
-                    const updated = [...existing]
-                    updated[idx] = reconcileOptimistic(existing[idx], message)
-                    return {
-                        dmMessages: { ...s.dmMessages, [conversationKey]: updated },
-                    }
-                }
-                if (existing.some((m) => m.id === message.id)) return s
-                return {
-                    dmMessages: {
-                        ...s.dmMessages,
-                        [conversationKey]: [...existing, message],
-                    },
-                }
+                const next = reconcileSent(existing, clientId, message)
+                if (next === existing) return s
+                return { dmMessages: { ...s.dmMessages, [conversationKey]: next } }
             },
             false,
             "ws/reconcileDmMessage",
