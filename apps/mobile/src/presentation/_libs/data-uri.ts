@@ -1,4 +1,5 @@
-const CHUNK = 0x8000
+// Each chunk is a call's arguments: kept well under what Hermes's register stack takes.
+const CHUNK = 0x2000
 const MEDIA_TYPE = /^[a-z]+\/[a-z0-9.+-]+$/i
 
 /** Bytes as a `data:` URI, its base64 built a chunk at a time: a character at a time takes seconds on a photo. */

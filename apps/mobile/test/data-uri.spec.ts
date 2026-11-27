@@ -8,7 +8,7 @@ function bytesOf(uri: string): Uint8Array {
 
 describe("dataUri", () => {
     it("carries every byte, past a chunk too", () => {
-        const bytes = Uint8Array.from({ length: 0x8000 * 2 + 17 }, (_, i) => (i * 31) % 256)
+        const bytes = Uint8Array.from({ length: 0x2000 * 5 + 17 }, (_, i) => (i * 31) % 256)
         const uri = dataUri(bytes, "image/webp")
         expect(uri.startsWith("data:image/webp;base64,")).toBe(true)
         expect(bytesOf(uri)).toEqual(bytes)
