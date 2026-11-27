@@ -937,9 +937,8 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
 - `foldReaction(messages, appliedReactionIds, application, reactedByMe)` — once
   per reaction id, the id recorded even when neither the conversation nor the
   message is held: history decrypting a reaction the socket folded would count
-  it twice, or — its keys gone — show it as an undecryptable row. The receive
-  and load use cases fold through `IConversationCache.update`, the store's
-  `applyReaction` (the restore) inside `set`.
+  it twice, or — its keys gone — show it as an undecryptable row. The receive,
+  load and restore use cases fold through `IConversationCache.update`.
 
 ### ports/conversation-cache.port.ts + usecases/dm/receive-message.usecase.ts
 - `IConversationCache<M>` — one conversation's timeline (`ConversationTimeline`: messages,
@@ -1185,11 +1184,15 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   text once, the latest of its sender's edits applied, in its conversation,
   with the reactions still on it — each reactor's last add or remove per
   emoji, so one archived twice counts once.
-- `reactionsToReplay(cached, restored)` — the restore applies reactions
-  through the store's `applyReaction`, which records each id: the history
-  load may decrypt one again (sent after the device joined). Only for the
-  messages the cache doesn't hold whole (`undecrypted`, `editOnly`) — a held copy
-  wins, reactions included.
+- `reactionsToReplay(cached, restored)` — the restore folds reactions, recording
+  each id: the history load may decrypt one again (sent after the device joined).
+  Only for the messages the cache doesn't hold whole (`undecrypted`, `editOnly`) —
+  a held copy wins, reactions included.
+- `apply-restored-history.usecase.ts` — the restore's apply, every client's: one
+  `IConversationCache.update` per conversation, a turn between them (`withRestored`:
+  seeded, the reactions replayed, a snapshot's counts set, the reactions since applied
+  on top, those it counted recorded only); `restoredText`, a restored message as a
+  timeline keeps it. It answers the conversations it changed.
 - `ARCHIVE_UPLOAD_LIMIT` — the IdP takes 50 entries per upload;
   `ARCHIVE_BUFFER_LIMIT` — at most 1000 wait on a device, the oldest dropped.
 - `edited` on an envelope — a text archived as last edited, no edit entry beside it (a
