@@ -209,6 +209,22 @@ export function reconcileOptimistic<T extends SendState>(optimistic: T, confirme
 }
 
 /**
+ * A sent message's confirmed copy into its timeline: in its optimistic copy's place (`clientId`), else
+ * appended unless a copy under its id is held — the send's answer and its echo both bring it. The
+ * same list when nothing changes.
+ */
+export function reconcileSent<T extends SendState & { id: string }>(list: T[], clientId: string, confirmed: T): T[] {
+    const at = list.findIndex((m) => m.id === clientId)
+    if (at !== -1) {
+        const next = [...list]
+        next[at] = reconcileOptimistic(list[at], confirmed)
+        return next
+    }
+    if (list.some((m) => m.id === confirmed.id)) return list
+    return [...list, confirmed]
+}
+
+/**
  * For each undelivered message that was sent again, the message that
  * replaced it — keyed by the undelivered message's id.
  */
