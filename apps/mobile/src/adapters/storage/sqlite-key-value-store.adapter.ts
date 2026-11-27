@@ -1,5 +1,5 @@
 import { deleteDatabaseAsync, openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite"
-import type { IKeyValueStore } from "@pinai/domain/ports/key-value-store.port"
+import type { ListingKeyValueStore } from "./sealed-conversation-cache.adapter"
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS rows (
 `
 
 /** The encrypted store's bytes in a SQLite database of the account's own: one table, every collection in it. */
-export class SqliteKeyValueStore implements IKeyValueStore {
+export class SqliteKeyValueStore implements ListingKeyValueStore {
     private readonly name: string
     #db: Promise<SQLiteDatabase> | null = null
 
@@ -48,6 +48,12 @@ export class SqliteKeyValueStore implements IKeyValueStore {
             key,
             value
         )
+    }
+
+    async keys(collection: string): Promise<string[]> {
+        const db = await this.#open()
+        const rows = await db.getAllAsync<{ key: string }>("SELECT key FROM rows WHERE collection = ?", collection)
+        return rows.map((row) => row.key)
     }
 
     async delete(collection: string, key: string): Promise<void> {

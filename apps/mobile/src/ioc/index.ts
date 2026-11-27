@@ -1,12 +1,14 @@
 import { OidcAdapter } from "@pinai/api/auth/oidc.adapter"
 import { ApprovalRelayApiAdapter } from "@pinai/api/device-directory/approval-relay-api.adapter"
 import { DeviceDirectoryApiAdapter } from "@pinai/api/device-directory/device-directory-api.adapter"
+import { DmApiAdapter } from "@pinai/api/dm/dm-api.adapter"
 import { PushRegistrationApiAdapter } from "@pinai/api/device-directory/push-registration-api.adapter"
 import { HistoryArchiveApiAdapter } from "@pinai/api/e2ee/history-archive-api.adapter"
 import { JwksCache } from "@pinai/api/e2ee/jwks-cache.adapter"
 import { KeyDirectoryApiAdapter } from "@pinai/api/e2ee/key-directory.adapter"
 import { KeyShareApiAdapter } from "@pinai/api/e2ee/key-share-api.adapter"
 import { StartOverApiAdapter } from "@pinai/api/e2ee/start-over-api.adapter"
+import { GroupApiAdapter } from "@pinai/api/group/group-api.adapter"
 import { NodeInfoApiAdapter } from "@pinai/api/instance/nodeinfo-api.adapter"
 import { SessionApiAdapter } from "@pinai/api/session/session-api.adapter"
 import { UserSettingsApiAdapter } from "@pinai/api/user-settings/user-settings-api.adapter"
@@ -20,8 +22,11 @@ import type { ActorUri } from "@pinai/domain/models/e2ee"
 import { appearanceHints, resolveMode } from "@pinai/domain/models/user-settings"
 import type { IApprovalRelayPort } from "@pinai/domain/ports/approval-relay.port"
 import type { AuthPlatform, IAuthPort } from "@pinai/domain/ports/auth.port"
+import type { CachedTimelineMessage } from "@pinai/domain/ports/conversation-cache.port"
 import type { IDeviceDirectoryPort } from "@pinai/domain/ports/device-directory.port"
+import type { IDmPort } from "@pinai/domain/ports/dm.port"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
+import type { IGroupPort } from "@pinai/domain/ports/group.port"
 import type { IHistoryArchivePort } from "@pinai/domain/ports/history-archive.port"
 import type { ILastInstancePort, INodeInfoPort, IRecentInstancesPort } from "@pinai/domain/ports/instance.port"
 import type { IKeySharePort } from "@pinai/domain/ports/key-share.port"
@@ -52,6 +57,7 @@ import { accountStoreNames } from "@/adapters/storage/account-store-names"
 import { inProcessLock } from "@/adapters/storage/in-process-lock"
 import { KeystoreDeviceKeyAdapter } from "@/adapters/storage/keystore-device-key.adapter"
 import { LastInstanceKvAdapter, RecentInstancesKvAdapter } from "@/adapters/storage/kv-storage"
+import { SealedConversationCache } from "@/adapters/storage/sealed-conversation-cache.adapter"
 import { kvStrings } from "@/adapters/storage/kv-strings"
 import { SqliteKeyValueStore } from "@/adapters/storage/sqlite-key-value-store.adapter"
 import { UserSettingsKvAdapter } from "@/adapters/storage/user-settings-kv.adapter"
@@ -145,11 +151,19 @@ export function createArgon2id(): Argon2id {
     return nativeArgon2id()
 }
 
-// An account's encrypted store: its own SQLite database, its own Keystore key.
-export function createSealedStorage(account: ActorUri): SealedStorage {
+// An account's store and key: its own SQLite database, its own Keystore key.
+function accountStores(account: ActorUri): { kv: SqliteKeyValueStore; deviceKey: KeystoreDeviceKeyAdapter } {
     const { database, keyAlias } = accountStoreNames(account)
-    return new SealedStorage(new SqliteKeyValueStore(database), new KeystoreDeviceKeyAdapter(keyAlias))
+    return { kv: new SqliteKeyValueStore(database), deviceKey: new KeystoreDeviceKeyAdapter(keyAlias) }
 }
+
+export function createSealedStorage(account: ActorUri): SealedStorage {
+    const { kv, deviceKey } = accountStores(account)
+    return new SealedStorage(kv, deviceKey)
+}
+
+/** The account's conversations, the domain's `IConversationCache` with what the screens read. */
+export type ConversationCache = SealedConversationCache<CachedTimelineMessage>
 
 const sessionPort: ISessionPort = new SessionApiAdapter()
 const deviceDirectoryPort: IDeviceDirectoryPort = new DeviceDirectoryApiAdapter()
@@ -157,24 +171,32 @@ const pushRegistrationPort: IPushRegistrationPort = new PushRegistrationApiAdapt
 const historyArchivePort: IHistoryArchivePort = new HistoryArchiveApiAdapter()
 const keySharePort: IKeySharePort = new KeyShareApiAdapter()
 const startOverPort: IStartOverPort = new StartOverApiAdapter()
+const dmPort: IDmPort = new DmApiAdapter()
+const groupPort: IGroupPort = new GroupApiAdapter()
 const approvalRelayPort: IApprovalRelayPort = new ApprovalRelayApiAdapter()
 const deviceLabel: ThisDeviceLabel = thisDeviceLabel(new ExpoDeviceFactsAdapter())
 const jwksCache = new JwksCache(kvStrings)
 
 // One account's core at a time: its MLS engine holds the account's groups in memory.
-let account: { actorUri: ActorUri; e2ee: E2eeAdapter; lock: PendingKeyLock } | null = null
+let account: { actorUri: ActorUri; e2ee: E2eeAdapter; conversations: ConversationCache; lock: PendingKeyLock } | null = null
 
-/** The signed-in account's E2EE core, opened before anything touches its device storage. Idempotent. */
-export function openAccountE2ee(actorUri: ActorUri): void {
+/**
+ * The signed-in account's E2EE core and its conversations, opened before anything touches its device storage.
+ * Idempotent. `report` hears what the conversations' rows couldn't do.
+ */
+export function openAccountE2ee(actorUri: ActorUri, report: (what: string, error: unknown) => void): void {
     if (account?.actorUri === actorUri) return
     const engine = createMlsEngine()
     const argon2id = createArgon2id()
+    const { kv, deviceKey } = accountStores(actorUri)
+    // The previous account's writes land; its conversations take nothing more.
+    void account?.conversations.close()
     account = {
         actorUri,
         e2ee: new E2eeAdapter(
             new NobleIdentityAdapter(),
             engine,
-            createSealedStorage(actorUri),
+            new SealedStorage(kv, deviceKey),
             new KeyDirectoryApiAdapter(() => deviceLabel.settled()),
             engine,
             jwksCache,
@@ -182,8 +204,14 @@ export function openAccountE2ee(actorUri: ActorUri): void {
             new HistoryArchiveAdapter(argon2id),
             argon2id
         ),
+        conversations: new SealedConversationCache<CachedTimelineMessage>({ store: kv, key: deviceKey, toCached: (message) => message, report }),
         lock: inProcessLock(),
     }
+}
+
+export function getConversationCache(): ConversationCache {
+    if (!account) throw new Error("No account's E2EE is open: sign in first")
+    return account.conversations
 }
 
 export function getE2eePort(): IE2eePort {
@@ -219,6 +247,14 @@ export function getHistoryArchivePort(): IHistoryArchivePort {
 
 export function getKeySharePort(): IKeySharePort {
     return keySharePort
+}
+
+export function getDmPort(): IDmPort {
+    return dmPort
+}
+
+export function getGroupPort(): IGroupPort {
+    return groupPort
 }
 
 export function getStartOverPort(): IStartOverPort {

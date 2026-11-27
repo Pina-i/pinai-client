@@ -21,7 +21,7 @@ const starts = new Map<ActorUri, ThisDeviceStart>()
  * tried again at the next call while the IdP is out of reach). Idempotent: every signed-in screen calls it.
  */
 export function enterAccount(actorUri: ActorUri): void {
-    openAccountE2ee(actorUri)
+    openAccountE2ee(actorUri, warnE2ee)
     let start = starts.get(actorUri)
     if (!start) {
         start = new ThisDeviceStart({
