@@ -59,9 +59,10 @@ added, it fails the dev bundle ("Failed to replace … HMRClient.js") — then b
 android:mobile` does, Metro included, in the same terminal; `pnpm prebuild:mobile` regenerates it
 alone.
 
-Metro's QR code points at the computer's Wi-Fi address: the phone must be on the same Wi-Fi. Over
-USB instead, `pnpm dev:mobile --localhost` and `adb reverse tcp:8081 tcp:8081` (the build sets it
-up; again after replugging).
+Metro serves on port 8095, not its default 8081, which is Bob's dev instance: with Metro there, Bob's
+instance can't start and nothing reaches him. Its QR code points at the computer's Wi-Fi address: the
+phone must be on the same Wi-Fi. Over USB instead, `pnpm dev:mobile --localhost` and `adb reverse
+tcp:8095 tcp:8095` (the build sets it up; again after replugging).
 
 A build leaves no Gradle nor Kotlin daemon behind (`app.config.ts` sets `org.gradle.daemon=false`
 and the Kotlin compiler in-process): its memory is given back before Metro runs. Gradle and the
@@ -88,7 +89,7 @@ USB phone alike, so the instance keeps the address it was set up with. From the 
 for every phone and emulator connected — again after one restarts or is plugged back:
 
 ```sh
-pnpm reverse:mobile        # Metro (8081) and Alice's instance (8088)
+pnpm reverse:mobile        # Metro (8095) and Alice's instance (8088)
 pnpm reverse:mobile 8090   # Metro and an instance on another port
 ```
 
@@ -153,7 +154,7 @@ Each prints every scenario with its time, each failure in full, and the result.
   4. It checks everything came back and that one member reads what the other writes
      (`restart: all back`).
 
-  It starts the app on Metro at `http://localhost:8081`, the address `pnpm android:mobile` forwards;
+  It starts the app on Metro at `http://localhost:8095`, the address `pnpm android:mobile` forwards;
   `--metro <url>` gives another.
 
 Each exits non-zero when a scenario failed or no answer came in time.

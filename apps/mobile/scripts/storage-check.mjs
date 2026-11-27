@@ -1,6 +1,6 @@
 /**
  * Plays the encrypted store's contract on a connected device, then checks the store across the app being killed:
- * starts the app again on Metro (`--metro <url>`, `http://localhost:8081` by default — the address `pnpm android:mobile`
+ * starts the app again on Metro (`--metro <url>`, `http://localhost:8095` by default — the address `pnpm android:mobile`
  * forwards), opens `io.github.pina-i://dev/storage-check`, then `dev/storage-restart?phase=write`, kills and starts the
  * app again, opens `dev/storage-restart?phase=read`. Development builds only. `--serial <id>` picks a device.
  */
@@ -8,7 +8,7 @@
 import { connect, option } from "./device-check.mjs"
 
 const device = connect("storage-check")
-const metro = option("metro") ?? "http://localhost:8081"
+const metro = option("metro") ?? "http://localhost:8095"
 
 console.log(`[storage-check] starting the app on ${metro}…`)
 await device.relaunch(metro)

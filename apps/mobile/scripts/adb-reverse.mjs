@@ -1,12 +1,13 @@
 import { execFileSync } from "node:child_process"
 
-// Metro, then the local instance the app signs in to: Alice's by default, `pnpm reverse 8090` for another.
+// Metro (on 8095: 8081, its default, is Bob's dev instance), then the local instance the app signs in to: Alice's by
+// default, `pnpm reverse 8090` for another.
 const instancePort = process.argv[2] ?? "8088"
 if (!/^\d{1,5}$/.test(instancePort)) {
     console.error(`Not a port: ${instancePort}`)
     process.exit(1)
 }
-const ports = ["8081", instancePort]
+const ports = ["8095", instancePort]
 
 function adb(...args) {
     return execFileSync("adb", args, { encoding: "utf8" })
