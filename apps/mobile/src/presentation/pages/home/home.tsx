@@ -1,19 +1,23 @@
 import { personName } from "@pinai/domain/models/identity"
 import type { UserStatus } from "@pinai/domain/models/presence"
 import { router } from "expo-router"
-import { Settings, Users } from "lucide-react-native"
-import { Pressable, ScrollView, Text, View } from "react-native"
+import { Settings } from "lucide-react-native"
+import { FlatList, Pressable, Text, View } from "react-native"
 import { StyleSheet, useUnistyles } from "react-native-unistyles"
 import { Avatar } from "@/presentation/atoms/avatar/avatar"
+import { Button } from "@/presentation/atoms/button/button"
 import { Motif } from "@/presentation/atoms/motif/motif"
 import { HistoryResetBanner } from "@/presentation/organisms/history-reset-banner/history-reset-banner"
 import { statusWords } from "@/presentation/pages/status/status-choices"
 import { useAppStore } from "@/store/store"
 import { statusColor } from "@/theme/status"
+import { ConversationRow } from "./conversation-row"
+import { useHomeViewModel } from "./home.viewmodel"
 
-/** Reach's home: the panel beside the rail, the user at its foot. */
+/** Reach's home: the panel beside the rail, the conversations in it, the user at its foot. */
 export function HomePage() {
     const { theme } = useUnistyles()
+    const vm = useHomeViewModel()
     const user = useAppStore((s) => s.user)
     const status = useAppStore((s) => s.myStatus)
     if (!user) return null
@@ -32,23 +36,45 @@ export function HomePage() {
             >
                 — Welcome back, {name}
             </Text>
-            <ScrollView contentContainerStyle={styles.list}>
-                <View style={styles.row}>
-                    <Users
-                        size={20}
-                        color={theme.colors.mutedForeground}
-                        strokeWidth={1.9}
+            <FlatList
+                data={vm.conversations ?? []}
+                keyExtractor={(item) => item.row.id}
+                renderItem={({ item }) => (
+                    <ConversationRow
+                        row={item.row}
+                        summary={item.summary}
+                        onOpen={vm.open}
                     />
-                    <Text style={styles.rowLabel}>Friends</Text>
-                </View>
-                <Text
-                    accessibilityRole="header"
-                    style={styles.eye}
-                >
-                    Direct messages
-                </Text>
-                <Text style={styles.waiting}>Your friends and conversations are coming to the mobile app soon.</Text>
-            </ScrollView>
+                )}
+                ListHeaderComponent={
+                    <Text
+                        accessibilityRole="header"
+                        style={styles.eye}
+                    >
+                        Direct messages
+                    </Text>
+                }
+                ListEmptyComponent={
+                    vm.failed ? (
+                        <View style={styles.failed}>
+                            <Text style={styles.waiting}>Couldn't load your conversations.</Text>
+                            <Button
+                                label="Try again"
+                                variant="secondary"
+                                onPress={vm.retry}
+                            />
+                        </View>
+                    ) : (
+                        <Text
+                            accessibilityLiveRegion="polite"
+                            style={styles.waiting}
+                        >
+                            {vm.loading ? "Loading your conversations…" : "No conversations yet. Start one on the web or the desktop app."}
+                        </Text>
+                    )
+                }
+                contentContainerStyle={styles.list}
+            />
 
             <View style={styles.footer}>
                 <Pressable
@@ -125,20 +151,8 @@ const styles = StyleSheet.create((theme, rt) => ({
         paddingHorizontal: 8,
         paddingBottom: 12,
     },
-    row: {
-        minHeight: 50,
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 12,
-        paddingHorizontal: 12,
-    },
-    rowLabel: {
-        fontFamily: "DM Sans",
-        fontSize: 14,
-        color: theme.colors.foreground,
-    },
     eye: {
-        marginTop: 14,
+        marginTop: 4,
         marginBottom: 4,
         marginLeft: 14,
         fontFamily: "DM Sans",
@@ -154,6 +168,10 @@ const styles = StyleSheet.create((theme, rt) => ({
         fontSize: 13,
         lineHeight: 19,
         color: theme.colors.mutedForeground,
+    },
+    failed: {
+        gap: 12,
+        paddingHorizontal: 6,
     },
     footer: {
         flexDirection: "row",

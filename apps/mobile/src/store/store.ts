@@ -1,6 +1,6 @@
 import type { UserProfile } from "@pinai/domain/models/auth"
 import type { UserStatus } from "@pinai/domain/models/presence"
-import type { AppearanceSettings, ModePreference } from "@pinai/domain/models/user-settings"
+import type { AccountSettings, AppearanceSettings, ModePreference, NotificationSettings } from "@pinai/domain/models/user-settings"
 import { loadUserSettingsUseCase } from "@pinai/domain/usecases/user-settings/load-user-settings.usecase"
 import Storage from "expo-sqlite/kv-store"
 import { create } from "zustand"
@@ -23,12 +23,14 @@ interface PresenceSlice {
     setMyStatus: (status: UserStatus) => void
 }
 
-interface AppearanceSlice {
+interface AccountSettingsSlice {
     /** The account's palette and motif, as this phone's copy holds them. */
     appearance: AppearanceSettings
+    /** The account's mutes, as this phone's copy holds them: the list shows a muted conversation. */
+    notifications: NotificationSettings
     /** Dark or light: this phone's, `system` following it. */
     deviceMode: ModePreference
-    setAppearance: (appearance: AppearanceSettings) => void
+    setAccountSettings: (settings: AccountSettings) => void
 }
 
 // The kv-store's synchronous half: the instance and the palette are known before the first render.
@@ -40,7 +42,7 @@ const storage = createJSONStorage(() => ({
 
 const kept = loadUserSettingsUseCase(new UserSettingsKvAdapter(Storage))
 
-export const useAppStore = create<AuthSlice & PresenceSlice & AppearanceSlice>()(
+export const useAppStore = create<AuthSlice & PresenceSlice & AccountSettingsSlice>()(
     persist(
         (set) => ({
             accessToken: null,
@@ -51,9 +53,10 @@ export const useAppStore = create<AuthSlice & PresenceSlice & AppearanceSlice>()
             myStatus: "online",
             setMyStatus: (myStatus) => set({ myStatus }),
             appearance: kept.account.settings.appearance,
+            notifications: kept.account.settings.notifications,
             deviceMode: kept.device.mode,
-            setAppearance: (appearance) => set({ appearance }),
+            setAccountSettings: ({ appearance, notifications }) => set({ appearance, notifications }),
         }),
-        { name: "pinai.session", storage, partialize: (state) => ({ idpUrl: state.idpUrl }) },
-    ),
+        { name: "pinai.session", storage, partialize: (state) => ({ idpUrl: state.idpUrl }) }
+    )
 )
