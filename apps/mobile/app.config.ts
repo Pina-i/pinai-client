@@ -1,4 +1,5 @@
 import type { ExpoConfig } from "expo/config"
+import { type ConfigPlugin, withGradleProperties } from "expo/config-plugins"
 
 interface Face {
     file: string
@@ -49,6 +50,20 @@ const fontPlugin: [string, object] = [
         },
     },
 ]
+
+// A build leaves no Gradle nor Kotlin daemon behind: Metro runs on after it, in the same terminal, and the daemons'
+// gigabytes would stay taken for nothing.
+const NO_BUILD_DAEMONS: Record<string, string> = {
+    "org.gradle.daemon": "false",
+    "kotlin.compiler.execution.strategy": "in-process",
+}
+
+const withoutBuildDaemons: ConfigPlugin = (config) =>
+    withGradleProperties(config, (gradle) => {
+        gradle.modResults = gradle.modResults.filter((item) => item.type !== "property" || !(item.key in NO_BUILD_DAEMONS))
+        for (const [key, value] of Object.entries(NO_BUILD_DAEMONS)) gradle.modResults.push({ type: "property", key, value })
+        return gradle
+    })
 
 // Firebase's file for this app, kept out of git: its path in `GOOGLE_SERVICES_JSON` (`.env.local`, say). Without
 // it the app builds all the same, with no push notices.
@@ -121,4 +136,4 @@ const config: ExpoConfig = {
     },
 }
 
-export default config
+export default withoutBuildDaemons(config)

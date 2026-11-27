@@ -47,17 +47,20 @@ An emulator is started from Android Studio's Device Manager, or with `emulator -
 The first build compiles the native code (a quarter of an hour). After that, `pnpm dev:mobile`
 starts Metro alone, and changes to the JavaScript reload in place; rebuild only when a native
 dependency or `app.config.ts` changes. `pnpm android:mobile` generates `android/` only when it is
-missing: after a change to `app.config.ts`, `pnpm rebuild:mobile` regenerates it (Expo's
-`prebuild --platform android`) then builds and runs as `pnpm android:mobile` does — the native code
-compiled again; `pnpm prebuild:mobile` regenerates it alone.
+missing: after a change to `app.config.ts` or a native dependency added, `pnpm rebuild:mobile`
+regenerates it (Expo's `prebuild --platform android`), clears Metro's cache — stale once a package is
+added, it fails the dev bundle ("Failed to replace … HMRClient.js") — then builds and runs as `pnpm
+android:mobile` does, Metro included, in the same terminal; `pnpm prebuild:mobile` regenerates it
+alone.
 
 Metro's QR code points at the computer's Wi-Fi address: the phone must be on the same Wi-Fi. Over
 USB instead, `pnpm dev:mobile --localhost` and `adb reverse tcp:8081 tcp:8081` (the build sets it
 up; again after replugging).
 
-Gradle and the emulator together want a lot of memory: if the build's daemon dies, close the
-emulator while it builds, or give Gradle fewer workers (`--max-workers=6` in
-`android/`'s `./gradlew assembleDebug`).
+A build leaves no Gradle nor Kotlin daemon behind (`app.config.ts` sets `org.gradle.daemon=false`
+and the Kotlin compiler in-process): its memory is given back before Metro runs. Gradle and the
+emulator together still want a lot of it: if the build dies, close the emulator while it builds, or
+give Gradle fewer workers (`--max-workers=6` in `android/`'s `./gradlew assembleDebug`).
 
 ### A local instance
 
@@ -82,7 +85,7 @@ connected — no build needed —, which signs it out and makes it a new device 
 
 ```sh
 pnpm clear:mobile   # the app's data cleared, nothing built
-pnpm fresh:mobile   # cleared, then built and run as pnpm android:mobile does
+pnpm fresh:mobile   # cleared, then regenerated, built and run as pnpm rebuild:mobile does
 ```
 
 ### Push notices
