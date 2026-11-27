@@ -1,8 +1,9 @@
+import type { SendState } from "@pinai/domain/models/dm"
 import type { ReceivedText } from "@pinai/domain/models/received-message"
 import type { Message } from "@/lib/types"
 
 /** A received message as the web's timeline draws it. */
-export function timelineMessage(text: ReceivedText): Message {
+export function timelineMessage(text: ReceivedText & SendState): Message {
     return {
         ...text,
         avatar: text.author.slice(0, 2).toUpperCase(),

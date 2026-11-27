@@ -2,8 +2,9 @@ import type { StateCreator } from "zustand"
 import type { WsConnectionStatus, WsNotification } from "@pinai/domain/models/ws"
 import { addToTimeline, mergeMessageHistory, reconcileSent } from "@pinai/domain/models/dm"
 import type { GroupEvent } from "@pinai/domain/models/group-event"
-import { withNewDeviceLine, type NewDeviceLine } from "@pinai/domain/models/new-device"
+import { readNewDeviceLines, withNewDeviceLine, type NewDeviceLine } from "@pinai/domain/models/new-device"
 import { foldReaction, type ReactionApplication } from "@pinai/domain/models/reaction"
+import type { ConversationTimeline } from "@pinai/domain/ports/conversation-cache.port"
 import type { Message } from "@/lib/types"
 import type { AppStore } from "../store"
 
@@ -46,6 +47,11 @@ export interface WsSlice {
     addNewDeviceLine: (conversationKey: string, line: NewDeviceLine) => void
     /** Drop what this device keeps of a conversation: its messages, its changes and its lines. */
     forgetConversation: (conversationKey: string) => void
+    /** One conversation's timeline changed as a whole (the domain's conversation cache): only what the change replaced is set. */
+    changeTimeline: (
+        conversationKey: string,
+        change: (held: ConversationTimeline<Message>) => ConversationTimeline<Message>,
+    ) => void
     /** Update a single message by id across all conversations. */
     updateMessageById: (messageId: string, updater: (msg: Message) => Message) => void
     /**
@@ -70,6 +76,19 @@ export interface WsSlice {
         application: ReactionApplication,
         reactedByMe: boolean,
     ) => void
+}
+
+/** One conversation as the domain's conversation cache reads it. */
+export function conversationTimeline(
+    s: Pick<WsSlice, "dmMessages" | "appliedReactionIds" | "groupEvents" | "newDeviceLines">,
+    conversationKey: string,
+): ConversationTimeline<Message> {
+    return {
+        messages: s.dmMessages[conversationKey] ?? [],
+        appliedReactionIds: s.appliedReactionIds,
+        groupEvents: s.groupEvents[conversationKey] ?? [],
+        newDeviceLines: readNewDeviceLines(s.newDeviceLines[conversationKey]),
+    }
 }
 
 export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]], [], WsSlice> = (set) => ({
@@ -191,6 +210,30 @@ export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]]
             },
             false,
             "ws/forgetConversation",
+        ),
+
+    changeTimeline: (conversationKey, change) =>
+        set(
+            (s) => {
+                const held = conversationTimeline(s, conversationKey)
+                const next = change(held)
+                const patch: Partial<WsSlice> = {}
+                if (next.messages !== held.messages) {
+                    patch.dmMessages = { ...s.dmMessages, [conversationKey]: next.messages }
+                }
+                if (next.appliedReactionIds !== held.appliedReactionIds) patch.appliedReactionIds = next.appliedReactionIds
+                if (next.groupEvents !== held.groupEvents) {
+                    patch.groupEvents = { ...s.groupEvents, [conversationKey]: next.groupEvents }
+                }
+                // A value of another shape, read back from the cache, is left as it is.
+                const lines = s.newDeviceLines[conversationKey]
+                if (next.newDeviceLines !== held.newDeviceLines && (lines === undefined || Array.isArray(lines))) {
+                    patch.newDeviceLines = { ...s.newDeviceLines, [conversationKey]: next.newDeviceLines }
+                }
+                return Object.keys(patch).length > 0 ? patch : s
+            },
+            false,
+            "ws/changeTimeline",
         ),
 
     updateMessageById: (messageId, updater) =>
