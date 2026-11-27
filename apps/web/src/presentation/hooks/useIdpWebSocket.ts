@@ -4,7 +4,6 @@ import { useAppStore } from "@/store/store"
 import { getDmPort, getE2eePort, getGroupPort, getNotificationSoundPort, getWsPort } from "@/ioc"
 import type {
     ApplicationMessage,
-    AttachmentBlobKey,
     ConversationId,
     EditBody,
     ReactionBody,
@@ -12,10 +11,10 @@ import type {
 } from "@pinai/domain/models/e2ee"
 import { archivedEdit, archivedReaction, archivedText } from "@pinai/domain/models/history-archive"
 import type { WsConnectionStatus, WsServerEvent } from "@pinai/domain/models/ws"
-import type { Message } from "@/lib/types"
 import { actorUriToAddress } from "@pinai/domain/models/identity"
 import { isHeldHere } from "@pinai/domain/models/own-messages"
 import { UNDECRYPTABLE_TEXT, applyFederationStatus } from "@pinai/domain/models/dm"
+import { pushWire, receivedMessage } from "@pinai/domain/models/received-message"
 import { reconcileGroupKeysUseCase } from "@pinai/domain/usecases/e2ee/reconcile-group-keys.usecase"
 import { shouldPingForMessage } from "@pinai/domain/models/mute"
 import { isBlocked } from "@pinai/domain/models/block"
@@ -33,6 +32,7 @@ import { useNotificationSettings } from "@/presentation/providers/AppearanceProv
 import { renewAccessToken } from "@/presentation/_libs/session-renewal"
 import { startOverQueryKey } from "@/presentation/hooks/use-own-start-over"
 import { isWindowAttended } from "@/presentation/_libs/window-attention"
+import { timelineMessage } from "@/presentation/_libs/timeline-message"
 
 /** Module-level slot — `useDeviceFanout` registers its callback here. */
 const deviceFanoutHandlerRef: { current: (() => void) | null } = {
@@ -240,14 +240,15 @@ export function useIdpWebSocket(): void {
                 }
                 case "new_dm": {
                     const conversationId = event.data.conversation_id
-                    const senderAddress = actorUriToAddress(event.data.sender_address)
+                    const wire = pushWire(event.data, actionsRef.current.user?.address)
+                    const senderAddress = wire.senderAddress
                     // The server fans `new_dm` out to every session of the
                     // sender's account. One this device holds a copy of is
                     // its own echo, never decrypted: MLS can't, and the try
                     // would cost a catch-up. Any other of the account's is
                     // from one of its other devices, decrypted like anyone's
                     // (`isHeldHere`).
-                    const isOwn = senderAddress === actionsRef.current.user?.address
+                    const isOwn = wire.mine
                     const snapshot = useAppStore.getState()
                     const isHeld =
                         isOwn &&
@@ -270,67 +271,6 @@ export function useIdpWebSocket(): void {
                     const app = isHeld
                         ? null
                         : await tryDecryptAny(conversationId, event.data.mls_ciphertext, catchUp)
-                    // The account's own that doesn't decrypt is this device's, sent before its
-                    // copy was recorded, or older than the device: nothing to show.
-                    if (isOwn && !isHeld && !app) break
-
-                    if (app && app.kind === "reaction") {
-                        const body = app.body as ReactionBody
-                        if (
-                            body &&
-                            typeof body.target_message_id === "string" &&
-                            typeof body.emoji === "string" &&
-                            (body.op === "add" || body.op === "remove")
-                        ) {
-                            actionsRef.current.applyReaction(
-                                conversationId,
-                                {
-                                    reaction_message_id: event.data.message_id,
-                                    target_message_id: body.target_message_id,
-                                    reactor_address: senderAddress,
-                                    emoji: body.emoji,
-                                    op: body.op,
-                                },
-                                senderAddress === actionsRef.current.user?.address,
-                            )
-                            getE2eePort().bufferForArchive(
-                                conversationId,
-                                event.data.message_id,
-                                archivedReaction(
-                                    { address: senderAddress, displayName: event.data.sender_display_name },
-                                    event.data.created_at,
-                                    body,
-                                ),
-                            )
-                        }
-                        break
-                    }
-
-                    // Default: text (or reply) — render as a Message.
-                    let plaintext = UNDECRYPTABLE_TEXT
-                    let inlineReplyMeta: { content: string; author: string } | null = null
-                    let attachmentKeys: Record<string, AttachmentBlobKey> | undefined
-                    if (app && app.kind === "text") {
-                        const body = app.body as TextBody
-                        if (typeof body?.text === "string") plaintext = body.text
-                        if (
-                            body?.reply_meta &&
-                            typeof body.reply_meta.preview_text === "string" &&
-                            typeof body.reply_meta.preview_sender === "string"
-                        ) {
-                            inlineReplyMeta = {
-                                content: body.reply_meta.preview_text,
-                                author: body.reply_meta.preview_sender,
-                            }
-                        }
-                        if (Array.isArray(body?.attachments) && body.attachments.length > 0) {
-                            attachmentKeys = {}
-                            for (const k of body.attachments) attachmentKeys[k.id] = k
-                        }
-                    }
-
-                    const senderDisplayName =
-                        event.data.sender_display_name ?? senderAddress.split("@")[0] ?? "?"
 
                     if (isOwnEcho) {
                         // Sender side — pull the optimistic message
@@ -353,9 +293,9 @@ export function useIdpWebSocket(): void {
                             event.data.client_id!,
                             {
                                 id: event.data.message_id,
-                                author: senderDisplayName,
+                                author: wire.senderName,
                                 authorAddress: senderAddress,
-                                avatar: senderDisplayName.slice(0, 2).toUpperCase(),
+                                avatar: wire.senderName.slice(0, 2).toUpperCase(),
                                 content: optimistic?.content ?? UNDECRYPTABLE_TEXT,
                                 timestamp: new Date(event.data.created_at).toLocaleTimeString([], {
                                     hour: "2-digit",
@@ -391,7 +331,7 @@ export function useIdpWebSocket(): void {
                                 conversationId,
                                 event.data.message_id,
                                 archivedText(
-                                    { address: senderAddress, displayName: senderDisplayName },
+                                    { address: senderAddress, displayName: wire.senderName },
                                     event.data.created_at,
                                     body,
                                     event.data.attachments,
@@ -428,46 +368,33 @@ export function useIdpWebSocket(): void {
                         break
                     }
 
-                    const msg: Message = {
-                        id: event.data.message_id,
-                        author: senderDisplayName,
-                        authorAddress: senderAddress,
-                        avatar: senderDisplayName.slice(0, 2).toUpperCase(),
-                        content: plaintext,
-                        timestamp: new Date(event.data.created_at).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                        }),
-                        createdAt: event.data.created_at,
-                        color: "#a78bfa",
-                        attachments: event.data.attachments,
-                        attachmentKeys,
-                        ...(!app && { undecrypted: true as const }),
-                    }
-                    if (event.data.reply_to_id && inlineReplyMeta) {
-                        msg.replyTo = {
-                            id: event.data.reply_to_id,
-                            content: inlineReplyMeta.content,
-                            author: inlineReplyMeta.author,
-                        }
-                    } else if (event.data.reply_to_id) {
-                        // Server-visible parent ID without a decrypted
-                        // preview — render a slim "↩ replied" hint.
-                        msg.replyTo = {
-                            id: event.data.reply_to_id,
-                            content: "",
-                            author: "",
-                        }
+                    // A text (or reply), a reaction folded into its target, or nothing: the account's own
+                    // that doesn't decrypt is this device's, sent before its copy was recorded, or older
+                    // than the device.
+                    const received = receivedMessage(wire, app, "live")
+                    if (received.kind === "nothing") break
+                    if (received.kind === "reaction") {
+                        actionsRef.current.applyReaction(conversationId, received.reaction, received.mine)
+                        getE2eePort().bufferForArchive(
+                            conversationId,
+                            event.data.message_id,
+                            archivedReaction(
+                                { address: senderAddress, displayName: event.data.sender_display_name },
+                                event.data.created_at,
+                                app?.body as ReactionBody,
+                            ),
+                        )
+                        break
                     }
 
-                    actionsRef.current.pushDmMessage(conversationId, msg)
+                    actionsRef.current.pushDmMessage(conversationId, timelineMessage(received.message))
 
                     if (app && app.kind === "text") {
                         getE2eePort().bufferForArchive(
                             conversationId,
                             event.data.message_id,
                             archivedText(
-                                { address: senderAddress, displayName: senderDisplayName },
+                                { address: senderAddress, displayName: wire.senderName },
                                 event.data.created_at,
                                 app.body as TextBody,
                                 event.data.attachments,

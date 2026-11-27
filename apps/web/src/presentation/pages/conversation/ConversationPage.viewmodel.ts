@@ -8,7 +8,7 @@ import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversat
 import { getDmPort, getE2eePort, getGroupPort, getWsPort } from "@/ioc"
 import { isBlocked } from "@pinai/domain/models/block"
 import { useBlockUser, useBlocks } from "@/presentation/hooks/useBlocks"
-import { actorUriToAddress, addressToActorUri, asActorUri } from "@pinai/domain/models/identity"
+import { addressToActorUri, asActorUri } from "@pinai/domain/models/identity"
 import type { Message, TimelineNotice } from "@/lib/types"
 import {
     UNDECRYPTABLE_TEXT,
@@ -32,10 +32,13 @@ import type {
     TextBody,
 } from "@pinai/domain/models/e2ee"
 import { archivedEdit, archivedReaction, archivedText } from "@pinai/domain/models/history-archive"
+import { historyWire, receivedMessage } from "@pinai/domain/models/received-message"
+import type { ReactionApplication } from "@pinai/domain/models/reaction"
 import type { UserProfile } from "@pinai/domain/models/auth"
 import type { MessageListHandle } from "@/presentation/organisms/MessageList/MessageList"
 import { attachmentCache } from "@/presentation/_libs/attachment-cache"
 import { latestImageKeys } from "@/presentation/_libs/attachments"
+import { timelineMessage } from "@/presentation/_libs/timeline-message"
 import { enterConversation } from "@/presentation/_libs/conversation-joins"
 
 // Sends this page load is still working on — waiting for the device to join, say —: not stale.
@@ -85,15 +88,8 @@ async function tryDecryptApp(
  */
 type MappedRow =
     | { kind: "message"; message: Message }
-    | {
-          kind: "reaction"
-          reaction_message_id: string
-          target_message_id: string
-          reactor_address: string
-          emoji: string
-          op: "add" | "remove"
-      }
-    | { kind: "skip" }
+    | { kind: "reaction"; reaction: ReactionApplication; mine: boolean }
+    | { kind: "nothing" }
 
 async function mapApiMessage(
     msg: DirectMessage,
@@ -102,12 +98,6 @@ async function mapApiMessage(
     cachedById?: Map<string, Message>,
     appliedReactionIds?: Record<string, true>,
 ): Promise<MappedRow> {
-    const senderAddress = actorUriToAddress(msg.sender_actor_uri)
-    const isOwn = senderAddress === currentUser.address
-    const displayName = isOwn
-        ? (currentUser.display_name ?? currentUser.preferred_username)
-        : (msg.sender_display_name ?? senderAddress.split("@")[0] ?? senderAddress)
-
     // History fetched from REST is post-forward-secrecy: the per-message
     // MLS keys are gone for messages we already processed. The
     // persisted `dmMessages` Zustand slice (encrypted at rest in
@@ -128,30 +118,23 @@ async function mapApiMessage(
     // deleted" on the second decrypt and we'd fall through to the
     // text branch, pushing a ghost `[encrypted]` row.
     if (appliedReactionIds?.[msg.id]) {
-        return { kind: "skip" }
+        return { kind: "nothing" }
     }
     // One of the account's own not held here came from one of its other
     // devices, and decrypts like anyone's. One of this device's own never
-    // does (MLS can't) and is skipped below, placeholder-free.
+    // does (MLS can't), and shows nothing.
     const app = await tryDecryptApp(msg.conversation_id, msg.mls_ciphertext, catchUp)
+    const wire = historyWire(msg, currentUser)
+    const received = receivedMessage(wire, app, "history")
 
-    // Undecryptable peer history: skip rather than rendering an
-    // `[encrypted]` placeholder. From REST these are almost always
-    // messages sent before this device joined the group (no MLS
-    // ratchet state can recover them) — restore-from-passphrase is
-    // the supported path to surface them. Live undecryptable
-    // messages still surface as `[encrypted]` via the WS handler so
-    // genuinely-transient decrypt failures stay visible.
-    if (!app) return { kind: "skip" }
-
-    const sender = { address: senderAddress, displayName }
-    if (app.kind === "text") {
+    const sender = { address: wire.senderAddress, displayName: wire.senderName }
+    if (app?.kind === "text") {
         getE2eePort().bufferForArchive(
             msg.conversation_id,
             msg.id,
             archivedText(sender, msg.created_at, app.body as TextBody, msg.attachments),
         )
-    } else if (app.kind === "edit") {
+    } else if (app && received.kind === "edit") {
         // An edited message's ciphertext is the edit's; the archive may hold its first text.
         getE2eePort().bufferEditForArchive(
             msg.conversation_id,
@@ -160,70 +143,19 @@ async function mapApiMessage(
         )
     }
 
-    if (app.kind === "reaction") {
-        const body = app.body as ReactionBody
-        if (
-            body &&
-            typeof body.target_message_id === "string" &&
-            typeof body.emoji === "string" &&
-            (body.op === "add" || body.op === "remove")
-        ) {
-            getE2eePort().bufferForArchive(msg.conversation_id, msg.id, archivedReaction(sender, msg.created_at, body))
-            return {
-                kind: "reaction",
-                reaction_message_id: msg.id,
-                target_message_id: body.target_message_id,
-                reactor_address: senderAddress,
-                emoji: body.emoji,
-                op: body.op,
-            }
-        }
-        return { kind: "skip" }
+    switch (received.kind) {
+        case "reaction":
+            getE2eePort().bufferForArchive(
+                msg.conversation_id,
+                msg.id,
+                archivedReaction(sender, msg.created_at, app?.body as ReactionBody),
+            )
+            return received
+        case "nothing":
+            return received
+        default:
+            return { kind: "message", message: timelineMessage(received.message) }
     }
-
-    let plaintext = UNDECRYPTABLE_TEXT
-    let inlineReplyMeta: { content: string; author: string } | null = null
-    let attachmentKeys: Record<string, AttachmentBlobKey> | undefined
-    if (app.kind === "text") {
-        const body = app.body as TextBody
-        if (typeof body?.text === "string") plaintext = body.text
-        if (
-            body?.reply_meta &&
-            typeof body.reply_meta.preview_text === "string" &&
-            typeof body.reply_meta.preview_sender === "string"
-        ) {
-            inlineReplyMeta = {
-                content: body.reply_meta.preview_text,
-                author: body.reply_meta.preview_sender,
-            }
-        }
-        if (Array.isArray(body?.attachments) && body.attachments.length > 0) {
-            attachmentKeys = {}
-            for (const k of body.attachments) attachmentKeys[k.id] = k
-        }
-    }
-
-    const mapped: Message = {
-        id: msg.id,
-        author: displayName,
-        authorAddress: senderAddress,
-        avatar: displayName.slice(0, 2).toUpperCase(),
-        content: plaintext,
-        timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        createdAt: msg.created_at,
-        color: "#a78bfa",
-        edited: msg.edited_at != null,
-        attachments: msg.attachments,
-        attachmentKeys,
-    }
-    if (msg.reply_to_id) {
-        mapped.replyTo = {
-            id: msg.reply_to_id,
-            content: inlineReplyMeta?.content ?? "",
-            author: inlineReplyMeta?.author ?? "",
-        }
-    }
-    return { kind: "message", message: mapped }
 }
 
 // The last screenful or so of a conversation.
@@ -435,23 +367,12 @@ export function useConversationPageViewModel(name: string) {
                 // Second pass: replay reaction-kind rows. The slice
                 // dedup'd via `appliedReactionIds` so re-mounting
                 // never double-counts.
-                const ownAddress = user.address
                 for (const row of mapped) {
                     if (row.kind !== "reaction") continue
-                    applyReaction(
-                        conversationKey,
-                        {
-                            reaction_message_id: row.reaction_message_id,
-                            target_message_id: row.target_message_id,
-                            reactor_address: row.reactor_address,
-                            emoji: row.emoji,
-                            op: row.op,
-                        },
-                        row.reactor_address === ownAddress,
-                    )
+                    applyReaction(conversationKey, row.reaction, row.mine)
                 }
                 // A reaction that failed to decrypt live was cached as a placeholder message.
-                const reactions = new Set(mapped.flatMap((row) => (row.kind === "reaction" ? [row.reaction_message_id] : [])))
+                const reactions = new Set(mapped.flatMap((row) => (row.kind === "reaction" ? [row.reaction.reaction_message_id] : [])))
                 if (reactions.size > 0) {
                     updateDmConversation(conversationKey, (list) =>
                         list.some((m) => m.undecrypted && reactions.has(m.id))
