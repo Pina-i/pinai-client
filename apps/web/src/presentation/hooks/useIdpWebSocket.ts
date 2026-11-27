@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
 import { getDmPort, getE2eePort, getGroupPort, getNotificationSoundPort, getWsPort } from "@/ioc"
-import type { ConversationId } from "@pinai/domain/models/e2ee"
 import type { WsConnectionStatus, WsServerEvent } from "@pinai/domain/models/ws"
 import { actorUriToAddress } from "@pinai/domain/models/identity"
 import {
@@ -80,6 +79,18 @@ export function registerStartOverHandler(handler: (event: StartOverEvent) => voi
     return () => {
         if (startOverHandlerRef.current === handler) {
             startOverHandlerRef.current = null
+        }
+    }
+}
+
+/** Module-level slot — `useMessagingRuntime` registers the domain's runtime here: the pushes it schedules from. */
+const messagingRuntimeHandlerRef: { current: ((event: WsServerEvent) => void) | null } = { current: null }
+
+export function registerMessagingRuntimeHandler(handler: (event: WsServerEvent) => void): () => void {
+    messagingRuntimeHandlerRef.current = handler
+    return () => {
+        if (messagingRuntimeHandlerRef.current === handler) {
+            messagingRuntimeHandlerRef.current = null
         }
     }
 }
@@ -248,40 +259,9 @@ export function useIdpWebSocket(): void {
                     await receiveDeliveryFailureUseCase(event.data, conversationCache)
                     break
                 }
-                case "mls_commit": {
-                    // Move on with the group now: a message sent from an epoch the others left
-                    // is read by none of them.
-                    if (!idpUrl || !accessToken) break
-                    getE2eePort()
-                        .catchUp(idpUrl, accessToken, event.data.conversationId as ConversationId)
-                        .catch((e) => {
-                            // eslint-disable-next-line no-console
-                            console.warn("WS-triggered commit catch-up failed:", e)
-                        })
-                    break
-                }
+                case "mls_commit":
                 case "mls_welcome_ready": {
-                    // A peer just dropped a Welcome bundle in our
-                    // queue (same-IdP via POST /api/mls/welcomes, or
-                    // cross-IdP via the AP inbox). Pull + join now
-                    // rather than waiting for the next login poll.
-                    const ownActorUri = actionsRef.current.user?.actor_uri
-                    if (!ownActorUri || !idpUrl || !accessToken) break
-                    try {
-                        const { joined } = await getE2eePort().consumePendingWelcomes(
-                            idpUrl,
-                            accessToken,
-                            ownActorUri,
-                        )
-                        // A federated group is materialised server-side by the
-                        // same inbound Note, so the list has a row to show now.
-                        if (joined > 0) {
-                            queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
-                        }
-                    } catch (e) {
-                        // eslint-disable-next-line no-console
-                        console.warn("WS-triggered welcome consumption failed:", e)
-                    }
+                    messagingRuntimeHandlerRef.current?.(event)
                     break
                 }
                 case "group_created": {

@@ -29,12 +29,3 @@ export function conversationJoins(): ConversationJoins {
 export function joinContext(idpUrl: string): JoinContext {
     return { idpUrl, accessToken: () => useAppStore.getState().accessToken }
 }
-
-/** Every conversation of the list this device holds no group for, joined or left to a Welcome; never thrown. */
-export function joinMissingConversations(): void {
-    const { idpUrl, localDmConvos } = useAppStore.getState()
-    if (!idpUrl) return
-    conversationJoins()
-        .sync(joinContext(idpUrl), localDmConvos)
-        .catch((e: unknown) => warnE2ee("looking for conversations to join", e))
-}
