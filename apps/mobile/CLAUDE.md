@@ -31,12 +31,13 @@ steps: `docs/plans/2026-11-20-mobile-app-design.md` (gitignored, like all of `do
   the domain's `SessionKeeper` to `AppState` and the tick, resumes at launch, signs out.
 - The store (`src/store/store.ts`, the composition root): the access token in memory, the
   instance signed in to persisted through the kv-store's synchronous half; the chosen status
-  (`online` at launch); the account's appearance, read from this phone's settings copy at launch.
+  (`online` at launch); the account's appearance and mutes, read from this phone's settings copy at launch.
 - **Reach**: the `(app)` group's layout holds the rail (`presentation/templates/reach/`), so it
-  stays while `home` and `settings` change beside it; `status` is a form sheet over them.
+  stays while `home`, `conversation/[id]` and `settings` change beside it; `status` is a form sheet over them.
 - **The account's look**: `presentation/_libs/appearance.ts` settles the account's settings at
-  each sign-in or resume (the domain's sync) and on `settings_updated`; the Unistyles theme follows
-  the store's palette and the system's mode; `<Motif>` defaults to the account's motif.
+  each sign-in or resume (the domain's sync) and on `settings_updated` (`setAccountSettings`: the mutes too, which
+  the list shows); the Unistyles theme follows the store's palette and the system's mode; `<Motif>` defaults to the
+  account's motif.
 - **The socket** (`presentation/_libs/socket.ts`): open while signed in and in front, closed in
   the background; heartbeat 30 s; `1008` renews then reconnects; the chosen status restated once
   connected (`restatePresenceUseCase`).
@@ -176,12 +177,16 @@ steps: `docs/plans/2026-11-20-mobile-app-design.md` (gitignored, like all of `do
   leaves): `_libs/messaging.ts` — the domain's `MessagingRuntime` (the archive's uploads, the Welcomes at start and on
   `mls_welcome_ready`, a group caught up on `mls_commit`, the conversations not held joined — `_libs/conversation-joins.ts`
   — at start, when the list's ids or removals change, when the socket comes back) and the receive use cases into the
-  cache on `new_dm`, `message_edited`, `dm_delivery_failed` (no ping, no unread count); `group_event` merged into its
-  conversation; the group pushes read the list again, `member_removed` an admin's prune (`reconcileGroupKeysUseCase`);
+  cache on `new_dm`, `message_edited`, `dm_delivery_failed` — a message from someone else settled by the domain's
+  `settleIncomingReadUseCase`: read at once in the conversation on screen (`_libs/open-conversation.ts`) while the app
+  is in front, else counted until the list reads again (no block list: the IdP's count leaves them out); no ping —;
+  `group_event` merged into its conversation; the group pushes read the list again, `member_removed` an admin's prune
+  (`reconcileGroupKeysUseCase`);
   `device_approved` lets saves held for an approval go (`approvalLanded`); someone's unproven new device a line in the
   cache (`onNewDevice`). `_libs/conversation-list.ts` — `GET /api/dm` as the domain's `conversationRow`s
-  (`useConversationList`), one read at a time: at start, on `conversationsStale`, when the socket or the app comes back,
-  after a `new_dm` for a conversation not listed, on the group pushes. `_libs/device-review.ts` — the domain's
+  (`useConversationList`, `useConversationListFailed`), one read at a time: at start, on `conversationsStale`, when the
+  socket or the app comes back, after a message, on the group pushes; `clearUnread` / `countUnread` change the held
+  count at once, the IdP's coming with the next read. `_libs/device-review.ts` — the domain's
   `DeviceFanout` over one `syncOwnGroupsUseCase` at a time (with `sharing`): the device list read at start, on
   `device_joined` / `device_approved`, when the socket or the app comes back and after a registration; a sync when what a
   review reads of it changes, the listed conversations do or a group comes in — and on the same list after a review or a
@@ -232,7 +237,28 @@ steps: `docs/plans/2026-11-20-mobile-app-design.md` (gitignored, like all of `do
   next start's run confirms it and clears it. Run by typed words (awaited), after each accepted share, at start and on a
   reconnect while the words are held.
 - `_libs/message-sends.ts` — the domain's `MessageSends`, one per account's core, over the cache, the joins and the DM
-  and group ports (`sendContext`); no composer yet.
+  and group ports (`sendContext`); the conversation's composer sends through it.
+- **Direct messages** (home, `pages/home/`): the list `_libs/conversation-list.ts` holds, in the IdP's order, each row
+  `conversation-row.tsx` (its view model): the avatar (a group's in the `sec` tone), the name, a DM's last message
+  (`lastMessagePreview` over its timeline, `hooks/use-conversation-timeline.ts`: the cache's `snapshot` / `subscribe`,
+  the sealed row read once), a group's `groupFact`, "Muted" for its own mute (not "mute all", as the web's row), the
+  time of the last message (`_libs/message-time.ts`), the IdP's unread count; a removed group dimmed. Loading, failed
+  ("Try again") and empty states. A tap opens `/conversation/<id>`. "Friends" and the search: later.
+- **A conversation** (`(app)/conversation/[id]`, `pages/conversation/`, keyed by the id): the head (back, avatar or
+  group, name, `groupFact`, muted); the timeline from the cache, an inverted `FlatList` (pinned to the newest),
+  `timeline-rows.ts` — `interleaveTimeline` with the group's changes (`describeGroupEvent`) and the new-device lines
+  (`describeNewDevice`, the explanation on a tap), `dayDividerLabel`, `startsRun`; each message its avatar, author,
+  time, text, a reply's quote, "(edited)", reactions as chips (read-only), images, another file by its name;
+  `sending` faded, `failed` / undelivered with "Not delivered", `UNDELIVERED_DM_HINT` for a DM and Retry (`canResend`),
+  "Sent again" once resent. As it opens and when the socket comes back (the app back in front): the domain's
+  `loadConversationUseCase` (one at a time; its history `GET` marks it read; the local count cleared) and
+  `settleStale`. The composer (text and Send, `MessageSends`) sits above the keyboard by Unistyles' `rt.insets.ime`
+  (edge-to-edge: the window doesn't resize); a group the user was removed from has the line instead. No typing,
+  replying, reacting, editing or attaching yet.
+- **Images** (`molecules/attachment-image`, `hooks/use-attachment-image.ts`, `_libs/attachment-images.ts`): the domain's
+  `AttachmentCache` over `openAttachmentUseCase` (`NobleAttachmentCryptoAdapter`, `getAttachmentCryptoPort()`), 32 MB of
+  plaintext kept as `data:` URIs (`_libs/data-uri.ts`), in memory only, cleared when the account changes; `expo-image`
+  with `cachePolicy="memory"` — never a decrypted file on disk —, laid out by `imagePreviewOf`, the blurhash meanwhile.
 - **"Save your 24 words"** (`/onboarding/setup`, `pages/onboarding/setup/`): the domain's
   `setUpFirstDeviceUseCase` — a loader by stage, then the words; a start over's new words on the same
   screen ("Your new 24 words", no step line, Continue forgetting them: `dismissNewWords`); a pending key tried
