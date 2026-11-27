@@ -336,6 +336,13 @@ describe("composeDeviceLabel — the mobile app", () => {
         expect(phone("Galaxy S24", "Ana's Galaxy S24").name).toBe("Ana's Galaxy S24")
     })
 
+    it("names it by its model alone when its own name says nothing more: an iPhone without Apple's entitlement says iPhone", () => {
+        const iphone = composeDeviceLabel({ client: "phone-app", os: "iOS", kind: "phone", model: "iPhone 15 Pro", deviceName: "iPhone" })
+        expect(iphone).toEqual({ name: "iPhone 15 Pro", kind: "phone", client: "app" })
+        expect(phone("Pixel 9 Pro", "Pixel").name).toBe("Pixel 9 Pro")
+        expect(phone("Pixel 9 Pro", "Pix").name).toBe("Pixel 9 Pro (Pix)")
+    })
+
     it("goes by its system when nothing else is known, and keeps a tablet a tablet", () => {
         expect(phone(null, null)).toEqual({ name: "Android", kind: "phone", client: "app" })
         expect(phone("Pixel Tablet", null, "tablet")).toEqual({ name: "Pixel Tablet", kind: "tablet", client: "app" })

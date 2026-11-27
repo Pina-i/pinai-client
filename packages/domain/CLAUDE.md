@@ -237,8 +237,9 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   "…", its bracket kept. `desktopOsOf` — the system the app's `User-Agent` names, for what it
   knows before its main process answers.
 - The mobile app: the same rule (`appName`) — the model, else the system, then the name its owner
-  gave the phone in brackets, or that name alone when it holds the model ("Pixel 9 Pro (Kilian's
-  phone)", "Ana's Galaxy S24", "Android"); `phone` or `tablet`, `app`.
+  gave the phone in brackets, or that name alone when it holds the model, and the model alone when it
+  holds that name ("Pixel 9 Pro (Kilian's phone)", "Ana's Galaxy S24", "Android"; "iPhone 15 Pro" for
+  an iPhone, which without Apple's entitlement is named "iPhone"); `phone` or `tablet`, `app`.
 - A browser: "<browser> on <system>" from the `User-Agent`. Close to the IdP's own reading of one,
   not the same: ChromeOS is named, and Edge and Opera on Android too, where the IdP says Chrome.
   Chromium's hints put an Android model in the system's place (`SM-` codes get "Samsung";

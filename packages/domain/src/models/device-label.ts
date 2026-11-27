@@ -93,7 +93,8 @@ function phoneLabel({ os, kind, model, deviceName: ownName }: PhoneFacts): Devic
     return { name: appName(os, model, ownName), kind, client: "app" }
 }
 
-// The model, then the owner's name for it in brackets — or that name alone when it holds the model.
+// The model, then the owner's name for it in brackets — or that name alone when it holds the model, and the model
+// alone when it holds that name (an iPhone without Apple's entitlement is named "iPhone").
 function appName(fallback: string, model: string | null, ownName: string | null): string {
     const named = model === null ? null : readableName(model)
     const own = ownName === null ? null : readableName(ownName)
@@ -101,6 +102,8 @@ function appName(fallback: string, model: string | null, ownName: string | null)
     let name = shown
     if (own !== null && named !== null && holdsWords(own, named)) {
         name = shortened(own, DEVICE_NAME_MAX_CHARS)
+    } else if (own !== null && named !== null && holdsWords(named, own)) {
+        name = shown
     } else if (own !== null) {
         const room = DEVICE_NAME_MAX_CHARS - Array.from(shown).length - " ()".length
         if (room >= 2) name = `${shown} (${shortened(own, room)})`
