@@ -42,6 +42,12 @@ and an Android NDK (Android Studio → SDK Manager → SDK Tools → NDK, found 
 or set `ANDROID_NDK_HOME`). The script names whatever is missing. `pnpm --filter @pinai/mobile
 native-mls --force` rebuilds it regardless.
 
+For iOS, `pnpm --filter @pinai/mobile native-mls:ios` builds it for the iPhone and both simulators
+(`rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios` once), with its Swift
+bindings, into `modules/openmls/ios/generated/`. The libraries build on any system — a check that the
+Rust builds for iOS —; `OpenMlsNative.xcframework`, which the app links, takes macOS (`lipo`,
+`xcodebuild`).
+
 An emulator is started from Android Studio's Device Manager, or with `emulator -avd <name>`.
 
 The first build compiles the native code (a quarter of an hour). After that, `pnpm dev:mobile`

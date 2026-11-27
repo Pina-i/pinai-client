@@ -17,8 +17,9 @@ expo-env.d.ts
 *.key
 *.mobileprovision
 *.pem
-# The native MLS library and its bindings: scripts/build-native-mls.mjs
+# The native MLS library and its bindings, per platform: scripts/build-native-mls.mjs
 /modules/openmls/android/generated/
+/modules/openmls/ios/generated/
 
 # Metro
 .metro-health-check*

@@ -16,6 +16,7 @@
     "android:fresh": "node scripts/clear-app-data.mjs && pnpm run android:rebuild",
     "clear": "node scripts/clear-app-data.mjs",
     "native-mls": "node scripts/build-native-mls.mjs",
+    "native-mls:ios": "node scripts/build-native-mls.mjs ios",
     "mls:check": "node scripts/mls-check.mjs",
     "argon2:check": "node scripts/argon2-check.mjs",
     "storage:check": "node scripts/storage-check.mjs",
