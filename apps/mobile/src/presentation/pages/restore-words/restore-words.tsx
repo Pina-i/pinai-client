@@ -12,7 +12,7 @@ const noSetUp = () => null
 
 /**
  * "Restore history from words" for a device already in but not holding the current words: typed, it holds the key
- * again — and approves the others. The phone keeps no messages yet, so nothing is brought back to show.
+ * again — and approves the others. The archive comes back into the conversations, which no screen shows yet.
  */
 export function RestoreWordsSheet() {
     const insets = useSafeAreaInsets()

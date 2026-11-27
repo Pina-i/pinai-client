@@ -91,6 +91,16 @@ steps: `docs/plans/2026-11-20-mobile-app-design.md` (gitignored, like all of `do
   under a key kept as a Keychain item (`AfterFirstUnlockThisDeviceOnly`, not synchronizable: the Secure Enclave holds
   no AES key). Seal, open and wipe by alias, off the JS thread; the ciphertext ends with its tag, the nonce 12 bytes.
   The key is minted only when no entry has the alias, so a key that fails to read is never replaced.
+- **The conversations** (`adapters/storage/sealed-conversation-cache.adapter.ts`, the domain's `IConversationCache`): the
+  only decrypted copy of the history (MLS deletes a message's keys once used), one sealed row per conversation in the
+  account's store (collection `conversations`, keyed by its id), JSON with bytes as `{ $bytes }` (attachment keys). Only
+  the conversation that changed is written; its changes run one at a time, each over the last, a burst written once or
+  twice. A row is never written before it was read: a read that fails (the store, the key, a row that won't open or
+  decode) writes nothing over it and deletes nothing — its changes kept in memory, shown, applied over it once it reads
+  (its next change, `flush`, the next start; lost if the app ends first) —, warned once. A failed write stays in memory,
+  tried again at the next change and at `flush` (the app leaving or coming back to the front). `snapshot` / `subscribe`
+  per conversation for the screens, `ready` (the key and the store answer), `saved(ids)` (written, else thrown),
+  `close`. `SealedStorage.clear()` empties the same table: a wipe takes the rows with the key.
 - `src/web-crypto.ts`, imported first by `index.ts`: Hermes has no Web Crypto, so `expo-crypto` gives
   the shared code `crypto.randomUUID` and `crypto.getRandomValues`.
 - `android.allowBackup: false`, and on iOS `Documents/SQLite` excluded from backups (`DeviceKey` as it starts): a
@@ -108,12 +118,13 @@ steps: `docs/plans/2026-11-20-mobile-app-design.md` (gitignored, like all of `do
 
 ## This device
 
-- **The account's E2EE core** (`src/ioc/index.ts`): `openAccountE2ee(actorUri)` builds one `E2eeAdapter`
-  per account — the native MLS engine (its HPKE too), `createSealedStorage`, `KeyDirectoryApiAdapter`
+- **The account's E2EE core** (`src/ioc/index.ts`): `openAccountE2ee(actorUri, report)` builds one `E2eeAdapter`
+  per account — the native MLS engine (its HPKE too), `SealedStorage`, `KeyDirectoryApiAdapter`
   with the device's label, the `@pinai/api` ports, `JwksCache` over the kv-store (`kvStrings`), native
-  Argon2id for the history key and the code. One at a time: its engine holds the account's groups in
-  memory; another account replaces it (the previous account's stores stay open, its files untouched).
-  `getE2eePort()` throws before one is open; `getPendingKeyLock()` is the account's `inProcessLock` —
+  Argon2id for the history key and the code — and its conversations over the same store and key
+  (`getConversationCache()`, failures to `report`). One at a time: its engine holds the account's groups in
+  memory; another account replaces it (the previous account's conversations closed, its stores open, its files
+  untouched). `getE2eePort()` throws before one is open; `getPendingKeyLock()` is the account's `inProcessLock` —
   one process, no tabs, but flows that mustn't overlap.
 - **Its name**: `ExpoDeviceFactsAdapter` (`expo-device`) gives the domain's `PhoneFacts` — the model,
   phone or tablet, the name its owner gave it —, which `composeDeviceLabel` turns into "Pixel 9 Pro
@@ -129,7 +140,8 @@ steps: `docs/plans/2026-11-20-mobile-app-design.md` (gitignored, like all of `do
   `pages/gate-failed` ("Try again", "Sign out"). Out, it sends the device to `/onboarding/setup`,
   `/new-device` or `/reset` (`GATE_ROUTES`). In by its kept words over a reset it didn't make, the gate keeps why
   (`reset`) and offers `recheck`, handed through `_libs/history-reset.ts` to the banner and its sheet.
-  After another account's device was wiped it checks again: the phone keeps no account's messages yet.
+  After another account's device was wiped, its conversations' rows with it, it checks again: nothing reads them
+  before the device is in.
 - **"New device"** (`/onboarding/new-device`, `pages/onboarding/new-device/`) — and **the reset page** (`/onboarding/reset`,
   the same page, `variant="reset"`, with the web's words: the title by cause or "Your words were replaced on <device>", "That
   device" / "Its 24 words", an unknown change's "What happened", "Check again", "Start over from here", `reset-note.tsx`): the
@@ -161,10 +173,23 @@ steps: `docs/plans/2026-11-20-mobile-app-design.md` (gitignored, like all of `do
   the code or the new words; the password first, then Start over refusing the setter; Start over alone), each end checking
   again. Routes, not `molecules/sheet` (a `Modal`, its own Android window): screenshots stay blocked in the app's window.
 - **What runs once in** (`_libs/app-runtime.ts`, started by the `(app)` layout while signed in and `in`, stopped as it
-  leaves): `_libs/device-review.ts` — the domain's `syncOwnGroupsUseCase` with no conversation (the phone holds no group:
-  the review and the passphrase's shares only), at once, on `device_joined` / `device_approved`, when the socket or the app
-  comes back; without it the phone would announce nobody and share with nobody. `_libs/history-share.ts` — a share owed
-  taken at once and on `history_key_ready`, the device's own approval by its words made again on a reconnect.
+  leaves): `_libs/messaging.ts` — the domain's `MessagingRuntime` (the archive's uploads, the Welcomes at start and on
+  `mls_welcome_ready`, a group caught up on `mls_commit`, the conversations not held joined — `_libs/conversation-joins.ts`
+  — at start, when the list's ids or removals change, when the socket comes back) and the receive use cases into the
+  cache on `new_dm`, `message_edited`, `dm_delivery_failed` (no ping, no unread count); `group_event` merged into its
+  conversation; the group pushes read the list again, `member_removed` an admin's prune (`reconcileGroupKeysUseCase`);
+  `device_approved` lets saves held for an approval go (`approvalLanded`); someone's unproven new device a line in the
+  cache (`onNewDevice`). `_libs/conversation-list.ts` — `GET /api/dm` as the domain's `conversationRow`s
+  (`useConversationList`), one read at a time: at start, on `conversationsStale`, when the socket or the app comes back,
+  after a `new_dm` for a conversation not listed, on the group pushes. `_libs/device-review.ts` — the domain's
+  `DeviceFanout` over one `syncOwnGroupsUseCase` at a time (with `sharing`): the device list read at start, on
+  `device_joined` / `device_approved`, when the socket or the app comes back and after a registration; a sync when what a
+  review reads of it changes, the listed conversations do or a group comes in — and on the same list after a review or a
+  share that failed; `reviewDevices` runs one now (a revocation, typed words). Without it the phone would announce
+  nobody, share with nobody, bring no sibling in. `_libs/key-packages.ts` — the domain's `KeyPackageTick`: at start,
+  every 6 h, on `key_packages_low` and when the socket comes back (a push lost while closed); `device_mismatch` signs in
+  again. `_libs/history-share.ts` — a share owed taken at once and on `history_key_ready` (holding the words, the restore
+  left due runs instead), the device's own approval by its words made again on a reconnect.
   `_libs/approval-answering.ts` — the app's one `ApprovalAnswering`, kept current by the domain's `AnsweringRuntime`,
   read again when the socket or the app comes back (the socket closes in the background); `useAnswering`, `useDoorView`,
   `useDoorSummons`, `useSeats`, `summonDoor`. `_libs/arrivals.ts` — a device arriving unapproved (`arrivalToTell`) opens
@@ -174,7 +199,7 @@ steps: `docs/plans/2026-11-20-mobile-app-design.md` (gitignored, like all of `do
   screen, over the domain's `doorState` — a device summoned on arrival waits for its code ("Not me", "Close"), a request
   takes the code on `molecules/typed-code` + `molecules/number-pad` (the system keyboard would cover the cells),
   "Checking the code with…", "<device> is in", the web's failure lines. "Not me" signs it out (`_libs/sign-out-device.ts`:
-  revoked, no commit — the phone holds no group —, the list reviewed again; the password asked again first through the
+  revoked and committed out of the listed conversations, the list reviewed again; the password asked again first through the
   system's sheet, back on the same route), then "Signed it out" and "Change password", which says how by the instance's
   mode (`hooks/use-password-change.ts`, `passwordAdvice`). An RN `Modal`: a one-time code needs no blocked screenshots.
 - **Another device's start over request** (`organisms/start-over-prompt/`, `_libs/start-over-prompt.ts`): the web's
@@ -201,9 +226,13 @@ steps: `docs/plans/2026-11-20-mobile-app-design.md` (gitignored, like all of `do
   `organisms/push-offer/` ("Know when a device signs in", "Turn on" then Android's prompt, "Not now"; `pushOffer` in
   `src/ioc`, after the Door and the prompt), then Settings' "Notifications" row (`hooks/use-push-permission.ts`: asks
   while Android may, else opens the app's settings).
-- **No history restore yet** (`_libs/history-restore.ts`): the phone keeps no messages, and `HistoryRestore` run with
-  nowhere to put them would count the restore applied, then clear it. It isn't run: the restore stays due for when
-  conversations come to the phone.
+- **The history restore** (`_libs/history-restore.ts`): the domain's `HistoryRestore`, one per account's core, run once
+  the conversations' rows can be read (`ready`); its apply the domain's `applyRestoredHistoryUseCase` into the cache, then
+  `saved`: a conversation not written fails the run, which stays due for the next start. Applied, it marks itself so; the
+  next start's run confirms it and clears it. Run by typed words (awaited), after each accepted share, at start and on a
+  reconnect while the words are held.
+- `_libs/message-sends.ts` — the domain's `MessageSends`, one per account's core, over the cache, the joins and the DM
+  and group ports (`sendContext`); no composer yet.
 - **"Save your 24 words"** (`/onboarding/setup`, `pages/onboarding/setup/`): the domain's
   `setUpFirstDeviceUseCase` — a loader by stage, then the words; a start over's new words on the same
   screen ("Your new 24 words", no step line, Continue forgetting them: `dismissNewWords`); a pending key tried

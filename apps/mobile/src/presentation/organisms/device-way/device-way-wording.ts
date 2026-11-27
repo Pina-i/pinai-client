@@ -40,7 +40,7 @@ export function askingLine(state: AskingState, time: (at: number) => string): st
     }
 }
 
-/** The line once approved: the phone keeps no messages yet, so nothing is restored here. */
+/** The line once approved: the restore runs behind the app (`_libs/accept-share.ts`), nothing here waits for it. */
 export function arrivalLine(entering: EnteringState | null, share: AwaitedShareState | null): string {
     const isIn = entering?.kind === "in"
     if (share?.kind === "unusable") return "Approved, but your history couldn't be received from that device. Type your 24 words to bring it back."

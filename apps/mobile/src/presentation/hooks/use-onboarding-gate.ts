@@ -60,7 +60,7 @@ export function useOnboardingGate(): { status: GateStatus; retry: () => void; re
         let cancelled = false
         void gate.probe().then((verdict) => {
             if (cancelled) return
-            // The phone keeps no account's messages yet: after another account's device was wiped, it checks again.
+            // Another account's device wiped, its conversations' rows with it: nothing read them yet, so it checks again.
             if (verdict.kind === "wiped") return setAttempt((n) => n + 1)
             if (verdict.kind === "failed") return setProbed({ key, status: "failed", reset: null })
             show(verdict)
