@@ -168,6 +168,22 @@ export function interleaveTimeline<M extends TimelineEntry, E extends TimelineEn
     return items
 }
 
+/** Within this of the one before, a message of the same author continues its run under one name and avatar. */
+export const SEQUENCE_GAP_MS = 5 * 60 * 1000
+
+/**
+ * Whether a message starts a run, showing its author and time: the first of the timeline or of a day (`previous`
+ * null there, as after a group's change), another author's, or after {@link SEQUENCE_GAP_MS}.
+ */
+export function startsRun(
+    previous: { authorAddress?: string; createdAt: string } | null,
+    message: { authorAddress?: string; createdAt: string },
+): boolean {
+    if (!previous || previous.authorAddress == null || previous.authorAddress !== message.authorAddress) return true
+    // A time that can't be read starts one: NaN is never within the gap.
+    return !(Date.parse(message.createdAt) - Date.parse(previous.createdAt) <= SEQUENCE_GAP_MS)
+}
+
 /** Entries of a timeline in time order, those of one instant as they came. */
 export function inTimeOrder<T extends TimelineEntry>(entries: readonly T[]): T[] {
     return [...entries].sort((a, b) => timeOf(a) - timeOf(b))
@@ -270,6 +286,12 @@ export function applyFederationStatus<T extends SendState>(
     if (federationStatus !== "failed" || message.status === "undelivered") return message
     return { ...message, status: "undelivered", statusAt: at }
 }
+
+/**
+ * One wording for every undelivered 1:1 message, whatever stopped it: the sender must not tell a
+ * block from a contact setting or from a server that didn't answer.
+ */
+export const UNDELIVERED_DM_HINT = "They may only accept messages from friends, or their server may be unreachable."
 
 /** Whether an own message is still waiting to be sent again. */
 export function awaitsResend(message: SendState): boolean {

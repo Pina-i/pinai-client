@@ -54,3 +54,16 @@ export function askedLine(at: string | number, now: number, host: string, verb =
     const since = formatLastSeen(iso, new Date(Math.max(now, Date.parse(iso))))
     return `${verb} ${since ?? "just now"}${host ? ` · ${host}` : ""}`
 }
+
+/** A day separator in a conversation: "Today", "Yesterday", or "Tuesday, April 22" in the reader's locale. */
+export function dayDividerLabel(date: Date, now: Date): string {
+    const yesterday = new Date(now)
+    yesterday.setDate(now.getDate() - 1)
+    if (sameDay(date, now)) return "Today"
+    if (sameDay(date, yesterday)) return "Yesterday"
+    return date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })
+}
+
+function sameDay(a: Date, b: Date): boolean {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}

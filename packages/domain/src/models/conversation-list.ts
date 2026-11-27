@@ -55,3 +55,9 @@ export function lastMessagePreview(
     const isOwn = !!myAddress && last.authorAddress === myAddress
     return isOwn ? `You: ${text}` : text
 }
+
+/** A group's line where a DM previews its last message: who is in it, or that the user no longer is. */
+export function groupFact(group: Pick<ConversationRow, "memberCount" | "removedAt">): string {
+    if (group.removedAt != null) return "no longer a member"
+    return `${group.memberCount} ${group.memberCount === 1 ? "member" : "members"}`
+}

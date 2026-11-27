@@ -688,6 +688,8 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
 - Times as the screens word them: `formatLastSeen` ("3 days ago") and
   `expiryWording` ("expires in 7 days", rounded up as the IdP's invitation
   page does, or "expired"). Both answer `null` for a date they can't read.
+- `dayDividerLabel(date, now)` — a conversation's day separator: "Today", "Yesterday", else the date in
+  the reader's locale.
 
 ### usecases/auth/logout.usecase.ts
 - Clears the local session via an injected `clearSession` callback
@@ -721,6 +723,9 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   messages: the messages keep their order, each change goes before the first
   message from after it. `inTimeOrder` — the lines from several sources as one,
   in time order.
+- `startsRun(previous, message)` — a message shows its author and time when it starts a run: the first
+  of a day or after a group's change (`previous` null), another author's, or past `SEQUENCE_GAP_MS`
+  (5 minutes) after the last.
 - `SendStatus` — an own message's lifecycle. `failed`: the IdP never accepted
   it, retried in place. `undelivered`: the IdP stored it but couldn't reach the
   recipient's IdP; the row stays as the record of that attempt and the retry
@@ -728,6 +733,8 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
 - `applyFederationStatus(message, federationStatus, at)` — the IdP's delivery
   outcome (`dm_delivery_failed` live, `federation_status` from history)
   overrides the client's status: the IdP never retries, so it is final.
+- `UNDELIVERED_DM_HINT` — one line under every undelivered 1:1 message, whatever stopped it: the sender
+  must not tell a block from a contact setting or a server that didn't answer.
 - `awaitsResend(message)` — whether an own message still offers a retry. `canResend(message)` —
   whether it can be sent again at all: not without its plaintext (another device's echo holds the
   placeholder).
@@ -751,6 +758,7 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   (avatar, colour, presence) are each client's.
 - `lastMessagePreview(messages, me)` — only from what this device holds
   decrypted: the IdP holds ciphertext.
+- `groupFact(row)` — a group's line where a DM previews its message: "3 members", "no longer a member".
 
 ### models/user-settings.ts + ports/user-settings.port.ts + usecases/user-settings/
 - Two scopes. `AccountSettings` (`appearance: { family, motif }`,

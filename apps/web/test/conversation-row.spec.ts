@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { DmConversationSummary } from "@pinai/domain/models/dm"
-import { conversationRow } from "@pinai/domain/models/conversation-list"
+import { conversationRow, groupFact } from "@pinai/domain/models/conversation-list"
 
 const BOB = { actorUri: "https://moana.social/users/bob", displayName: "Bob", avatarUrl: null }
 const ANA = { actorUri: "https://kauai.pinai/users/ana", displayName: null, avatarUrl: null }
@@ -59,5 +59,13 @@ describe("conversationRow", () => {
     it("keeps when the user was removed from a group", () => {
         const at = "2026-11-27T10:00:00.000Z"
         expect(conversationRow(summary({ kind: "group", removed_at: at })).removedAt).toBe(at)
+    })
+})
+
+describe("groupFact", () => {
+    it("counts the group's members, the user included, or says they left it", () => {
+        expect(groupFact({ memberCount: 3, removedAt: null })).toBe("3 members")
+        expect(groupFact({ memberCount: 1, removedAt: null })).toBe("1 member")
+        expect(groupFact({ memberCount: 3, removedAt: "2026-11-27T10:00:00.000Z" })).toBe("no longer a member")
     })
 })
