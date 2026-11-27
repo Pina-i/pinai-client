@@ -1384,7 +1384,7 @@ export class E2eeAdapter implements IE2eePort {
      * Concurrency: both the provider/snapshot bootstrap and the
      * identity bind are guarded by cached promises so two concurrent
      * callers (React strict-mode double-fire, simultaneous
-     * onboarding-bootstrap + `useConsumeMlsWelcomes` effects, etc.)
+     * onboarding-bootstrap + the messaging runtime's Welcome read, etc.)
      * never produce two MLS Identity leaves competing for the same
      * provider — the second one used to silently orphan the first
      * and leave its keypair unreachable in storage.

@@ -44,7 +44,7 @@ export class MlsEngine<LoadInput = void> implements IMlsEngine, IHpkePort {
     /**
      * Cached in-flight `initialize()` promise. Guards against two
      * concurrent callers (e.g. React strict-mode double-fire of the
-     * onboarding bootstrap + `useConsumeMlsWelcomes` effects) both
+     * onboarding bootstrap + the messaging runtime's Welcome read) both
      * passing the `if (this.provider)` short-circuit and ending up
      * with two providers — the second silently orphans the first, so
      * any identity already bound against the first provider's storage

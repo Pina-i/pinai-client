@@ -449,7 +449,7 @@ above, the sections above win.
   A Welcome to a group already held goes to `mls.rejoinGroup`: the device was
   committed out and added back, so a later epoch replaces the group; one no
   later (both sides founded it at once) leaves it as it is.
-  Mounted in `_authenticated` layout via `useConsumeMlsWelcomes` hook.
+  Read at start and on `mls_welcome_ready` by the domain's `MessagingRuntime`.
 - First-message UUID pinning: client generates `crypto.randomUUID()`
   on first send, uses it as the MLS `group_id` AND passes it on
   `POST /api/dm` so the server stores under the same UUID (via
@@ -1015,17 +1015,17 @@ publishes) holds against the documented threat model.
 
 ### Hooks (`presentation/hooks/`)
 
-- `useDeviceFanout` — keeps held groups in step. Every device-list
-  refresh (the `device_joined` push only triggers one), conversation-list
+- `useDeviceFanout` — keeps held groups in step through the domain's
+  `DeviceFanout`. Every device-list refresh that changed what a review
+  reads (the `device_joined` push only triggers one), conversation-list
   change and `onGroupHeld` call runs `syncOwnGroupsUseCase`: catch each
   group up, then offer it the user's other active devices — see
   "`addOwnDevices`" above.
-- `useHistoryArchiveFlusher` — lifecycle hook for the 2-second
-  flush timer + buffer (both live in the adapter; this hook is
-  pure mount/unmount glue).
-- `useIdpWebSocket` gains a `device_joined` event case and a
+- `useMessagingRuntime` — the domain's `MessagingRuntime` starts and
+  stops the 2-second flush timer + buffer (both live in the adapter).
+- `useIdpWebSocket` has a `device_joined` event case and a
   module-level `registerDeviceFanoutHandler` slot that the auth
-  layout uses to plug `useDeviceFanout.onDeviceJoined` into the
+  layout uses to plug `useDeviceFanout().onDeviceListChanged` into the
   shared WS connection without business logic in the WS hook.
 
 ### Onboarding gate

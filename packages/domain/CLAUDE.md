@@ -843,15 +843,21 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   each group the untrusted leaves committed out (`removeUntrustedLeaves`, given
   `reviewAgain`: the list read once more before the first own leaf goes on
   approval grounds, that review used from then on) and the approved siblings
-  added (`addOwnDevices`). Runs with no conversation too. Names what failed;
-  the hook logs it, the domain doesn't. `unclaimed` — approved siblings no KeyPackage
+  added (`addOwnDevices`). Runs with no conversation too. Names what failed,
+  for `DeviceFanout` to report. `unclaimed` — approved siblings no KeyPackage
   could be claimed for (a device approved with the code publishes only once in, after
-  the approvals that start the sync, and its upload starts none): the hook runs again
+  the approvals that start the sync, and its upload starts none): run again
   after `unclaimedRetryDelay` (5 s → 15 s → 60 s → 5 min, then every 15 min) while any
-  is left (`lib/one-at-a-time.ts` keeps runs one at a time). With `sharing` wired, an
+  is left. With `sharing` wired, an
   acting review shares the passphrase over the list it read, after the adds
   (`shareFailure`).
   See `identity-provider/specs/e2ee.md § 6.2`, § 3.9.
+- `device-fanout.usecase.ts` — `DeviceFanout`, when that sync runs, every client's: once the
+  platform holds a device list (`devicesListed`), at each change of `deviceListKey` — a refetch
+  that changed nothing runs nothing —, of the conversation ids and on a group held; the unclaimed
+  retry. The sync is handed in, kept one at a time for the whole app (`lib/one-at-a-time.ts`): a
+  fanout mounted again never syncs beside the last one's. The list is the platform's to read
+  (`refreshDevices` after a registration; `device_joined`, `device_approved` on its socket).
 
 ### models/conversation-join.ts + usecases/e2ee/join-conversations.usecase.ts
 - A device holding no group for a conversation of its list joins it by itself, by
@@ -983,6 +989,19 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   sender's MLS counter, so a ciphertext never sent leaves the members behind.
 - `retry` — `failed` in place; `undelivered` marked `resent` and sent again as a new message
   (`resent` answered, for the platform to scroll to it).
+
+### usecases/dm/messaging-runtime.usecase.ts
+- `MessagingRuntime` — what a running app schedules for its conversations, every client's, shaped
+  as `AnsweringRuntime`: `start` (the device is in) starts the archive's uploads, reads the
+  Welcomes waiting and joins the conversations not held; `socketEvent` catches a group up on
+  `mls_commit` and reads the Welcomes on `mls_welcome_ready` (`conversationsStale` when one
+  brought a group: its row comes with the same Note); `conversationsChanged` joins only when the
+  ids or removals changed — a row changes at every message —; `reconnected` joins again. The app's
+  `ConversationJoins` is handed in: a send waits on the joins it starts.
+- `DeviceFanout` and `KeyPackageTick` are their own classes, started beside it: each platform runs
+  them where it holds their inputs (the web: the fanout's hook, the tick with the gate in the
+  layout). The archive's restore isn't scheduled here: it follows the key share
+  (`HistoryRestore`), before the app too.
 
 ### models/history-key.ts + the history key's use cases
 - The account's passphrase in generations (`identity-provider/specs/e2ee.md § 3.6–3.9`).
@@ -1239,9 +1258,12 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   device is in (`checkAdmissionUseCase`) — `replenishKeyPackages`, which fills to the
   cap only a stash at the threshold or not listed (§ 3.5), a first batch included; a
   device out gets `status: null` and refills nothing. A failed renewal holds no refill
-  up; it is answered as `renewalFailure` (the hook signs in again on
+  up; it is answered as `renewalFailure` (the platform signs in again on
   `device_mismatch`) and tried again at the next tick. A registration bringing a new
   attestation is announced (`IE2eePort.onDeviceRegistered`).
+- `KeyPackageTick` — when it runs, every client's: at `start` (the device is in), every
+  `KEY_PACKAGE_REFILL_INTERVAL_MS` and on `key_packages_low` (`low`), the token read at each run.
+  Without it a device's siblings can't add it once its first stash is used.
 
 ### usecases/e2ee/distribute-group-keys.usecase.ts
 - Keys new group members one at a time: concurrent Add commits race the epoch.
