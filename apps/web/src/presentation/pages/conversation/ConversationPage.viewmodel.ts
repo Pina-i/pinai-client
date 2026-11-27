@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
 import { sendTypingStartUseCase } from "@pinai/domain/usecases/presence/send-typing-start.usecase"
-import { openConversationUseCase } from "@pinai/domain/usecases/dm/open-conversation.usecase"
+import { loadConversationUseCase } from "@pinai/domain/usecases/dm/load-conversation.usecase"
 import { getDmConversationsUseCase } from "@pinai/domain/usecases/dm/get-dm-conversations.usecase"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
 import { getDmPort, getE2eePort, getGroupPort, getWsPort } from "@/ioc"
@@ -12,7 +12,6 @@ import { addressToActorUri, asActorUri } from "@pinai/domain/models/identity"
 import type { Message, TimelineNotice } from "@/lib/types"
 import {
     UNDECRYPTABLE_TEXT,
-    applyFederationStatus,
     findConversation,
     inTimeOrder,
     settleStaleSend,
@@ -23,139 +22,21 @@ import { describeGroupEvent, groupEventActor, type GroupEvent } from "@pinai/dom
 import { describeNewDevice, readNewDeviceLines } from "@pinai/domain/models/new-device"
 import { useDismissGroup } from "@/presentation/hooks/useDismissGroup"
 import { useReadOnReturn } from "@/presentation/hooks/use-read-on-return"
-import type {
-    ActorUri,
-    ApplicationMessage,
-    AttachmentBlobKey,
-    EditBody,
-    ReactionBody,
-    TextBody,
-} from "@pinai/domain/models/e2ee"
-import { archivedEdit, archivedReaction, archivedText } from "@pinai/domain/models/history-archive"
-import { historyWire, receivedMessage } from "@pinai/domain/models/received-message"
-import type { ReactionApplication } from "@pinai/domain/models/reaction"
-import type { UserProfile } from "@pinai/domain/models/auth"
+import type { ActorUri, ApplicationMessage, AttachmentBlobKey, TextBody } from "@pinai/domain/models/e2ee"
+import { archivedText } from "@pinai/domain/models/history-archive"
 import type { MessageListHandle } from "@/presentation/organisms/MessageList/MessageList"
 import { attachmentCache } from "@/presentation/_libs/attachment-cache"
 import { latestImageKeys } from "@/presentation/_libs/attachments"
-import { timelineMessage } from "@/presentation/_libs/timeline-message"
+import { conversationCache } from "@/presentation/_libs/conversation-cache"
 import { enterConversation } from "@/presentation/_libs/conversation-joins"
 
 // Sends this page load is still working on — waiting for the device to join, say —: not stale.
 const sendsUnderWay = new Set<string>()
 
-/**
- * Decode a base64 string to bytes. The wire format throughout 5a is
- * base64 over JSON; the WASM layer takes/returns Uint8Array.
- */
-function b64ToBytes(s: string): Uint8Array {
-    const bin = atob(s)
-    const out = new Uint8Array(bin.length)
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
-    return out
-}
-
 function bytesToB64(bytes: Uint8Array): string {
     let s = ""
     for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
     return btoa(s)
-}
-
-/**
- * Try to decrypt an inbound MLS ciphertext for a conversation. Returns
- * the application message (any kind) or null on failure. When
- * `catchUp` is provided the port falls back to fetching missing
- * commits and retrying once.
- */
-async function tryDecryptApp(
-    conversationId: string,
-    mlsCiphertextB64: string,
-    catchUp?: { idpUrl: string; accessToken: string },
-): Promise<ApplicationMessage | null> {
-    try {
-        const ct = b64ToBytes(mlsCiphertextB64)
-        return await getE2eePort().decryptInbound(conversationId, ct, catchUp)
-    } catch {
-        return null
-    }
-}
-
-/**
- * Discriminated outcome of decoding a `direct_messages` row. Text
- * (and replies) project to a UI Message; reactions are folded into
- * the target message's `reactions[]` by the caller. We never display
- * reactions as standalone messages.
- */
-type MappedRow =
-    | { kind: "message"; message: Message }
-    | { kind: "reaction"; reaction: ReactionApplication; mine: boolean }
-    | { kind: "nothing" }
-
-async function mapApiMessage(
-    msg: DirectMessage,
-    currentUser: UserProfile,
-    catchUp?: { idpUrl: string; accessToken: string },
-    cachedById?: Map<string, Message>,
-    appliedReactionIds?: Record<string, true>,
-): Promise<MappedRow> {
-    // History fetched from REST is post-forward-secrecy: the per-message
-    // MLS keys are gone for messages we already processed. The
-    // persisted `dmMessages` Zustand slice (encrypted at rest in
-    // IndexedDB) is the canonical plaintext source for these. Reuse
-    // the cached UI message verbatim when it exists; only fall back
-    // to decrypt for genuinely-new rows.
-    const cached = cachedById?.get(msg.id)
-    // One this device couldn't decrypt is tried again: the failure deleted no key.
-    if (cached && !cached.undecrypted) {
-        return { kind: "message", message: cached }
-    }
-    // Reactions we already applied via the live WS path live folded
-    // inside their target message's `reactions[]` — there's no
-    // standalone entry in `dmMessages` to find via `cachedById`. The
-    // store records every applied reaction by its row id in
-    // `appliedReactionIds`, so we use that as a second cache layer.
-    // Without this check the recv-side ratchet would say "secret
-    // deleted" on the second decrypt and we'd fall through to the
-    // text branch, pushing a ghost `[encrypted]` row.
-    if (appliedReactionIds?.[msg.id]) {
-        return { kind: "nothing" }
-    }
-    // One of the account's own not held here came from one of its other
-    // devices, and decrypts like anyone's. One of this device's own never
-    // does (MLS can't), and shows nothing.
-    const app = await tryDecryptApp(msg.conversation_id, msg.mls_ciphertext, catchUp)
-    const wire = historyWire(msg, currentUser)
-    const received = receivedMessage(wire, app, "history")
-
-    const sender = { address: wire.senderAddress, displayName: wire.senderName }
-    if (app?.kind === "text") {
-        getE2eePort().bufferForArchive(
-            msg.conversation_id,
-            msg.id,
-            archivedText(sender, msg.created_at, app.body as TextBody, msg.attachments),
-        )
-    } else if (app && received.kind === "edit") {
-        // An edited message's ciphertext is the edit's; the archive may hold its first text.
-        getE2eePort().bufferEditForArchive(
-            msg.conversation_id,
-            b64ToBytes(msg.mls_ciphertext),
-            archivedEdit(sender, msg.edited_at ?? msg.created_at, app.body as EditBody),
-        )
-    }
-
-    switch (received.kind) {
-        case "reaction":
-            getE2eePort().bufferForArchive(
-                msg.conversation_id,
-                msg.id,
-                archivedReaction(sender, msg.created_at, app?.body as ReactionBody),
-            )
-            return received
-        case "nothing":
-            return received
-        default:
-            return { kind: "message", message: timelineMessage(received.message) }
-    }
 }
 
 // The last screenful or so of a conversation.
@@ -176,12 +57,9 @@ export function useConversationPageViewModel(name: string) {
     const pushDmMessage = useAppStore((s) => s.pushDmMessage)
     const reconcileDmMessage = useAppStore((s) => s.reconcileDmMessage)
     const updateDmMessage = useAppStore((s) => s.updateDmMessage)
-    const seedDmMessages = useAppStore((s) => s.seedDmMessages)
     const updateDmConversation = useAppStore((s) => s.updateDmConversation)
     const { blocked } = useBlocks()
     const { unblock, isPending: isUnblocking } = useBlockUser()
-    const applyReaction = useAppStore((s) => s.applyReaction)
-    const addGroupEvents = useAppStore((s) => s.addGroupEvents)
     const setActiveDm = useAppStore((s) => s.setActiveDm)
     const clearDmUnread = useAppStore((s) => s.clearDmUnread)
     const wsStatus = useAppStore((s) => s.wsStatus)
@@ -312,92 +190,17 @@ export function useConversationPageViewModel(name: string) {
         historyLoadedRef.current = true
         const historyOf = dmData.id
 
-        openConversationUseCase({ idpUrl, accessToken }, dmData.id, {
+        loadConversationUseCase({ idpUrl, accessToken }, dmData.id, user, {
             port: getDmPort(),
             refreshList: () => void queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) }),
+            e2ee: getE2eePort(),
+            cache: conversationCache,
         })
-            .then(async ({ messages: msgs, events }) => {
-                addGroupEvents(conversationKey, events)
-                // API returns newest-first → reverse to oldest-first for display.
-                const reversed = msgs.reverse()
-                const catchUp = { idpUrl, accessToken }
-                // Snapshot whatever's already persisted in the store
-                // so `mapApiMessage` can skip the recv-side decrypt
-                // for rows we've already processed via the WS path.
-                // Without this, the second decrypt fails with
-                // "secret deleted" because MLS wipes the per-message
-                // generation key for forward secrecy. Reactions are
-                // tracked separately in `appliedReactionIds` because
-                // they fold into their target's `reactions[]` rather
-                // than landing as their own row in `dmMessages`.
-                const snapshot = useAppStore.getState()
-                const cachedById = new Map(
-                    (snapshot.dmMessages[conversationKey] ?? []).map(
-                        (m) => [m.id, m] as const,
-                    ),
-                )
-                const appliedReactionIds = snapshot.appliedReactionIds
-                const mapped = await Promise.all(
-                    reversed.map((m) =>
-                        mapApiMessage(m, user, catchUp, cachedById, appliedReactionIds),
-                    ),
-                )
-
-                // First pass: seed text messages. Reactions need the
-                // target to exist before they can be applied, so do
-                // them in a second pass.
-                const textMessages = mapped
-                    .filter((r): r is Extract<typeof r, { kind: "message" }> => r.kind === "message")
-                    .map((r) => r.message)
-                seedDmMessages(conversationKey, textMessages)
-
-                // The cached copy wins the merge, so the IdP's delivery
-                // outcome — which may have landed while no tab was open —
-                // is applied on top of it.
-                const undelivered = new Set(
-                    reversed.filter((m) => m.federation_status === "failed").map((m) => m.id),
-                )
-                if (undelivered.size > 0) {
-                    const at = new Date().toISOString()
-                    updateDmConversation(conversationKey, (list) =>
-                        list.map((m) => (undelivered.has(m.id) ? applyFederationStatus(m, "failed", at) : m)),
-                    )
-                }
-
-                // Second pass: replay reaction-kind rows. The slice
-                // dedup'd via `appliedReactionIds` so re-mounting
-                // never double-counts.
-                for (const row of mapped) {
-                    if (row.kind !== "reaction") continue
-                    applyReaction(conversationKey, row.reaction, row.mine)
-                }
-                // A reaction that failed to decrypt live was cached as a placeholder message.
-                const reactions = new Set(mapped.flatMap((row) => (row.kind === "reaction" ? [row.reaction.reaction_message_id] : [])))
-                if (reactions.size > 0) {
-                    updateDmConversation(conversationKey, (list) =>
-                        list.some((m) => m.undecrypted && reactions.has(m.id))
-                            ? list.filter((m) => !(m.undecrypted && reactions.has(m.id)))
-                            : list,
-                    )
-                }
-            })
             .catch(() => {
                 historyLoadedRef.current = false
             })
             .finally(() => setHistoryAnswered(historyOf))
-    }, [
-        accessToken,
-        idpUrl,
-        user,
-        name,
-        conversationKey,
-        seedDmMessages,
-        updateDmConversation,
-        applyReaction,
-        addGroupEvents,
-        dmData,
-        queryClient,
-    ])
+    }, [accessToken, idpUrl, user, name, conversationKey, dmData, queryClient])
 
     // A send left `sending` by a closed page never settles on its own, so
     // opening the conversation fails it and it offers a retry.
