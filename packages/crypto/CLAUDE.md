@@ -441,7 +441,7 @@ above, the sections above win.
   the path off the `recipient_actor_uri`.
 - `ensureGroupExists(idpUrl, accessToken, conversationId, recipientActorUri)`
   on `IE2eePort` — idempotent first-message bootstrap. Lazily called
-  by `ConversationPage.viewmodel.ts::sendMessage` before
+  by the domain's `MessageSends` (`enterConversationUseCase`) before
   `encryptOutbound`.
 - `consumePendingWelcomes(idpUrl, accessToken, actorUri)` polls
   `GET /api/mls/welcomes?device_id=` and joins each pending group via
@@ -503,9 +503,8 @@ above, the sections above win.
   decrypt once and hand it to the domain's `receivedMessage`
   (`models/received-message.ts`): text → push as Message; reaction →
   folded (`foldReaction`); history's edited row → its placeholder, the edit
-  archived. The discriminated `MappedRow` from `mapApiMessage` keeps
-  the two-pass history-load logic explicit (text first, reactions
-  after — reactions need their target to exist).
+  archived. The history load (`loadConversationUseCase`) folds the
+  reactions after merging the texts — reactions need their target to exist.
 
 ## Phase 5c.4 additions (attachments)
 
@@ -703,14 +702,14 @@ above, the sections above win.
   so `AttachmentBlobKey.key` / `.nonce` rehydrate as real
   `Uint8Array` instances rather than indexed-property objects that
   Web Crypto rejects on decrypt.
-- **Optimistic send + status indicator**. `ConversationPage.viewmodel::sendMessage`
-  pushes the optimistic message *before* any network work and sets
-  `Message.status = "sending"` / `statusAt = now`. `reconcileToServer`
-  flips to `"sent"`; any caught error in encrypt / POST flips to
-  `"failed"`. The `MessageStatus` molecule renders the lifecycle
-  inline next to the timestamp — `Clock` → `Check` (3 s fade) →
-  `AlertCircle` + retry `RotateCw`. Retry is session-only via a
-  `pendingIntentsRef` map on the conversation viewmodel.
+- **Optimistic send + status indicator**. The domain's `MessageSends.send`
+  shows the optimistic message *before* any network work, `status = "sending"`
+  / `statusAt = now`. The IdP's answer flips it to `"sent"`; any caught error
+  in entering, encrypting or the POST flips it to `"failed"`. The
+  `MessageStatus` molecule renders the lifecycle inline next to the
+  timestamp — `Clock` → `Check` (3 s fade) → `AlertCircle` + retry
+  `RotateCw`. A retry reuses the send's intent while the page load holds it,
+  else rebuilds it from the message.
 - **`pendingFirstMessageConvId`** in `ConversationPage.viewmodel`:
   on a brand-new conversation, the viewmodel's `conversationKey`
   derivation snaps to the freshly-minted UUID as soon as
