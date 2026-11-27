@@ -38,7 +38,7 @@ vi.mock("sonner", () => ({ toast }))
 
 const IDP = "http://localhost:8097"
 const HOST = "localhost:8097"
-const INVITE_ONLY: InstanceInfo = { name: "Aotearoa", users: 9, openRegistrations: false }
+const INVITE_ONLY: InstanceInfo = { name: "Aotearoa", description: null, users: 9, openRegistrations: false }
 const OPEN: InstanceInfo = { ...INVITE_ONLY, openRegistrations: true }
 const SAVED: InstanceIntro = { name: null, description: "Where the long white cloud gathers." }
 const MIKA: InstanceMember = { id: "m1", display_name: "Mika", admin: false, last_active_at: null, online: true }

@@ -1,18 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useLocation, useNavigate, useRouter } from "@tanstack/react-router"
 
-import { replacedOn, resetCause, type ResetCause } from "@pinai/domain/models/admission"
+import type { ResetCause } from "@pinai/domain/models/admission"
 import type { DeviceId } from "@pinai/domain/models/e2ee"
+import {
+    RESTORE_TABS,
+    listensForShare,
+    offersStartOver as offersStartOverRule,
+    offersWayIn,
+    openingTab,
+    shareRefused,
+    shownTab,
+    type RestoreTab,
+    type RestoreVariant,
+} from "@pinai/domain/models/restore-page"
 import { logoutUseCase } from "@pinai/domain/usecases/auth/logout.usecase"
 import type { AwaitedShareState } from "@pinai/domain/usecases/e2ee/accept-history-share.usecase"
 import { checkAdmissionUseCase } from "@pinai/domain/usecases/e2ee/check-admission.usecase"
-import { gateThisDeviceUseCase, pendingKeyRoute } from "@pinai/domain/usecases/e2ee/gate-this-device.usecase"
+import { enterRestorePageUseCase } from "@pinai/domain/usecases/e2ee/enter-restore-page.usecase"
+import { gateThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/gate-this-device.usecase"
 import { setUpThisDeviceUseCase } from "@pinai/domain/usecases/e2ee/set-up-this-device.usecase"
+import { instanceHost } from "@pinai/domain/models/instance"
 import { getAuthPlatform, getDeviceDirectoryPort, getE2eePort, getSessionPort } from "@/ioc"
 import { admissionDeps } from "@/presentation/_libs/admission-deps"
 import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
 import { GATE_PAGES } from "@/presentation/_libs/gate-pages"
-import { instanceHost } from "@/presentation/_libs/instance-host"
 import { warnE2ee } from "@/presentation/_libs/key-share-deps"
 import { START_OVER_NOTICES, type StartOverNotice } from "@/presentation/organisms/StartOverPanel/StartOverPanel.viewmodel"
 import { dropSearchParam } from "@/presentation/_libs/search-param"
@@ -24,15 +36,10 @@ import { useAppStore } from "@/store/store"
 
 export type RestoreStatus = "initializing" | "ready" | "restoring" | "done" | "error"
 
-/** § 5.2's page for a device that never held the account's passphrase; § 5.4's for one whose words no longer give it. */
-export type RestoreVariant = "new-device" | "reset"
-
-/** "Another device" / "That device", "My 24 words" / "Its 24 words", "Start over" / "Start over from here". */
-export type RestoreTab = "device" | "words" | "start-over"
+export type { RestoreTab, RestoreVariant }
 
 /** `?tab=start-over` opens the page on that tab: where a sign-in asked for the password comes back to. */
 const TAB_PARAM = "tab"
-const TABS: readonly RestoreTab[] = ["device", "words", "start-over"]
 
 export interface RecoveryRestoreViewModel {
     status: RestoreStatus
@@ -152,73 +159,65 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
         if (!idpUrl || !accessToken || !ownActorUri) return
         const e2eePort = getE2eePort()
         let cancelled = false
-        // The gate recorded the standing it sent the device here on: an unknown change is said at once.
-        void e2eePort.historyKeyStanding().then(
-            (standing) => {
-                if (cancelled || resetCause(standing) !== "unknown-change") return
-                setReset((known) => (known.cause ? known : { cause: "unknown-change", replacedOn: null, refused: null }))
-            },
-            () => undefined,
-        )
-        bootstrapRef.current = (async () => {
-            // A start over cut short by a reload: the setup page settles its key, and shows its words once set.
-            const pending = await pendingKeyRoute(e2eePort)
-            if (pending) {
-                if (!cancelled) void navigate({ to: GATE_PAGES[pending] })
-                return
-            }
-            const unseen = await e2eePort.newWordsToShow()
-            if (unseen) {
-                if (!cancelled) setNewWords(unseen.words)
-                return
-            }
-            await setUpThisDeviceUseCase({ e2eePort, sessionPort: getSessionPort() })(idpUrl, accessToken, ownActorUri)
-            if (!cancelled) setDeviceReady(true)
-            try {
-                const { standing, admission } = await checkAdmissionUseCase(admissionDeps())(idpUrl, accessToken, ownActorUri)
-                if (cancelled) return
-                // The reset page is for a device that is out: one let in meanwhile goes back to the app.
-                if (variant === "reset" && admission.kind === "in") {
+        const entering = enterRestorePageUseCase({
+            e2eePort,
+            setUp: (session) => setUpThisDeviceUseCase({ e2eePort, sessionPort: getSessionPort() })(session.idpUrl, session.accessToken, session.actorUri),
+            checkAdmission: (session) => checkAdmissionUseCase(admissionDeps())(session.idpUrl, session.accessToken, session.actorUri),
+            listDevices: async (session) => (await getDeviceDirectoryPort().listDevices(session.idpUrl, session.accessToken)).devices,
+            signInAgainOnDeviceMismatch,
+            warn: warnE2ee,
+        })({ idpUrl, accessToken, actorUri: ownActorUri }, variant, {
+            onEarlyCause: (cause) => setReset((known) => (known.cause ? known : { cause, replacedOn: null, refused: null })),
+            onDeviceReady: () => setDeviceReady(true),
+            cancelled: () => cancelled,
+        })
+        // A setup that failed fails the actions awaiting it too.
+        const bootstrap = entering.then((entry) => {
+            if (entry.kind === "failed" || entry.kind === "signing-in-again") throw entry.error
+        })
+        bootstrap.catch(() => undefined)
+        bootstrapRef.current = bootstrap
+        void entering.then((entry) => {
+            if (cancelled) return
+            switch (entry.kind) {
+                case "go":
+                    void navigate({ to: GATE_PAGES[entry.route] })
+                    break
+                case "new-words":
+                    setNewWords(entry.words)
+                    break
+                case "home":
                     void navigate({ to: "/home" })
-                    return
-                }
-                setIsIn(admission.kind === "in")
-                setLacksWords(standing.kind !== "holds")
-                const cause = resetCause(standing)
-                let setterLabel: string | null = null
-                let refused: DeviceId | null = null
-                if (variant === "reset" && cause === "newer-generation") {
-                    try {
-                        const { devices } = await getDeviceDirectoryPort().listDevices(idpUrl, accessToken)
-                        const setter = await e2eePort.resetSetter(devices)
-                        setterLabel = replacedOn(standing, setter, devices)
-                        refused = setter && !setter.self ? setter.deviceId : null
-                    } catch (e) {
-                        warnE2ee("reading who replaced the words", e)
+                    break
+                case "ready":
+                    if (entry.read) {
+                        setIsIn(entry.read.isIn)
+                        setLacksWords(entry.read.lacksWords)
+                        setReset(entry.read.reset)
                     }
-                }
-                if (!cancelled) setReset({ cause, replacedOn: setterLabel, refused })
-            } catch (e) {
-                // eslint-disable-next-line no-console
-                console.warn("Reading whether this device is in failed:", e)
+                    break
+                case "failed":
+                    setStatus("error")
+                    setError(entry.message)
+                    return
+                case "signing-in-again":
+                case "cancelled":
+                    return
             }
-        })()
-        bootstrapRef.current
-            .then(() => {
-                if (!cancelled) setStatus("ready")
-            })
-            .catch(async (e: unknown) => {
-                if (cancelled || (await signInAgainOnDeviceMismatch(e))) return
-                setStatus("error")
-                setError(e instanceof Error ? e.message : "Could not set up this device.")
-            })
+            setStatus("ready")
+        })
         return () => {
             cancelled = true
         }
     }, [idpUrl, signedIn, ownActorUri, attempt, navigate, variant])
 
-    // A start over takes the words itself: a share kept meanwhile must not carry the page off before they are shown.
-    const listening = lacksWords && status !== "initializing" && status !== "error" && !startingOver && newWords === null
+    const listening = listensForShare({
+        lacksWords,
+        settingUp: status === "initializing",
+        failed: status === "error",
+        startingOver,
+        showingNewWords: newWords !== null,
+    })
     // Approved here, the section goes on itself once the restore settles; typed words go on their own way.
     const awaited = useAwaitedShare(listening, () => {
         if (!approvedRef.current && !typing.current) void navigate({ to: "/home" })
@@ -285,13 +284,12 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
 
     const onRolledBack = useCallback(() => setRolledBack(true), [])
 
-    // A request this device asked, or how it ended, is said on its own tab: the page opens there, unless the user chose one.
     const own = useOwnStartOver(deviceReady && !isIn && !approvedHere)
     const [tabChosen, setTabChosen] = useState(askedTab !== null)
     const ownState = own.state?.kind ?? null
     if (!tabChosen && ownState !== null) {
         setTabChosen(true)
-        if (ownState === "waiting" || ownState === "ready" || ownState === "cancelled" || ownState === "superseded") {
+        if (openingTab(ownState) === "start-over") {
             setTab("start-over")
             showStartOver(true)
         }
@@ -313,9 +311,7 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
     }, [])
 
     const deviceLabel = useThisDeviceName()
-    const offersStartOver = !isIn
-    // A device found in has no Start over tab: it opens on another way in.
-    const shownTab = !offersStartOver && tab === "start-over" ? "device" : tab
+    const offersStartOver = offersStartOverRule(isIn)
 
     return {
         status: typed.restoring ? "restoring" : status,
@@ -324,11 +320,11 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
         resetCause: variant === "reset" ? reset.cause : null,
         replacedOn: variant === "reset" ? reset.replacedOn : null,
         refused: variant === "reset" ? reset.refused : null,
-        offersWayIn: variant === "new-device" || reset.cause === "newer-generation",
+        offersWayIn: offersWayIn(variant, reset.cause),
         instance: instanceHost(idpUrl),
         offersStartOver,
         deviceLabel,
-        tab: shownTab,
+        tab: shownTab(tab, isIn),
         setTab: chooseTab,
         busy: startingOver || typed.restoring,
         startOverShown,
@@ -345,7 +341,7 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
         onSignOut,
         share,
         onApproved,
-        shareRefused: share?.kind === "unusable" && !approvedHere,
+        shareRefused: shareRefused(share, approvedHere),
         startOverReturn,
         onStartOverBusy,
         newWords,
@@ -358,5 +354,5 @@ export function useRecoveryRestorePageViewModel(variant: RestoreVariant = "new-d
 
 function askedIn(searchStr: string): RestoreTab | null {
     const asked = new URLSearchParams(searchStr).get(TAB_PARAM)
-    return TABS.find((tab) => tab === asked) ?? null
+    return RESTORE_TABS.find((tab) => tab === asked) ?? null
 }

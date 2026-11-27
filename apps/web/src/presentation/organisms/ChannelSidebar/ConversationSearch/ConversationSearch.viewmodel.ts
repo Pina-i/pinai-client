@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import type { KeyboardEvent } from "react-aria-components"
+import { groupFact } from "@pinai/domain/models/conversation-list"
 import { searchConversations, type TextMatch } from "@pinai/domain/models/conversation-search"
 import { actorUriToAddress, addressParts, personName } from "@pinai/domain/models/identity"
 import { presenceToUserStatus, type UserStatus } from "@pinai/domain/models/presence"
@@ -10,7 +11,6 @@ import { getSocialPort } from "@/ioc"
 import { useAppStore } from "@/store/store"
 import type { AvatarTone } from "@pinai/domain/models/avatar-tone"
 import { friendsQueryKey } from "@/presentation/pages/home/FriendsPanel/FriendsPanel.viewmodel"
-import { groupFact } from "../_helpers/group-fact.helper"
 
 export interface MarkedText {
     /** Shown before the text, never marked: "with ", "#". */

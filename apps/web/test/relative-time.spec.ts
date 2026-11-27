@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest"
 
-import { expiryWording, formatLastSeen } from "@pinai/domain/models/relative-time"
+import { dayDividerLabel, expiryWording, formatLastSeen } from "@pinai/domain/models/relative-time"
 
 const NOW = new Date("2026-05-14T12:00:00.000Z")
 
@@ -84,5 +84,16 @@ describe("expiryWording", () => {
         expect(expiryWording("2026-10-27T12:00:00Z", now)).toBe("expired")
         expect(expiryWording("2026-10-27T11:00:00Z", now)).toBe("expired")
         expect(expiryWording("soon", now)).toBeNull()
+    })
+})
+
+describe("dayDividerLabel", () => {
+    const now = new Date(2026, 10, 27, 9, 30)
+
+    it("names today and yesterday, and dates the days before", () => {
+        expect(dayDividerLabel(new Date(2026, 10, 27, 0, 5), now)).toBe("Today")
+        expect(dayDividerLabel(new Date(2026, 10, 26, 23, 59), now)).toBe("Yesterday")
+        const older = new Date(2026, 10, 20, 12, 0)
+        expect(dayDividerLabel(older, now)).toBe(older.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }))
     })
 })

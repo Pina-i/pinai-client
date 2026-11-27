@@ -80,6 +80,30 @@ Three collaborators could not come, and the shape of each is the mobile work:
   encrypted under the same per-device key; the key is also re-used
   by the Zustand `persist` middleware so the message-plaintext cache
   lives behind the same key material.
+- **`contract/storage/`** — the storage contract: what every `IKeyValueStore` and `IDeviceKeyPort` does, and
+  `SealedStorage` over them (`byte-store.ts`, `device-key.ts`, `sealed-storage.ts`, listed in `scenarios.ts`). A
+  scenario gets a world (`world.ts`): per account, a byte store and a key; each `open` is a new instance of the
+  app over the same rows and key, and the world is disposed of at the scenario's end. Plain TypeScript with no
+  randomness of its own, so a phone plays it: on IndexedDB + WebCrypto by `apps/web/test/storage-contract.spec.ts`,
+  on SQLite + the Keystore by the mobile app. A store and a key are an account's own: `SealedStorage.clear()`
+  wipes the key, so one key for every account would let one account's clear erase the others'. What only
+  IndexedDB or a spy shows stays in `storage-adapter.spec.ts` (set-aside rows by name, a store before sign-in,
+  other tabs) and `device-key.spec.ts` (non-extractable, never exposed, never minted over a key that failed to
+  read).
+- **`device-short-id.ts`** — `deviceShortId`, a device's "XXXX-XXXX" in Settings → Devices on every
+  client: sha256 of its id, here because the domain has no hash. Display only; nothing checks it.
+- **`recovery-words.ts`** — the 24 words' completeness (`RECOVERY_WORD_COUNT`, `WORDLIST_SET`,
+  `isPassphraseComplete`: every slot a BIP-39 word; `wordsOf`, typed or pasted text split at any whitespace and
+  lower-cased; `unknownWord`, the first one off the list): here, not in the domain, because it reads the
+  BIP-39 list. The web's passphrase input and the phone's words field share it.
+- **`argon2.ts`** — `Argon2id`, the function the history key (`HistoryArchiveAdapter`, the 24 words) and the
+  approval code (`codeScalar` / `ApprovalHandshake.start`, given `E2eeAdapter`'s 9th parameter) derive with;
+  `nobleArgon2id` by default. A parameter because the phone computes it natively: in JavaScript on Hermes the
+  words' setting (64 MiB, 3 passes, 4 lanes) would take tens of seconds.
+- **`contract/argon2/`** — what every `Argon2id` answers, byte for byte: the reference implementation's vector,
+  a small setting, the words' and the code's settings, inputs left untouched, a setting Argon2 refuses. Played on
+  `@noble` by `apps/web/test/argon2-contract.spec.ts`, on the native library by the mobile app's
+  `/dev/argon2-check`. Two Argon2ids that disagreed would leave a phone unable to check words made on the web.
 - **`@pinai/api/e2ee/key-directory.adapter`** — `KeyDirectoryApiAdapter`
   implementing `IKeyDirectoryPort`, outside this package. REST client for
   the `/api/keys/*` and `/api/mls/*` endpoints; the identity methods are no-op
@@ -417,7 +441,7 @@ above, the sections above win.
   the path off the `recipient_actor_uri`.
 - `ensureGroupExists(idpUrl, accessToken, conversationId, recipientActorUri)`
   on `IE2eePort` — idempotent first-message bootstrap. Lazily called
-  by `ConversationPage.viewmodel.ts::sendMessage` before
+  by the domain's `MessageSends` (`enterConversationUseCase`) before
   `encryptOutbound`.
 - `consumePendingWelcomes(idpUrl, accessToken, actorUri)` polls
   `GET /api/mls/welcomes?device_id=` and joins each pending group via
@@ -425,7 +449,7 @@ above, the sections above win.
   A Welcome to a group already held goes to `mls.rejoinGroup`: the device was
   committed out and added back, so a later epoch replaces the group; one no
   later (both sides founded it at once) leaves it as it is.
-  Mounted in `_authenticated` layout via `useConsumeMlsWelcomes` hook.
+  Read at start and on `mls_welcome_ready` by the domain's `MessagingRuntime`.
 - First-message UUID pinning: client generates `crypto.randomUUID()`
   on first send, uses it as the MLS `group_id` AND passes it on
   `POST /api/dm` so the server stores under the same UUID (via
@@ -467,19 +491,20 @@ above, the sections above win.
   encrypt → REST send → rollback on failure.
 - **Edits** use `ApplicationMessage<EditBody>{kind:"edit"}` over the
   existing `PATCH /api/dm/:id/edit` endpoint. The server replaces the
-  row's `mls_ciphertext` + stamps `edited_at`; receivers' WS
-  `message_edited` handler decrypts the new ciphertext and applies
-  `body.new_text` to the target.
+  row's `mls_ciphertext` + stamps `edited_at`; receivers'
+  `message_edited` (the domain's `receiveEditUseCase`) decrypts the new
+  ciphertext and applies `body.new_text` to the target.
 - **Replies** inline `reply_meta` on the text body. Server only sees
   `reply_to_id`; the preview text + sender display name travel inside
   the encrypted MLS body. Receiver populates `Message.replyTo` from
   the decrypted body.
-- **`new_dm` dispatch on decrypted kind.** WS hook + REST history
-  load both decrypt once and route on `kind`: text → push as
-  Message; reaction → `applyReaction`; edit/reply_meta → handled
-  inline. The discriminated `MappedRow` from `mapApiMessage` keeps
-  the two-pass history-load logic explicit (text first, reactions
-  after — reactions need their target to exist).
+- **`new_dm` dispatch on decrypted kind.** The socket's push (the
+  domain's `receiveMessageUseCase`) and the REST history load both
+  decrypt once and hand it to the domain's `receivedMessage`
+  (`models/received-message.ts`): text → push as Message; reaction →
+  folded (`foldReaction`); history's edited row → the edit's text, kept
+  until the archive's whole copy comes (`editOnly`), the edit archived. The history load (`loadConversationUseCase`) folds the
+  reactions after merging the texts — reactions need their target to exist.
 
 ## Phase 5c.4 additions (attachments)
 
@@ -677,14 +702,14 @@ above, the sections above win.
   so `AttachmentBlobKey.key` / `.nonce` rehydrate as real
   `Uint8Array` instances rather than indexed-property objects that
   Web Crypto rejects on decrypt.
-- **Optimistic send + status indicator**. `ConversationPage.viewmodel::sendMessage`
-  pushes the optimistic message *before* any network work and sets
-  `Message.status = "sending"` / `statusAt = now`. `reconcileToServer`
-  flips to `"sent"`; any caught error in encrypt / POST flips to
-  `"failed"`. The `MessageStatus` molecule renders the lifecycle
-  inline next to the timestamp — `Clock` → `Check` (3 s fade) →
-  `AlertCircle` + retry `RotateCw`. Retry is session-only via a
-  `pendingIntentsRef` map on the conversation viewmodel.
+- **Optimistic send + status indicator**. The domain's `MessageSends.send`
+  shows the optimistic message *before* any network work, `status = "sending"`
+  / `statusAt = now`. The IdP's answer flips it to `"sent"`; any caught error
+  in entering, encrypting or the POST flips it to `"failed"`. The
+  `MessageStatus` molecule renders the lifecycle inline next to the
+  timestamp — `Clock` → `Check` (3 s fade) → `AlertCircle` + retry
+  `RotateCw`. A retry reuses the send's intent while the page load holds it,
+  else rebuilds it from the message.
 - **`pendingFirstMessageConvId`** in `ConversationPage.viewmodel`:
   on a brand-new conversation, the viewmodel's `conversationKey`
   derivation snaps to the freshly-minted UUID as soon as
@@ -904,7 +929,8 @@ number written here is wrong by the next commit.
 - **Pure helpers**:
   - `formatLastSeen` (`@pinai/domain/models/relative-time`) — "just now" /
     "N minutes ago" / "yesterday" / "N days ago" / etc.
-  - `device-fingerprint.ts` (`presentation/_libs/`) — `sha256(uuid)` → RFC 4648 base32 →
+  - `device-short-id.ts` (`deviceShortId`, here since the phone shows it too; was the web's
+    `presentation/_libs/device-fingerprint.ts`) — `sha256(uuid)` → RFC 4648 base32 →
     8 chars formatted "XXXX-XXXX". Display-only.
 - **Test additions**: `test/relative-time.spec.ts`,
   `test/device-fingerprint.spec.ts`.
@@ -925,9 +951,10 @@ for the full design.
 
 ### New adapters
 
-- **`apps/web/src/adapters/jwks/jwks-cache.adapter.ts`** — `JwksCacheAdapter`.
-  Lazy fetch of `<issuer>/.well-known/jwks.json` with 1-hour
-  `localStorage` TTL, in-flight dedup per issuer, refresh-on-
+- **`@pinai/api/e2ee/jwks-cache.adapter.ts`** — `JwksCache` (the web's `JwksCacheAdapter` over
+  `localStorage`, the phone's over its kv-store).
+  Lazy fetch of `<issuer>/.well-known/jwks.json` with a 1-hour
+  TTL in the storage it's given, in-flight dedup per issuer, refresh-on-
   invalidate for IdP key-rotation safety. Returns raw 32-byte
   Ed25519 public keys ready for `@noble/curves` verify.
 - **`attestation-chain.adapter.ts`** — pure
@@ -988,17 +1015,17 @@ publishes) holds against the documented threat model.
 
 ### Hooks (`presentation/hooks/`)
 
-- `useDeviceFanout` — keeps held groups in step. Every device-list
-  refresh (the `device_joined` push only triggers one), conversation-list
+- `useDeviceFanout` — keeps held groups in step through the domain's
+  `DeviceFanout`. Every device-list refresh that changed what a review
+  reads (the `device_joined` push only triggers one), conversation-list
   change and `onGroupHeld` call runs `syncOwnGroupsUseCase`: catch each
   group up, then offer it the user's other active devices — see
   "`addOwnDevices`" above.
-- `useHistoryArchiveFlusher` — lifecycle hook for the 2-second
-  flush timer + buffer (both live in the adapter; this hook is
-  pure mount/unmount glue).
-- `useIdpWebSocket` gains a `device_joined` event case and a
+- `useMessagingRuntime` — the domain's `MessagingRuntime` starts and
+  stops the 2-second flush timer + buffer (both live in the adapter).
+- `useIdpWebSocket` has a `device_joined` event case and a
   module-level `registerDeviceFanoutHandler` slot that the auth
-  layout uses to plug `useDeviceFanout.onDeviceJoined` into the
+  layout uses to plug `useDeviceFanout().onDeviceListChanged` into the
   shared WS connection without business logic in the WS hook.
 
 ### Onboarding gate

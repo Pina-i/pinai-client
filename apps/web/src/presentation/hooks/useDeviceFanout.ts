@@ -1,33 +1,36 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { deviceListKey } from "@pinai/domain/models/device"
 import type { ConversationId } from "@pinai/domain/models/e2ee"
-import { unclaimedRetryDelay } from "@pinai/domain/models/group"
 import { oneAtATime } from "@pinai/domain/lib/one-at-a-time"
+import { DeviceFanout } from "@pinai/domain/usecases/e2ee/device-fanout.usecase"
 import { syncOwnGroupsUseCase } from "@pinai/domain/usecases/e2ee/sync-own-groups.usecase"
 import { getDeviceDirectoryPort, getE2eePort } from "@/ioc"
 import { shareDeps } from "@/presentation/_libs/key-share-deps"
 import { devicesQueryKey } from "@/presentation/hooks/useDevices"
 import { useAppStore } from "@/store/store"
 
-/**
- * Keeps the groups this device holds keys for in step: the commits it missed while away, the
- * leaves it doesn't trust committed out, then the user's approved devices they lack. It runs on
- * every device-list refresh, so a device signed in while this one was offline is caught when this
- * one comes back; the WS `device_joined` and `device_approved` pushes only refresh the list, and
- * the run reads it again itself before judging anyone. One run at a time, page-wide. A sibling it
- * couldn't claim a KeyPackage for is tried again with a backoff (`unclaimedRetryDelay`) until none is left.
- */
+// One run at a time page-wide, whichever fanout started it.
 const sync = oneAtATime(syncOwnGroupsUseCase)
 
+function warnFanout(what: string, error: unknown): void {
+    // eslint-disable-next-line no-console
+    console.warn(`[fanout] ${what}`, error)
+}
+
+/**
+ * Hands the domain's `DeviceFanout` the device list and the conversation ids: it keeps the groups this device holds
+ * in step with the account's devices. The WS `device_joined` and `device_approved` pushes only refresh the list
+ * (`onDeviceListChanged`).
+ */
 export function useDeviceFanout(): {
     onDeviceListChanged: () => void
 } {
     const idpUrl = useAppStore((s) => s.idpUrl)
     const signedIn = useAppStore((s) => s.accessToken !== null)
     const actorUri = useAppStore((s) => s.user?.actor_uri ?? null)
-    const localDmConvos = useAppStore((s) => s.localDmConvos)
+    // The ids alone: the list's rows change on every typing-status flip.
+    const conversationIds = useAppStore((s) => s.localDmConvos.map((c) => c.id).join(","))
     const queryClient = useQueryClient()
 
     // Same queryKey as `useDevices` — both queryFns must agree on shape
@@ -42,66 +45,34 @@ export function useDeviceFanout(): {
         enabled: !!idpUrl && signedIn,
     })
 
-    // The ids alone: the list's rows change on every typing-status flip.
-    const conversationIds = localDmConvos.map((c) => c.id).join(",")
-    // A refetch on each focus brings new arrays of the same bytes: only what a review reads counts.
-    const listKey = useMemo(() => (devices ? deviceListKey(devices) : null), [devices])
-    // A group this device founds or joins changes neither the device list nor, often, the ids.
-    const [groupsHeld, setGroupsHeld] = useState(0)
-    useEffect(() => getE2eePort().onGroupHeld(() => setGroupsHeld((n) => n + 1)), [])
-    const [retries, setRetries] = useState(0)
-    const retry = useRef<{ attempts: number; timer: ReturnType<typeof setTimeout> | undefined; live: boolean }>({
-        attempts: 0,
-        timer: undefined,
-        live: true,
-    })
-    useEffect(() => {
-        const held = retry.current
-        held.live = true
-        return () => {
-            held.live = false
-            clearTimeout(held.timer)
-        }
-    }, [])
-    // A registration changed this device's row, and its leaves have a new credential to take.
-    useEffect(
+    const fanout = useMemo(
         () =>
-            getE2eePort().onDeviceRegistered(() => {
-                if (idpUrl) void queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) })
-            }),
-        [idpUrl, queryClient],
+            signedIn && idpUrl && actorUri
+                ? new DeviceFanout({
+                      session: { idpUrl, actorUri, accessToken: () => useAppStore.getState().accessToken },
+                      e2ee: getE2eePort(),
+                      sync: (url, accessToken, actor, ids) =>
+                          sync(url, accessToken, actor, ids, { e2ee: getE2eePort(), deviceDirectory: getDeviceDirectoryPort(), sharing: shareDeps() }),
+                      refreshDevices: () => void queryClient.invalidateQueries({ queryKey: devicesQueryKey(idpUrl) }),
+                      report: warnFanout,
+                  })
+                : null,
+        [signedIn, idpUrl, actorUri, queryClient],
     )
 
     useEffect(() => {
-        const accessToken = useAppStore.getState().accessToken
-        if (listKey === null || !idpUrl || !accessToken || !actorUri) return
-        void (async () => {
-            // With no conversation, the device list is still reviewed: revocations kept, devices announced.
-            const { failed, reviewFailure, shareFailure, unclaimed } = await sync(
-                idpUrl,
-                accessToken,
-                actorUri,
-                conversationIds ? (conversationIds.split(",") as ConversationId[]) : [],
-                { e2ee: getE2eePort(), deviceDirectory: getDeviceDirectoryPort(), sharing: shareDeps() },
-            )
-            const held = retry.current
-            clearTimeout(held.timer)
-            if (unclaimed.length === 0) held.attempts = 0
-            else if (held.live) held.timer = setTimeout(() => setRetries((n) => n + 1), unclaimedRetryDelay(held.attempts++))
-            if (reviewFailure !== undefined) {
-                // eslint-disable-next-line no-console
-                console.warn("[fanout] reviewing the device list failed", reviewFailure)
-            }
-            if (shareFailure !== undefined) {
-                // eslint-disable-next-line no-console
-                console.warn("[fanout] sharing the history passphrase failed; tried again at the next refresh", shareFailure)
-            }
-            for (const { conversationId, error } of failed) {
-                // eslint-disable-next-line no-console
-                console.warn("[fanout] keeping a group in step failed", conversationId, error)
-            }
-        })()
-    }, [listKey, idpUrl, signedIn, actorUri, conversationIds, groupsHeld, retries])
+        if (!fanout) return
+        fanout.start()
+        return () => fanout.stop()
+    }, [fanout])
+
+    useEffect(() => {
+        if (fanout && devices) fanout.devicesListed(devices)
+    }, [fanout, devices])
+
+    useEffect(() => {
+        fanout?.conversationsChanged(conversationIds ? (conversationIds.split(",") as ConversationId[]) : [])
+    }, [fanout, conversationIds])
 
     const onDeviceListChanged = useCallback(() => {
         if (!idpUrl) return

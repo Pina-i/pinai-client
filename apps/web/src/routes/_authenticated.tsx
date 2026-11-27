@@ -2,12 +2,10 @@ import { useEffect, useMemo } from "react"
 import { createFileRoute, Outlet } from "@tanstack/react-router"
 import { requireSession } from "@/routes/-require-session"
 import { AnimatePresence, motion } from "motion/react"
-import { useConsumeMlsWelcomes } from "@/presentation/hooks/useConsumeMlsWelcomes"
 import { useDeviceFanout } from "@/presentation/hooks/useDeviceFanout"
-import { useHistoryArchiveFlusher } from "@/presentation/hooks/useHistoryArchiveFlusher"
 import { useHistoryShare } from "@/presentation/hooks/use-history-share"
 import { useHistoryRearchive } from "@/presentation/hooks/use-history-rearchive"
-import { useRejoinConversations } from "@/presentation/hooks/use-rejoin-conversations"
+import { useMessagingRuntime } from "@/presentation/hooks/use-messaging-runtime"
 import { useNewDeviceLines } from "@/presentation/hooks/use-new-device-lines"
 import { useIdentityOnboardingGate } from "@/presentation/hooks/useIdentityOnboardingGate"
 import {
@@ -39,10 +37,8 @@ function AppRuntime() {
     useLoadPendingNotifications()
     useLoadDmConversations()
     useLoadPresence()
-    useConsumeMlsWelcomes()
-    useRejoinConversations()
+    useMessagingRuntime()
     useNewDeviceLines()
-    useHistoryArchiveFlusher()
     useHistoryShare()
     useHistoryRearchive()
     useUnapprovedDeviceNotice()

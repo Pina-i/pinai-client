@@ -20,10 +20,13 @@ export interface MobileNavigation {
  */
 export class MobileAuthNavigationAdapter implements IAuthNavigationPort {
     private readonly nav: MobileNavigation
+    private readonly closedTo: () => string
     private location = "/"
 
-    constructor(nav: MobileNavigation) {
+    /** `closedTo` — where a sheet the user closed goes back to: where the password was asked again, else Welcome. */
+    constructor(nav: MobileNavigation, closedTo: () => string = () => "/") {
         this.nav = nav
+        this.closedTo = closedTo
     }
 
     callbackUrl(): string {
@@ -45,12 +48,17 @@ export class MobileAuthNavigationAdapter implements IAuthNavigationPort {
 
     navigateTo(url: string): void {
         if (url.startsWith("/")) {
-            this.nav.replace(url)
+            this.go(url)
             return
         }
-        void this.openSignIn(url).then((back) =>
-            back.kind === "returned" ? this.nav.replace("/callback", back.params) : this.nav.replace("/"),
-        )
+        void this.openSignIn(url).then((back) => (back.kind === "returned" ? this.nav.replace("/callback", back.params) : this.go(this.closedTo())))
+    }
+
+    /** An in-app path, its query as the route's params. */
+    private go(path: string): void {
+        const [pathname, query] = path.split("?", 2)
+        if (query) this.nav.replace(pathname, Object.fromEntries(new URLSearchParams(query)))
+        else this.nav.replace(pathname)
     }
 
     /** The IdP's pages in the system's sheet, until they answer the callback or the user closes them. */

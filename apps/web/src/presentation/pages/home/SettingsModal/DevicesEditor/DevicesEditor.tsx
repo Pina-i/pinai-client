@@ -1,6 +1,8 @@
 import { LogOut, RotateCcw } from "lucide-react"
 import { Link } from "@tanstack/react-router"
 
+import { ONLY_APPROVED_REVOKES } from "@pinai/domain/models/device-roster"
+
 import { RecentSignInModal } from "@/presentation/molecules/RecentSignInModal/RecentSignInModal"
 import { RecoveryPassphraseCard } from "@/presentation/molecules/RecoveryPassphraseCard/RecoveryPassphraseCard"
 import { WithheldNote } from "@/presentation/molecules/WithheldNote/WithheldNote"
@@ -8,7 +10,7 @@ import { ScrollArea } from "@/presentation/atoms/ScrollArea/ScrollArea"
 import { cn } from "@/presentation/_libs/utils"
 
 import { DeviceCard } from "./DeviceCard/DeviceCard"
-import { ONLY_APPROVED_REVOKES, useDevicesEditorViewModel } from "./DevicesEditor.viewmodel"
+import { useDevicesEditorViewModel } from "./DevicesEditor.viewmodel"
 import { ReplaceWords } from "./ReplaceWords/ReplaceWords"
 import { WaitingSeat } from "./WaitingSeat/WaitingSeat"
 

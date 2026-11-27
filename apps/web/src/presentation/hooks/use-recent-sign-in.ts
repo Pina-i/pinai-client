@@ -3,8 +3,8 @@ import { toast } from "sonner"
 
 import { needsRecentSignIn } from "@pinai/domain/models/idp-error"
 import { startLoginUseCase } from "@pinai/domain/usecases/auth/startLogin.usecase"
+import { instanceHost } from "@pinai/domain/models/instance"
 import { getAuthPlatform, getAuthPort } from "@/ioc/index"
-import { instanceHost } from "@/presentation/_libs/instance-host"
 import { useAppStore } from "@/store/store"
 
 export interface RecentSignIn {

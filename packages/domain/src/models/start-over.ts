@@ -163,3 +163,55 @@ export function holdAfterRefusal(requestId: string, readyAt: number, refusedAt: 
 export function heldBack(request: Pick<StartOverRequest, "id" | "readyAt">, hold: FinishHold | null, now: number): boolean {
     return hold !== null && request.id === hold.requestId && request.readyAt === hold.readyAt && now < hold.until
 }
+
+export type StartOverStage = "loading" | "choice" | "waiting" | "ready" | "elsewhere"
+
+/** The panel's stage: the choice until it may ask or when the read failed, a loader until read, waiting while held back. */
+export function startOverStage(panel: { mayAsk: boolean; state: AskingState | null; readFailed: boolean; held: boolean }): StartOverStage {
+    if (!panel.mayAsk) return "choice"
+    if (panel.state === null) return panel.readFailed ? "choice" : "loading"
+    if (panel.held) return "waiting"
+    const { kind } = panel.state
+    return kind === "waiting" || kind === "ready" || kind === "elsewhere" ? kind : "choice"
+}
+
+/** Matured as it opened: no approved device to wait for. */
+export function readyAtOnce(state: AskingState | null): boolean {
+    return state?.kind === "ready" && state.request.readyAt <= state.request.createdAt
+}
+
+/** How this device's last request ended, when worth saying: a superseded one the holder was told of is said there. */
+export function endedNote(state: AskingState | null, told: "approved" | "superseded" | null): "cancelled" | "superseded" | null {
+    if (state?.kind === "cancelled") return "cancelled"
+    return state?.kind === "superseded" && told === null ? "superseded" : null
+}
+
+export interface StartOverSighting {
+    /** The request last seen open here. */
+    open: string | null
+    /** The request whose end the holder was told of. */
+    told: string | null
+}
+
+/**
+ * Seen open here, then approved or superseded: the holder is told, once per request, and checks where the device
+ * goes. A request only ever read ended — after a reload — tells nothing: the gate already decided.
+ */
+export function sightStartOver(
+    seen: StartOverSighting,
+    state: AskingState | null
+): { seen: StartOverSighting; tell: "approved" | "superseded" | null } {
+    let next = seen
+    if ((state?.kind === "waiting" || state?.kind === "ready") && next.open !== state.request.id) next = { ...next, open: state.request.id }
+    const ended = (state?.kind === "approved" || state?.kind === "superseded") && next.open === state.request.id ? state : null
+    if (ended && next.told !== ended.request.id) next = { ...next, told: ended.request.id }
+    return { seen: next, tell: ended && next.told === ended.request.id ? ended.kind : null }
+}
+
+// A device clock far behind the instance's would put `readyAt` past what a timer takes (2³¹ − 1 ms).
+const LONGEST_TIMER_MS = 2 ** 31 - 1
+
+/** A waiting request is read again a second after it matures on this device's clock. */
+export function matureRereadDelay(readyAt: number, now: number): number {
+    return Math.min(Math.max(0, readyAt - now) + 1_000, LONGEST_TIMER_MS)
+}

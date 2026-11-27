@@ -5,7 +5,7 @@ import { useAppStore } from "@/store/store"
 
 let following = false
 
-/** Each account signed in (or resumed) brings its palette and motif, settled with this phone's copy. Idempotent. */
+/** Each account signed in (or resumed) brings its palette, motif and mutes, settled with this phone's copy. Idempotent. */
 export function followAccountAppearance(): void {
     if (following) return
     following = true
@@ -22,9 +22,9 @@ async function adopt(idpUrl: string, accessToken: string, user: UserProfile): Pr
         user.settings,
         user.actor_uri,
         getAccountSettingsPort(),
-        getUserSettingsStore(),
+        getUserSettingsStore()
     ).catch(() => null)
-    if (settings && useAppStore.getState().user?.actor_uri === user.actor_uri) useAppStore.getState().setAppearance(settings.appearance)
+    if (settings && useAppStore.getState().user?.actor_uri === user.actor_uri) useAppStore.getState().setAccountSettings(settings)
 }
 
 /** Another session of the account changed its settings (`settings_updated`). */
@@ -32,5 +32,5 @@ export function receiveAccountSettings(remote: unknown): void {
     const actor = useAppStore.getState().user?.actor_uri
     if (!actor) return
     const settings = receiveAccountSettingsUseCase(remote, actor, getUserSettingsStore())
-    if (settings) useAppStore.getState().setAppearance(settings.appearance)
+    if (settings) useAppStore.getState().setAccountSettings(settings)
 }

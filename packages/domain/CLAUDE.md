@@ -16,9 +16,11 @@ an index: most of the models, ports and use cases are exactly what their
 names say, and listing all fifty-odd would age badly and help nobody.
 
 `tsconfig.json` explains the one compromise: `DOM` is in `lib` because `URL`,
-`URLSearchParams`, `AbortSignal` and `atob` have no smaller lib to come from.
-Those four are the entire platform surface this package assumes, and eslint
-blocks the browser-only globals that admitting `DOM` would otherwise allow.
+`URLSearchParams`, `AbortSignal`, `atob`, `TextEncoder` / `TextDecoder` and the
+timers (`setTimeout` / `clearTimeout`: `ShareWait`) have no smaller lib to come from.
+They are the entire platform surface this package assumes — all present in browsers,
+on Hermes and in Node —, and eslint blocks the browser-only globals that admitting
+`DOM` would otherwise allow.
 
 ## Modules
 
@@ -144,7 +146,7 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   that binding can be synchronous is not yet known. Retrofitting
   `sync → async` later would rework the whole message path.
 - Bytes in, bytes out — every implementation must agree byte-for-byte;
-  the specs in `test/` are the contract.
+  `@pinai/mls/contract` is the contract, played on every build.
 - The leaf key before its credential (`generateSignatureKey`, then
   `setIdentity(credential, key)`), so the device's root key signs it in. What
   the leaf checks need: `inspectKeyPackage`, `groupLeaves` (`MlsLeaf`, `own`
@@ -224,8 +226,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - The device names itself: `composeDeviceLabel(facts)` makes the `label` its registration and
   uploads carry (the web's `KeyDirectoryApiAdapter` is given it), so every platform's quirks stay
   on the client. `DeviceFacts` is a union by `client`, one branch a kind of client: `browser` (the
-  `User-Agent`, Chromium's hints or `null`) and `app` (`ComputerFacts`: the system, the
-  computer's model and name, as the desktop app's main process reads them).
+  `User-Agent`, Chromium's hints or `null`), `app` (`ComputerFacts`: the system, the
+  computer's model and name, as the desktop app's main process reads them) and `phone-app`
+  (`PhoneFacts`: the mobile app's system, phone or tablet, model and the name its owner gave it).
 - The desktop app: the model, else the system, then the computer's name in brackets —
   "Lenovo ThinkPad X1 Carbon Gen 9 (alice-thinkpad)", "Windows (alice-pc)", "Linux"; the computer's
   name alone when it holds the model, as whole words ("Alice's MacBook Air"; "iMac" is not in
@@ -233,6 +236,10 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   card's icon says it; `laptop`, `app`. Past 100 characters the computer's name is shortened with
   "…", its bracket kept. `desktopOsOf` — the system the app's `User-Agent` names, for what it
   knows before its main process answers.
+- The mobile app: the same rule (`appName`) — the model, else the system, then the name its owner
+  gave the phone in brackets, or that name alone when it holds the model, and the model alone when it
+  holds that name ("Pixel 9 Pro (Kilian's phone)", "Ana's Galaxy S24", "Android"; "iPhone 15 Pro" for
+  an iPhone, which without Apple's entitlement is named "iPhone"); `phone` or `tablet`, `app`.
 - A browser: "<browser> on <system>" from the `User-Agent`. Close to the IdP's own reading of one,
   not the same: ChromeOS is named, and Edge and Opera on Android too, where the IdP says Chrome.
   Chromium's hints put an Android model in the system's place (`SM-` codes get "Samsung";
@@ -301,6 +308,12 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   and the root key listed now (Settings → Devices).
 
 ### models/device-roster.ts
+- `rosterRows` — the list as every screen reads it, this device marked (`is_current`), a kind the
+  client doesn't draw `unknown`. `devicesPane` — the pane: rows not seated with their flags, this
+  device (the verdict's when the list doesn't mark it), the from-before heading by the verdict's
+  cause, who waits as a screen reader hears it, `listRefused`, "held by N", `uncounted`; the
+  `ONLY_APPROVED_*` reasons. `wordsOffers` — the words shown only where current, "Restore history"
+  only off them and never under the history-reset banner, "Replace my words" only holding them.
 - Settings → Devices' rules, each from this device's own verdict. `waitingDevices` — on an
   acting verdict only, newest first: the rows an `unapproved-device` event stands for, and
   one asking (a request a seat may answer) that no review judged yet; once judged, an event
@@ -366,6 +379,43 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   a pending key goes to setup unchecked; an IdP out of reach (`isUnreachable`) decides
   on the recorded standing and admission, so a device let in, by its words, a partner or its
   kept words, reloads offline; any other failure, or nothing recorded, is thrown.
+- `OnboardingGate` (`onboarding-gate.usecase.ts`, shaped like `SessionKeeper`) — the gate for one
+  signed-in account, every client's: `probe()` wipes a device bound to another account first
+  (`wiped`: the platform starts afresh), then answers `gateDecisionUseCase`'s decision as a
+  `GateVerdict` (`in` with its `reset`, `go` to a route, `failed`); once in, `watch(onVerdict)`
+  re-checks at once on the trust events `forcesRecheck` names (those replayed as it subscribes
+  skipped) and on their withdrawal (`withdrawalRechecks`), and `recheck(force)` when the platform
+  asks — unforced, `routeRechecks`' spacing. The newest check decides; one that fails changes
+  nothing and answers `failed`; none is delivered after `close()` or a sign-out
+  (`session()` → `null`). `RecheckOutcome`: `checked`, `offline`, `failed`. When to call it and
+  what to show are the platform's (the web's `useIdentityOnboardingGate`).
+- `ThisDeviceStart` (`this-device-start.usecase.ts`) — `startThisDeviceUseCase` once per load (the
+  page's, the app's), one run at a time: settled once linked with its words checked, or refused by
+  the IdP (an `IdpError`: a revoked device); `device_mismatch` signs in afresh; anything else — the
+  IdP out of reach — is tried at the next `run()`. A failed registration or history-key check is
+  warned of.
+- The onboarding pages' sequences, over the functions they're given (the bootstrap, the gate's
+  route, the restore from words, the restore due, signing in again), each answering what the
+  screen shows: `setUpFirstDeviceUseCase` (`set-up-first-device.usecase.ts`, `SetupOutcome`) —
+  the first device's words once the IdP took them, a start over's new words first, a key set
+  elsewhere → `go` the gate's route, a pending key written moments ago → `retry` after
+  `PENDING_RECHECK_MS`, offline the first generation's words kept (`firstWordsShownOffline`);
+  `typeWordsUseCase` (`type-words.usecase.ts`, `TypedWordsOutcome`) — the screen's setup awaited,
+  the words checked, kept, the history restored (`refused` with the reason, `kept` with the
+  restore's count or failure).
+- `ShareWait` (`share-wait.usecase.ts`) — `AwaitedShare` read on its backoff while a `Visibility`
+  says the app is in front (a page's visibility, an app's state), at once when it comes back;
+  `device_mismatch` ending the wait signs in again, any other end is warned of.
+- The new-device and reset page (`models/restore-page.ts`, its `RestoreVariant` and `RestoreTab`):
+  `offersWayIn` (never on a reset no start over explains), `offersStartOver` / `shownTab` (no Start
+  over for a device already in), `listensForShare` (set up, lacking the words, no start over or new
+  words holding the page), `openingTab` (a request of this device's waiting, matured, cancelled or
+  superseded opens Start over), `shareRefused`. `enterRestorePageUseCase`
+  (`enter-restore-page.usecase.ts`, `RestorePageEntry`) — as it opens: a pending key → `go` setup, a
+  start over's new words, else the device set up (`onDeviceReady` at once), then whether it is in
+  and lacks the words, with a reset's cause and, after a newer generation, the device found approved
+  that set it — named (`replacedOn`) and refused; the reset page sends a device let in back `home`;
+  an unknown change the gate recorded is said at once (`onEarlyCause`).
 - `registerIdentityUseCase` publishes KeyPackages (`IE2eePort.register`) only once in,
   and answers the admission; a flow that has just decided it (`bootstrap-first-device`,
   `restore-history-from-passphrase`) passes it in, recorded, not read again. Paths: the
@@ -381,6 +431,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   10 minutes ran out on this device's clock (`renewsByItself`): § 2 promises each
   of the instance's guesses costs the user an action. The relay's `expires_at`
   never counts — it can shorten it.
+- `approvingDevices(devices, thisDeviceId)` — where a code shown here can be typed: the account's other devices,
+  unrevoked, by their shown name ("A device" without one), kind and client.
 - Rules: `mayAsk` / `mayAnswer` (holding the words **settled**: approved and the
   generation reported, so the asker finds it listed at the current one); `canonicalId`
   (lowercase UUIDs, else none);
@@ -427,18 +479,49 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   unanswered request moves to its seat; `answerAt` — a seat answers through the same run;
   a wrong code's next request stays in the seat. `leaveSeat` — the pane went: a run under way
   (or a code waited for, unless set aside) goes on at the Door, a settled one goes, and the
-  Door picks again. `seatAnswer` (`models/approval-handshake.ts`) — what a seat offers: its
+  Door picks again. `summon(device)` — the Door called for a device (a new device's notice): its request shows, one
+  set aside included, and only its own until `dismiss`; with none yet, `summons` (`DoorSummons`) is what the Door waits
+  for; `unsummon` — that device came in another way or went. `seatAnswer` (`models/approval-handshake.ts`) — what a seat offers: its
   run, the Door's, its newest open request, or nothing. Errors the flows swallow go to
   `HandshakeContext.report`.
 
+### models/approval-door.ts + models/waiting-seat.ts + models/approval-wording.ts + usecases/e2ee/answering-runtime.usecase.ts
+- What the Door and a waiting seat show, for every client: `doorState` (open, waiting for a summoned
+  device, the device named — `shownDeviceName`, "A device" without one), `doorTitle`, `doorCanApprove`;
+  `seatState` (a refused device offered no code, "asked N ago" else "paired <day>" or its activity,
+  the hold while this device's words aren't settled, Not mine until an exchange works), `seatCanApprove`.
+  Dates through the platform's `day(iso)`: `activityLabel` (`models/device.ts`) takes it too.
+- `failureWording` / `refusalWording` / `UNREACHABLE_LINE` — the lines both apps say. `askedLine`
+  (`models/relative-time.ts`), `instanceHost` (`models/instance.ts`), `passwordAdvice`
+  (`models/instance-admin.ts`) likewise. Lines that differ by platform on purpose stay there (a
+  start over refusal's "Reload" / "Restart", "Settings → Devices" / "›").
+- `arrivalToTell` (`models/device-trust.ts`) — an `unapproved-device` that `arrived`, told once a run:
+  the web's toast, the phone's Door.
+- `AnsweringRuntime` — keeps an `ApprovalAnswering` current with only the platform's timers: the
+  first read and its backoff, `reconnected()`, every `SUMMONS_REFRESH_MS` while summoned, a chained
+  poll on `pollDelay` while the Door's or a seat's exchange works; `stop()` dismisses.
+
 ### models/bytes.ts
-- `sameBytes`, `hexOf` — the models' byte helpers: the lint boundary keeps models
-  off `lib/`.
+- `sameBytes`, `hexOf`, `base64Bytes` (a wire ciphertext, `null` when it isn't base64), `bytesBase64`
+  (a ciphertext for the wire) — the models' and use cases' byte helpers: the lint boundary keeps the
+  domain off `lib/`.
 
 ### lib/one-at-a-time.ts
 - `oneAtATime` — one run at a time; the calls made meanwhile are one run after it, with
   the latest arguments, answering them all. The fanout's sync and the page's one accept of
   a key share (`apps/web/src/presentation/_libs/accept-share.ts`) go through it.
+
+### lib/contract.ts
+- What the contracts share (`@pinai/mls/contract`, `@pinai/crypto/contract/storage`): the
+  runner — `runScenarios`, one after the other, each timed, a failure stopping none;
+  `summaryLine(label, …)`, the line the mobile app's check scripts wait for — and the
+  assertions (`check`, `same`, `refused`, `alike`). Plain TypeScript, so a phone plays them.
+
+### lib/attachment-cache.ts
+- `AttachmentCache` — the attachments an app opened, decrypted, by id: downloaded and opened once however
+  many ask, past a budget the least recently used let go but never one held on screen, all of it on
+  `clear` (an account change), a load under way included. `AttachmentUrls` is how a platform shows bytes:
+  the web's object URLs, the phone's `data:` URIs.
 
 ### lib/bytes.ts
 - Base64 ↔ bytes, `base64url` for JWS/JWK and padded `base64` elsewhere
@@ -516,6 +599,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `imagePreviewOf(key)` — the only way to read them, because a peer wrote them: a size whole and
   within `MAX_IMAGE_SIDE`, or no preview at all; a blurhash of base 83 whose length its first
   character gives, or none, the size kept. A key sent before these fields has no preview.
+- `isImageAttachment(attachment, key?)` — by the type its key carries: the IdP holds every attachment
+  as `application/octet-stream`.
 
 ### usecases/auth/startLogin.usecase.ts
 - `prepareLoginUseCase` — discovery, PKCE verifier + challenge (S256) and
@@ -603,6 +688,8 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - Times as the screens word them: `formatLastSeen` ("3 days ago") and
   `expiryWording` ("expires in 7 days", rounded up as the IdP's invitation
   page does, or "expired"). Both answer `null` for a date they can't read.
+- `dayDividerLabel(date, now)` — a conversation's day separator: "Today", "Yesterday", else the date in
+  the reader's locale.
 
 ### usecases/auth/logout.usecase.ts
 - Clears the local session via an injected `clearSession` callback
@@ -621,6 +708,10 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   live, takes its place and keeps what only the cache knew (its reactions) —
   in `mergeMessageHistory` and `addToTimeline`, the live push. A failed
   decrypt deletes no key, so history tries it again.
+- `Decryption.editOnly` marks a copy read from its last edit alone (`models/received-message.ts`):
+  never decrypted again — the edit was read —, it gives way to a whole copy, the archive's, as a
+  placeholder gives way to it. A whole copy no edit reached is the first text: the edit's text stays
+  on top of it.
 - `findConversation(list, ref)` — what a route param names: a conversation
   id, or a peer's address, which designates the 1:1 with them only. A group
   carries its first member's address too, so a plain address match would open
@@ -632,6 +723,9 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   messages: the messages keep their order, each change goes before the first
   message from after it. `inTimeOrder` — the lines from several sources as one,
   in time order.
+- `startsRun(previous, message)` — a message shows its author and time when it starts a run: the first
+  of a day or after a group's change (`previous` null), another author's, or past `SEQUENCE_GAP_MS`
+  (5 minutes) after the last.
 - `SendStatus` — an own message's lifecycle. `failed`: the IdP never accepted
   it, retried in place. `undelivered`: the IdP stored it but couldn't reach the
   recipient's IdP; the row stays as the record of that attempt and the retry
@@ -639,7 +733,13 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `applyFederationStatus(message, federationStatus, at)` — the IdP's delivery
   outcome (`dm_delivery_failed` live, `federation_status` from history)
   overrides the client's status: the IdP never retries, so it is final.
-- `awaitsResend(message)` — whether an own message still offers a retry.
+- `UNDELIVERED_DM_HINT` — one line under every undelivered 1:1 message, whatever stopped it: the sender
+  must not tell a block from a contact setting or a server that didn't answer.
+- `awaitsResend(message)` — whether an own message still offers a retry. `canResend(message)` —
+  whether it can be sent again at all: not without its plaintext (another device's echo holds the
+  placeholder).
+- `settleByEcho(message, at)` — an own message's echo: the IdP stored it, so a copy
+  still `sending` or `failed` was sent.
 - `settleStaleSend(message, now)` — a send `sending` for longer than
   `SEND_TIMEOUT_MS` becomes `failed`: a page closed mid-send leaves it
   `sending` in the cache. Every DM goes out over `POST /api/dm`, whose answer
@@ -647,6 +747,18 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `reconcileOptimistic(optimistic, confirmed)` / `resentCopies(messages)` — the
   `resentFrom` link from a resent copy to the undelivered message it replaced
   survives reconciliation, and is looked up the other way for "Sent again at".
+- `reconcileSent(list, clientId, confirmed)` — a send's confirmed copy (its
+  answer, or its echo when that comes first) takes its optimistic copy's place;
+  with that copy gone it is appended, unless the other one brought it already.
+
+### models/conversation-list.ts
+- `conversationRow(summary)` — a row of the list as every client names it, from
+  `GET /api/dm`: a DM by its other member, a group by its name, else its
+  members'. `members` leaves the user out, so `memberCount` adds them. The looks
+  (avatar, colour, presence) are each client's.
+- `lastMessagePreview(messages, me)` — only from what this device holds
+  decrypted: the IdP holds ciphertext.
+- `groupFact(row)` — a group's line where a DM previews its message: "3 members", "no longer a member".
 
 ### models/user-settings.ts + ports/user-settings.port.ts + usecases/user-settings/
 - Two scopes. `AccountSettings` (`appearance: { family, motif }`,
@@ -747,15 +859,21 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   each group the untrusted leaves committed out (`removeUntrustedLeaves`, given
   `reviewAgain`: the list read once more before the first own leaf goes on
   approval grounds, that review used from then on) and the approved siblings
-  added (`addOwnDevices`). Runs with no conversation too. Names what failed;
-  the hook logs it, the domain doesn't. `unclaimed` — approved siblings no KeyPackage
+  added (`addOwnDevices`). Runs with no conversation too. Names what failed,
+  for `DeviceFanout` to report. `unclaimed` — approved siblings no KeyPackage
   could be claimed for (a device approved with the code publishes only once in, after
-  the approvals that start the sync, and its upload starts none): the hook runs again
+  the approvals that start the sync, and its upload starts none): run again
   after `unclaimedRetryDelay` (5 s → 15 s → 60 s → 5 min, then every 15 min) while any
-  is left (`lib/one-at-a-time.ts` keeps runs one at a time). With `sharing` wired, an
+  is left. With `sharing` wired, an
   acting review shares the passphrase over the list it read, after the adds
   (`shareFailure`).
   See `identity-provider/specs/e2ee.md § 6.2`, § 3.9.
+- `device-fanout.usecase.ts` — `DeviceFanout`, when that sync runs, every client's: once the
+  platform holds a device list (`devicesListed`), at each change of `deviceListKey` — a refetch
+  that changed nothing runs nothing —, of the conversation ids and on a group held; the unclaimed
+  retry. The sync is handed in, kept one at a time for the whole app (`lib/one-at-a-time.ts`): a
+  fanout mounted again never syncs beside the last one's. The list is the platform's to read
+  (`refreshDevices` after a registration; `device_joined`, `device_approved` on its socket).
 
 ### models/conversation-join.ts + usecases/e2ee/join-conversations.usecase.ts
 - A device holding no group for a conversation of its list joins it by itself, by
@@ -783,7 +901,7 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   on `joinRetryDelay` (waiting sends with it), a refusal for good kept for the page
   load; `onGroupHeld` settles a conversation whoever brought the device in.
   `whenIn` — what a send waits on: `in`, `no-group`, or the refusal.
-  `enterConversationUseCase` — before a send: in, or a DM founded while it has no
+  `enterConversationUseCase` — before a send (`MessageSends`): in, or a DM founded while it has no
   group, `GroupToJoin` sending it back to the wait; a group without one fails.
 
 ### models/new-device.ts
@@ -806,9 +924,99 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
 - `isHeldHere` — a message from the user's own account is this device's
   echo only when it holds a copy of it (optimistic id, server id, or an
   applied reaction). Any other came from one of the user's other devices:
-  `useIdpWebSocket` and the history load decrypt it like anyone's, and
-  show nothing for one that doesn't decrypt (MLS never decrypts a
+  `receiveMessageUseCase` and the history load decrypt it like anyone's,
+  and show nothing for one that doesn't decrypt (MLS never decrypts a
   device's own).
+
+### models/received-message.ts
+- `receivedMessage(wire, app, source)` — the one builder for history rows
+  (`historyWire`) and `new_dm` pushes (`pushWire`), once the ciphertext was
+  tried: a timeline row (`ReceivedText`, the web `Message` without its looks), a
+  reaction to fold, or nothing. What doesn't decrypt is nothing from history (it
+  predates the device in the group: the archive brings it back) or from the
+  account itself (`mine`: MLS never decrypts a device's own); live, a placeholder
+  marked `undecrypted`, which history tries again.
+- `edit` — the IdP replaces an edited message's ciphertext with the edit's, so history's row of
+  one this device never held reads as the edit: its text, marked edited and `editOnly` (no
+  attachment keys, no reply preview), `editedAt` the row's. Live, edits come as `message_edited`.
+- `editOf(app, id)` — an edit's text, only for that message. `editedSince(held, editedAt)` —
+  whether a held copy may miss the edit its history row carries: edited after the last edit read
+  here (`editedAt`, kept by history and `receiveEditUseCase`). An edited copy of unknown time
+  (restored; edited on this device, whose own ciphertext never decrypts) counts as current, or its
+  row would fail to decrypt at each opening.
+- The account's own history rows take the user's name, a push the IdP's; only a
+  history row carries `edited`. Decrypting, the cache checks before it and
+  archiving stay with the caller (`receiveMessageUseCase` live, `loadConversationUseCase`
+  from history).
+
+### models/reaction.ts
+- `foldReaction(messages, appliedReactionIds, application, reactedByMe)` — once
+  per reaction id, the id recorded even when neither the conversation nor the
+  message is held: history decrypting a reaction the socket folded would count
+  it twice, or — its keys gone — show it as an undecryptable row. The receive,
+  load and restore use cases fold through `IConversationCache.update`.
+
+### ports/conversation-cache.port.ts + usecases/dm/receive-message.usecase.ts
+- `IConversationCache<M>` — one conversation's timeline (`ConversationTimeline`: messages,
+  applied reaction ids, group events, new-device lines), read, and changed by a pure function
+  over what is held as it runs: a field given back as it was is not written — the web's store
+  sets only what was replaced (its cache guard skips the rest), the phone writes only the row
+  that changed. Asynchronous: the phone's rows are sealed. Generic over each client's message
+  shape (`CachedTimelineMessage`, what the domain reads); `toCached` gives a message that shape
+  (the web's looks). `conversationIds` — for a push naming no conversation. The web's is
+  `presentation/_libs/conversation-cache.ts`, over the store's `changeTimeline`.
+- `receiveMessageUseCase` — a `new_dm`. One of the account's own held here (`isHeldHere`) is
+  this device's echo, never decrypted: with its client id the optimistic copy becomes the sent
+  one (`reconcileSent`), archived from its text (the send's answer may never come); without,
+  a copy `sending` or `failed` is sent (`settleByEcho`). Any other is decrypted once (every
+  failure a message that didn't decrypt), built by `receivedMessage`, folded or added, and
+  archived. It answers `DmArrival` — `message` (`mine`: from another of the user's devices),
+  `reaction`, `echo`, `nothing` — and the platform decides the ping, the unread count and
+  the read marker.
+- `receiveEditUseCase` — `message_edited` names no conversation: each held one is tried until
+  one decrypts an edit of that message, archived under the edited message's author. The first
+  conversation holding the message takes the text, marked edited, with the edit's time. One that doesn't
+  decrypt changes nothing: this device's own edit, or one read already and pushed again — the held text
+  is the best it has.
+- `receiveDeliveryFailureUseCase` — `applyFederationStatus` wherever the message is held.
+
+### usecases/dm/load-conversation.usecase.ts
+- `loadConversationUseCase` — opening a conversation: its first history page (`openConversationUseCase`,
+  which reads the list again), each row decrypted at most once — a held copy reused (forward secrecy
+  deleted its keys), a placeholder tried again, an applied reaction skipped — and archived. Then one
+  `update`: the texts merged, the edits made while away (below), `federation_status: failed` over
+  the held copy (it wins the merge),
+  the reactions folded once their messages are in, a reaction's live placeholder dropped, the group's
+  changes merged. One change, so the phone writes its row once.
+- A held copy is reused as it is, unless its row was edited since (`editedSince`): the row is
+  then tried, and only an edit of that message changes the copy — its text, `edited`, its time —,
+  archived under the copy's author; a later edit come live meanwhile stays. A row that doesn't
+  decrypt (read already, its keys gone) changes nothing.
+
+### usecases/dm/send-message.usecase.ts
+- `MessageSends` — a running app's sends, one instance: it keeps what must outlive a screen, the sends still under way (`settleStale` never fails one waiting for its
+  conversation's join) and each unsent message's intent (a retry without one rebuilds it from the
+  message, `canResend`).
+- `send` — the copy shown at once, `sending`; then `enterConversationUseCase` (a Welcome or a join
+  waited for, a DM's group founded), the text encrypted, `POST /api/dm` with the copy's id as
+  `clientId` or the group's endpoint, the IdP's copy in its place (`reconcileSent`) and archived. Any
+  failure is `failed`, named by stage (`report`). Every check runs before encrypting: it advances the
+  sender's MLS counter, so a ciphertext never sent leaves the members behind.
+- `retry` — `failed` in place; `undelivered` marked `resent` and sent again as a new message
+  (`resent` answered, for the platform to scroll to it).
+
+### usecases/dm/messaging-runtime.usecase.ts
+- `MessagingRuntime` — what a running app schedules for its conversations, every client's, shaped
+  as `AnsweringRuntime`: `start` (the device is in) starts the archive's uploads, reads the
+  Welcomes waiting and joins the conversations not held; `socketEvent` catches a group up on
+  `mls_commit` and reads the Welcomes on `mls_welcome_ready` (`conversationsStale` when one
+  brought a group: its row comes with the same Note); `conversationsChanged` joins only when the
+  ids or removals changed — a row changes at every message —; `reconnected` joins again. The app's
+  `ConversationJoins` is handed in: a send waits on the joins it starts.
+- `DeviceFanout` and `KeyPackageTick` are their own classes, started beside it: each platform runs
+  them where it holds their inputs (the web: the fanout's hook, the tick with the gate in the
+  layout). The archive's restore isn't scheduled here: it follows the key share
+  (`HistoryRestore`), before the app too.
 
 ### models/history-key.ts + the history key's use cases
 - The account's passphrase in generations (`identity-provider/specs/e2ee.md § 3.6–3.9`).
@@ -904,6 +1112,16 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   `startOverToPromptUseCase` (`{ request, answersCodes }`: `mayAnswer` over the standing, which
   only decides whether "It's me" is offered), `endStartOverUseCase`. `startOverUseCase` is the
   finishing: a `finishRefusal` erases the pending key like a conflict's.
+  The panel's rules, every client's: `startOverStage` (the choice until it may ask or when the read
+  failed, a loader until read, waiting while held back), `readyAtOnce`, `endedNote`,
+  `sightStartOver` (seen open here, then approved or superseded: told once per request; only read
+  ended after a reload, nothing), `matureRereadDelay` (a second after it matures, within a timer's
+  range). `StartOverFlow` (`start-over-flow.usecase.ts`) — ask, finish, withdraw, one at a time,
+  over the functions and hooks it's given (`known`, `held`, `reread`, `step`): asked and matured, or
+  not needed, it finishes at once; a too-early finish is held (`holdAfterRefusal`) and the request
+  read again; a failed finish shows new words it may have set (`newWordsToShow`). It answers a
+  `StartOverFlowResult` the platform words: `started-over`, `needs-recent-sign-in`, `went-otherwise`,
+  `rolled-back`, `too-many`, `failed` (during ask, finish or withdraw), `quiet`.
 - `take-device-baseline.usecase.ts` — `takeDeviceBaseline`, best effort: bootstrap after
   generation 1 is set, typed words and an accepted share once kept, `finishNewGeneration`
   (with its intent), the settle of a lost answer's pending key (the intent minted with it).
@@ -982,11 +1200,15 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   text once, the latest of its sender's edits applied, in its conversation,
   with the reactions still on it — each reactor's last add or remove per
   emoji, so one archived twice counts once.
-- `reactionsToReplay(cached, restored)` — the restore applies reactions
-  through the store's `applyReaction`, which records each id: the history
-  load may decrypt one again (sent after the device joined). Only for the
-  messages the cache doesn't hold decrypted — a held copy wins, reactions
-  included.
+- `reactionsToReplay(cached, restored)` — the restore folds reactions, recording
+  each id: the history load may decrypt one again (sent after the device joined).
+  Only for the messages the cache doesn't hold whole (`undecrypted`, `editOnly`) —
+  a held copy wins, reactions included.
+- `apply-restored-history.usecase.ts` — the restore's apply, every client's: one
+  `IConversationCache.update` per conversation, a turn between them (`withRestored`:
+  seeded, the reactions replayed, a snapshot's counts set, the reactions since applied
+  on top, those it counted recorded only); `restoredText`, a restored message as a
+  timeline keeps it. It answers the conversations it changed.
 - `ARCHIVE_UPLOAD_LIMIT` — the IdP takes 50 entries per upload;
   `ARCHIVE_BUFFER_LIMIT` — at most 1000 wait on a device, the oldest dropped.
 - `edited` on an envelope — a text archived as last edited, no edit entry beside it (a
@@ -1055,9 +1277,12 @@ blocks the browser-only globals that admitting `DOM` would otherwise allow.
   device is in (`checkAdmissionUseCase`) — `replenishKeyPackages`, which fills to the
   cap only a stash at the threshold or not listed (§ 3.5), a first batch included; a
   device out gets `status: null` and refills nothing. A failed renewal holds no refill
-  up; it is answered as `renewalFailure` (the hook signs in again on
+  up; it is answered as `renewalFailure` (the platform signs in again on
   `device_mismatch`) and tried again at the next tick. A registration bringing a new
   attestation is announced (`IE2eePort.onDeviceRegistered`).
+- `KeyPackageTick` — when it runs, every client's: at `start` (the device is in), every
+  `KEY_PACKAGE_REFILL_INTERVAL_MS` and on `key_packages_low` (`low`), the token read at each run.
+  Without it a device's siblings can't add it once its first stash is used.
 
 ### usecases/e2ee/distribute-group-keys.usecase.ts
 - Keys new group members one at a time: concurrent Add commits race the epoch.

@@ -1,4 +1,5 @@
 import type { ExpoConfig } from "expo/config"
+import { type ConfigPlugin, withGradleProperties } from "expo/config-plugins"
 
 interface Face {
     file: string
@@ -50,9 +51,29 @@ const fontPlugin: [string, object] = [
     },
 ]
 
+// A build leaves no Gradle nor Kotlin daemon behind: Metro runs on after it, in the same terminal, and the daemons'
+// gigabytes would stay taken for nothing.
+const NO_BUILD_DAEMONS: Record<string, string> = {
+    "org.gradle.daemon": "false",
+    "kotlin.compiler.execution.strategy": "in-process",
+}
+
+const withoutBuildDaemons: ConfigPlugin = (config) =>
+    withGradleProperties(config, (gradle) => {
+        gradle.modResults = gradle.modResults.filter((item) => item.type !== "property" || !(item.key in NO_BUILD_DAEMONS))
+        for (const [key, value] of Object.entries(NO_BUILD_DAEMONS)) gradle.modResults.push({ type: "property", key, value })
+        return gradle
+    })
+
+// Firebase's file for this app, kept out of git: its path in `GOOGLE_SERVICES_JSON` (`.env.local`, say). Without
+// it the app builds all the same, with no push notices.
+const googleServicesFile = process.env.GOOGLE_SERVICES_JSON || undefined
+
 const config: ExpoConfig = {
     name: "Pīna'i",
     slug: "pinai",
+    // The Expo project the push tokens belong to: the organisation's, not a person's.
+    owner: "pinai",
     version: "0.0.0",
     orientation: "portrait",
     platforms: ["android", "ios"],
@@ -70,6 +91,13 @@ const config: ExpoConfig = {
             backgroundColor: "#040c0c",
         },
         predictiveBackGestureEnabled: false,
+        // A backup would carry the encrypted store but never its key, which stays in this phone's Keystore:
+        // restored, the store wouldn't open. A new phone is a new device to approve.
+        allowBackup: false,
+        // expo-screen-capture asks these to detect screenshots before Android 14; the app only blocks them (FLAG_SECURE).
+        // DETECT_SCREEN_CAPTURE stays: from Android 14 the library registers its detector as it loads, and throws without it.
+        blockedPermissions: ["android.permission.READ_EXTERNAL_STORAGE", "android.permission.READ_MEDIA_IMAGES"],
+        ...(googleServicesFile && { googleServicesFile }),
     },
     ios: {
         bundleIdentifier: "io.github.pina-i.mobile",
@@ -83,6 +111,8 @@ const config: ExpoConfig = {
         "expo-web-browser",
         "expo-secure-store",
         "expo-sqlite",
+        // The status bar's icon, tinted with Black Pearl's ripple; the channel the instance's notices name.
+        ["expo-notifications", { icon: "./assets/icon/notification.png", color: "#65c6af", defaultChannel: "sign-ins" }],
         [
             "expo-splash-screen",
             {
@@ -99,6 +129,11 @@ const config: ExpoConfig = {
     experiments: {
         reactCompiler: true,
     },
+    extra: {
+        // What an Expo push token is minted for (`eas init`).
+        eas: { projectId: "ff49a041-dfde-4d07-b577-75115962ffb7" },
+        pushNotices: googleServicesFile !== undefined,
+    },
 }
 
-export default config
+export default withoutBuildDaemons(config)

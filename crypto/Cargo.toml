@@ -1,0 +1,42 @@
+# Pīna'i's MLS engine: the core and its facades (README.md). One lock, one target/.
+[workspace]
+resolver = "2"
+members = ["openmls-core", "openmls-native", "openmls-wasm", "uniffi-bindgen"]
+
+[workspace.package]
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[workspace.dependencies]
+# Pinned so a minor openmls bump never silently changes the engine's behaviour: upgrades are
+# deliberate work (README.md, "Updating openmls").
+openmls                  = { version = "=0.8.1" }
+openmls_traits           = { version = "=0.5.0" }
+openmls_rust_crypto      = { version = "=0.5.1" }
+openmls_basic_credential = { version = "=0.5.0" }
+tls_codec                = { version = "=0.4.2" }
+zeroize                  = "1.8"
+thiserror                = "2"
+# The facade and its generator at one exact version: generated bindings check the library's.
+uniffi                   = { version = "=0.32.2" }
+# The phone's Argon2id (openmls-native): byte for byte what @noble gives the web.
+argon2                   = { version = "=0.5.3", default-features = false, features = ["alloc"] }
+
+wasm-bindgen             = "0.2"
+js-sys                   = "0.3"
+getrandom                = { version = "0.2" }
+console_error_panic_hook = "0.1"
+wasm-bindgen-test        = "0.3"
+
+# The Android library (apps/mobile/scripts/build-native-mls.mjs): small and fast, the WASM build's
+# release profile left as it is.
+[profile.android]
+inherits = "release"
+lto = true
+codegen-units = 1
+strip = true
+
+# The iOS static libraries: the same trade.
+[profile.ios]
+inherits = "android"

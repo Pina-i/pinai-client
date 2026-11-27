@@ -29,17 +29,58 @@ pnpm android:mobile   # forwards Metro and Alice's port, then builds, installs a
 
 It stops at once when no phone or emulator is connected.
 
+The app carries the MLS engine as a native Rust library, which `android` builds first (`pnpm
+android:mobile` does): a minute or two the first time, then only when the Rust sources changed.
+It needs, once:
+
+```sh
+rustup target add aarch64-linux-android x86_64-linux-android
+cargo install cargo-ndk --locked
+```
+
+and an Android NDK (Android Studio → SDK Manager → SDK Tools → NDK, found under `$ANDROID_HOME/ndk`,
+or set `ANDROID_NDK_HOME`). The script names whatever is missing. `pnpm --filter @pinai/mobile
+native-mls --force` rebuilds it regardless.
+
+For iOS, `pnpm --filter @pinai/mobile native-mls:ios` builds it for the iPhone and both simulators
+(`rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios` once), with its Swift
+bindings, into `modules/openmls/ios/generated/`. The libraries build on any system — a check that the
+Rust builds for iOS —; `OpenMlsNative.xcframework`, which the app links, takes macOS (`lipo`,
+`xcodebuild`).
+
 An emulator is started from Android Studio's Device Manager, or with `emulator -avd <name>`.
 
 The first build compiles the native code (a quarter of an hour). After that, `pnpm dev:mobile`
 starts Metro alone, and changes to the JavaScript reload in place; rebuild only when a native
-dependency or `app.config.ts` changes. Metro's QR code points at the computer's Wi-Fi address:
-the phone must be on the same Wi-Fi. Over USB instead, `pnpm dev:mobile --localhost` and
-`adb reverse tcp:8081 tcp:8081` (the build sets it up; again after replugging).
+dependency or `app.config.ts` changes. `pnpm android:mobile` generates `android/` only when it is
+missing: after a change to `app.config.ts` or a native dependency added, `pnpm rebuild:mobile`
+regenerates it (Expo's `prebuild --platform android`), clears Metro's cache — stale once a package is
+added, it fails the dev bundle ("Failed to replace … HMRClient.js") — then builds and runs as `pnpm
+android:mobile` does, Metro included, in the same terminal; `pnpm prebuild:mobile` regenerates it
+alone.
 
-Gradle and the emulator together want a lot of memory: if the build's daemon dies, close the
-emulator while it builds, or give Gradle fewer workers (`--max-workers=6` in
-`android/`'s `./gradlew assembleDebug`).
+Metro serves on port 8095, not its default 8081, which is Bob's dev instance: with Metro there, Bob's
+instance can't start and nothing reaches him. Its QR code points at the computer's Wi-Fi address: the
+phone must be on the same Wi-Fi. Over USB instead, `pnpm dev:mobile --localhost` and `adb reverse
+tcp:8095 tcp:8095` (the build sets it up; again after replugging).
+
+A build leaves no Gradle nor Kotlin daemon behind (`app.config.ts` sets `org.gradle.daemon=false`
+and the Kotlin compiler in-process): its memory is given back before Metro runs. Gradle and the
+emulator together still want a lot of it: if the build dies, close the emulator while it builds, or
+give Gradle fewer workers (`--max-workers=6` in `android/`'s `./gradlew assembleDebug`).
+
+### On iOS
+
+Not built yet: iOS needs a Mac with Xcode. There, with an iPhone simulator or a phone, from the repository's root:
+
+```sh
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios   # once
+pnpm ios:mobile   # the native library for iOS, then builds, installs and starts Metro
+```
+
+The development control screens open by link (`xcrun simctl openurl booted io.github.pina-i://dev/mls-check`); the
+check scripts are adb's, Android only. Push notices on iOS take an Apple Developer account and its APNs key in the
+Expo project's credentials.
 
 ### A local instance
 
@@ -48,7 +89,7 @@ USB phone alike, so the instance keeps the address it was set up with. From the 
 for every phone and emulator connected — again after one restarts or is plugged back:
 
 ```sh
-pnpm reverse:mobile        # Metro (8081) and Alice's instance (8088)
+pnpm reverse:mobile        # Metro (8095) and Alice's instance (8088)
 pnpm reverse:mobile 8090   # Metro and an instance on another port
 ```
 
@@ -57,6 +98,66 @@ instance recent enough to serve `/clients/mobile.json` (`curl <instance>/clients
 answers it): type its address in "Your
 server" (`localhost:8080`), and its pages open in the system's sheet. A phone running a build from
 before a native dependency was added shows a red error on reload: build again.
+
+Recreating an instance doesn't clear the phone: it still holds its words and its device for the account,
+and may go straight in by them. Clear the app's data on every phone and emulator
+connected — no build needed —, which signs it out and makes it a new device at the next sign-in:
+
+```sh
+pnpm clear:mobile   # the app's data cleared, nothing built
+pnpm fresh:mobile   # cleared, then regenerated, built and run as pnpm rebuild:mobile does
+```
+
+### Push notices
+
+A phone told by its instance, with the app closed, that a device asks to sign in or to start the
+history over goes through Expo's push service, which holds the app's FCM key
+(`identity-provider/specs/push.md` in the `pinai` repository). A build needs Firebase's file for
+the app, kept out of git: its path in `GOOGLE_SERVICES_JSON`, which Expo reads from `.env.local`:
+
+```sh
+# apps/mobile/.env.local
+GOOGLE_SERVICES_JSON=/home/you/.config/Pinai/google-services.json
+```
+
+Without it the app builds all the same, and neither asks for the permission nor registers. The
+Expo project is `@pinai/pinai` (`extra.eas.projectId` in `app.config.ts`); its FCM V1 key is
+uploaded once in its credentials on expo.dev. A change of the file, like any of `app.config.ts`,
+takes `pnpm rebuild:mobile`.
+
+### Checking on a device
+
+The development build has control screens that play a contract on the phone: each scenario with its
+time, the errors in full, and "Run again". A release build has none of them. From the repository's
+root, with one phone or emulator connected (`--serial <id>` picks one among several, as `adb devices`
+lists them):
+
+```sh
+pnpm --filter @pinai/mobile mls:check       # the app open, Metro serving it
+pnpm --filter @pinai/mobile argon2:check    # the app open, Metro serving it
+pnpm --filter @pinai/mobile storage:check   # Metro serving the app; it starts the app itself
+```
+
+Each prints every scenario with its time, each failure in full, and the result.
+
+- `mls:check` opens `io.github.pina-i://dev/mls-check`: the MLS engine's contract
+  (`@pinai/mls/contract`) on the native library, `[mls-check] 18/18 passed in … ms`.
+- `argon2:check` opens `dev/argon2-check`: Argon2id's known answers (`@pinai/crypto/contract/argon2`) on
+  the native library, `[argon2-check] 6/6 passed in … ms` — the 24 words' case shows how long checking
+  words takes on this phone.
+- `storage:check` checks the encrypted store on the phone's SQLite and Keystore, never touching the
+  app's own store:
+  1. It plays the store's contract (`@pinai/crypto/contract/storage`) on throwaway databases and keys,
+     deleted after: `[storage-check] 26/26 passed in … ms`.
+  2. It writes a sealed marker and two members' MLS groups (`restart: written`).
+  3. It kills the app and starts it again.
+  4. It checks everything came back and that one member reads what the other writes
+     (`restart: all back`).
+
+  It starts the app on Metro at `http://localhost:8095`, the address `pnpm android:mobile` forwards;
+  `--metro <url>` gives another.
+
+Each exits non-zero when a scenario failed or no answer came in time.
 
 ## Generated files
 

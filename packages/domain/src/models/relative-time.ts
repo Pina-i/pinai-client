@@ -47,3 +47,23 @@ export function expiryWording(at: string, now: Date): string | null {
     const [count, unit] = hours < 24 ? [hours, "hour"] : [Math.ceil(seconds / 86_400), "day"]
     return `expires in ${count} ${unit}${count === 1 ? "" : "s"}`
 }
+
+/** "asked 2 minutes ago · kauai.studio" ("signed in …" for a device): read on `now`, never ahead of it. */
+export function askedLine(at: string | number, now: number, host: string, verb = "asked"): string {
+    const iso = typeof at === "number" ? new Date(at).toISOString() : at
+    const since = formatLastSeen(iso, new Date(Math.max(now, Date.parse(iso))))
+    return `${verb} ${since ?? "just now"}${host ? ` · ${host}` : ""}`
+}
+
+/** A day separator in a conversation: "Today", "Yesterday", or "Tuesday, April 22" in the reader's locale. */
+export function dayDividerLabel(date: Date, now: Date): string {
+    const yesterday = new Date(now)
+    yesterday.setDate(now.getDate() - 1)
+    if (sameDay(date, now)) return "Today"
+    if (sameDay(date, yesterday)) return "Yesterday"
+    return date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })
+}
+
+function sameDay(a: Date, b: Date): boolean {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}

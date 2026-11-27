@@ -5,10 +5,10 @@
  */
 
 import type { ApprovalRequest } from "./approval-handshake"
-import type { DeviceListEntry } from "./device"
+import type { DeviceKind, DeviceListEntry } from "./device"
 import { sameDevice, unapprovedListed, type Approver, type DeviceTrustVerdict, type KnownDevice, type TrustEvent } from "./device-trust"
 import type { DeviceId } from "./e2ee"
-import type { HistoryKeyStanding } from "./history-key"
+import type { HistoryKeyStanding, PendingHistoryKey } from "./history-key"
 
 /** This device holds the current passphrase: it shows its words, any other offers "Restore history". */
 export function holdsCurrentWords(standing: HistoryKeyStanding): boolean {
@@ -144,4 +144,121 @@ export function mayRename(
 
 function newestFirst<T extends Seated>(devices: T[]): T[] {
     return devices.sort((a, b) => Date.parse(b.paired_at) - Date.parse(a.paired_at))
+}
+
+/** A listed device, `is_current` marking this one: the server can't tell which device asks. */
+export interface RosterDevice extends DeviceListEntry {
+    is_current: boolean
+}
+
+const DRAWN_KINDS: readonly DeviceKind[] = ["laptop", "phone", "tablet"]
+
+/** The list's rows as every screen reads them: this device marked, a kind the client doesn't draw read as `unknown`. */
+export function rosterRows(devices: readonly DeviceListEntry[], thisDevice: DeviceId | null): RosterDevice[] {
+    return devices.map((d) => ({
+        ...d,
+        kind: DRAWN_KINDS.includes(d.kind) ? d.kind : "unknown",
+        is_current: thisDevice !== null && d.device_id === thisDevice,
+    }))
+}
+
+/** Why "Revoke" isn't offered on an approved device, from one that isn't. */
+export const ONLY_APPROVED_REVOKES = "Only an approved device can remove an approved device"
+
+/** A rename refused for the same reason: no note of its own on the card, Revoke's is there. */
+export const ONLY_APPROVED_RENAMES = "Only an approved device can rename an approved device"
+
+/** Why "Clear history backup" isn't offered on a device the instance doesn't count approved. */
+export const ONLY_APPROVED_CLEARS = "Only an approved device can clear the history backup"
+
+/** Why "Sign out other devices" isn't offered there, and what instead: a password reset ends every session. How follows, by the instance's mode. */
+export const ONLY_APPROVED_SIGNS_OUT = "Only an approved device can sign out your other devices: change your password instead."
+
+/** A device of the list, as its row says it. */
+export interface PaneRow<T> {
+    device: T
+    holdsHistory: boolean
+    /** "this device", another's label, "your 24 words"; `null` on a device that doesn't act. */
+    approvedBy: string | null
+    /** Approved, while this device isn't: the instance refuses its revoke, so the row says why instead. */
+    revokeWithheld: boolean
+    /** Revoke's rule, the IdP's for a rename too, and never a revoked device. */
+    renamable: boolean
+}
+
+export interface DevicesPane<T> {
+    thisDevice: DeviceId | null
+    /** The rows not seated (waiting, from before), each with its flags. */
+    listed: PaneRow<T>[]
+    /** "From before you started over" or "…you replaced your words"; `null` with none. */
+    fromBeforeHeading: string | null
+    /** What a screen reader hears as seats come and go. */
+    waitingAnnouncement: string
+    /** The instance sent a list naming a device twice: nothing new is trusted until it stops. */
+    listRefused: boolean
+    /** "held by N devices". */
+    heldBy: number
+    /** The instance doesn't count this device approved: clearing the backup and signing the others out are withheld. */
+    uncounted: boolean
+}
+
+/**
+ * Settings › Devices from the list, this device's verdict and the instance's count (`null` while unknown, or
+ * without a key in force: nothing withheld). `waiting` and `fromBefore` are the seats (`waitingDevices`,
+ * `fromBeforeDevices`), read once for the pane and the count on its way in.
+ */
+export function devicesPane<T extends RosterDevice>(input: {
+    rows: readonly T[]
+    events: readonly TrustEvent[]
+    verdict: DeviceTrustVerdict | null
+    waiting: readonly T[]
+    fromBefore: readonly T[]
+    approvedByInstance: ReadonlySet<DeviceId> | null
+}): DevicesPane<T> {
+    const { rows, verdict, waiting, fromBefore, approvedByInstance } = input
+    const thisDevice = rows.find((d) => d.is_current)?.device_id ?? verdict?.thisDevice ?? null
+    const seated = new Set([...waiting, ...fromBefore].map((d) => d.device_id))
+    return {
+        thisDevice,
+        listed: rows
+            .filter((d) => !seated.has(d.device_id))
+            .map((device) => ({
+                device,
+                holdsHistory: holdsHistory(device, verdict),
+                approvedBy: approvedByWording(approverOf(verdict, device), rows, thisDevice),
+                revokeWithheld: revokeWithheld(approvedByInstance, thisDevice, device),
+                renamable: mayRename(approvedByInstance, thisDevice, device),
+            })),
+        fromBeforeHeading:
+            fromBefore.length === 0 ? null : verdict?.before?.cause === "replacement" ? "From before you replaced your words" : "From before you started over",
+        waitingAnnouncement:
+            waiting.length === 0 ? "" : `${waiting.length} waiting for you: ${waiting.map((d) => d.display_name.trim() || "a device").join(", ")}`,
+        listRefused: input.events.some((e) => e.kind === "device-list-refused"),
+        heldBy: historyHolders(rows, verdict),
+        uncounted: notCountedApproved(approvedByInstance, thisDevice),
+    }
+}
+
+/** What this device keeps of the history key, read together. */
+export interface HeldWords {
+    standing: HistoryKeyStanding
+    words: string[] | null
+    pending: PendingHistoryKey | null
+}
+
+/**
+ * What the pane offers of the words: shown only where they are the current ones; "Restore history" only off them,
+ * and never under the history-reset banner (its "It was me" is the way back); "Replace my words" only holding them,
+ * no key of its own pending but a replacement's, whose lost answer is pressed again. `null` before the standing is read.
+ */
+export function wordsOffers(
+    held: HeldWords | null,
+    underBanner: boolean,
+): { passphraseWords: string[] | null; offersRestore: boolean | null; offersReplace: boolean } {
+    const holds = held ? holdsCurrentWords(held.standing) : null
+    return {
+        passphraseWords: holds && held?.words ? held.words : null,
+        offersRestore: holds === null ? null : !holds && !underBanner,
+        offersReplace: holds === true && !!held?.words && (!held.pending || held.pending.rearchive === true),
+    }
 }

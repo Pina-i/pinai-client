@@ -2,229 +2,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
 import { sendTypingStartUseCase } from "@pinai/domain/usecases/presence/send-typing-start.usecase"
-import { openConversationUseCase } from "@pinai/domain/usecases/dm/open-conversation.usecase"
+import { loadConversationUseCase } from "@pinai/domain/usecases/dm/load-conversation.usecase"
 import { getDmConversationsUseCase } from "@pinai/domain/usecases/dm/get-dm-conversations.usecase"
 import { dmConversationsQueryKey } from "@/presentation/hooks/useLoadDmConversations"
-import { getDmPort, getE2eePort, getGroupPort, getWsPort } from "@/ioc"
+import { getDmPort, getE2eePort, getWsPort } from "@/ioc"
 import { isBlocked } from "@pinai/domain/models/block"
 import { useBlockUser, useBlocks } from "@/presentation/hooks/useBlocks"
-import { actorUriToAddress, addressToActorUri, asActorUri } from "@pinai/domain/models/identity"
+import { addressToActorUri, asActorUri } from "@pinai/domain/models/identity"
 import type { Message, TimelineNotice } from "@/lib/types"
-import {
-    UNDECRYPTABLE_TEXT,
-    applyFederationStatus,
-    findConversation,
-    inTimeOrder,
-    settleStaleSend,
-    startsConversation,
-    type DirectMessage,
-} from "@pinai/domain/models/dm"
+import { canResend, findConversation, inTimeOrder, startsConversation } from "@pinai/domain/models/dm"
 import { describeGroupEvent, groupEventActor, type GroupEvent } from "@pinai/domain/models/group-event"
 import { describeNewDevice, readNewDeviceLines } from "@pinai/domain/models/new-device"
 import { useDismissGroup } from "@/presentation/hooks/useDismissGroup"
 import { useReadOnReturn } from "@/presentation/hooks/use-read-on-return"
-import type {
-    ActorUri,
-    ApplicationMessage,
-    AttachmentBlobKey,
-    EditBody,
-    ReactionBody,
-    TextBody,
-} from "@pinai/domain/models/e2ee"
-import { archivedEdit, archivedReaction, archivedText } from "@pinai/domain/models/history-archive"
-import type { UserProfile } from "@pinai/domain/models/auth"
+import type { ActorUri, AttachmentBlobKey } from "@pinai/domain/models/e2ee"
+import type { SendRoute } from "@pinai/domain/usecases/dm/send-message.usecase"
 import type { MessageListHandle } from "@/presentation/organisms/MessageList/MessageList"
 import { attachmentCache } from "@/presentation/_libs/attachment-cache"
 import { latestImageKeys } from "@/presentation/_libs/attachments"
-import { enterConversation } from "@/presentation/_libs/conversation-joins"
-
-// Sends this page load is still working on — waiting for the device to join, say —: not stale.
-const sendsUnderWay = new Set<string>()
-
-/**
- * Decode a base64 string to bytes. The wire format throughout 5a is
- * base64 over JSON; the WASM layer takes/returns Uint8Array.
- */
-function b64ToBytes(s: string): Uint8Array {
-    const bin = atob(s)
-    const out = new Uint8Array(bin.length)
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
-    return out
-}
-
-function bytesToB64(bytes: Uint8Array): string {
-    let s = ""
-    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
-    return btoa(s)
-}
-
-/**
- * Try to decrypt an inbound MLS ciphertext for a conversation. Returns
- * the application message (any kind) or null on failure. When
- * `catchUp` is provided the port falls back to fetching missing
- * commits and retrying once.
- */
-async function tryDecryptApp(
-    conversationId: string,
-    mlsCiphertextB64: string,
-    catchUp?: { idpUrl: string; accessToken: string },
-): Promise<ApplicationMessage | null> {
-    try {
-        const ct = b64ToBytes(mlsCiphertextB64)
-        return await getE2eePort().decryptInbound(conversationId, ct, catchUp)
-    } catch {
-        return null
-    }
-}
-
-/**
- * Discriminated outcome of decoding a `direct_messages` row. Text
- * (and replies) project to a UI Message; reactions are folded into
- * the target message's `reactions[]` by the caller. We never display
- * reactions as standalone messages.
- */
-type MappedRow =
-    | { kind: "message"; message: Message }
-    | {
-          kind: "reaction"
-          reaction_message_id: string
-          target_message_id: string
-          reactor_address: string
-          emoji: string
-          op: "add" | "remove"
-      }
-    | { kind: "skip" }
-
-async function mapApiMessage(
-    msg: DirectMessage,
-    currentUser: UserProfile,
-    catchUp?: { idpUrl: string; accessToken: string },
-    cachedById?: Map<string, Message>,
-    appliedReactionIds?: Record<string, true>,
-): Promise<MappedRow> {
-    const senderAddress = actorUriToAddress(msg.sender_actor_uri)
-    const isOwn = senderAddress === currentUser.address
-    const displayName = isOwn
-        ? (currentUser.display_name ?? currentUser.preferred_username)
-        : (msg.sender_display_name ?? senderAddress.split("@")[0] ?? senderAddress)
-
-    // History fetched from REST is post-forward-secrecy: the per-message
-    // MLS keys are gone for messages we already processed. The
-    // persisted `dmMessages` Zustand slice (encrypted at rest in
-    // IndexedDB) is the canonical plaintext source for these. Reuse
-    // the cached UI message verbatim when it exists; only fall back
-    // to decrypt for genuinely-new rows.
-    const cached = cachedById?.get(msg.id)
-    // One this device couldn't decrypt is tried again: the failure deleted no key.
-    if (cached && !cached.undecrypted) {
-        return { kind: "message", message: cached }
-    }
-    // Reactions we already applied via the live WS path live folded
-    // inside their target message's `reactions[]` — there's no
-    // standalone entry in `dmMessages` to find via `cachedById`. The
-    // store records every applied reaction by its row id in
-    // `appliedReactionIds`, so we use that as a second cache layer.
-    // Without this check the recv-side ratchet would say "secret
-    // deleted" on the second decrypt and we'd fall through to the
-    // text branch, pushing a ghost `[encrypted]` row.
-    if (appliedReactionIds?.[msg.id]) {
-        return { kind: "skip" }
-    }
-    // One of the account's own not held here came from one of its other
-    // devices, and decrypts like anyone's. One of this device's own never
-    // does (MLS can't) and is skipped below, placeholder-free.
-    const app = await tryDecryptApp(msg.conversation_id, msg.mls_ciphertext, catchUp)
-
-    // Undecryptable peer history: skip rather than rendering an
-    // `[encrypted]` placeholder. From REST these are almost always
-    // messages sent before this device joined the group (no MLS
-    // ratchet state can recover them) — restore-from-passphrase is
-    // the supported path to surface them. Live undecryptable
-    // messages still surface as `[encrypted]` via the WS handler so
-    // genuinely-transient decrypt failures stay visible.
-    if (!app) return { kind: "skip" }
-
-    const sender = { address: senderAddress, displayName }
-    if (app.kind === "text") {
-        getE2eePort().bufferForArchive(
-            msg.conversation_id,
-            msg.id,
-            archivedText(sender, msg.created_at, app.body as TextBody, msg.attachments),
-        )
-    } else if (app.kind === "edit") {
-        // An edited message's ciphertext is the edit's; the archive may hold its first text.
-        getE2eePort().bufferEditForArchive(
-            msg.conversation_id,
-            b64ToBytes(msg.mls_ciphertext),
-            archivedEdit(sender, msg.edited_at ?? msg.created_at, app.body as EditBody),
-        )
-    }
-
-    if (app.kind === "reaction") {
-        const body = app.body as ReactionBody
-        if (
-            body &&
-            typeof body.target_message_id === "string" &&
-            typeof body.emoji === "string" &&
-            (body.op === "add" || body.op === "remove")
-        ) {
-            getE2eePort().bufferForArchive(msg.conversation_id, msg.id, archivedReaction(sender, msg.created_at, body))
-            return {
-                kind: "reaction",
-                reaction_message_id: msg.id,
-                target_message_id: body.target_message_id,
-                reactor_address: senderAddress,
-                emoji: body.emoji,
-                op: body.op,
-            }
-        }
-        return { kind: "skip" }
-    }
-
-    let plaintext = UNDECRYPTABLE_TEXT
-    let inlineReplyMeta: { content: string; author: string } | null = null
-    let attachmentKeys: Record<string, AttachmentBlobKey> | undefined
-    if (app.kind === "text") {
-        const body = app.body as TextBody
-        if (typeof body?.text === "string") plaintext = body.text
-        if (
-            body?.reply_meta &&
-            typeof body.reply_meta.preview_text === "string" &&
-            typeof body.reply_meta.preview_sender === "string"
-        ) {
-            inlineReplyMeta = {
-                content: body.reply_meta.preview_text,
-                author: body.reply_meta.preview_sender,
-            }
-        }
-        if (Array.isArray(body?.attachments) && body.attachments.length > 0) {
-            attachmentKeys = {}
-            for (const k of body.attachments) attachmentKeys[k.id] = k
-        }
-    }
-
-    const mapped: Message = {
-        id: msg.id,
-        author: displayName,
-        authorAddress: senderAddress,
-        avatar: displayName.slice(0, 2).toUpperCase(),
-        content: plaintext,
-        timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        createdAt: msg.created_at,
-        color: "#a78bfa",
-        edited: msg.edited_at != null,
-        attachments: msg.attachments,
-        attachmentKeys,
-    }
-    if (msg.reply_to_id) {
-        mapped.replyTo = {
-            id: msg.reply_to_id,
-            content: inlineReplyMeta?.content ?? "",
-            author: inlineReplyMeta?.author ?? "",
-        }
-    }
-    return { kind: "message", message: mapped }
-}
+import { conversationCache } from "@/presentation/_libs/conversation-cache"
+import { messageSends, sendContext } from "@/presentation/_libs/message-sends"
 
 // The last screenful or so of a conversation.
 const PREFETCHED_IMAGES = 12
@@ -241,15 +38,8 @@ export function useConversationPageViewModel(name: string) {
     const user = useAppStore((s) => s.user)
     const accessToken = useAppStore((s) => s.accessToken)
     const idpUrl = useAppStore((s) => s.idpUrl)
-    const pushDmMessage = useAppStore((s) => s.pushDmMessage)
-    const reconcileDmMessage = useAppStore((s) => s.reconcileDmMessage)
-    const updateDmMessage = useAppStore((s) => s.updateDmMessage)
-    const seedDmMessages = useAppStore((s) => s.seedDmMessages)
-    const updateDmConversation = useAppStore((s) => s.updateDmConversation)
     const { blocked } = useBlocks()
     const { unblock, isPending: isUnblocking } = useBlockUser()
-    const applyReaction = useAppStore((s) => s.applyReaction)
-    const addGroupEvents = useAppStore((s) => s.addGroupEvents)
     const setActiveDm = useAppStore((s) => s.setActiveDm)
     const clearDmUnread = useAppStore((s) => s.clearDmUnread)
     const wsStatus = useAppStore((s) => s.wsStatus)
@@ -380,113 +170,21 @@ export function useConversationPageViewModel(name: string) {
         historyLoadedRef.current = true
         const historyOf = dmData.id
 
-        openConversationUseCase({ idpUrl, accessToken }, dmData.id, {
+        loadConversationUseCase({ idpUrl, accessToken }, dmData.id, user, {
             port: getDmPort(),
             refreshList: () => void queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) }),
+            e2ee: getE2eePort(),
+            cache: conversationCache,
         })
-            .then(async ({ messages: msgs, events }) => {
-                addGroupEvents(conversationKey, events)
-                // API returns newest-first → reverse to oldest-first for display.
-                const reversed = msgs.reverse()
-                const catchUp = { idpUrl, accessToken }
-                // Snapshot whatever's already persisted in the store
-                // so `mapApiMessage` can skip the recv-side decrypt
-                // for rows we've already processed via the WS path.
-                // Without this, the second decrypt fails with
-                // "secret deleted" because MLS wipes the per-message
-                // generation key for forward secrecy. Reactions are
-                // tracked separately in `appliedReactionIds` because
-                // they fold into their target's `reactions[]` rather
-                // than landing as their own row in `dmMessages`.
-                const snapshot = useAppStore.getState()
-                const cachedById = new Map(
-                    (snapshot.dmMessages[conversationKey] ?? []).map(
-                        (m) => [m.id, m] as const,
-                    ),
-                )
-                const appliedReactionIds = snapshot.appliedReactionIds
-                const mapped = await Promise.all(
-                    reversed.map((m) =>
-                        mapApiMessage(m, user, catchUp, cachedById, appliedReactionIds),
-                    ),
-                )
-
-                // First pass: seed text messages. Reactions need the
-                // target to exist before they can be applied, so do
-                // them in a second pass.
-                const textMessages = mapped
-                    .filter((r): r is Extract<typeof r, { kind: "message" }> => r.kind === "message")
-                    .map((r) => r.message)
-                seedDmMessages(conversationKey, textMessages)
-
-                // The cached copy wins the merge, so the IdP's delivery
-                // outcome — which may have landed while no tab was open —
-                // is applied on top of it.
-                const undelivered = new Set(
-                    reversed.filter((m) => m.federation_status === "failed").map((m) => m.id),
-                )
-                if (undelivered.size > 0) {
-                    const at = new Date().toISOString()
-                    updateDmConversation(conversationKey, (list) =>
-                        list.map((m) => (undelivered.has(m.id) ? applyFederationStatus(m, "failed", at) : m)),
-                    )
-                }
-
-                // Second pass: replay reaction-kind rows. The slice
-                // dedup'd via `appliedReactionIds` so re-mounting
-                // never double-counts.
-                const ownAddress = user.address
-                for (const row of mapped) {
-                    if (row.kind !== "reaction") continue
-                    applyReaction(
-                        conversationKey,
-                        {
-                            reaction_message_id: row.reaction_message_id,
-                            target_message_id: row.target_message_id,
-                            reactor_address: row.reactor_address,
-                            emoji: row.emoji,
-                            op: row.op,
-                        },
-                        row.reactor_address === ownAddress,
-                    )
-                }
-                // A reaction that failed to decrypt live was cached as a placeholder message.
-                const reactions = new Set(mapped.flatMap((row) => (row.kind === "reaction" ? [row.reaction_message_id] : [])))
-                if (reactions.size > 0) {
-                    updateDmConversation(conversationKey, (list) =>
-                        list.some((m) => m.undecrypted && reactions.has(m.id))
-                            ? list.filter((m) => !(m.undecrypted && reactions.has(m.id)))
-                            : list,
-                    )
-                }
-            })
             .catch(() => {
                 historyLoadedRef.current = false
             })
             .finally(() => setHistoryAnswered(historyOf))
-    }, [
-        accessToken,
-        idpUrl,
-        user,
-        name,
-        conversationKey,
-        seedDmMessages,
-        updateDmConversation,
-        applyReaction,
-        addGroupEvents,
-        dmData,
-        queryClient,
-    ])
+    }, [accessToken, idpUrl, user, name, conversationKey, dmData, queryClient])
 
-    // A send left `sending` by a closed page never settles on its own, so
-    // opening the conversation fails it and it offers a retry.
     useEffect(() => {
-        const now = Date.now()
-        updateDmConversation(conversationKey, (list) => {
-            const settled = list.map((m) => (sendsUnderWay.has(m.id) ? m : settleStaleSend(m, now)))
-            return settled.some((m, i) => m !== list[i]) ? settled : list
-        })
-    }, [conversationKey, updateDmConversation])
+        void messageSends().settleStale(conversationKey)
+    }, [conversationKey])
 
     // This conversation's list only: traffic in other conversations must not re-render the page.
     const messages = useAppStore((s) => s.dmMessages[conversationKey]) ?? NO_MESSAGES
@@ -525,216 +223,18 @@ export function useConversationPageViewModel(name: string) {
     // is gone.
     const messageListHandleRef = useRef<MessageListHandle | null>(null)
 
-    // Send-intent map for failed-message retry. Keyed by the optimistic
-    // UUID we generated at send time. Session-only — a retry without an
-    // entry rebuilds the intent from the cached message
-    // (`intentFromMessage`). Lives in a ref so updates don't re-render
-    // the page on every keystroke.
-    type SendIntent = {
-        content: string
-        attachmentIds: string[]
-        attachmentKeys: AttachmentBlobKey[]
-        replyTo: { id: string; content: string; author: string } | null
-        recipientAddress: string
-        /** `null` for groups (no single peer). */
-        recipientActorUri: ActorUri | null
-        conversationId: string
-        kind: "dm" | "group"
-        optimisticAttachmentKeys: Record<string, AttachmentBlobKey>
-        /** Set when this send replaces an undelivered message. */
-        resentFrom?: string
-    }
-    const pendingIntentsRef = useRef<Map<string, SendIntent>>(new Map())
-
-    // Network half of the send pipeline. Called from `sendMessage`
-    // after the optimistic push, and again from `retrySend` for
-    // failures. On success: reconciles the optimistic row to the
-    // server's id + flips status to "sent". On failure: flips to
-    // "failed"; the intent stays in the ref so the retry button has
-    // a payload to work with.
-    const runSend = useCallback(
-        async (optimisticId: string, intent: SendIntent) => {
-            if (!accessToken || !idpUrl || !user) return
-            const optimisticKey = intent.conversationId
-            const textBody: TextBody = { text: intent.content }
-            if (intent.replyTo) {
-                textBody.reply_meta = {
-                    target_message_id: intent.replyTo.id,
-                    preview_text: intent.replyTo.content,
-                    preview_sender: intent.replyTo.author,
-                }
-            }
-            if (intent.attachmentKeys.length > 0) {
-                textBody.attachments = intent.attachmentKeys
-            }
-
-            const reconcileToServer = (dm: DirectMessage) => {
-                const mapped: Message = {
-                    id: dm.id,
-                    author: user.display_name ?? user.preferred_username,
-                    authorAddress: user.address,
-                    avatar: (user.display_name ?? user.preferred_username).slice(0, 2).toUpperCase(),
-                    content: intent.content,
-                    timestamp: new Date(dm.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-                    createdAt: dm.created_at,
-                    color: "#a78bfa",
-                    attachments: dm.attachments,
-                    status: "sent",
-                    statusAt: new Date().toISOString(),
-                }
-                if (intent.resentFrom) mapped.resentFrom = intent.resentFrom
-                if (Object.keys(intent.optimisticAttachmentKeys).length > 0) {
-                    mapped.attachmentKeys = intent.optimisticAttachmentKeys
-                }
-                if (intent.replyTo) {
-                    mapped.replyTo = {
-                        id: intent.replyTo.id,
-                        content: intent.replyTo.content,
-                        author: intent.replyTo.author,
-                    }
-                }
-                reconcileDmMessage(optimisticKey, optimisticId, mapped)
-                pendingIntentsRef.current.delete(optimisticId)
-                // Not left to the echo: the answer may beat it, and a group's echo carries no client id.
-                getE2eePort().bufferForArchive(
-                    intent.conversationId,
-                    dm.id,
-                    archivedText(
-                        { address: user.address, displayName: mapped.author },
-                        dm.created_at,
-                        textBody,
-                        dm.attachments,
-                    ),
-                )
-            }
-
-            const markFailed = (e: unknown, stage: string) => {
-                // eslint-disable-next-line no-console
-                console.warn(`Send failed at ${stage}:`, e)
-                updateDmMessage(optimisticKey, optimisticId, {
-                    status: "failed",
-                    statusAt: new Date().toISOString(),
-                })
-            }
-
-            if (intent.kind === "dm" && !intent.recipientActorUri) {
-                markFailed(new Error("Missing recipient"), "enterConversation")
-                return
-            }
-            // The device in the conversation first — a Welcome or its own join, the message
-            // `sending` meanwhile —, or the DM's group founded by its first send.
-            sendsUnderWay.add(optimisticId)
-            try {
-                await enterConversation({
-                    id: intent.conversationId,
-                    peer: intent.kind === "dm" ? intent.recipientActorUri : null,
-                })
-            } catch (e) {
-                sendsUnderWay.delete(optimisticId)
-                markFailed(e, "enterConversation")
-                return
-            }
-            sendsUnderWay.delete(optimisticId)
-
-            const appMessage: ApplicationMessage<TextBody> = {
-                version: 1,
-                kind: "text",
-                body: textBody,
-            }
-            let mlsCiphertextBytes: Uint8Array
-            try {
-                mlsCiphertextBytes = await getE2eePort().encryptOutbound(
-                    intent.conversationId,
-                    appMessage,
-                )
-            } catch (e) {
-                markFailed(e, "encryptOutbound")
-                return
-            }
-            const mlsCiphertextB64 = bytesToB64(mlsCiphertextBytes)
-
-            // Group transport: hand the single ciphertext to the group endpoint,
-            // which fans it out to every member. No WS shortcut for groups.
-            if (intent.kind === "group") {
-                try {
-                    const dm = await getGroupPort().sendGroupMessage(
-                        idpUrl,
-                        accessToken,
-                        intent.conversationId,
-                        mlsCiphertextB64,
-                        intent.replyTo?.id,
-                        intent.attachmentIds.length > 0 ? intent.attachmentIds : undefined,
-                    )
-                    reconcileToServer(dm)
-                } catch (e) {
-                    markFailed(e, "POST /api/groups/:id/messages")
-                }
-                return
-            }
-
-            // Always over REST, as Discord sends: a refusal answers here, where the socket has no
-            // error channel and would leave the message waiting out its timeout.
-            try {
-                const dm = await getDmPort().sendMessage(
-                    idpUrl,
-                    accessToken,
-                    intent.recipientAddress,
-                    mlsCiphertextB64,
-                    intent.replyTo?.id,
-                    intent.attachmentIds.length > 0 ? intent.attachmentIds : undefined,
-                    intent.conversationId,
-                    optimisticId,
-                )
-                reconcileToServer(dm)
-            } catch (e) {
-                markFailed(e, "POST /api/dm")
-            }
-        },
-        [user, accessToken, idpUrl, reconcileDmMessage, updateDmMessage],
-    )
-
-    // Optimistic push, then the network half. Shared by a fresh send and by
-    // the resend of an undelivered message, which goes out as a new one.
-    const dispatchSend = useCallback(
-        async (intent: SendIntent) => {
-            if (!user) return
-            // Optimistic push *before* any network work.
-            // `ensureGroupExists` + encrypt + REST can stretch several
-            // hundred ms on first send into a conversation — without
-            // an up-front push the user sees an empty input until
-            // everything returns. `status: "sending"` drives the clock
-            // icon next to the timestamp; `runSend` flips it to "sent"
-            // or "failed" once the network half lands.
-            const optimisticId = crypto.randomUUID()
-            const nowDate = new Date()
-            const nowIso = nowDate.toISOString()
-            const optimisticMsg: Message = {
-                id: optimisticId,
-                author: user.display_name ?? user.preferred_username,
-                authorAddress: user.address,
-                avatar: (user.display_name ?? user.preferred_username).slice(0, 2).toUpperCase(),
-                content: intent.content,
-                timestamp: nowDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-                createdAt: nowIso,
-                color: "#a78bfa",
-                status: "sending",
-                statusAt: nowIso,
-            }
-            if (Object.keys(intent.optimisticAttachmentKeys).length > 0) {
-                optimisticMsg.attachmentKeys = intent.optimisticAttachmentKeys
-            }
-            if (intent.replyTo) {
-                optimisticMsg.replyTo = { ...intent.replyTo }
-            }
-            if (intent.resentFrom) optimisticMsg.resentFrom = intent.resentFrom
-            pushDmMessage(intent.conversationId, optimisticMsg)
-            pendingIntentsRef.current.set(optimisticId, intent)
-
-            await runSend(optimisticId, intent)
-
-            setTimeout(() => messageListHandleRef.current?.scrollToBottom(), 50)
-        },
-        [user, pushDmMessage, runSend],
+    // Where this conversation's messages go; none until the conversation has an id.
+    const sendRoute = useMemo<SendRoute | null>(
+        () =>
+            conversationId
+                ? {
+                      conversationId,
+                      kind: dmData?.kind === "group" ? "group" : "dm",
+                      recipientAddress: dmData?.address ?? name,
+                      recipientActorUri,
+                  }
+                : null,
+        [conversationId, dmData, name, recipientActorUri],
     )
 
     const sendMessage = useCallback(
@@ -745,92 +245,42 @@ export function useConversationPageViewModel(name: string) {
         ) => {
             // Block while `dm-conversations` is still loading — we
             // can't tell yet whether a row already exists for this
-            // address. `conversationId` is `null` in that window and
+            // address. `sendRoute` is `null` in that window and
             // populates either from `dmData.id` (friend / existing
             // convo) or from a freshly minted UUID (non-friend DM).
             if (!user || !accessToken || !idpUrl) return
-            if (!conversationId || isRemoved) return
+            if (!sendRoute || isRemoved) return
             // Groups need only the conversation id; 1:1s need the resolved peer.
-            const isGroup = dmData?.kind === "group"
-            if (!isGroup && !recipientActorUri) return
+            if (sendRoute.kind === "dm" && !sendRoute.recipientActorUri) return
             const currentReply = replyingTo
             setReplyingTo(null)
 
-            const optimisticAttachmentKeys: Record<string, AttachmentBlobKey> = {}
-            for (const k of attachmentKeys) optimisticAttachmentKeys[k.id] = k
-
-            await dispatchSend({
-                content,
-                attachmentIds,
-                attachmentKeys,
-                replyTo: currentReply
-                    ? { id: currentReply.id, content: currentReply.content, author: currentReply.author }
-                    : null,
-                recipientAddress: dmData?.address ?? name,
-                recipientActorUri,
-                conversationId,
-                kind: isGroup ? "group" : "dm",
-                optimisticAttachmentKeys,
-            })
+            await messageSends().send(
+                {
+                    ...sendRoute,
+                    content,
+                    attachmentIds,
+                    attachmentKeys,
+                    replyTo: currentReply
+                        ? { id: currentReply.id, content: currentReply.content, author: currentReply.author }
+                        : null,
+                },
+                sendContext(idpUrl, user),
+            )
+            setTimeout(() => messageListHandleRef.current?.scrollToBottom(), 50)
         },
-        [user, dmData, name, conversationId, isRemoved, recipientActorUri, replyingTo, accessToken, idpUrl, dispatchSend],
-    )
-
-    // Rebuilds a send from the cached message, for when the in-memory intent
-    // is gone: after a reload, or once the IdP accepted the message.
-    const intentFromMessage = useCallback(
-        (message: Message): SendIntent | null => {
-            if (!conversationId || message.content === UNDECRYPTABLE_TEXT) return null
-            const isGroup = dmData?.kind === "group"
-            if (!isGroup && !recipientActorUri) return null
-            const keys = message.attachmentKeys ?? {}
-            return {
-                content: message.content,
-                // Key ids are the attachment ids: the server row is pinned to the sealed blob's id.
-                attachmentIds: Object.keys(keys),
-                attachmentKeys: Object.values(keys),
-                replyTo: message.replyTo ?? null,
-                recipientAddress: dmData?.address ?? name,
-                recipientActorUri,
-                conversationId,
-                kind: isGroup ? "group" : "dm",
-                optimisticAttachmentKeys: keys,
-            }
-        },
-        [conversationId, dmData, name, recipientActorUri],
+        [user, accessToken, idpUrl, sendRoute, isRemoved, replyingTo],
     )
 
     const retrySend = useCallback(
         async (messageId: string) => {
-            const message = useAppStore.getState().dmMessages[conversationKey]?.find((m) => m.id === messageId)
-            if (!message) return
-
-            if (message.status === "undelivered") {
-                const intent = intentFromMessage(message)
-                if (!intent) return
-                // The undelivered row stays as the record of that attempt.
-                updateDmMessage(conversationKey, messageId, { resent: true })
-                await dispatchSend({ ...intent, resentFrom: messageId })
-                return
+            if (!user || !idpUrl || !sendRoute) return
+            // An undelivered message goes out again as a new one, at the end of the list.
+            if ((await messageSends().retry(sendRoute, messageId, sendContext(idpUrl, user))) === "resent") {
+                setTimeout(() => messageListHandleRef.current?.scrollToBottom(), 50)
             }
-
-            const intent = pendingIntentsRef.current.get(messageId) ?? intentFromMessage(message)
-            if (!intent) return
-            pendingIntentsRef.current.set(messageId, intent)
-            updateDmMessage(conversationKey, messageId, {
-                status: "sending",
-                statusAt: new Date().toISOString(),
-            })
-            await runSend(messageId, intent)
         },
-        [conversationKey, intentFromMessage, dispatchSend, runSend, updateDmMessage],
-    )
-
-    // A resend needs the plaintext, which a device that never held it
-    // (another device's echo) only has as the placeholder.
-    const canResend = useCallback(
-        (message: Message) => message.content !== UNDECRYPTABLE_TEXT,
-        [],
+        [user, idpUrl, sendRoute],
     )
 
     // Reads the store when pressed rather than closing over the list, so the

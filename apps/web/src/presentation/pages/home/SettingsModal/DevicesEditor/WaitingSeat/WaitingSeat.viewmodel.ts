@@ -1,19 +1,14 @@
 import { useEffect, useState } from "react"
 
-import { codeDigits, isWholeCode, seatAnswer, type SeatAnswer, type SeatsView } from "@pinai/domain/models/approval-handshake"
-import { formatLastSeen } from "@pinai/domain/models/relative-time"
+import { UNREACHABLE_LINE } from "@pinai/domain/models/approval-wording"
+import { codeDigits, isWholeCode, type SeatAnswer, type SeatsView } from "@pinai/domain/models/approval-handshake"
+import { seatCanApprove, seatState, type SeatKind } from "@pinai/domain/models/waiting-seat"
 import type { ApprovalAnswering } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
-import { failureWording, refusalWording } from "@/presentation/_libs/approval-wording"
 import { dayLabel } from "@/presentation/_libs/day-label"
-import { activityLabel } from "@/presentation/_libs/device-activity"
 import { warnOf as warn } from "@/presentation/_libs/key-share-deps"
 import type { DeviceRow } from "@/presentation/hooks/useDevices"
 
-/**
- * `waiting`: a device that appeared unapproved; `from-before`: one listed as this device set its
- * generation over others, waiting for nobody; `refused`: the one the user said reset the history.
- */
-export type SeatKind = "waiting" | "from-before" | "refused"
+export type { SeatKind }
 
 export interface WaitingSeatViewModel {
     answer: SeatAnswer
@@ -43,10 +38,9 @@ export function useWaitingSeatViewModel(input: {
     kind?: SeatKind
 }): WaitingSeatViewModel {
     const { device, answering, seats, kind = "waiting" } = input
-    // The refused device is offered no code: approving it would hand it the account.
-    const answer: SeatAnswer = kind === "refused" ? { kind: "asks-nothing" } : seatAnswer(device.device_id, seats)
-    const request = answer.kind === "asks-nothing" ? null : answer.request
-    const requestId = request?.id ?? null
+    const [now, setNow] = useState(() => Date.now())
+    const state = seatState({ device, seats, kind, now: new Date(now), day: dayLabel })
+    const { answer, requestId } = state
     // Typed for one request: a new request starts empty.
     const [typed, setTyped] = useState<{ requestId: string | null; code: string; error: string | null }>({
         requestId: null,
@@ -55,7 +49,6 @@ export function useWaitingSeatViewModel(input: {
     })
     const code = typed.requestId === requestId ? typed.code : ""
     const reachError = typed.requestId === requestId ? typed.error : null
-    const [now, setNow] = useState(() => Date.now())
 
     useEffect(() => {
         const timer = setInterval(() => setNow(Date.now()), 30_000)
@@ -67,26 +60,23 @@ export function useWaitingSeatViewModel(input: {
         setTyped({ requestId, code, error: null })
         answering.answerAt(requestId, code).catch((e: unknown) => {
             warn("answering the request")(e)
-            setTyped({ requestId, code, error: "Couldn't reach your instance. Try again." })
+            setTyped({ requestId, code, error: UNREACHABLE_LINE })
         })
     }
 
-    const label = device.display_name.trim() || "A device"
-    const takesCode = answer.kind === "code"
-    const idle = kind === "waiting" ? `paired ${dayLabel(device.paired_at)}` : activityLabel(device, new Date(now))
     return {
         answer,
-        label,
-        since: request ? `asked ${formatLastSeen(request.createdAt, new Date(now)) ?? "just now"}` : idle,
+        label: state.label,
+        since: state.since,
         code,
         setCode: (text: string) => setTyped({ requestId, code: codeDigits(text), error: null }),
-        canApprove: takesCode && isWholeCode(code) && !seats.busy && !seats.unsettled,
+        canApprove: seatCanApprove(state, seats, code),
         onApprove,
         onCancel: () => void answering?.cancel().catch(warn("cancelling the exchange")),
-        note: takesCode && answer.note === "wrong-code" ? "That code didn't match — type the new one it shows." : null,
-        error: reachError ?? (takesCode ? refusalWording(answer.refused) : null),
-        hold: takesCode && seats.unsettled ? "This device can't approve yet: it's still finishing setting up your history passphrase." : null,
-        failure: answer.kind === "failed" ? failureWording(answer.failure, label) : null,
-        offersNotMine: answer.kind !== "working" && answer.kind !== "approved",
+        note: state.note,
+        error: reachError ?? state.refusal,
+        hold: state.hold,
+        failure: state.failure,
+        offersNotMine: state.offersNotMine,
     }
 }

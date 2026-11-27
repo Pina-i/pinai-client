@@ -1,7 +1,7 @@
 # @pinai/mobile
 
-The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and steps:
-`docs/plans/2026-11-20-mobile-app-design.md` (gitignored, like all of `docs/`).
+The Expo app (SDK 58, Expo Router, New Architecture), Android first; iOS written, not yet built (§ iOS). Design and
+steps: `docs/plans/2026-11-20-mobile-app-design.md` (gitignored, like all of `docs/`).
 
 - **One domain for every client.** A business notion useful to more than one client goes in
   `@pinai/domain` (and the web switches to it); only what is the phone's stays here. Same layers
@@ -31,16 +31,269 @@ The Expo app (SDK 58, Expo Router, New Architecture), Android first. Design and 
   the domain's `SessionKeeper` to `AppState` and the tick, resumes at launch, signs out.
 - The store (`src/store/store.ts`, the composition root): the access token in memory, the
   instance signed in to persisted through the kv-store's synchronous half; the chosen status
-  (`online` at launch); the account's appearance, read from this phone's settings copy at launch.
+  (`online` at launch); the account's appearance and mutes, read from this phone's settings copy at launch.
 - **Reach**: the `(app)` group's layout holds the rail (`presentation/templates/reach/`), so it
-  stays while `home` and `settings` change beside it; `status` is a form sheet over them.
+  stays while `home`, `conversation/[id]` and `settings` change beside it; `status` is a form sheet over them.
 - **The account's look**: `presentation/_libs/appearance.ts` settles the account's settings at
-  each sign-in or resume (the domain's sync) and on `settings_updated`; the Unistyles theme follows
-  the store's palette and the system's mode; `<Motif>` defaults to the account's motif.
+  each sign-in or resume (the domain's sync) and on `settings_updated` (`setAccountSettings`: the mutes too, which
+  the list shows); the Unistyles theme follows the store's palette and the system's mode; `<Motif>` defaults to the
+  account's motif.
 - **The socket** (`presentation/_libs/socket.ts`): open while signed in and in front, closed in
   the background; heartbeat 30 s; `1008` renews then reconnects; the chosen status restated once
   connected (`restatePresenceUseCase`).
 - No typed routes: they are generated into the gitignored `.expo/`.
-- No `android/` or `ios/` in git (prebuild). The debug variants allow cleartext HTTP, release
-  doesn't.
+- No `android/` or `ios/` in git (prebuild). Android's debug variants allow cleartext HTTP, release doesn't; Expo's
+  iOS template allows local networking (`NSAllowsLocalNetworking`) in every build.
 - Tests: Vitest in `test/` (node), for what doesn't import React Native.
+
+## The native MLS engine
+
+- **`modules/openmls`** is a local Expo module over `crypto/openmls-native`, native module `OpenMls`, in Kotlin and
+  Swift. `android/generated/` (the `.so` per architecture and the uniffi Kotlin) and `ios/generated/` (the static
+  libraries as `OpenMlsNative.xcframework`, the uniffi Swift, the C header) are `scripts/build-native-mls.mjs`'s output
+  (`ios` for the second), gitignored; `android`, `android:device` and `ios` run the script first.
+- Each uniffi object is an Expo `SharedRef`, not a `SharedObject`: Expo requires a JS constructor
+  for a `SharedObject` class, and JavaScript makes none of these but `Provider`. Names are the WASM
+  facade's: `Constructor` for `Provider`, `StaticFunction`s for the statics, synchronous
+  `Function`s for methods, records (outputs, members, HPKE pairs) read through `Property` getters,
+  the `ProcessedKind` constant with the WASM's numbers. `free` closes the uniffi object, as does
+  Expo releasing it.
+- A core error is thrown as a `CodedException`: `ERR_MLS_MALFORMED`, `ERR_MLS_REFUSED` or
+  `ERR_MLS_STATE`. Epochs come as numbers (Kotlin `Long`), absent values as `null`: what
+  `@pinai/mls`'s engine reads.
+- `src/adapters/mls/native-engine.ts`: `nativeMlsEngine()` is `new MlsEngine(…)` over
+  `requireNativeModule<MlsBundle>("OpenMls")`, a cast `@pinai/mls/contract` checks at run time.
+  `createMlsEngine()` in `src/ioc/index.ts` makes fresh engines.
+- `OpenMls.argon2id` is the module's one `AsyncFunction` (the MLS calls are synchronous): the 24 words'
+  Argon2id takes a good part of a second, off the JS thread. `src/adapters/crypto/native-argon2id.ts`,
+  handed out by `createArgon2id()`; `/dev/argon2-check` (`argon2:check`) plays `@pinai/crypto/contract/argon2`
+  on it, each case timed.
+- **The control screens** play a contract on the phone: `presentation/pages/dev/contract-check.tsx` (the
+  view) and `contract-check.viewmodel.ts` (`useContractCheck(label, scenarios, make, link)`), used by
+  `pages/dev/mls-check/` (`@pinai/mls/contract` on `createMlsEngine()`) and `pages/dev/storage-check/`.
+  Each route (`src/app/dev/*.tsx`) imports its page behind `__DEV__`, so a release bundle drops it, the
+  contracts and fixtures with it. A link to the screen already open changes no route: the view model
+  listens for it itself and plays the contract again. It logs `[label] ✗ …` per failure and the
+  summary line, which `scripts/device-check.mjs` reads from `ReactNativeJS` for `mls:check` and
+  `storage:check` (one device through adb, the app's links, a relaunch on Metro's bundle).
+- A release build will need R8 keep rules for JNA and the `uniffi.openmls_native` package.
+
+## The encrypted store
+
+- `createSealedStorage(account)` in `src/ioc/index.ts`: `@pinai/crypto`'s `SealedStorage` (the schema and
+  the sealing, the web's) over the phone's two adapters, a store and a key per account
+  (`adapters/storage/account-store-names.ts`) — `clear()` wipes the key, which must not erase another
+  account's store.
+- `SqliteKeyValueStore`: the account's own `expo-sqlite` database, one table of (collection, key, BLOB).
+  Two stores over one file share expo-sqlite's native connection; a file is deleted only once every
+  store over it is closed.
+- `KeystoreDeviceKeyAdapter` over **`modules/device-key`** (native module `DeviceKey`): on Android AES-256-GCM in the
+  Keystore's TEE, not StrongBox (too slow for a snapshot of megabytes), no user authentication; on iOS CryptoKit
+  under a key kept as a Keychain item (`AfterFirstUnlockThisDeviceOnly`, not synchronizable: the Secure Enclave holds
+  no AES key). Seal, open and wipe by alias, off the JS thread; the ciphertext ends with its tag, the nonce 12 bytes.
+  The key is minted only when no entry has the alias, so a key that fails to read is never replaced.
+- **The conversations** (`adapters/storage/sealed-conversation-cache.adapter.ts`, the domain's `IConversationCache`): the
+  only decrypted copy of the history (MLS deletes a message's keys once used), one sealed row per conversation in the
+  account's store (collection `conversations`, keyed by its id), JSON with bytes as `{ $bytes }` (attachment keys). Only
+  the conversation that changed is written; its changes run one at a time, each over the last, a burst written once or
+  twice. A row is never written before it was read: a read that fails (the store, the key, a row that won't open or
+  decode) writes nothing over it and deletes nothing — its changes kept in memory, shown, applied over it once it reads
+  (its next change, `flush`, the next start; lost if the app ends first) —, warned once. A failed write stays in memory,
+  tried again at the next change and at `flush` (the app leaving or coming back to the front). `snapshot` / `subscribe`
+  per conversation for the screens, `ready` (the key and the store answer), `saved(ids)` (written, else thrown),
+  `close`. `SealedStorage.clear()` empties the same table: a wipe takes the rows with the key.
+- `src/web-crypto.ts`, imported first by `index.ts`: Hermes has no Web Crypto, so `expo-crypto` gives
+  the shared code `crypto.randomUUID` and `crypto.getRandomValues`.
+- `android.allowBackup: false`, and on iOS `Documents/SQLite` excluded from backups (`DeviceKey` as it starts): a
+  backup would carry the store, never its key; a new phone is a new device to approve.
+- **Its proof**, `storage:check` (`scripts/storage-check.mjs`):
+  - `/dev/storage-check` plays `@pinai/crypto/contract/storage` on `phoneStorageWorld`.
+    `src/ioc/check-stores.ts` gives each scenario's stores names of their own, never the app's, and
+    closes then deletes them after. They are built in `src/ioc` because screens may not import adapters.
+  - `/dev/storage-restart?phase=write` founds Alice's group with Bob, then saves both MLS states and a
+    sealed marker under `restart-check` names, closing the stores but keeping them.
+  - The script kills the app and starts it again.
+  - `?phase=read` reads everything back and checks Bob reads what Alice writes, then deletes it all.
+  - Each phase logs its `[storage-check] restart: …` line whatever happens to the screen: a launch may
+    send the app elsewhere.
+
+## This device
+
+- **The account's E2EE core** (`src/ioc/index.ts`): `openAccountE2ee(actorUri, report)` builds one `E2eeAdapter`
+  per account — the native MLS engine (its HPKE too), `SealedStorage`, `KeyDirectoryApiAdapter`
+  with the device's label, the `@pinai/api` ports, `JwksCache` over the kv-store (`kvStrings`), native
+  Argon2id for the history key and the code — and its conversations over the same store and key
+  (`getConversationCache()`, failures to `report`). One at a time: its engine holds the account's groups in
+  memory; another account replaces it (the previous account's conversations closed, its stores open, its files
+  untouched). `getE2eePort()` throws before one is open; `getPendingKeyLock()` is the account's `inProcessLock` —
+  one process, no tabs, but flows that mustn't overlap.
+- **Its name**: `ExpoDeviceFactsAdapter` (`expo-device`) gives the domain's `PhoneFacts` — the model,
+  phone or tablet, the name its owner gave it —, which `composeDeviceLabel` turns into "Pixel 9 Pro
+  (Kilian's phone)", as the desktop app names a computer.
+- `presentation/_libs/this-device.ts` — `enterAccount(actorUri)`: the core opened, then the domain's
+  `ThisDeviceStart` (once settled, a run; again at the next call while the IdP is out of reach). Every
+  signed-in screen calls it: the gate, and `src/app/onboarding/_layout.tsx`. `_libs/admission-deps.ts`,
+  `_libs/device-mismatch.ts` (the domain's sign-in-again rule: the session ended, the system's sheet
+  opened again) and `_libs/warn-e2ee.ts` (`[e2ee]` lines in the device's log) are what the flows take.
+- **The gate** (`presentation/hooks/use-onboarding-gate.ts`): the domain's `OnboardingGate` — once in,
+  checked again at a route change and when the app comes back to the front (`AppState`). The `(app)`
+  layout shows nothing of the app before the device is known to be in; a failed check is
+  `pages/gate-failed` ("Try again", "Sign out"). Out, it sends the device to `/onboarding/setup`,
+  `/new-device` or `/reset` (`GATE_ROUTES`). In by its kept words over a reset it didn't make, the gate keeps why
+  (`reset`) and offers `recheck`, handed through `_libs/history-reset.ts` to the banner and its sheet.
+  After another account's device was wiped, its conversations' rows with it, it checks again: nothing reads them
+  before the device is in.
+- **"New device"** (`/onboarding/new-device`, `pages/onboarding/new-device/`) — and **the reset page** (`/onboarding/reset`,
+  the same page, `variant="reset"`, with the web's words: the title by cause or "Your words were replaced on <device>", "That
+  device" / "Its 24 words", an unknown change's "What happened", "Check again", "Start over from here", `reset-note.tsx`): the
+  domain's `enterRestorePageUseCase` as it opens — the device set up, sent where the gate says, else its ways as a pager
+  (`molecules/segmented-tabs`, a swipe or a tab; `?tab=` opens one, and a request of this device's waiting or ended opens
+  Start over, `openingTab`). The ways are organisms, the banner's sheet uses them too:
+  - **Device** (`organisms/device-way/`, `hooks/use-approval-asking.ts`: the domain's `ApprovalAsking`, ticked only in front,
+    paused off the tab; approved, `ApprovedEntry` until in; `molecules/code-cells`; the devices it can be typed on,
+    `approvingDevices`).
+  - **24 words** (`organisms/words-way/`, `hooks/use-typed-words.ts`: one field, Paste, `wordsOf`, a misspelt word said,
+    screenshots blocked on that way).
+  - **Start over** (`organisms/start-over-way/`, the domain's `StartOverFlow`; this device's request read by
+    `hooks/use-own-start-over.ts` as it opens, every 5 min and back in front, and at the date it matures): the prototype's
+    card and its confirmation sheet ("Erase your saved history?"), then the web's stages and words — waiting 7 days with its
+    date, ready, another device's first, withdraw, "Approve with another device instead"; the reset page's "It wasn't me"
+    (the setter refused, "First, your password"). The password asked again goes through the system's sheet
+    (`hooks/use-recent-sign-in.ts`, `molecules/recent-sign-in-sheet`) and comes back to `?tab=start-over`: the user presses
+    again. New words → `/onboarding/setup`, which shows them with the devices they left behind (`setup/from-before.ts`:
+    the phone answers no code yet, so a device left behind comes back with these words).
+  Meanwhile `hooks/use-awaited-share.ts` waits for the key share (`ShareWait`, `_libs/app-visibility.ts`,
+  `_libs/accept-share.ts`); kept, on to `/home`. "Sign out" under the ways.
+- **Back where the password was asked**: `prepareLoginUseCase`'s `post_login_redirect` is where the callback goes (Welcome's
+  sign-in passes `/home`); a cancel asked for the password goes to `returnTo`, and a sheet the user closed to
+  `MobileAuthNavigationAdapter`'s `closedTo` (the same, while `reauthenticating`). `_libs/session.ts`'s
+  `accessTokenArrivedAt` is how recent the password is, on the IdP's clock.
+- **The history-reset banner** (`organisms/history-reset-banner/`, at the top of the home panel): in by its kept words — "Your
+  history was reset from a device this one doesn't know…" ("It was me", "It wasn't me") or "Your instance changed your history
+  key…" ("Check again", "Start over from here") —, each way a form sheet route, `/history-reset?way=` (`pages/history-reset/`:
+  the code or the new words; the password first, then Start over refusing the setter; Start over alone), each end checking
+  again. Routes, not `molecules/sheet` (a `Modal`, its own Android window): screenshots stay blocked in the app's window.
+- **What runs once in** (`_libs/app-runtime.ts`, started by the `(app)` layout while signed in and `in`, stopped as it
+  leaves): `_libs/messaging.ts` — the domain's `MessagingRuntime` (the archive's uploads, the Welcomes at start and on
+  `mls_welcome_ready`, a group caught up on `mls_commit`, the conversations not held joined — `_libs/conversation-joins.ts`
+  — at start, when the list's ids or removals change, when the socket comes back) and the receive use cases into the
+  cache on `new_dm`, `message_edited`, `dm_delivery_failed` — a message from someone else settled by the domain's
+  `settleIncomingReadUseCase`: read at once in the conversation on screen (`_libs/open-conversation.ts`) while the app
+  is in front, else counted until the list reads again (no block list: the IdP's count leaves them out); no ping —;
+  `group_event` merged into its conversation; the group pushes read the list again, `member_removed` an admin's prune
+  (`reconcileGroupKeysUseCase`);
+  `device_approved` lets saves held for an approval go (`approvalLanded`); someone's unproven new device a line in the
+  cache (`onNewDevice`). `_libs/conversation-list.ts` — `GET /api/dm` as the domain's `conversationRow`s
+  (`useConversationList`, `useConversationListFailed`), one read at a time: at start, on `conversationsStale`, when the
+  socket or the app comes back, after a message, on the group pushes; `clearUnread` / `countUnread` change the held
+  count at once, the IdP's coming with the next read. `_libs/device-review.ts` — the domain's
+  `DeviceFanout` over one `syncOwnGroupsUseCase` at a time (with `sharing`): the device list read at start, on
+  `device_joined` / `device_approved`, when the socket or the app comes back and after a registration; a sync when what a
+  review reads of it changes, the listed conversations do or a group comes in — and on the same list after a review or a
+  share that failed; `reviewDevices` runs one now (a revocation, typed words). Without it the phone would announce
+  nobody, share with nobody, bring no sibling in. `_libs/key-packages.ts` — the domain's `KeyPackageTick`: at start,
+  every 6 h, on `key_packages_low` and when the socket comes back (a push lost while closed); `device_mismatch` signs in
+  again. `_libs/history-share.ts` — a share owed taken at once and on `history_key_ready` (holding the words, the restore
+  left due runs instead), the device's own approval by its words made again on a reconnect.
+  `_libs/approval-answering.ts` — the app's one `ApprovalAnswering`, kept current by the domain's `AnsweringRuntime`,
+  read again when the socket or the app comes back (the socket closes in the background); `useAnswering`, `useDoorView`,
+  `useDoorSummons`, `useSeats`, `summonDoor`. `_libs/arrivals.ts` — a device arriving unapproved (`arrivalToTell`) opens
+  the Door for it; the web shows a toast. `_libs/socket.ts` hands its one handler of each kind on (`onSocketEvent`,
+  `onSocketConnected`, `isSocketConnected`).
+- **"Is this you?"** (`organisms/approval-door/`, mounted by the `(app)` layout): the prototype's bottom sheet over every
+  screen, over the domain's `doorState` — a device summoned on arrival waits for its code ("Not me", "Close"), a request
+  takes the code on `molecules/typed-code` + `molecules/number-pad` (the system keyboard would cover the cells),
+  "Checking the code with…", "<device> is in", the web's failure lines. "Not me" signs it out (`_libs/sign-out-device.ts`:
+  revoked and committed out of the listed conversations, the list reviewed again; the password asked again first through the
+  system's sheet, back on the same route), then "Signed it out" and "Change password", which says how by the instance's
+  mode (`hooks/use-password-change.ts`, `passwordAdvice`). An RN `Modal`: a one-time code needs no blocked screenshots.
+- **Another device's start over request** (`organisms/start-over-prompt/`, `_libs/start-over-prompt.ts`): the web's
+  prompt in the Door's look — "Cancel — it wasn't me" (no password), "It's me — approve with a code instead" only when
+  this device answers codes, "Not now" for the app run (a new push brings it back); once cancelled, the password advice
+  and "Sign <device> out". Read at start, on `start_over_requested`, when the socket or the app comes back.
+- **Settings › Devices** (`/devices`, `pages/devices/`; Settings' row says who waits): `hooks/use-device-roster.ts` (the
+  list read with each review, `rosterRows`; `hooks/use-trust-events.ts`), the domain's `devicesPane` and `wordsOffers`.
+  "Waiting for you" (dashed; a tap opens `seat-sheet.tsx`, "Approve <device>", answered through the Door's
+  `ApprovalAnswering` — `showSeats` while the screen is up, so the Door starts nothing), the refused device ("Reset your
+  history — not yours", "Sign out"), "From before you started over", "This device", "Other devices" (`device-row.tsx`:
+  `ReanimatedSwipeable` — swipe left for "Sign out", a screen reader's action too —, a tap for `device-sheet.tsx`: last
+  active, approved by, paired, short id, "Sign out this device" or why not), "History": "Your 24 words — held by N"
+  (`/words`, a form sheet with `molecules/words-card`) and "Restore history from words" (`/restore-words`, the words way:
+  the phone holds the key again and approves others). Gestures need `GestureHandlerRootView` at the root (`app/_layout.tsx`).
+  Not on the phone yet: rename, "Sign out other devices", "Clear history backup", "Replace my words".
+- **Push notices** (`_libs/push-notices.ts`, in the app runtime): while in, this device's registration on its instance
+  (`IPushRegistrationPort`, `PUT|DELETE /api/keys/devices/{id}/push`) as the permission stands — set at start, again
+  back in front and on a new token, removed when Android's settings withdrew the permission and, best effort, at
+  sign-out —, the relay Expo's push service (`https://exp.host/--/api/v2/push/send`). The `sign-ins` channel is made
+  first: Android neither asks nor mints a token before a channel exists. In front no notice shows (the Door or the
+  prompt does); opening the app clears those shown; a tap only opens the app, whose runtime reads again. A build
+  without Firebase's file (`GOOGLE_SERVICES_JSON`, `extra.pushNotices`) does none of it. Asked once by
+  `organisms/push-offer/` ("Know when a device signs in", "Turn on" then Android's prompt, "Not now"; `pushOffer` in
+  `src/ioc`, after the Door and the prompt), then Settings' "Notifications" row (`hooks/use-push-permission.ts`: asks
+  while Android may, else opens the app's settings).
+- **The history restore** (`_libs/history-restore.ts`): the domain's `HistoryRestore`, one per account's core, run once
+  the conversations' rows can be read (`ready`); its apply the domain's `applyRestoredHistoryUseCase` into the cache, then
+  `saved`: a conversation not written fails the run, which stays due for the next start. Applied, it marks itself so; the
+  next start's run confirms it and clears it. Run by typed words (awaited), after each accepted share, at start and on a
+  reconnect while the words are held.
+- `_libs/message-sends.ts` — the domain's `MessageSends`, one per account's core, over the cache, the joins and the DM
+  and group ports (`sendContext`); the conversation's composer sends through it.
+- **Direct messages** (home, `pages/home/`): the list `_libs/conversation-list.ts` holds, in the IdP's order, each row
+  `conversation-row.tsx` (its view model): the avatar (a group's in the `sec` tone), the name, a DM's last message
+  (`lastMessagePreview` over its timeline, `hooks/use-conversation-timeline.ts`: the cache's `snapshot` / `subscribe`,
+  the sealed row read once), a group's `groupFact`, "Muted" for its own mute (not "mute all", as the web's row), the
+  time of the last message (`_libs/message-time.ts`), the IdP's unread count; a removed group dimmed. Loading, failed
+  ("Try again") and empty states. A tap opens `/conversation/<id>`. "Friends" and the search: later.
+- **A conversation** (`(app)/conversation/[id]`, `pages/conversation/`, keyed by the id): the head (back, avatar or
+  group, name, `groupFact`, muted); the timeline from the cache, an inverted `FlatList` (pinned to the newest),
+  `timeline-rows.ts` — `interleaveTimeline` with the group's changes (`describeGroupEvent`) and the new-device lines
+  (`describeNewDevice`, the explanation on a tap), `dayDividerLabel`, `startsRun`; each message its avatar, author,
+  time, text, a reply's quote, "(edited)", reactions as chips (read-only), images, another file by its name;
+  `sending` faded, `failed` / undelivered with "Not delivered", `UNDELIVERED_DM_HINT` for a DM and Retry (`canResend`),
+  "Sent again" once resent. As it opens and when the socket comes back (the app back in front): the domain's
+  `loadConversationUseCase` (one at a time; its history `GET` marks it read; the local count cleared) and
+  `settleStale`. The composer (text and Send, `MessageSends`) sits above the keyboard by Unistyles' `rt.insets.ime`
+  (edge-to-edge: the window doesn't resize); a group the user was removed from has the line instead. No typing,
+  replying, reacting, editing or attaching yet.
+- **Images** (`molecules/attachment-image`, `hooks/use-attachment-image.ts`, `_libs/attachment-images.ts`): the domain's
+  `AttachmentCache` over `openAttachmentUseCase` (`NobleAttachmentCryptoAdapter`, `getAttachmentCryptoPort()`), 32 MB of
+  plaintext kept as `data:` URIs (`_libs/data-uri.ts`), in memory only, cleared when the account changes; `expo-image`
+  with `cachePolicy="memory"` — never a decrypted file on disk —, laid out by `imagePreviewOf`, the blurhash meanwhile.
+- **"Save your 24 words"** (`/onboarding/setup`, `pages/onboarding/setup/`): the domain's
+  `setUpFirstDeviceUseCase` — a loader by stage, then the words; a start over's new words on the same
+  screen ("Your new 24 words", no step line, Continue forgetting them: `dismissNewWords`); a pending key tried
+  again after its delay; another device's key sent where the gate says; a failure with "Try again". "Start
+  using Pīna'i" once the words were shown or copied and "I've saved them somewhere safe" is on, then `/home`,
+  whose gate decides. No "Settings › Devices" line under the words yet.
+- `molecules/sheet` — a sheet from the bottom over a `Modal` (a question: the start over's confirmation, the password asked
+  again); never for the words, which a `Modal`'s own window would leave capturable.
+- `molecules/words-card` — the 24 words in two numbered columns, blurred until "Show words" (a `filter` blur, which
+  Android draws from 12 on: hidden, the cells hold dots, never the words); hidden again when the app leaves the
+  front; "Copy words" copies them hidden or not, marked sensitive (`expo-clipboard`'s `android.isSensitive`: no
+  preview in Android's overlay nor the keyboards'; on iOS `localOnly`, no Universal Clipboard, and gone after 5
+  minutes). While a card is up, and on the words way, screenshots and the app switcher's preview are blocked
+  (`_libs/words-privacy.ts`: `expo-screen-capture` a key per caller — FLAG_SECURE on Android; on iOS 13+ the block,
+  plus the switcher's blur, one switch counted). `molecules/switch-row` — a `Group` row that is
+  its switch. `app.config.ts` blocks the storage and photos permissions `expo-screen-capture` declares to detect
+  screenshots before Android 14 (the app only blocks them); `DETECT_SCREEN_CAPTURE` must stay — from Android 14 the
+  library registers its detector as it loads, and the app fails to start without it ("Permission Denial").
+
+## iOS
+
+Written without a Mac, an iPhone or an Apple Developer account: nothing below has been compiled or run yet. What Linux
+checks: the Rust for the three iOS targets and its Swift bindings (`native-mls:ios`), `expo prebuild --platform ios`
+(the plist, the entitlements, both local modules linked), `expo export --platform ios`.
+
+- `modules/openmls/ios`: `OpenMlsModule.swift`, the Kotlin module one for one, over the uniffi Swift compiled into the
+  pod (`OpenMls.podspec` vendors `OpenMlsNative.xcframework`). Expo's Swift getters can't throw: an `ExternalJoin`'s and
+  a `ProcessedMessage`'s values are read as the object is made (`NativeObjects.swift`); `free` drops the reference,
+  uniffi then frees it.
+- `modules/device-key/ios`: see the encrypted store.
+- The device's name: iOS gives the name its owner chose only with an entitlement Apple grants on request; without it
+  "iPhone", which `composeDeviceLabel` drops — "iPhone 15 Pro".
+- On a Mac: `pnpm ios:mobile` (the native library's iOS mode, then `expo run:ios`). The adb scripts stay Android's: the
+  control screens open by link (`xcrun simctl openurl booted io.github.pina-i://dev/mls-check`). On the simulator
+  `localhost` is the Mac's; an iPhone reaches an instance by an address it can resolve, no `adb reverse`.
+- Push notices need the APNs key in the Expo project's credentials (an Apple Developer account); no code. The
+  `sign-ins` channel is Android's only.
+- Not run yet: the Swift compiling, the app starting, `mls-check`, `storage-check`, `argon2-check` on iOS, push.

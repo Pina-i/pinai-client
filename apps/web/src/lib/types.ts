@@ -4,7 +4,7 @@ import type { AttachmentBlobKey } from "@pinai/domain/models/e2ee"
 
 /**
  * `SendState` carries the send lifecycle of own messages; absent `status` hides the indicator.
- * `undecrypted` marks a peer's message this device couldn't decrypt yet.
+ * `undecrypted` and `editOnly` mark a copy that gives way to a fuller one (`Decryption`).
  */
 export interface Message extends SendState, Decryption {
     id: string
@@ -21,6 +21,8 @@ export interface Message extends SendState, Decryption {
     createdAt: string
     color: string
     edited?: boolean
+    /** When the last edit this device read was made. */
+    editedAt?: string
     reactions?: Array<{ emoji: string; count: number; reacted: boolean }>
     replyTo?: { id: string; content: string; author: string }
     /** Linked attachments resolved from the server. Empty/undefined → none.

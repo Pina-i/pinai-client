@@ -1,4 +1,5 @@
-import { Check, ShieldCheck } from "lucide-react"
+import { Check, LoaderCircle, ShieldCheck } from "lucide-react"
+import { failureWording } from "@pinai/domain/models/approval-wording"
 
 import { Button } from "@/presentation/atoms/Button/Button"
 import { OtpInput } from "@/presentation/atoms/OtpInput/OtpInput"
@@ -6,7 +7,6 @@ import { DoorHead } from "@/presentation/molecules/DoorHead/DoorHead"
 import { Modal } from "@/presentation/molecules/Modal/Modal"
 import { modalSurface } from "@/presentation/molecules/Modal/modal-surface"
 import { RecentSignInModal } from "@/presentation/molecules/RecentSignInModal/RecentSignInModal"
-import { failureWording } from "@/presentation/_libs/approval-wording"
 import { cn } from "@/presentation/_libs/utils"
 
 import { useApprovalDoorViewModel } from "./ApprovalDoor.viewmodel"
@@ -24,7 +24,7 @@ export function ApprovalDoor() {
     return (
         <>
             <Modal
-                isOpen={view !== null}
+                isOpen={vm.isOpen}
                 onClose={vm.onClose}
                 isDismissable={!working}
                 isKeyboardDismissDisabled={working}
@@ -41,24 +41,34 @@ export function ApprovalDoor() {
                             </p>
                         )}
                         {working && <p className="m-0 text-[12.5px] text-muted-foreground">Checking the code with {vm.device}…</p>}
+                        {vm.waiting && (
+                            <p className="m-0 flex gap-2.5 text-[13px] leading-[1.55] text-muted-foreground">
+                                <LoaderCircle className="mt-0.5 h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none" strokeWidth={1.9} aria-hidden />
+                                <span>
+                                    Waiting for {vm.device} to show a code: on it, choose to approve it from another device. The code to type comes here.
+                                </span>
+                            </p>
+                        )}
                     </div>
 
                     {!approved && (
                         <>
-                            <div>
-                                {view?.note === "wrong-code" && (
-                                    <p className="m-0 mb-2 text-[12.5px] text-dnd">That code didn't match — type the new one it shows.</p>
-                                )}
-                                <OtpInput
-                                    label="Type the code it shows"
-                                    value={vm.code}
-                                    onChange={vm.setCode}
-                                    groupSize={3}
-                                    size="lg"
-                                    autoFocus
-                                    disabled={view?.stage !== "entry"}
-                                />
-                            </div>
+                            {!vm.waiting && (
+                                <div>
+                                    {view?.note === "wrong-code" && (
+                                        <p className="m-0 mb-2 text-[12.5px] text-dnd">That code didn't match — type the new one it shows.</p>
+                                    )}
+                                    <OtpInput
+                                        label="Type the code it shows"
+                                        value={vm.code}
+                                        onChange={vm.setCode}
+                                        groupSize={3}
+                                        size="lg"
+                                        autoFocus
+                                        disabled={view?.stage !== "entry"}
+                                    />
+                                </div>
+                            )}
                             <p className="m-0 flex gap-2.5 text-[12.5px] leading-[1.55] text-muted-foreground">
                                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-acc" strokeWidth={1.9} aria-hidden />
                                 <span>Approving gives it your conversations and your history. Approve only a device you have in hand.</span>
@@ -74,7 +84,7 @@ export function ApprovalDoor() {
                     </div>
 
                     <div className="flex items-center justify-between gap-3 pt-1">
-                        {view?.stage === "entry" && (
+                        {(view?.stage === "entry" || vm.waiting) && (
                             <>
                                 <Button
                                     variant="ghost"
@@ -84,9 +94,15 @@ export function ApprovalDoor() {
                                 >
                                     {vm.isSigningOut ? "Signing it out…" : "Not me — sign it out"}
                                 </Button>
-                                <Button size="inline" onPress={vm.onApprove} isDisabled={!vm.canApprove}>
-                                    Approve
-                                </Button>
+                                {vm.waiting ? (
+                                    <Button size="inline" variant="secondary" onPress={vm.onClose}>
+                                        Close
+                                    </Button>
+                                ) : (
+                                    <Button size="inline" onPress={vm.onApprove} isDisabled={!vm.canApprove}>
+                                        Approve
+                                    </Button>
+                                )}
                             </>
                         )}
                         {working && (

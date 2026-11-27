@@ -33,12 +33,15 @@ export function useCallbackViewModel(params: Record<string, string>) {
                         const { accessToken, user, idpUrl } = result.session
                         useAppStore.getState().setSession(accessToken, user, idpUrl)
                         rememberInstanceUseCase(idpUrl, getRecentInstancesPort())
-                        router.replace("/home")
+                        const session = getAuthPlatform().session
+                        const redirect = session.get("post_login_redirect")
+                        session.remove("post_login_redirect")
+                        router.replace((redirect ?? "/home") as never)
                         break
                     }
                     case "cancelled":
-                        // "← Another home" on the IdP's page: back to picking one, nothing to say.
-                        router.replace("/server")
+                        // "← Another home" on the IdP's page: back to picking one — or, asked the password again, back where it was.
+                        router.replace((result.returnTo ?? "/server") as never)
                         break
                     case "refused":
                         setFailure({ kind: "refused", code: result.error })

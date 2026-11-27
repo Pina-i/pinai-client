@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { deviceFingerprint } from "@/presentation/_libs/device-fingerprint"
+import { deviceShortId as deviceFingerprint } from "@pinai/crypto/device-short-id"
 
 describe("deviceFingerprint", () => {
     it("is deterministic for the same UUID", () => {

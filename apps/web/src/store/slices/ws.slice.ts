@@ -1,20 +1,12 @@
 import type { StateCreator } from "zustand"
 import type { WsConnectionStatus, WsNotification } from "@pinai/domain/models/ws"
-import { addToTimeline, mergeMessageHistory, reconcileOptimistic } from "@pinai/domain/models/dm"
+import { addToTimeline, mergeMessageHistory, reconcileSent } from "@pinai/domain/models/dm"
 import type { GroupEvent } from "@pinai/domain/models/group-event"
-import { withNewDeviceLine, type NewDeviceLine } from "@pinai/domain/models/new-device"
+import { readNewDeviceLines, withNewDeviceLine, type NewDeviceLine } from "@pinai/domain/models/new-device"
+import { foldReaction, type ReactionApplication } from "@pinai/domain/models/reaction"
+import type { ConversationTimeline } from "@pinai/domain/ports/conversation-cache.port"
 import type { Message } from "@/lib/types"
 import type { AppStore } from "../store"
-
-/** A reaction's effect, keyed by the reaction-message id for dedup. */
-export interface ReactionApplication {
-    /** The reaction message's own id (the row in `direct_messages`). */
-    reaction_message_id: string
-    target_message_id: string
-    reactor_address: string
-    emoji: string
-    op: "add" | "remove"
-}
 
 export interface WsSlice {
     wsStatus: WsConnectionStatus
@@ -55,6 +47,11 @@ export interface WsSlice {
     addNewDeviceLine: (conversationKey: string, line: NewDeviceLine) => void
     /** Drop what this device keeps of a conversation: its messages, its changes and its lines. */
     forgetConversation: (conversationKey: string) => void
+    /** One conversation's timeline changed as a whole (the domain's conversation cache): only what the change replaced is set. */
+    changeTimeline: (
+        conversationKey: string,
+        change: (held: ConversationTimeline<Message>) => ConversationTimeline<Message>,
+    ) => void
     /** Update a single message by id across all conversations. */
     updateMessageById: (messageId: string, updater: (msg: Message) => Message) => void
     /**
@@ -79,6 +76,19 @@ export interface WsSlice {
         application: ReactionApplication,
         reactedByMe: boolean,
     ) => void
+}
+
+/** One conversation as the domain's conversation cache reads it. */
+export function conversationTimeline(
+    s: Pick<WsSlice, "dmMessages" | "appliedReactionIds" | "groupEvents" | "newDeviceLines">,
+    conversationKey: string,
+): ConversationTimeline<Message> {
+    return {
+        messages: s.dmMessages[conversationKey] ?? [],
+        appliedReactionIds: s.appliedReactionIds,
+        groupEvents: s.groupEvents[conversationKey] ?? [],
+        newDeviceLines: readNewDeviceLines(s.newDeviceLines[conversationKey]),
+    }
 }
 
 export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]], [], WsSlice> = (set) => ({
@@ -127,21 +137,9 @@ export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]]
         set(
             (s) => {
                 const existing = s.dmMessages[conversationKey] ?? []
-                const idx = existing.findIndex((m) => m.id === clientId)
-                if (idx !== -1) {
-                    const updated = [...existing]
-                    updated[idx] = reconcileOptimistic(existing[idx], message)
-                    return {
-                        dmMessages: { ...s.dmMessages, [conversationKey]: updated },
-                    }
-                }
-                if (existing.some((m) => m.id === message.id)) return s
-                return {
-                    dmMessages: {
-                        ...s.dmMessages,
-                        [conversationKey]: [...existing, message],
-                    },
-                }
+                const next = reconcileSent(existing, clientId, message)
+                if (next === existing) return s
+                return { dmMessages: { ...s.dmMessages, [conversationKey]: next } }
             },
             false,
             "ws/reconcileDmMessage",
@@ -214,6 +212,30 @@ export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]]
             "ws/forgetConversation",
         ),
 
+    changeTimeline: (conversationKey, change) =>
+        set(
+            (s) => {
+                const held = conversationTimeline(s, conversationKey)
+                const next = change(held)
+                const patch: Partial<WsSlice> = {}
+                if (next.messages !== held.messages) {
+                    patch.dmMessages = { ...s.dmMessages, [conversationKey]: next.messages }
+                }
+                if (next.appliedReactionIds !== held.appliedReactionIds) patch.appliedReactionIds = next.appliedReactionIds
+                if (next.groupEvents !== held.groupEvents) {
+                    patch.groupEvents = { ...s.groupEvents, [conversationKey]: next.groupEvents }
+                }
+                // A value of another shape, read back from the cache, is left as it is.
+                const lines = s.newDeviceLines[conversationKey]
+                if (next.newDeviceLines !== held.newDeviceLines && (lines === undefined || Array.isArray(lines))) {
+                    patch.newDeviceLines = { ...s.newDeviceLines, [conversationKey]: next.newDeviceLines }
+                }
+                return Object.keys(patch).length > 0 ? patch : s
+            },
+            false,
+            "ws/changeTimeline",
+        ),
+
     updateMessageById: (messageId, updater) =>
         set(
             (s) => {
@@ -254,74 +276,12 @@ export const createWsSlice: StateCreator<AppStore, [["zustand/devtools", never]]
     applyReaction: (conversationKey, application, reactedByMe) =>
         set(
             (s) => {
-                if (s.appliedReactionIds[application.reaction_message_id]) return s
-                const list = s.dmMessages[conversationKey]
-                if (!list) {
-                    // Conversation isn't loaded — still record the
-                    // dedup id so we don't re-apply when it later
-                    // mounts via REST.
-                    return {
-                        appliedReactionIds: {
-                            ...s.appliedReactionIds,
-                            [application.reaction_message_id]: true,
-                        },
-                    }
-                }
-                const idx = list.findIndex((m) => m.id === application.target_message_id)
-                if (idx === -1) {
-                    return {
-                        appliedReactionIds: {
-                            ...s.appliedReactionIds,
-                            [application.reaction_message_id]: true,
-                        },
-                    }
-                }
-                const target = list[idx]
-                const reactions = target.reactions ? [...target.reactions] : []
-                const existingIdx = reactions.findIndex((r) => r.emoji === application.emoji)
-
-                if (application.op === "add") {
-                    if (existingIdx === -1) {
-                        reactions.push({
-                            emoji: application.emoji,
-                            count: 1,
-                            reacted: reactedByMe,
-                        })
-                    } else {
-                        const r = reactions[existingIdx]
-                        reactions[existingIdx] = {
-                            ...r,
-                            count: r.count + 1,
-                            reacted: r.reacted || reactedByMe,
-                        }
-                    }
-                } else {
-                    if (existingIdx !== -1) {
-                        const r = reactions[existingIdx]
-                        const nextCount = r.count - 1
-                        if (nextCount <= 0) {
-                            reactions.splice(existingIdx, 1)
-                        } else {
-                            reactions[existingIdx] = {
-                                ...r,
-                                count: nextCount,
-                                reacted: reactedByMe ? false : r.reacted,
-                            }
-                        }
-                    }
-                }
-
-                const updatedMessages = [...list]
-                updatedMessages[idx] = { ...target, reactions }
+                const folded = foldReaction(s.dmMessages[conversationKey], s.appliedReactionIds, application, reactedByMe)
+                if (!folded) return s
+                if (!folded.messages) return { appliedReactionIds: folded.appliedReactionIds }
                 return {
-                    dmMessages: {
-                        ...s.dmMessages,
-                        [conversationKey]: updatedMessages,
-                    },
-                    appliedReactionIds: {
-                        ...s.appliedReactionIds,
-                        [application.reaction_message_id]: true,
-                    },
+                    dmMessages: { ...s.dmMessages, [conversationKey]: folded.messages },
+                    appliedReactionIds: folded.appliedReactionIds,
                 }
             },
             false,

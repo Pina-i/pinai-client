@@ -1,16 +1,14 @@
 import { useCallback, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
+import { RECOVERY_WORD_COUNT, isPassphraseComplete } from "@pinai/crypto/recovery-words"
 import { restoreHistoryFromPassphraseUseCase } from "@pinai/domain/usecases/e2ee/restore-history-from-passphrase.usecase"
+import { typeWordsUseCase } from "@pinai/domain/usecases/e2ee/type-words.usecase"
 import { getHistoryArchivePort, getKeySharePort, getSessionPort } from "@/ioc"
 import { admissionDeps } from "@/presentation/_libs/admission-deps"
 import { signInAgainOnDeviceMismatch } from "@/presentation/_libs/device-mismatch"
 import { restoreDueHistory } from "@/presentation/_libs/history-restore"
 import { warnE2ee } from "@/presentation/_libs/key-share-deps"
-import {
-    RECOVERY_WORD_COUNT,
-    isPassphraseComplete,
-} from "@/presentation/molecules/RecoveryPassphraseInput/RecoveryPassphraseInput.helper"
 import { useAppStore } from "@/store/store"
 
 const REFUSALS = {
@@ -45,9 +43,8 @@ export interface TypedWordsInput {
 
 /**
  * The 24 words typed — "My 24 words" on the new-device page, "Its 24 words" on the reset page and in
- * the app's banner: checked against the account's key before anything is kept
- * (`restoreHistoryFromPassphraseUseCase`), then the restore, awaited. A refusal is a toast; the words
- * stay typed.
+ * the app's banner, over the domain's `typeWordsUseCase`: checked against the account's key before
+ * anything is kept, then the restore, awaited. A refusal is a toast; the words stay typed.
  */
 export function useTypedWords({ ready, onBusy, onKept, onFailed }: TypedWordsInput): TypedWords {
     const idpUrl = useAppStore((s) => s.idpUrl)
@@ -64,29 +61,38 @@ export function useTypedWords({ ready, onBusy, onKept, onFailed }: TypedWordsInp
         setRestoring(true)
         onBusy?.(true)
         try {
-            await ready?.()
-            const result = await restoreHistoryFromPassphraseUseCase({
-                ...admissionDeps(),
-                sessionPort: getSessionPort(),
-                historyArchivePort: getHistoryArchivePort(),
-                keySharePort: getKeySharePort(),
-                report: warnE2ee,
-            })({ idpUrl, accessToken, actorUri, passphrase: words })
-            if (result.kind !== "kept") {
-                toast.error(REFUSALS[result.kind])
-                return
+            const result = await typeWordsUseCase({
+                restoreFromWords: (session, passphrase) =>
+                    restoreHistoryFromPassphraseUseCase({
+                        ...admissionDeps(),
+                        sessionPort: getSessionPort(),
+                        historyArchivePort: getHistoryArchivePort(),
+                        keySharePort: getKeySharePort(),
+                        report: warnE2ee,
+                    })({ ...session, passphrase }),
+                restoreDue: restoreDueHistory,
+                signInAgainOnDeviceMismatch,
+            })({ idpUrl, accessToken, actorUri }, words, ready)
+            switch (result.kind) {
+                case "refused":
+                    toast.error(REFUSALS[result.reason])
+                    return
+                case "kept": {
+                    const { restore } = result
+                    if (restore.kind === "failed") {
+                        toast.error("Your history couldn't be brought back", { description: "It's tried again the next time Pīna'i starts." })
+                    } else {
+                        toast.success(
+                            restore.messages === 0 ? "Device set up" : `Restored ${restore.messages} message${restore.messages === 1 ? "" : "s"}`
+                        )
+                    }
+                    onKept()
+                    return
+                }
+                case "failed":
+                    onFailed(result.message)
+                    return
             }
-            const restore = await restoreDueHistory()
-            if (restore.kind === "failed") {
-                toast.error("Your history couldn't be brought back", { description: "It's tried again the next time Pīna'i starts." })
-            } else {
-                const count = restore.kind === "restored" ? restore.messages : 0
-                toast.success(count === 0 ? "Device set up" : `Restored ${count} message${count === 1 ? "" : "s"}`)
-            }
-            onKept()
-        } catch (e) {
-            if (await signInAgainOnDeviceMismatch(e)) return
-            onFailed(e instanceof Error ? e.message : "Restore failed")
         } finally {
             running.current = false
             setRestoring(false)

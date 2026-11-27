@@ -78,21 +78,38 @@ export interface TimelineEntry {
     createdAt: string
 }
 
-/** A message this device couldn't decrypt: shown as a placeholder until a decrypted copy comes. */
+/** How much of a message this device holds: a copy marked either way gives way to a fuller one. */
 export interface Decryption {
+    /** It couldn't decrypt it: a placeholder until a decrypted copy comes. */
     undecrypted?: true
+    /**
+     * It read only its last edit — history's row of a message it never held carries the edit's ciphertext —: the edit's
+     * text, without its first text's attachment keys or reply preview, which the archive's copy brings.
+     */
+    editOnly?: true
 }
 
 /** What a timeline shows in place of a text this device never read. */
 export const UNDECRYPTABLE_TEXT = "[encrypted]"
 
-// The held copy wins — it is the one already decrypted — unless only the other is: that one then
-// takes over, with what only the held copy knew (reactions folded into it, a send status).
-function keepCopy<T extends Decryption>(held: T, other: T): T {
-    if (!held.undecrypted || other.undecrypted) return held
+// A placeholder knows nothing of its message, its last edit alone part of it, any other copy all of it.
+function knowledge(copy: Decryption): number {
+    return copy.undecrypted ? 0 : copy.editOnly ? 1 : 2
+}
+
+/** What the merge reads of a copy's text, for the entries that have one. */
+type TextCopy = Decryption & { content?: string; edited?: boolean }
+
+// The held copy wins — it is the one already decrypted — unless the other knows more of the message: that one then
+// takes over, with what only the held copy knew (reactions folded into it, a send status, its edit's time).
+function keepCopy<T extends TextCopy>(held: T, other: T): T {
+    if (knowledge(other) <= knowledge(held)) return held
     const known = { ...held }
     delete known.undecrypted
-    return { ...known, ...other }
+    delete known.editOnly
+    const fuller = { ...known, ...other }
+    // A first text no edit reached is older than the edit held: the edit stays on top of it.
+    return held.editOnly && !other.edited ? { ...fuller, content: held.content, edited: true } : fuller
 }
 
 /**
@@ -100,9 +117,9 @@ function keepCopy<T extends Decryption>(held: T, other: T): T {
  * The cache is persisted, so history can hold entries newer than it, not only
  * older ones: sort instead of prepending. Sorting the whole list also repairs
  * a cache an earlier prepend left out of order. A cached entry wins over its
- * history copy, unless this device couldn't decrypt it and history could.
+ * history copy, unless history's knows more of the message (`Decryption`).
  */
-export function mergeMessageHistory<T extends TimelineEntry & Decryption>(cached: T[], history: T[]): T[] {
+export function mergeMessageHistory<T extends TimelineEntry & TextCopy>(cached: T[], history: T[]): T[] {
     const fromHistory = new Map(history.map((m) => [m.id, m]))
     const cachedIds = new Set(cached.map((m) => m.id))
     const incoming = history.filter((m) => !cachedIds.has(m.id))
@@ -116,9 +133,9 @@ export function mergeMessageHistory<T extends TimelineEntry & Decryption>(cached
 
 /**
  * A live entry into a cached timeline: appended when new; for one already held, the copy kept is
- * the held one unless only the new one is decrypted. The same list when nothing changes.
+ * the held one unless the new one knows more of the message. The same list when nothing changes.
  */
-export function addToTimeline<T extends { id: string } & Decryption>(list: T[], entry: T): T[] {
+export function addToTimeline<T extends { id: string } & TextCopy>(list: T[], entry: T): T[] {
     const at = list.findIndex((m) => m.id === entry.id)
     if (at === -1) return [...list, entry]
     const kept = keepCopy(list[at], entry)
@@ -149,6 +166,22 @@ export function interleaveTimeline<M extends TimelineEntry, E extends TimelineEn
     }
     for (; next < events.length; next++) items.push({ kind: "event", entry: events[next] })
     return items
+}
+
+/** Within this of the one before, a message of the same author continues its run under one name and avatar. */
+export const SEQUENCE_GAP_MS = 5 * 60 * 1000
+
+/**
+ * Whether a message starts a run, showing its author and time: the first of the timeline or of a day (`previous`
+ * null there, as after a group's change), another author's, or after {@link SEQUENCE_GAP_MS}.
+ */
+export function startsRun(
+    previous: { authorAddress?: string; createdAt: string } | null,
+    message: { authorAddress?: string; createdAt: string },
+): boolean {
+    if (!previous || previous.authorAddress == null || previous.authorAddress !== message.authorAddress) return true
+    // A time that can't be read starts one: NaN is never within the gap.
+    return !(Date.parse(message.createdAt) - Date.parse(previous.createdAt) <= SEQUENCE_GAP_MS)
 }
 
 /** Entries of a timeline in time order, those of one instant as they came. */
@@ -199,6 +232,12 @@ export function settleStaleSend<T extends SendState>(message: T, now: number): T
     return { ...message, status: "failed", statusAt: new Date(now).toISOString() }
 }
 
+/** An own message's echo: the IdP stored it, so a copy still `sending` or `failed` was sent. The same object otherwise. */
+export function settleByEcho<T extends SendState>(message: T, at: string): T {
+    if (message.status !== "sending" && message.status !== "failed") return message
+    return { ...message, status: "sent", statusAt: at }
+}
+
 /**
  * The confirmed copy of an optimistic message replaces it, keeping what only
  * the client knows: which undelivered message it was sent again from.
@@ -206,6 +245,22 @@ export function settleStaleSend<T extends SendState>(message: T, now: number): T
 export function reconcileOptimistic<T extends SendState>(optimistic: T, confirmed: T): T {
     if (!optimistic.resentFrom || confirmed.resentFrom) return confirmed
     return { ...confirmed, resentFrom: optimistic.resentFrom }
+}
+
+/**
+ * A sent message's confirmed copy into its timeline: in its optimistic copy's place (`clientId`), else
+ * appended unless a copy under its id is held — the send's answer and its echo both bring it. The
+ * same list when nothing changes.
+ */
+export function reconcileSent<T extends SendState & { id: string }>(list: T[], clientId: string, confirmed: T): T[] {
+    const at = list.findIndex((m) => m.id === clientId)
+    if (at !== -1) {
+        const next = [...list]
+        next[at] = reconcileOptimistic(list[at], confirmed)
+        return next
+    }
+    if (list.some((m) => m.id === confirmed.id)) return list
+    return [...list, confirmed]
 }
 
 /**
@@ -232,9 +287,20 @@ export function applyFederationStatus<T extends SendState>(
     return { ...message, status: "undelivered", statusAt: at }
 }
 
+/**
+ * One wording for every undelivered 1:1 message, whatever stopped it: the sender must not tell a
+ * block from a contact setting or from a server that didn't answer.
+ */
+export const UNDELIVERED_DM_HINT = "They may only accept messages from friends, or their server may be unreachable."
+
 /** Whether an own message is still waiting to be sent again. */
 export function awaitsResend(message: SendState): boolean {
     return message.status === "failed" || (message.status === "undelivered" && !message.resent)
+}
+
+/** A resend needs the plaintext, which a device that never held it (another device's echo) has only as the placeholder. */
+export function canResend(message: { content: string }): boolean {
+    return message.content !== UNDECRYPTABLE_TEXT
 }
 
 /** The fields a route needs to name a row of the conversation list. */

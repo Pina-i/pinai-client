@@ -10,10 +10,10 @@ import { GroupEventLine } from "@/presentation/molecules/GroupEventLine/GroupEve
 import { GroupRenameNotice } from "@/presentation/molecules/GroupRenameNotice/GroupRenameNotice"
 import { NewDeviceLine } from "@/presentation/molecules/NewDeviceLine/NewDeviceLine"
 import { MessageThreadContext, ReactionPickerContext, type LinkedMessage } from "./MessageList.context"
-import { formatDateDividerLabel } from "@/presentation/molecules/DateDivider/DateDivider.helper"
 import { EmojiPickerPopover } from "@/presentation/molecules/EmojiPickerPopover/EmojiPickerPopover"
 import type { Message, TimelineNotice } from "@/lib/types"
-import { interleaveTimeline, resentCopies } from "@pinai/domain/models/dm"
+import { interleaveTimeline, resentCopies, startsRun } from "@pinai/domain/models/dm"
+import { dayDividerLabel } from "@pinai/domain/models/relative-time"
 import { cn } from "@/presentation/_libs/utils"
 import { MessageItem } from "../MessageItem/MessageItem"
 import { useSettled, useStickToBottom } from "./MessageList.scroll"
@@ -37,9 +37,6 @@ export interface MessageListProps {
     /** Called once the first rows are laid out, measured and pinned to the end. */
     onSettle?: () => void
 }
-
-/** Gap above which we restart a sequence even when the author is the same. */
-const SEQUENCE_GAP_MS = 5 * 60 * 1000
 
 /**
  * Average row height for the virtualizer's scrollbar math before rows are
@@ -182,8 +179,8 @@ export const MessageList = memo(function MessageList({
     const items = useMemo<RowItem[]>(() => {
         const acc: RowItem[] = []
         let lastDayKey: string | undefined
-        let prevAuthorAddress: string | undefined
-        let prevCreatedAt: number | undefined
+        let previous: Message | null = null
+        const now = new Date()
 
         for (const item of interleaveTimeline(messages, notices)) {
             const date = new Date(item.entry.createdAt)
@@ -192,24 +189,17 @@ export const MessageList = memo(function MessageList({
                 // Date dividers carry the id of the row they precede so
                 // the React key stays stable when older history loads in
                 // above an existing divider.
-                acc.push(dividerRow(item.entry, dayKey, formatDateDividerLabel(date)))
+                acc.push(dividerRow(item.entry, dayKey, dayDividerLabel(date, now)))
                 lastDayKey = dayKey
-                prevAuthorAddress = undefined
-                prevCreatedAt = undefined
+                previous = null
             }
             if (item.kind === "event") {
                 acc.push(noticeRow(item.entry))
-                prevAuthorAddress = undefined
-                prevCreatedAt = undefined
+                previous = null
                 continue
             }
-            const msg = item.entry
-            const sameAuthor = prevAuthorAddress != null && prevAuthorAddress === msg.authorAddress
-            const within = prevCreatedAt != null && date.getTime() - prevCreatedAt <= SEQUENCE_GAP_MS
-            const first = !sameAuthor || !within
-            acc.push(messageRow(msg, first))
-            prevAuthorAddress = msg.authorAddress
-            prevCreatedAt = date.getTime()
+            acc.push(messageRow(item.entry, startsRun(previous, item.entry)))
+            previous = item.entry
         }
         return acc
     }, [messages, notices])

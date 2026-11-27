@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 
-import { askingState, START_OVER_REREAD_MS, type AskingState, type StartOverRead } from "@pinai/domain/models/start-over"
+import { askingState, matureRereadDelay, START_OVER_REREAD_MS, type AskingState, type StartOverRead } from "@pinai/domain/models/start-over"
 import { readStartOverUseCase } from "@pinai/domain/usecases/e2ee/start-over-request.usecase"
 import { getE2eePort, getStartOverPort } from "@/ioc"
 import { useAppStore } from "@/store/store"
@@ -10,9 +10,6 @@ import { useAppStore } from "@/store/store"
 export const startOverQueryKey = (idpUrl: string) => ["start-over", idpUrl] as const
 
 export const ownStartOverQueryKey = (idpUrl: string) => [...startOverQueryKey(idpUrl), "own"] as const
-
-// A device clock far behind the instance's would put `readyAt` past what setTimeout takes (2³¹ − 1 ms).
-const LONGEST_TIMER_MS = 2 ** 31 - 1
 
 export interface OwnStartOver {
     /** `null` until the first read settles, or while this device's id isn't known. */
@@ -66,7 +63,7 @@ export function useOwnStartOver(enabled: boolean): OwnStartOver {
                 setTick(Date.now())
                 void refetch()
             },
-            Math.min(Math.max(0, maturesAt - Date.now()) + 1_000, LONGEST_TIMER_MS),
+            matureRereadDelay(maturesAt, Date.now()),
         )
         return () => clearTimeout(timer)
     }, [maturesAt, refetch])

@@ -1,9 +1,20 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { clockLeadOf } from "@pinai/domain/models/auth"
 import type { DeviceId } from "@pinai/domain/models/e2ee"
-import { heldBack, holdAfterRefusal, startOverReady, type FinishHold, type StartOverRead } from "@pinai/domain/models/start-over"
+import {
+    endedNote,
+    heldBack,
+    readyAtOnce,
+    sightStartOver,
+    startOverStage,
+    type FinishHold,
+    type StartOverRead,
+    type StartOverSighting,
+    type StartOverStage,
+} from "@pinai/domain/models/start-over"
+import { StartOverFlow, type StartOverFlowResult } from "@pinai/domain/usecases/e2ee/start-over-flow.usecase"
 import { askToStartOverUseCase, endStartOverUseCase } from "@pinai/domain/usecases/e2ee/start-over-request.usecase"
 import { startOverUseCase } from "@pinai/domain/usecases/e2ee/start-over.usecase"
 import { getE2eePort, getHistoryArchivePort, getKeySharePort, getSessionPort, getStartOverPort } from "@/ioc"
@@ -52,11 +63,9 @@ export const START_OVER_NOTICES: Record<StartOverNotice, string> = {
     superseded: "One of your approved devices set new words, which ended your request to start over.",
 }
 
-type Stage = "loading" | "choice" | "waiting" | "ready" | "elsewhere"
-
 export interface StartOverPanelViewModel {
     /** `choice`: the warning and "Erase and start over"; the others follow this device's request. */
-    stage: Stage
+    stage: StartOverStage
     /** While it waits: the day and hour it may finish, as the reader writes them. */
     readyOn: string | null
     /** The IdP said "not yet" to a finish this device's clock thought due. */
@@ -103,7 +112,6 @@ export function useStartOverPanelViewModel({
     const [error, setError] = useState<string | null>(null)
     const [hold, setHold] = useState<FinishHold | null>(null)
     const [holdTick, setHoldTick] = useState(0)
-    const running = useRef(false)
     const recentSignIn = useRecentSignIn(returnTo)
     const { ask } = recentSignIn
     const { state, refetch } = own
@@ -119,151 +127,141 @@ export function useStartOverPanelViewModel({
 
     const holdStill = useCallback(
         (busy: boolean) => {
-            running.current = busy
             onBusy(busy)
         },
         [onBusy],
     )
 
-    const finish = useCallback(
-        async (requestId: string | null) => {
-            const accessToken = useAppStore.getState().accessToken
-            if (!idpUrl || !accessToken || !actorUri) return
-            setStarting(true)
-            try {
-                const outcome = await startOverUseCase({
-                    ...admissionDeps(),
-                    sessionPort: getSessionPort(),
-                    historyArchivePort: getHistoryArchivePort(),
-                    keySharePort: getKeySharePort(),
-                    report: warnE2ee,
-                    pendingKeyLock: pendingKeyLock(actorUri),
-                })({ idpUrl, accessToken, actorUri, tokenArrivedAt: accessTokenArrivedAt(accessToken), refused })
-                switch (outcome.kind) {
-                    case "started-over":
-                        onStartedOver(outcome.words)
-                        break
-                    case "recent-sign-in":
-                        ask("start over")
-                        break
-                    case "conflict":
-                    case "key-changed":
-                        onWentOtherwise(outcome.kind)
-                        break
-                    case "rolled-back":
-                        onRolledBack()
-                        break
-                    case "not-ready": {
-                        const { readyAt } = outcome
-                        if (readyAt !== null && requestId) {
-                            const lead = clockLeadOf(accessToken, accessTokenArrivedAt(accessToken))
-                            setHold(holdAfterRefusal(requestId, readyAt, Date.now(), lead))
+    const flow = useMemo(
+        () =>
+            new StartOverFlow(
+                {
+                    session: () => {
+                        const accessToken = useAppStore.getState().accessToken
+                        return idpUrl && accessToken && actorUri ? { idpUrl, accessToken, actorUri } : null
+                    },
+                    ask: (session) =>
+                        askToStartOverUseCase({ e2eePort: getE2eePort(), sessionPort: getSessionPort(), startOverPort: getStartOverPort() })(
+                            session.idpUrl,
+                            session.accessToken,
+                            session.actorUri,
+                        ),
+                    startOver: (session, refusedDevice) =>
+                        startOverUseCase({
+                            ...admissionDeps(),
+                            sessionPort: getSessionPort(),
+                            historyArchivePort: getHistoryArchivePort(),
+                            keySharePort: getKeySharePort(),
+                            report: warnE2ee,
+                            pendingKeyLock: pendingKeyLock(session.actorUri),
+                        })({ ...session, tokenArrivedAt: accessTokenArrivedAt(session.accessToken), refused: refusedDevice }),
+                    end: (session, requestId) =>
+                        endStartOverUseCase({ startOverPort: getStartOverPort() })(session.idpUrl, session.accessToken, requestId),
+                    newWordsToShow: () => getE2eePort().newWordsToShow(),
+                    clockLead: (session) => clockLeadOf(session.accessToken, accessTokenArrivedAt(session.accessToken)),
+                    signInAgainOnDeviceMismatch,
+                    warn: warnE2ee,
+                },
+                {
+                    known: (read) => {
+                        if (idpUrl) queryClient.setQueryData(ownStartOverQueryKey(idpUrl), read)
+                    },
+                    held: (next) => {
+                        setHold(next)
+                        if (idpUrl) {
                             queryClient.setQueryData<StartOverRead>(ownStartOverQueryKey(idpUrl), (read) =>
-                                read?.kind === "request" && read.request.id === requestId ? { ...read, request: { ...read.request, readyAt } } : read,
+                                read?.kind === "request" && read.request.id === next.requestId
+                                    ? { ...read, request: { ...read.request, readyAt: next.readyAt } }
+                                    : read,
                             )
                         }
-                        await refetch()
-                        break
-                    }
-                    case "request-required":
-                        await refetch()
-                        break
-                }
-            } catch (e) {
-                if (await signInAgainOnDeviceMismatch(e)) return
-                warnE2ee("starting over", e)
-                const unseen = await getE2eePort()
-                    .newWordsToShow()
-                    .catch(() => null)
-                if (unseen) onStartedOver(unseen.words)
-                else setError("Couldn't start over: your instance didn't answer. Try again.")
-            } finally {
-                setStarting(false)
-            }
-        },
-        [idpUrl, actorUri, refused, onStartedOver, onWentOtherwise, onRolledBack, ask, refetch, queryClient],
+                    },
+                    reread: () => refetch(),
+                    step: (step) => {
+                        setAsking(step === "asking")
+                        setStarting(step === "starting")
+                        setWithdrawing(step === "withdrawing")
+                    },
+                },
+            ),
+        [idpUrl, actorUri, queryClient, refetch],
     )
 
+    const settle = useCallback(
+        (end: StartOverFlowResult) => {
+            switch (end.kind) {
+                case "started-over":
+                    onStartedOver(end.words)
+                    return
+                case "needs-recent-sign-in":
+                    ask("start over")
+                    return
+                case "went-otherwise":
+                    onWentOtherwise(end.how)
+                    return
+                case "rolled-back":
+                    onRolledBack()
+                    return
+                case "too-many":
+                    setTooMany(true)
+                    return
+                case "failed":
+                    setError(
+                        end.during === "finish"
+                            ? "Couldn't start over: your instance didn't answer. Try again."
+                            : startOverRefusalLine(end.error, end.during),
+                    )
+                    return
+            }
+        },
+        [onStartedOver, ask, onWentOtherwise, onRolledBack],
+    )
+
+    // A holder's own callback throwing: warned of, never left unhandled.
+    const settleFailed = useCallback((error: unknown) => warnE2ee("starting over", error), [])
+
+    const signedInNow = useCallback(() => !!(idpUrl && actorUri && useAppStore.getState().accessToken), [idpUrl, actorUri])
+
     const onFinish = useCallback(() => {
-        if (running.current || held) return
+        if (flow.busy || held || !signedInNow()) return
         holdStill(true)
         setError(null)
-        void finish(request?.id ?? null).finally(() => holdStill(false))
-    }, [finish, holdStill, held, request])
+        void flow
+            .finish(request?.id ?? null, refused)
+            .then(settle)
+            .catch(settleFailed)
+            .finally(() => holdStill(false))
+    }, [flow, held, signedInNow, request, refused, settle, settleFailed, holdStill])
 
     const onStartOver = useCallback(() => {
-        const accessToken = useAppStore.getState().accessToken
-        if (!idpUrl || !accessToken || !actorUri || running.current) return
+        if (flow.busy || !signedInNow()) return
         holdStill(true)
-        setAsking(true)
         setTooMany(false)
         setError(null)
-        void (async () => {
-            try {
-                const asked = await askToStartOverUseCase({
-                    e2eePort: getE2eePort(),
-                    sessionPort: getSessionPort(),
-                    startOverPort: getStartOverPort(),
-                })(idpUrl, accessToken, actorUri)
-                const key = ownStartOverQueryKey(idpUrl)
-                switch (asked.kind) {
-                    case "asked": {
-                        const read: StartOverRead = { kind: "request", request: asked.request }
-                        queryClient.setQueryData(key, read)
-                        setAsking(false)
-                        if (startOverReady(asked.request, Date.now())) await finish(asked.request.id)
-                        else void refetch()
-                        break
-                    }
-                    case "not-needed":
-                        setAsking(false)
-                        await finish(null)
-                        break
-                    case "elsewhere": {
-                        const read: StartOverRead = { kind: "elsewhere" }
-                        queryClient.setQueryData(key, read)
-                        break
-                    }
-                    case "too-many":
-                        setTooMany(true)
-                        break
-                }
-            } catch (e) {
-                if (await signInAgainOnDeviceMismatch(e)) return
-                warnE2ee("asking to start over", e)
-                setError(startOverRefusalLine(e, "ask"))
-            } finally {
-                setAsking(false)
-                holdStill(false)
-            }
-        })()
-    }, [idpUrl, actorUri, queryClient, finish, refetch, holdStill])
+        void flow
+            .startOver(refused)
+            .then(settle)
+            .catch(settleFailed)
+            .finally(() => holdStill(false))
+    }, [flow, signedInNow, refused, settle, settleFailed, holdStill])
 
     const requestId = request?.id ?? null
     const onWithdraw = useCallback(() => {
-        const accessToken = useAppStore.getState().accessToken
-        if (!idpUrl || !accessToken || !requestId || running.current) return
+        if (!requestId || flow.busy || !signedInNow()) return
         holdStill(true)
-        setWithdrawing(true)
         setError(null)
-        void endStartOverUseCase({ startOverPort: getStartOverPort() })(idpUrl, accessToken, requestId)
-            .then(() => refetch())
-            .catch((e: unknown) => {
-                warnE2ee("withdrawing the start over request", e)
-                setError(startOverRefusalLine(e, "withdraw"))
-            })
-            .finally(() => {
-                setWithdrawing(false)
-                holdStill(false)
-            })
-    }, [idpUrl, requestId, refetch, holdStill])
+        void flow
+            .withdraw(requestId)
+            .then(settle)
+            .catch(settleFailed)
+            .finally(() => holdStill(false))
+    }, [flow, requestId, signedInNow, settle, settleFailed, holdStill])
 
     // Seen open here, then approved or superseded: the holder says so and checks. After a reload, the gate already decided.
-    const [seen, setSeen] = useState<{ open: string | null; told: string | null }>({ open: null, told: null })
-    if ((state?.kind === "waiting" || state?.kind === "ready") && seen.open !== state.request.id) setSeen({ ...seen, open: state.request.id })
-    const endedSeen = (state?.kind === "approved" || state?.kind === "superseded") && seen.open === state.request.id ? state : null
-    if (endedSeen && seen.told !== endedSeen.request.id) setSeen({ ...seen, told: endedSeen.request.id })
-    const tellKind = endedSeen && seen.told === endedSeen.request.id ? endedSeen.kind : null
+    const [seen, setSeen] = useState<StartOverSighting>({ open: null, told: null })
+    const sighted = sightStartOver(seen, state)
+    if (sighted.seen !== seen) setSeen(sighted.seen)
+    const tellKind = sighted.tell
     const tell = useRef(onWentOtherwise)
     useEffect(() => {
         tell.current = onWentOtherwise
@@ -272,25 +270,14 @@ export function useStartOverPanelViewModel({
         if (tellKind) tell.current(tellKind)
     }, [tellKind, seen.told])
 
-    const stage: Stage = !ready
-        ? "choice"
-        : state === null
-          ? own.failed
-              ? "choice"
-              : "loading"
-          : held
-            ? "waiting"
-            : state.kind === "waiting" || state.kind === "ready" || state.kind === "elsewhere"
-              ? state.kind
-              : "choice"
+    const stage = startOverStage({ mayAsk: ready, state, readFailed: own.failed, held })
 
     return {
         stage,
         readyOn: stage === "waiting" && request ? momentLabel(held && hold ? hold.readyAt : request.readyAt) : null,
         notYet: held,
-        readyAtOnce: state?.kind === "ready" && state.request.readyAt <= state.request.createdAt,
-        // A superseded request the holder was told of is said there.
-        ended: state?.kind === "cancelled" ? "cancelled" : state?.kind === "superseded" && tellKind === null ? "superseded" : null,
+        readyAtOnce: readyAtOnce(state),
+        ended: endedNote(state, tellKind),
         tooMany,
         asking,
         starting,

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import type { AttachmentBlobKey } from "@pinai/domain/models/e2ee"
 import type { LocalFile } from "@pinai/domain/models/file"
-import { MAX_IMAGE_SIDE, imagePreviewOf } from "@pinai/domain/models/image-preview"
+import { MAX_IMAGE_SIDE, imagePreviewOf, isImageAttachment } from "@pinai/domain/models/image-preview"
 import type { IAttachmentCryptoPort } from "@pinai/domain/ports/attachment-crypto.port"
 import type { IDmPort } from "@pinai/domain/ports/dm.port"
 import type { IImageProbePort } from "@pinai/domain/ports/image-probe.port"
@@ -94,5 +94,15 @@ describe("uploading an image", () => {
         const none: IImageProbePort = { probe: async () => null }
         expect((await uploadEncryptedAttachmentUseCase(dm, crypto, params, none)).key).toBe(sealed.key)
         expect((await uploadEncryptedAttachmentUseCase(dm, crypto, params)).key).toBe(sealed.key)
+    })
+})
+
+describe("isImageAttachment", () => {
+    it("reads the type its key carries: the IdP holds every attachment as octet-stream", () => {
+        const wire = { mime_type: "application/octet-stream" }
+        expect(isImageAttachment(wire, { mime_type: "image/webp" })).toBe(true)
+        expect(isImageAttachment(wire, { mime_type: "application/pdf" })).toBe(false)
+        expect(isImageAttachment(wire)).toBe(false)
+        expect(isImageAttachment({ mime_type: "image/png" })).toBe(true)
     })
 })

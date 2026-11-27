@@ -40,7 +40,7 @@ jobs:
       # Saved from main only: another ref's cache would evict main's, which every run reads.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: crypto/openmls-wasm
+          workspaces: crypto
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
         with:
@@ -63,7 +63,7 @@ jobs:
           path: apps/desktop/out
           if-no-files-found: error
           retention-days: 3
-      - run: cargo test --locked --manifest-path crypto/openmls-wasm/Cargo.toml
+      - run: cargo test --locked --manifest-path crypto/Cargo.toml --workspace
 
   # One runner builds both platforms: the files are built once, and arm64's last stage only
   # copies them (docker/Dockerfile). Only a tag pushes; main builds to keep the cache a tag reads.

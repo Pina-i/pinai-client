@@ -1,6 +1,8 @@
 import { useEffect, useSyncExternalStore } from "react"
 
-import { POLL_BACKOFF_MS, pollDelay, type AnsweringView, type SeatsView } from "@pinai/domain/models/approval-handshake"
+import type { AnsweringView, DoorSummons, SeatsView } from "@pinai/domain/models/approval-handshake"
+import type { DeviceId } from "@pinai/domain/models/e2ee"
+import { AnsweringRuntime } from "@pinai/domain/usecases/e2ee/answering-runtime.usecase"
 import { ApprovalAnswering, type AnswerLock } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
 import { getApprovalRelayPort, getDeviceDirectoryPort, getE2eePort } from "@/ioc"
 import { shareDeps, warnE2ee, warnOf } from "@/presentation/_libs/key-share-deps"
@@ -36,7 +38,7 @@ function subscribeShared(listener: () => void): () => void {
     return () => sharedListeners.delete(listener)
 }
 
-/** Mounted once, by the Door: the answering side kept current, and polled while an exchange works, wherever it started. */
+/** Mounted once, by the Door: the answering side kept current (`AnsweringRuntime`), wherever an exchange started. */
 export function useApprovalAnsweringRuntime(): ApprovalAnswering | null {
     const idpUrl = useAppStore((s) => s.idpUrl)
     const signedIn = useAppStore((s) => s.accessToken !== null)
@@ -51,29 +53,13 @@ export function useApprovalAnsweringRuntime(): ApprovalAnswering | null {
             { idpUrl, actorUri, accessToken: () => useAppStore.getState().accessToken, report: warnE2ee },
             { usedCodes, lock: webLock },
         )
-        let live = true
-        let retry: ReturnType<typeof setTimeout> | undefined
+        const runtime = new AnsweringRuntime(made, warnE2ee)
         const unregister = registerApprovalHandler((push) => void made.onPush(push).catch(warnOf(`handling ${push.type}`)))
-        const refresh = (failures: number) => {
-            made.refresh().then(
-                () => {
-                    if (live) share(made)
-                },
-                (e: unknown) => {
-                    warnE2ee("reading the approval requests", e)
-                    if (!live) return
-                    share(made)
-                    retry = setTimeout(() => refresh(failures + 1), POLL_BACKOFF_MS[Math.min(failures + 1, POLL_BACKOFF_MS.length - 1)])
-                },
-            )
-        }
-        refresh(0)
+        runtime.start(() => share(made))
         return () => {
-            live = false
-            clearTimeout(retry)
             unregister()
             if (shared === made) share(null)
-            void made.dismiss().catch(warnOf("leaving the approval prompt"))
+            void runtime.stop().catch(warnOf("leaving the approval prompt"))
         }
     }, [signedIn, idpUrl, actorUri])
 
@@ -81,33 +67,6 @@ export function useApprovalAnsweringRuntime(): ApprovalAnswering | null {
     useEffect(() => {
         if (socketUp && controller) controller.refresh().catch(warnOf("reading the approval requests"))
     }, [socketUp, controller])
-
-    const view = useDoorView(controller)
-    const seats = useSeats(controller)
-    const working = view?.stage === "working" || seats.seat?.stage === "working"
-    useEffect(() => {
-        if (!working || !controller) return
-        let live = true
-        let timer: ReturnType<typeof setTimeout> | undefined
-        const next = (failures: number, lastError: unknown) => {
-            timer = setTimeout(() => {
-                controller.poll().then(
-                    () => {
-                        if (live) next(0, null)
-                    },
-                    (e: unknown) => {
-                        warnE2ee("reading the exchange", e)
-                        if (live) next(failures + 1, e)
-                    },
-                )
-            }, pollDelay(failures, lastError))
-        }
-        next(0, null)
-        return () => {
-            live = false
-            clearTimeout(timer)
-        }
-    }, [working, controller])
 
     return controller
 }
@@ -122,6 +81,21 @@ export function useDoorView(answering: ApprovalAnswering | null): AnsweringView 
     return useSyncExternalStore(answering?.subscribe ?? noSubscription, answering?.snapshot ?? noView)
 }
 
+/** The device the Door was called for while it shows no code yet. */
+export function useDoorSummons(answering: ApprovalAnswering | null): DoorSummons | null {
+    return useSyncExternalStore(answering?.subscribe ?? noSubscription, answering?.summons ?? noSummons)
+}
+
+/** A new device's notice calls the Door for it: its code once it shows one, "Not me" at once. */
+export function summonDoor(device: DoorSummons): void {
+    void shared?.summon(device).catch(warnOf("reading the approval requests"))
+}
+
+/** That device came in another way, or went: the Door waits for it no more. */
+export function unsummonDoor(deviceId: DeviceId): void {
+    shared?.unsummon(deviceId)
+}
+
 /** What the seats read of `answering`: nothing before the Door made it. */
 export function useSeats(answering: ApprovalAnswering | null): SeatsView {
     return useSyncExternalStore(answering?.subscribe ?? noSubscription, answering?.seats ?? noSeats)
@@ -130,4 +104,5 @@ export function useSeats(answering: ApprovalAnswering | null): SeatsView {
 const NO_SEATS: SeatsView = { open: [], atDoor: null, seat: null, busy: false, unsettled: false }
 const noSubscription = () => () => undefined
 const noView = (): AnsweringView | null => null
+const noSummons = (): DoorSummons | null => null
 const noSeats = (): SeatsView => NO_SEATS

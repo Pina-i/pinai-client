@@ -6,7 +6,7 @@
  */
 
 import { sameBytes } from "./bytes"
-import type { DeviceListEntry } from "./device"
+import type { DeviceClient, DeviceKind, DeviceListEntry } from "./device"
 import { actsOnApproval, duplicateDeviceIds, type HandshakeKeysRefusal, type HandshakePartner } from "./device-trust"
 import type { DeviceId } from "./e2ee"
 import type { HistoryKeyStanding } from "./history-key"
@@ -187,6 +187,12 @@ export interface AnsweringView {
     refused: "used-code" | "other-tab" | null
 }
 
+/** The device the Door was called for (a new device's notice), while it shows no code to type yet. */
+export interface DoorSummons {
+    deviceId: DeviceId
+    displayName: string
+}
+
 /** What Settings → Devices' waiting seats read of the answering side the Door shares with them. */
 export interface SeatsView {
     /** Another device's, open, nobody's answer yet — the Door's set aside included; none unless this device holds the words. */
@@ -243,6 +249,21 @@ export function codeDigits(text: string): string {
 
 export function isWholeCode(code: string): boolean {
     return code.length === APPROVAL_CODE_LENGTH && /^\d+$/.test(code)
+}
+
+/** The account's other devices still signed in to it, by their shown name: where a code shown here can be typed. */
+export function approvingDevices(
+    devices: readonly DeviceListEntry[],
+    thisDeviceId: string | null
+): { deviceId: string; label: string; kind: DeviceKind; client: DeviceClient }[] {
+    return devices
+        .filter((device) => device.device_id !== thisDeviceId && device.revoked_at === null)
+        .map((device) => ({
+            deviceId: device.device_id,
+            label: device.display_name.trim() || "A device",
+            kind: device.kind,
+            client: device.client,
+        }))
 }
 
 /** The code as it is shown and typed: 3 + 3. */

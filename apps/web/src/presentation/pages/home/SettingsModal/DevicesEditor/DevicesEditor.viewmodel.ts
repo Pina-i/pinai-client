@@ -6,25 +6,24 @@ import { toast } from "sonner"
 import type { SeatsView } from "@pinai/domain/models/approval-handshake"
 import { deviceListKey, renameRefusal } from "@pinai/domain/models/device"
 import {
-    approvedByWording,
-    approverOf,
-    historyHolders,
-    holdsCurrentWords,
-    holdsHistory,
-    mayRename,
-    notCountedApproved,
+    devicesPane,
+    type HeldWords,
+    ONLY_APPROVED_CLEARS,
+    ONLY_APPROVED_RENAMES,
+    ONLY_APPROVED_REVOKES,
+    ONLY_APPROVED_SIGNS_OUT,
     refusedDevice,
-    revokeWithheld,
+    wordsOffers,
+    type PaneRow,
 } from "@pinai/domain/models/device-roster"
-import type { HistoryKeyStanding, PendingHistoryKey } from "@pinai/domain/models/history-key"
 import { isApprovalRequired } from "@pinai/domain/models/idp-error"
 import type { ApprovalAnswering } from "@pinai/domain/usecases/e2ee/approval-handshake.usecase"
 import { clearHistoryBackupUseCase } from "@pinai/domain/usecases/e2ee/clear-history-backup.usecase"
 import { revokeDeviceUseCase } from "@pinai/domain/usecases/e2ee/revoke-device.usecase"
+import { instanceHost } from "@pinai/domain/models/instance"
+import { passwordAdvice } from "@pinai/domain/models/instance-admin"
 import { getDeviceDirectoryPort, getE2eePort, getHistoryArchivePort, getSessionPort } from "@/ioc"
-import { instanceHost } from "@/presentation/_libs/instance-host"
 import { warnE2ee, warnOf } from "@/presentation/_libs/key-share-deps"
-import { passwordAdvice } from "@/presentation/_libs/password-advice"
 import { useDeviceRoster } from "@/presentation/hooks/use-device-roster"
 import { usePasswordChange } from "@/presentation/hooks/use-password-change"
 import { useHistoryReset } from "@/presentation/providers/HistoryResetProvider/HistoryReset.context"
@@ -37,28 +36,7 @@ import type { RenameOutcome } from "./DeviceCard/DeviceCard.viewmodel"
 import { type ReplaceWordsViewModel, useReplaceWordsViewModel } from "./ReplaceWords/ReplaceWords.viewmodel"
 
 /** A device of the list, as its row says it. */
-export interface DeviceRowView {
-    device: DeviceRow
-    holdsHistory: boolean
-    /** "this device", another's label, "your 24 words"; `null` on a device that doesn't act. */
-    approvedBy: string | null
-    /** Approved, while this device isn't: the instance refuses its revoke, so the row says why instead. */
-    revokeWithheld: boolean
-    /** Revoke's rule, the IdP's for a rename too, and never a revoked device: the pencil. */
-    renamable: boolean
-}
-
-/** Why "Revoke" isn't offered on an approved device, from one that isn't. */
-export const ONLY_APPROVED_REVOKES = "Only an approved device can remove an approved device"
-
-/** A rename refused for the same reason: no note of its own on the card, Revoke's is there. */
-export const ONLY_APPROVED_RENAMES = "Only an approved device can rename an approved device"
-
-/** Why "Clear history backup" isn't offered on a device the instance doesn't count approved. */
-export const ONLY_APPROVED_CLEARS = "Only an approved device can clear the history backup"
-
-/** Why "Sign out other devices" isn't offered there, and what instead: a password reset ends every session. How follows, by the instance's mode. */
-export const ONLY_APPROVED_SIGNS_OUT = "Only an approved device can sign out your other devices: change your password instead."
+export type DeviceRowView = PaneRow<DeviceRow>
 
 export interface DevicesEditorViewModel {
     isLoading: boolean
@@ -122,7 +100,6 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
 
     const { rows, isLoading, error, events, verdict, answering, seats, waiting, fromBefore } = useDeviceRoster()
     const { reset } = useHistoryReset()
-    const listRefused = events.some((e) => e.kind === "device-list-refused")
 
     // While the pane is up, requests wait in their seats; once it goes, an exchange under way goes on at the Door.
     useEffect(() => {
@@ -135,9 +112,7 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
         answering?.refresh().catch(warnOf("reading the approval requests"))
     }, [answering, verdict])
 
-    const [held, setHeld] = useState<{ standing: HistoryKeyStanding; words: string[] | null; pending: PendingHistoryKey | null } | null>(
-        null,
-    )
+    const [held, setHeld] = useState<HeldWords | null>(null)
     const [heldRevision, setHeldRevision] = useState(0)
     const [isClearingHistoryBackup, setIsClearingHistoryBackup] = useState(false)
     const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null)
@@ -181,19 +156,10 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
         placeholderData: keepPreviousData,
     }).data
 
-    const holds = held ? holdsCurrentWords(held.standing) : null
-    const thisDevice = rows?.find((d) => d.is_current)?.device_id ?? verdict?.thisDevice ?? null
-    const seated = new Set([...waiting, ...fromBefore].map((d) => d.device_id))
-    const listed = rows
-        ?.filter((d) => !seated.has(d.device_id))
-        .map((device) => ({
-            device,
-            holdsHistory: holdsHistory(device, verdict),
-            approvedBy: approvedByWording(approverOf(verdict, device), rows, thisDevice),
-            revokeWithheld: revokeWithheld(approvedByInstance ?? null, thisDevice, device),
-            renamable: mayRename(approvedByInstance ?? null, thisDevice, device),
-        }))
-    const uncounted = notCountedApproved(approvedByInstance ?? null, thisDevice)
+    const pane = devicesPane({ rows: rows ?? [], events, verdict, waiting, fromBefore, approvedByInstance: approvedByInstance ?? null })
+    // Under the banner, the way back is its "It was me", never the new-device page.
+    const offers = wordsOffers(held, reset !== null)
+    const uncounted = pane.uncounted
     // NodeInfo read only once there is a key: before one, the instance refuses none of these for approval.
     const howToChangePassword = usePasswordChange(!!approvedByInstance)
     const signOutRefused = `${ONLY_APPROVED_SIGNS_OUT} ${passwordAdvice(howToChangePassword, instanceHost(idpUrl), "this one included")}`
@@ -295,21 +261,17 @@ export function useDevicesEditorViewModel(): DevicesEditorViewModel {
         error,
         waiting,
         fromBefore,
-        fromBeforeHeading:
-            fromBefore.length === 0 ? null : verdict?.before?.cause === "replacement" ? "From before you replaced your words" : "From before you started over",
+        fromBeforeHeading: pane.fromBeforeHeading,
         isRefused: (device) => refusedDevice(verdict, device),
-        waitingAnnouncement:
-            waiting.length === 0 ? "" : `${waiting.length} waiting for you: ${waiting.map((d) => d.display_name.trim() || "a device").join(", ")}`,
-        rows: listed,
-        listRefused,
+        waitingAnnouncement: pane.waitingAnnouncement,
+        rows: rows ? pane.listed : undefined,
+        listRefused: pane.listRefused,
         answering,
         seats,
-        passphraseWords: holds && held?.words ? held.words : null,
-        heldBy: rows ? historyHolders(rows, verdict) : null,
-        // Under the banner, the way back is its "It was me", never the new-device page.
-        offersRestore: holds === null ? null : !holds && !reset,
-        // A replacement whose answer was lost is pressed again: its key is sent again, or kept.
-        offersReplace: holds === true && !!held?.words && (!held.pending || held.pending.rearchive === true),
+        passphraseWords: offers.passphraseWords,
+        heldBy: rows ? pane.heldBy : null,
+        offersRestore: offers.offersRestore,
+        offersReplace: offers.offersReplace,
         replaceWords,
         isClearingHistoryBackup,
         onClearHistoryBackup,

@@ -1,3 +1,4 @@
+import type { Attachment } from "./dm"
 import type { AttachmentBlobKey } from "./e2ee"
 
 /** What a timeline knows of an image before it loads: its size, and a blurhash of it when one was made. */
@@ -34,4 +35,12 @@ function isBlurhash(value: unknown): value is string {
     const x = (size % 9) + 1
     const y = Math.floor(size / 9) + 1
     return value.length === 4 + 2 * x * y
+}
+
+/**
+ * Whether an attachment is an image, by the type its key carries: the IdP holds every attachment as
+ * `application/octet-stream`, so its own type tells nothing once encrypted.
+ */
+export function isImageAttachment(attachment: Pick<Attachment, "mime_type">, key?: Pick<AttachmentBlobKey, "mime_type">): boolean {
+    return (key?.mime_type ?? attachment.mime_type).startsWith("image/")
 }

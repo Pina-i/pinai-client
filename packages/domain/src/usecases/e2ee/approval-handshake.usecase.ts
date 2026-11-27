@@ -22,6 +22,7 @@ import {
     renewsByItself,
     type AnsweringView,
     type ApprovalRequest,
+    type DoorSummons,
     type HandshakeFailure,
     type HandshakeOutcome,
     type HandshakePhase,
@@ -760,6 +761,9 @@ export class ApprovalAnswering {
     private shown: { request: ApprovalRequest; run: HandshakeRun; note: HandshakeFailure | null; place: Place } | null = null
     private refused: AnsweringView["refused"] = null
     private release: (() => void) | null = null
+    /** The device the Door was called for: only its request shows until the Door closes. */
+    private summoned: DoorSummons | null = null
+    private summonsView: DoorSummons | null = null
     private readonly listeners = new Set<() => void>()
     private readonly deps: HandshakeDeps
     private readonly context: HandshakeContext
@@ -783,6 +787,35 @@ export class ApprovalAnswering {
 
     /** The seats': the same object until something changes. */
     seats = (): SeatsView => this.seatsView
+
+    /** The Door's while the device it was called for shows no code yet: `null` once its request shows, or with none called. */
+    summons = (): DoorSummons | null => this.summonsView
+
+    /**
+     * The Door called for a device (its notice's button): its request shows, one set aside included, and only its own
+     * until the Door closes — an unanswered request of another device at the Door gives way. With none yet, the Door
+     * waits for it (`summons`). The list is read again.
+     */
+    summon(device: DoorSummons): Promise<void> {
+        this.summoned = device
+        for (const request of this.requests) if (request.deviceId === device.deviceId) this.dismissed.delete(request.id)
+        const shown = this.shown
+        if (shown?.place === "door" && shown.request.deviceId !== device.deviceId && stageOf(shown.run) === "entry" && !this.answering) {
+            this.shown = null
+            this.refused = null
+            this.freeLock()
+            void shown.run.abandon().catch((error: unknown) => this.context.report?.("leaving the approval prompt", error))
+        }
+        this.pick()
+        return this.refresh()
+    }
+
+    /** The device called for came in another way, or went: the Door waits for it no more. */
+    unsummon(deviceId: DeviceId): void {
+        if (this.summoned?.deviceId !== deviceId) return
+        this.summoned = null
+        this.pick()
+    }
 
     /** The open requests read again; whether this device acts asked when another device's waits. An older read's answer is dropped. */
     async refresh(): Promise<void> {
@@ -893,6 +926,7 @@ export class ApprovalAnswering {
     /** The prompt closed: that request is set aside here — ended only if this device already took part. */
     async dismiss(): Promise<void> {
         const shown = this.shown
+        this.summoned = null
         if (shown) this.dismissed.add(shown.request.id)
         this.shown = null
         this.refused = null
@@ -937,7 +971,9 @@ export class ApprovalAnswering {
                 if (shows(run)) return this.show()
             }
         }
-        const next = this.seatsShown ? undefined : this.answerable("door").find((r) => r.id !== shown?.request.id)
+        const door = this.seatsShown ? [] : this.answerable("door")
+        const summoned = this.summoned
+        const next = summoned ? door.find((r) => r.deviceId === summoned.deviceId) : door.find((r) => r.id !== shown?.request.id)
         if (next) return this.start(next, null, "door")
         this.shown = null
         this.show()
@@ -980,6 +1016,7 @@ export class ApprovalAnswering {
             : null
         const atDoor = shown?.place === "door" && view?.stage !== "failed" ? shown.request : null
         this.view = shown?.place === "door" ? view : null
+        this.summonsView = this.view === null && !this.seatsShown ? this.summoned : null
         this.seatsView = {
             open: this.answerable("seat"),
             atDoor,

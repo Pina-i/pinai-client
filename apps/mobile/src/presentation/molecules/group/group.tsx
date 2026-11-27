@@ -1,5 +1,5 @@
 import { Children, type ReactNode } from "react"
-import { Pressable, Text, View } from "react-native"
+import { Pressable, type StyleProp, Text, View, type ViewStyle } from "react-native"
 import { StyleSheet } from "react-native-unistyles"
 
 /** A grouped list, as a settings screen draws one: rows on a raised surface, hairlines between. */
@@ -38,10 +38,11 @@ interface GroupRowProps {
     disabled?: boolean
     accessibilityLabel?: string
     minHeight?: number
+    style?: StyleProp<ViewStyle>
 }
 
-export function GroupRow({ children, onPress, disabled, accessibilityLabel, minHeight = 52 }: GroupRowProps) {
-    if (!onPress) return <View style={styles.row(minHeight)}>{children}</View>
+export function GroupRow({ children, onPress, disabled, accessibilityLabel, minHeight = 52, style }: GroupRowProps) {
+    if (!onPress) return <View style={[styles.row(minHeight), style]}>{children}</View>
     return (
         <Pressable
             accessibilityRole="button"
@@ -49,7 +50,7 @@ export function GroupRow({ children, onPress, disabled, accessibilityLabel, minH
             accessibilityState={{ disabled }}
             disabled={disabled}
             onPress={onPress}
-            style={({ pressed }) => [styles.row(minHeight), pressed && styles.pressed]}
+            style={({ pressed }) => [styles.row(minHeight), style, pressed && styles.pressed]}
         >
             {children}
         </Pressable>

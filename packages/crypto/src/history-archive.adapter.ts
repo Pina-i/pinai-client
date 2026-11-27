@@ -7,13 +7,14 @@
 
 import { gcm } from "@noble/ciphers/aes.js"
 import { ed25519 } from "@noble/curves/ed25519.js"
-import { argon2idAsync } from "@noble/hashes/argon2.js"
 import { hkdf } from "@noble/hashes/hkdf.js"
 import { hmac } from "@noble/hashes/hmac.js"
 import { sha256 } from "@noble/hashes/sha2.js"
 
 import { editEntryId } from "@pinai/domain/models/history-archive"
 import type { DerivedHistoryKey } from "@pinai/domain/models/history-key"
+
+import { type Argon2id, nobleArgon2id } from "./argon2"
 
 const ARGON2_PARAMS = { t: 3, m: 64 * 1024, p: 4, dkLen: 32 }
 const NONCE_BYTES = 12
@@ -34,10 +35,16 @@ function approvalSeed(hak: Uint8Array): Uint8Array {
 }
 
 export class HistoryArchiveAdapter {
+    private readonly argon2id: Argon2id
+
+    constructor(argon2id: Argon2id = nobleArgon2id) {
+        this.argon2id = argon2id
+    }
+
     /** The password of § 3.7: the words trimmed, lowercased, joined by single spaces, as UTF-8. */
     async deriveKey(passphraseWords: string[], salt: Uint8Array): Promise<Uint8Array> {
         const password = passphraseWords.map((word) => word.trim().toLowerCase()).join(" ")
-        return argon2idAsync(encoder.encode(password), salt, ARGON2_PARAMS)
+        return this.argon2id(encoder.encode(password), salt, ARGON2_PARAMS)
     }
 
     /** The values a generation stores beside its salt. */

@@ -17,11 +17,15 @@ export interface InstanceRow {
     address: InstanceAddress
     name: string
     initial: string
-    meta: string
+    description: string | null
+    /** Who may sign up: `open`, `invite only`; `…` while it is read, `not answering`. */
+    registration: string
+    /** The instance whose host is the one typed. */
+    found: boolean
+    label: string
     info: InstanceInfo | null | undefined
 }
 
-/** The "Go to" row for what is typed, in the prototype's words; none for nothing, or a recent instance's host. */
 export function goToRow(input: string, resolution: InstanceResolution, recents: RecentInstance[]): GoTo | null {
     const typed = input.trim()
     if (!typed) return null
@@ -39,15 +43,19 @@ export function goToRow(input: string, resolution: InstanceResolution, recents: 
     }
 }
 
-/** "Recent", or once something is typed "Matches": the recent instances whose host or name holds it. */
+/** "Recent"; once something is typed, "Found" when an instance's host is what is typed, else "Matches": those whose host or name holds it. */
 export function instanceRows(input: string, recents: RecentInstance[]): { title: string; rows: InstanceRow[] } {
     const typed = input.trim().toLowerCase()
+    const typedHost = typed && (instanceAddress(typed)?.host ?? typed)
     const rows = recents
-        .map(({ address, info }) => {
+        .map(({ address, info }): InstanceRow => {
             const name = info?.name ?? address.host
-            const meta = info === undefined ? "…" : info === null ? "not answering" : info.openRegistrations ? "open" : "invite only"
-            return { address, name, initial: name.charAt(0).toUpperCase(), meta: `${address.host} · ${meta}`, info }
+            const registration = info === undefined ? "…" : info === null ? "not answering" : info.openRegistrations ? "open" : "invite only"
+            const found = address.host === typedHost
+            const said = info ? (info.openRegistrations ? "open registration" : "invite only") : registration
+            const label = [name, address.host, said, ...(found ? ["matches what you typed"] : [])].join(", ")
+            return { address, name, initial: name.charAt(0).toUpperCase(), description: info?.description ?? null, registration, found, label, info }
         })
-        .filter((row) => !typed || row.address.host.includes(typed) || row.name.toLowerCase().includes(typed))
-    return { title: typed ? "Matches" : "Recent", rows }
+        .filter((row) => !typed || row.address.host.includes(typedHost) || row.name.toLowerCase().includes(typed))
+    return { title: !typed ? "Recent" : rows.some((row) => row.found) ? "Found" : "Matches", rows }
 }

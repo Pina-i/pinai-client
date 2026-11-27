@@ -14,7 +14,6 @@
 
 import { gcm } from "@noble/ciphers/aes.js"
 import { concatBytes } from "@noble/curves/utils.js"
-import { argon2idAsync } from "@noble/hashes/argon2.js"
 import { hkdf } from "@noble/hashes/hkdf.js"
 import { sha256 } from "@noble/hashes/sha2.js"
 
@@ -28,6 +27,7 @@ import {
 import type { ActorUri, DeviceId } from "@pinai/domain/models/e2ee"
 import type { ApprovalHandshakeSession } from "@pinai/domain/ports/e2ee.port"
 
+import { type Argon2id, nobleArgon2id } from "./argon2"
 import {
     SPAKE2_SHARE_BYTES,
     passwordScalar,
@@ -79,11 +79,11 @@ export function newApprovalCode(): string {
 }
 
 /** w: the code's ASCII digits through Argon2id, salted with the request it is good for. */
-export async function codeScalar(code: string, requestId: string): Promise<bigint> {
+export async function codeScalar(code: string, requestId: string, argon2id: Argon2id = nobleArgon2id): Promise<bigint> {
     if (!isWholeCode(code)) throw new Error("An approval code is six digits")
     const salt = encoder.encode(`${CODE_SALT_LABEL}\n${requestId.toLowerCase()}`)
     const password = encoder.encode(code)
-    const output = await argon2idAsync(password, salt, CODE_MHF)
+    const output = await argon2id(password, salt, CODE_MHF)
     try {
         return passwordScalar(output)
     } finally {
@@ -173,9 +173,9 @@ export class ApprovalHandshake implements ApprovalHandshakeSession {
         this.expecting = side.role === "asker" ? HandshakeMessage.shareB : HandshakeMessage.shareA
     }
 
-    static async start(input: Side & { code: string; peerDeviceId: DeviceId | null }): Promise<ApprovalHandshake> {
+    static async start(input: Side & { code: string; peerDeviceId: DeviceId | null; argon2id?: Argon2id }): Promise<ApprovalHandshake> {
         if (input.role === "answerer" && !input.peerDeviceId) throw new Error("The answerer knows the device asking")
-        const w = await codeScalar(input.code, input.requestId)
+        const w = await codeScalar(input.code, input.requestId, input.argon2id)
         const side = { role: input.role, requestId: input.requestId, actorUri: input.actorUri, deviceId: input.deviceId, own: input.own }
         return new ApprovalHandshake(side, input.role === "answerer" ? input.peerDeviceId : null, w)
     }

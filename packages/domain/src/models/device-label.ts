@@ -41,8 +41,20 @@ export interface AppFacts extends ComputerFacts {
     client: "app"
 }
 
+export type MobileOs = "Android" | "iOS" | "iPadOS"
+
+/** What the mobile app reads of the phone it runs on; null for what it couldn't. */
+export interface PhoneFacts {
+    client: "phone-app"
+    os: MobileOs
+    kind: "phone" | "tablet"
+    model: string | null
+    /** The name its owner gave it, where the system shares it. */
+    deviceName: string | null
+}
+
 /** What a device's label is composed from, one kind of client a branch. */
-export type DeviceFacts = BrowserFacts | AppFacts
+export type DeviceFacts = BrowserFacts | AppFacts | PhoneFacts
 
 /** The IdP's limit on an automatic name, in characters (code points). */
 export const DEVICE_NAME_MAX_CHARS = 100
@@ -61,6 +73,8 @@ export function composeDeviceLabel(facts: DeviceFacts): DeviceLabel {
             return browserLabel(facts)
         case "app":
             return appLabel(facts)
+        case "phone-app":
+            return phoneLabel(facts)
     }
 }
 
@@ -72,17 +86,29 @@ export function desktopOsOf(userAgent: string): DesktopOs {
 
 // No words for the kind of device: the card's icon says it.
 function appLabel({ os, model, computerName }: AppFacts): DeviceLabel {
+    return { name: appName(os, model, computerName), kind: "laptop", client: "app" }
+}
+
+function phoneLabel({ os, kind, model, deviceName: ownName }: PhoneFacts): DeviceLabel {
+    return { name: appName(os, model, ownName), kind, client: "app" }
+}
+
+// The model, then the owner's name for it in brackets — or that name alone when it holds the model, and the model
+// alone when it holds that name (an iPhone without Apple's entitlement is named "iPhone").
+function appName(fallback: string, model: string | null, ownName: string | null): string {
     const named = model === null ? null : readableName(model)
-    const computer = computerName === null ? null : readableName(computerName)
-    const shown = named ?? os
+    const own = ownName === null ? null : readableName(ownName)
+    const shown = named ?? fallback
     let name = shown
-    if (computer !== null && named !== null && holdsWords(computer, named)) {
-        name = shortened(computer, DEVICE_NAME_MAX_CHARS)
-    } else if (computer !== null) {
+    if (own !== null && named !== null && holdsWords(own, named)) {
+        name = shortened(own, DEVICE_NAME_MAX_CHARS)
+    } else if (own !== null && named !== null && holdsWords(named, own)) {
+        name = shown
+    } else if (own !== null) {
         const room = DEVICE_NAME_MAX_CHARS - Array.from(shown).length - " ()".length
-        if (room >= 2) name = `${shown} (${shortened(computer, room)})`
+        if (room >= 2) name = `${shown} (${shortened(own, room)})`
     }
-    return { name: deviceName(name) ?? os, kind: "laptop", client: "app" }
+    return deviceName(name) ?? fallback
 }
 
 const LETTER_OR_DIGIT = "[\\p{L}\\p{N}]"

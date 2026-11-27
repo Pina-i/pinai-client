@@ -19,10 +19,12 @@ interface AvatarProps {
     imageUrl?: string | null
     size?: keyof typeof SIZES
     status?: UserStatus
+    /** A tone of its own instead of the seed's: a group wears `sec`. */
+    tone?: AvatarTone
 }
 
-export function Avatar({ name, seed, imageUrl, size = "sm", status }: AvatarProps) {
-    const tone = avatarToneFor(seed)
+export function Avatar({ name, seed, imageUrl, size = "sm", status, tone: ownTone }: AvatarProps) {
+    const tone = ownTone ?? avatarToneFor(seed)
     return (
         <View
             importantForAccessibility="no-hide-descendants"

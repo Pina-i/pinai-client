@@ -43,7 +43,7 @@ The user configures their identity provider URL (e.g. `idp.alice.com`) and the c
 | WebSocket | Native WebSocket API with a custom hook layer |
 | Auth | OIDC Authorization Code + PKCE (no implicit flow) |
 | Routing | Tanstack Router |
-| E2EE | MLS (RFC 9420) via `openmls 0.8.1` WASM bundle (`crypto/openmls-wasm/`); identity + the history key via `@noble/curves` + `@noble/hashes` + `@noble/ciphers` |
+| E2EE | MLS (RFC 9420) via `openmls 0.8.1`, a Rust core and its WASM facade (`crypto/`); identity + the history key via `@noble/curves` + `@noble/hashes` + `@noble/ciphers` |
 | At-rest persistence | `SealedStorage` (schema + sealing) over an `IKeyValueStore`; on the web that is IndexedDB (`idb`), with AES-256-GCM under a non-extractable device key behind `IDeviceKeyPort`. The zustand cache's inner format is **msgpack** (`msgpackr`) — preserves `Uint8Array` round-trip natively |
 
 ## Related Repository
@@ -71,20 +71,30 @@ pinai-client/                 # pnpm workspace root
 ├── turbo.json                # build / test / typecheck fan-out
 ├── eslint.config.js          # one config for the whole workspace — the layer
 │                             #   rules are cross-cutting, so they live here
-├── crypto/                   # Out-of-app crypto bundles (E2EE Phase 4+).
-│   ├── openmls-wasm/         #   Standalone Cargo project: `openmls` WASM wrapper.
-│   │                         #   Pinned to openmls 0.8.1; single ciphersuite
+├── crypto/                   # The MLS engine in Rust: one Cargo workspace
+│   │                         #   (crypto/README.md). Pinned to openmls 0.8.1;
+│   │                         #   single ciphersuite
 │   │                         #   (MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519).
+│   │                         #   `cargo test --workspace` from crypto/ runs the
+│   │                         #   engine's native tests.
+│   ├── openmls-core/         #   The engine in plain Rust, a module per notion;
+│   │                         #   every failure an `MlsError`, network bytes parsed
+│   │                         #   at the entry. Every rule lives here.
+│   ├── openmls-wasm/         #   Its wasm-bindgen facade, no rule of its own.
 │   │                         #   Built automatically: apps/web's `dev`, `build`,
 │   │                         #   `test` and `typecheck` scripts chain
 │   │                         #   scripts/build-wasm.mjs, as do apps/desktop's
-│   │                         #   `dev` and `build`. It rebuilds only when
-│   │                         #   src/, Cargo.toml or Cargo.lock are newer than the
-│   │                         #   output. `pnpm run wasm --force` to force.
-│   │                         #   Directly: `./build.sh`. `cargo test` runs native
-│   │                         #   unit tests.
-│   │                         #   Lives at the root, not inside apps/web: the native
-│   │                         #   build for React Native will consume the same crate.
+│   │                         #   `dev` and `build`. It rebuilds only when a crate's
+│   │                         #   src/ or Cargo.toml, or the workspace's Cargo.toml
+│   │                         #   or Cargo.lock, is newer than the output.
+│   │                         #   `pnpm run wasm --force` to force. Directly:
+│   │                         #   `./build.sh` in it.
+│   │                         #   At the root, not inside apps/web: the mobile
+│   │                         #   app's native build uses the same core.
+│   ├── openmls-native/       #   Its uniffi facade for the mobile app's Kotlin; built
+│   │                         #   for Android by apps/mobile/scripts/build-native-mls.mjs
+│   │                         #   (cargo-ndk, arm64-v8a + x86_64, 16 KB pages).
+│   ├── uniffi-bindgen/       #   uniffi's generator, at the facade's exact version.
 │   └── openmls-pkg/          #   Generated npm package — wasm-pack output.
 │                             #   ~1.5–2 MiB .wasm + JS glue + .d.ts. Never
 │                             #   committed — wasm-pack writes a `.gitignore` of `*`
@@ -95,11 +105,13 @@ pinai-client/                 # pnpm workspace root
 ├── packages/
 │   ├── api/                  # @pinai/api — the IdP's HTTP + WebSocket surface.
 │   │                         #   Depends on domain + ky. Nothing browser-only.
-│   ├── mls/                  # @pinai/mls — the MLS engine, one implementation
-│   │                         #   per platform. `leaf-credential.ts` is shared by
-│   │                         #   all of them (those bytes travel to peers);
-│   │                         #   `wasm.adapter.ts` is the only importer of
-│   │                         #   openmls-wasm. The native binding lands here.
+│   ├── mls/                  # @pinai/mls — the MLS engine (`engine.ts`), once for
+│   │                         #   every platform, over a build of the crate
+│   │                         #   (`bundle.ts`). `wasm.adapter.ts` loads the WASM
+│   │                         #   one, the only importer of openmls-wasm; the
+│   │                         #   mobile app hands it its native one.
+│   │                         #   `leaf-credential.ts` is shared (those bytes travel
+│   │                         #   to peers). `contract/` — what every build must do.
 │   ├── crypto/               # @pinai/crypto — the E2EE core: MLS orchestration,
 │   │                         #   identity, the history key, the code handshake, attestation,
 │   │                         #   attachment sealing, the sealed store's schema.
@@ -114,9 +126,13 @@ pinai-client/                 # pnpm workspace root
     │                         #   Expo Router (`src/app/`), Unistyles 3 themes generated
     │                         #   from the design system's tokens. Runs as a development
     │                         #   build (`pnpm --filter @pinai/mobile android`, then
-    │                         #   `pnpm dev:mobile`); no android/ or ios/ in git. Same
-    │                         #   layers and lint boundaries as the web; see its CLAUDE.md
-    │                         #   and README. Out of release-please (`exclude-paths`).
+    │                         #   `pnpm dev:mobile`); no android/ or ios/ in git.
+    │                         #   `modules/openmls`: the native MLS engine, an Expo
+    │                         #   module over `openmls-native`; `android` builds the
+    │                         #   Rust library first (Rust Android targets, cargo-ndk,
+    │                         #   an NDK). Same layers and lint boundaries as the web;
+    │                         #   see its CLAUDE.md and README. Out of release-please
+    │                         #   (`exclude-paths`).
     ├── desktop/              # Electron shell (@pinai/desktop).
     │                         #   electron.vite.config.ts builds src/main and serves
     │                         #   apps/web as the renderer, loading web's own
@@ -171,7 +187,7 @@ not. See "Where does a change go?" below.
 What stays in `apps/web` for good is the platform-specific remainder — WASM,
 WebCrypto, IndexedDB, web storage and navigation. `apps/mobile/` has its own
 remainder (the keychain, the system's sign-in sheet, SQLite, the native MLS
-binding) and nothing else: a notion both apps need goes in the domain first.
+module) and nothing else: a notion both apps need goes in the domain first.
 
 
 ### Dependency principle
@@ -202,8 +218,8 @@ code does. Some existing code breaks this table; it is not a precedent.
 - A domain rule cannot import a web type (`apps/web/src/lib/types.ts`): make
   it generic over the structural shape it needs, as `TimelineEntry` does in
   `models/dm.ts`.
-- Still to move: the dedupe, optimistic reconciliation and reaction folding
-  inside `apps/web/src/store/slices/ws.slice.ts`.
+- Still to move: the notifications' dedupe inside
+  `apps/web/src/store/slices/ws.slice.ts` (`addNotification`).
 - `.claude/hooks/layer-reminder.mjs` repeats this to Claude Code whenever a
   slice or a viewmodel is edited.
 
@@ -243,7 +259,7 @@ release PR — the root `README.md` § Releasing.
   (`--platform=$BUILDPLATFORM`); the per-platform stage only copies files, so arm64 needs no
   emulation.
 - **The build context is the repo root**: the build needs `packages/*`, the workspace files
-  and `crypto/openmls-wasm`. The web stage gets `crypto/openmls-pkg` from the WASM stage and
+  and the `crypto/` workspace. The web stage gets `crypto/openmls-pkg` from the WASM stage and
   not the crate's sources, so `scripts/build-wasm.mjs` finds it current and never looks for
   `wasm-pack`. `.dockerignore` keeps local `.env*` files out of the image.
 - **SPA routing**: every path that isn't a file falls back to `index.html`. `/assets/*` is

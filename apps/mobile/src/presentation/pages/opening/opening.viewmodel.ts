@@ -19,7 +19,7 @@ export function useOpeningViewModel(origin: string) {
         if (!address) return
         let current = true
         rememberChosenInstanceUseCase(address, getLastInstancePort())
-        prepareLoginUseCase(address.origin, getAuthPort(), getAuthPlatform())
+        prepareLoginUseCase(address.origin, getAuthPort(), getAuthPlatform(), { returnTo: "/home" })
             .then((prepared) => current && setUrl(prepared))
             .catch(() => current && setFailed(true))
         return () => {

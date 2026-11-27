@@ -2,20 +2,14 @@ import { useEffect, useLayoutEffect, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
 import { getDmPort, getE2eePort, getGroupPort, getNotificationSoundPort, getWsPort } from "@/ioc"
-import type {
-    ApplicationMessage,
-    AttachmentBlobKey,
-    ConversationId,
-    EditBody,
-    ReactionBody,
-    TextBody,
-} from "@pinai/domain/models/e2ee"
-import { archivedEdit, archivedReaction, archivedText } from "@pinai/domain/models/history-archive"
 import type { WsConnectionStatus, WsServerEvent } from "@pinai/domain/models/ws"
-import type { Message } from "@/lib/types"
 import { actorUriToAddress } from "@pinai/domain/models/identity"
-import { isHeldHere } from "@pinai/domain/models/own-messages"
-import { UNDECRYPTABLE_TEXT, applyFederationStatus } from "@pinai/domain/models/dm"
+import {
+    type ReceiveContext,
+    receiveDeliveryFailureUseCase,
+    receiveEditUseCase,
+    receiveMessageUseCase,
+} from "@pinai/domain/usecases/dm/receive-message.usecase"
 import { reconcileGroupKeysUseCase } from "@pinai/domain/usecases/e2ee/reconcile-group-keys.usecase"
 import { shouldPingForMessage } from "@pinai/domain/models/mute"
 import { isBlocked } from "@pinai/domain/models/block"
@@ -33,6 +27,7 @@ import { useNotificationSettings } from "@/presentation/providers/AppearanceProv
 import { renewAccessToken } from "@/presentation/_libs/session-renewal"
 import { startOverQueryKey } from "@/presentation/hooks/use-own-start-over"
 import { isWindowAttended } from "@/presentation/_libs/window-attention"
+import { conversationCache } from "@/presentation/_libs/conversation-cache"
 
 /** Module-level slot — `useDeviceFanout` registers its callback here. */
 const deviceFanoutHandlerRef: { current: (() => void) | null } = {
@@ -88,6 +83,18 @@ export function registerStartOverHandler(handler: (event: StartOverEvent) => voi
     }
 }
 
+/** Module-level slot — `useMessagingRuntime` registers the domain's runtime here: the pushes it schedules from. */
+const messagingRuntimeHandlerRef: { current: ((event: WsServerEvent) => void) | null } = { current: null }
+
+export function registerMessagingRuntimeHandler(handler: (event: WsServerEvent) => void): () => void {
+    messagingRuntimeHandlerRef.current = handler
+    return () => {
+        if (messagingRuntimeHandlerRef.current === handler) {
+            messagingRuntimeHandlerRef.current = null
+        }
+    }
+}
+
 /** Module-level slot — `useReplenishKeyPackages` registers its refill here once the device is onboarded. */
 const keyPackagesLowHandlerRef: { current: (() => void) | null } = { current: null }
 
@@ -98,47 +105,6 @@ export function registerKeyPackagesLowHandler(handler: () => void): () => void {
             keyPackagesLowHandlerRef.current = null
         }
     }
-}
-
-function b64ToBytes(s: string): Uint8Array {
-    const bin = atob(s)
-    const out = new Uint8Array(bin.length)
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
-    return out
-}
-
-/**
- * Decrypt an inbound MLS ciphertext for a conversation; soft-fails to
- * null on errors (no group state, MLS error, malformed JSON). Caller
- * dispatches on `app.kind` to route text / reaction / edit / reply.
- *
- * When `catchUp` is provided, the underlying port falls back to
- * fetching missing commits via REST and replaying them once before
- * giving up — the standard remedy for "we got an application message
- * one epoch ahead of the commit that introduced it".
- */
-async function tryDecryptAny(
-    conversationId: string,
-    mlsCiphertextB64: string,
-    catchUp?: { idpUrl: string; accessToken: string },
-): Promise<ApplicationMessage | null> {
-    try {
-        const ct = b64ToBytes(mlsCiphertextB64)
-        return await getE2eePort().decryptInbound(conversationId, ct, catchUp)
-    } catch {
-        return null
-    }
-}
-
-/** Narrow `tryDecryptAny` to a single expected kind — convenience. */
-async function tryDecryptKind<K extends ApplicationMessage["kind"]>(
-    conversationId: string,
-    mlsCiphertextB64: string,
-    expectedKind: K,
-    catchUp?: { idpUrl: string; accessToken: string },
-): Promise<ApplicationMessage | null> {
-    const app = await tryDecryptAny(conversationId, mlsCiphertextB64, catchUp)
-    return app && app.kind === expectedKind ? app : null
 }
 
 /**
@@ -152,13 +118,8 @@ export function useIdpWebSocket(): void {
     const idpUrl = useAppStore((s) => s.idpUrl)
     const user = useAppStore((s) => s.user)
     const setWsStatus = useAppStore((s) => s.setWsStatus)
-    const pushDmMessage = useAppStore((s) => s.pushDmMessage)
-    const reconcileDmMessage = useAppStore((s) => s.reconcileDmMessage)
-    const updateDmMessage = useAppStore((s) => s.updateDmMessage)
     const addNotification = useAppStore((s) => s.addNotification)
     const incrementDmUnread = useAppStore((s) => s.incrementDmUnread)
-    const updateMessageById = useAppStore((s) => s.updateMessageById)
-    const applyReaction = useAppStore((s) => s.applyReaction)
     const activeDm = useAppStore((s) => s.activeDm)
     const setPresence = useAppStore((s) => s.setPresence)
     const addTyping = useAppStore((s) => s.addTyping)
@@ -179,13 +140,8 @@ export function useIdpWebSocket(): void {
     // snapshot.
     const actions = {
         setWsStatus,
-        pushDmMessage,
-        reconcileDmMessage,
-        updateDmMessage,
         addNotification,
         incrementDmUnread,
-        updateMessageById,
-        applyReaction,
         activeDm,
         user,
         setPresence,
@@ -207,6 +163,11 @@ export function useIdpWebSocket(): void {
 
         const wsPort = getWsPort()
         const currentToken = () => useAppStore.getState().accessToken
+        // Read at each push: the user and the token change under the socket.
+        const receiving = (accessToken: string | null): ReceiveContext => ({
+            myAddress: actionsRef.current.user?.address,
+            catchUp: accessToken ? { idpUrl, accessToken } : undefined,
+        })
 
         wsPort.onStatusChange((status: WsConnectionStatus) => {
             actionsRef.current.setWsStatus(status)
@@ -240,242 +201,13 @@ export function useIdpWebSocket(): void {
                 }
                 case "new_dm": {
                     const conversationId = event.data.conversation_id
-                    const senderAddress = actorUriToAddress(event.data.sender_address)
-                    // The server fans `new_dm` out to every session of the
-                    // sender's account. One this device holds a copy of is
-                    // its own echo, never decrypted: MLS can't, and the try
-                    // would cost a catch-up. Any other of the account's is
-                    // from one of its other devices, decrypted like anyone's
-                    // (`isHeldHere`).
-                    const isOwn = senderAddress === actionsRef.current.user?.address
-                    const snapshot = useAppStore.getState()
-                    const isHeld =
-                        isOwn &&
-                        isHeldHere(
-                            snapshot.dmMessages[conversationId],
-                            { messageId: event.data.message_id, clientId: event.data.client_id },
-                            snapshot.appliedReactionIds,
-                        )
-                    const isOwnEcho = isHeld && !!event.data.client_id
+                    const arrival = await receiveMessageUseCase(event.data, receiving(accessToken), {
+                        e2ee: getE2eePort(),
+                        cache: conversationCache,
+                    })
+                    if (arrival.kind !== "message") break
 
-                    const catchUp =
-                        idpUrl && accessToken ? { idpUrl, accessToken } : undefined
-
-                    // Decrypt once — soft-fail to null. The kind tells
-                    // us how to project this message into the UI: text
-                    // (and replies) become a Message; reactions
-                    // mutate an existing target's reactions[]; edits
-                    // arrive on the message_edited event so we never
-                    // see them here.
-                    const app = isHeld
-                        ? null
-                        : await tryDecryptAny(conversationId, event.data.mls_ciphertext, catchUp)
-                    // The account's own that doesn't decrypt is this device's, sent before its
-                    // copy was recorded, or older than the device: nothing to show.
-                    if (isOwn && !isHeld && !app) break
-
-                    if (app && app.kind === "reaction") {
-                        const body = app.body as ReactionBody
-                        if (
-                            body &&
-                            typeof body.target_message_id === "string" &&
-                            typeof body.emoji === "string" &&
-                            (body.op === "add" || body.op === "remove")
-                        ) {
-                            actionsRef.current.applyReaction(
-                                conversationId,
-                                {
-                                    reaction_message_id: event.data.message_id,
-                                    target_message_id: body.target_message_id,
-                                    reactor_address: senderAddress,
-                                    emoji: body.emoji,
-                                    op: body.op,
-                                },
-                                senderAddress === actionsRef.current.user?.address,
-                            )
-                            getE2eePort().bufferForArchive(
-                                conversationId,
-                                event.data.message_id,
-                                archivedReaction(
-                                    { address: senderAddress, displayName: event.data.sender_display_name },
-                                    event.data.created_at,
-                                    body,
-                                ),
-                            )
-                        }
-                        break
-                    }
-
-                    // Default: text (or reply) — render as a Message.
-                    let plaintext = UNDECRYPTABLE_TEXT
-                    let inlineReplyMeta: { content: string; author: string } | null = null
-                    let attachmentKeys: Record<string, AttachmentBlobKey> | undefined
-                    if (app && app.kind === "text") {
-                        const body = app.body as TextBody
-                        if (typeof body?.text === "string") plaintext = body.text
-                        if (
-                            body?.reply_meta &&
-                            typeof body.reply_meta.preview_text === "string" &&
-                            typeof body.reply_meta.preview_sender === "string"
-                        ) {
-                            inlineReplyMeta = {
-                                content: body.reply_meta.preview_text,
-                                author: body.reply_meta.preview_sender,
-                            }
-                        }
-                        if (Array.isArray(body?.attachments) && body.attachments.length > 0) {
-                            attachmentKeys = {}
-                            for (const k of body.attachments) attachmentKeys[k.id] = k
-                        }
-                    }
-
-                    const senderDisplayName =
-                        event.data.sender_display_name ?? senderAddress.split("@")[0] ?? "?"
-
-                    if (isOwnEcho) {
-                        // Sender side — pull the optimistic message
-                        // out of the store so we can preserve its
-                        // plaintext (MLS forward secrecy means we
-                        // can't re-decrypt our own ciphertext).
-                        // Carries `status: "sent"` so the inline
-                        // MessageStatus indicator flips out of the
-                        // clock state. If the WS echo arrives after
-                        // a `failed` flip (REST returned an error
-                        // but the server actually persisted), the
-                        // reconcile heals the row forward to "sent".
-                        const optimistic = useAppStore
-                            .getState()
-                            .dmMessages[conversationId]?.find(
-                                (m) => m.id === event.data.client_id,
-                            )
-                        actionsRef.current.reconcileDmMessage(
-                            conversationId,
-                            event.data.client_id!,
-                            {
-                                id: event.data.message_id,
-                                author: senderDisplayName,
-                                authorAddress: senderAddress,
-                                avatar: senderDisplayName.slice(0, 2).toUpperCase(),
-                                content: optimistic?.content ?? UNDECRYPTABLE_TEXT,
-                                timestamp: new Date(event.data.created_at).toLocaleTimeString([], {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                }),
-                                createdAt: event.data.created_at,
-                                color: "#a78bfa",
-                                attachments: event.data.attachments,
-                                status: "sent",
-                                statusAt: new Date().toISOString(),
-                                ...(optimistic?.replyTo ? { replyTo: optimistic.replyTo } : {}),
-                                // REST sends echo too, and this echo can beat their response.
-                                ...(optimistic?.attachmentKeys
-                                    ? { attachmentKeys: optimistic.attachmentKeys }
-                                    : {}),
-                            },
-                        )
-
-                        // The send's answer archives it too; this covers an answer that never came.
-                        if (optimistic) {
-                            const body: TextBody = { text: optimistic.content }
-                            if (optimistic.replyTo) {
-                                body.reply_meta = {
-                                    target_message_id: optimistic.replyTo.id,
-                                    preview_text: optimistic.replyTo.content,
-                                    preview_sender: optimistic.replyTo.author,
-                                }
-                            }
-                            if (optimistic.attachmentKeys) {
-                                body.attachments = Object.values(optimistic.attachmentKeys)
-                            }
-                            getE2eePort().bufferForArchive(
-                                conversationId,
-                                event.data.message_id,
-                                archivedText(
-                                    { address: senderAddress, displayName: senderDisplayName },
-                                    event.data.created_at,
-                                    body,
-                                    event.data.attachments,
-                                ),
-                            )
-                        }
-                        break
-                    }
-                    if (isHeld) {
-                        // Own message echoed back without a `client_id`
-                        // (group sends, which don't propagate the client
-                        // UUID, and broker replays). The REST response
-                        // already reconciled the optimistic row to
-                        // `"sent"`. If the row is still `"sending"` or
-                        // `"failed"` (REST never returned / network
-                        // blip after server-side success), heal it
-                        // forward to `"sent"` using `message_id` as
-                        // the lookup key.
-                        const existing = useAppStore
-                            .getState()
-                            .dmMessages[conversationId]?.find(
-                                (m) => m.id === event.data.message_id,
-                            )
-                        if (existing && (existing.status === "sending" || existing.status === "failed")) {
-                            actionsRef.current.updateDmMessage(
-                                conversationId,
-                                event.data.message_id,
-                                {
-                                    status: "sent",
-                                    statusAt: new Date().toISOString(),
-                                },
-                            )
-                        }
-                        break
-                    }
-
-                    const msg: Message = {
-                        id: event.data.message_id,
-                        author: senderDisplayName,
-                        authorAddress: senderAddress,
-                        avatar: senderDisplayName.slice(0, 2).toUpperCase(),
-                        content: plaintext,
-                        timestamp: new Date(event.data.created_at).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                        }),
-                        createdAt: event.data.created_at,
-                        color: "#a78bfa",
-                        attachments: event.data.attachments,
-                        attachmentKeys,
-                        ...(!app && { undecrypted: true as const }),
-                    }
-                    if (event.data.reply_to_id && inlineReplyMeta) {
-                        msg.replyTo = {
-                            id: event.data.reply_to_id,
-                            content: inlineReplyMeta.content,
-                            author: inlineReplyMeta.author,
-                        }
-                    } else if (event.data.reply_to_id) {
-                        // Server-visible parent ID without a decrypted
-                        // preview — render a slim "↩ replied" hint.
-                        msg.replyTo = {
-                            id: event.data.reply_to_id,
-                            content: "",
-                            author: "",
-                        }
-                    }
-
-                    actionsRef.current.pushDmMessage(conversationId, msg)
-
-                    if (app && app.kind === "text") {
-                        getE2eePort().bufferForArchive(
-                            conversationId,
-                            event.data.message_id,
-                            archivedText(
-                                { address: senderAddress, displayName: senderDisplayName },
-                                event.data.created_at,
-                                app.body as TextBody,
-                                event.data.attachments,
-                            ),
-                        )
-                    }
-
-                    if (isOwn) {
+                    if (arrival.mine) {
                         // Sent from one of the user's other devices: nothing to ring or count.
                         if (idpUrl) {
                             queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
@@ -483,7 +215,7 @@ export function useIdpWebSocket(): void {
                         break
                     }
 
-                    const senderBlocked = isBlocked(actionsRef.current.blocked, senderAddress)
+                    const senderBlocked = isBlocked(actionsRef.current.blocked, arrival.senderAddress)
 
                     // Sound plays whether or not the user is in this
                     // conversation — confirms the message arrived even
@@ -520,96 +252,16 @@ export function useIdpWebSocket(): void {
                     break
                 }
                 case "message_edited": {
-                    const { message_id, new_mls_ciphertext } = event.data
-                    // We don't know which conversation the edit came
-                    // from — try every open conversation in turn. In
-                    // practice each ciphertext can only decrypt under
-                    // its own group state.
-                    const conversationKeys = Object.keys(useAppStore.getState().dmMessages)
-                    let newText = UNDECRYPTABLE_TEXT
-                    const catchUp =
-                        idpUrl && accessToken ? { idpUrl, accessToken } : undefined
-                    for (const convKey of conversationKeys) {
-                        const app = await tryDecryptKind(convKey, new_mls_ciphertext, "edit", catchUp)
-                        if (app) {
-                            const body = app.body as EditBody
-                            if (body?.target_message_id === message_id && typeof body.new_text === "string") {
-                                newText = body.new_text
-                                const target = useAppStore
-                                    .getState()
-                                    .dmMessages[convKey]?.find((m) => m.id === message_id)
-                                if (target?.authorAddress) {
-                                    getE2eePort().bufferEditForArchive(
-                                        convKey,
-                                        b64ToBytes(new_mls_ciphertext),
-                                        archivedEdit(
-                                            { address: target.authorAddress, displayName: target.author },
-                                            event.data.edited_at,
-                                            { target_message_id: message_id, new_text: newText },
-                                        ),
-                                    )
-                                }
-                                break
-                            }
-                        }
-                    }
-                    if (newText === UNDECRYPTABLE_TEXT) {
-                        // An edit of one of the user's messages that doesn't decrypt is this
-                        // device's own, applied when it was made.
-                        const me = actionsRef.current.user?.address
-                        const target = Object.values(useAppStore.getState().dmMessages)
-                            .flat()
-                            .find((m) => m.id === message_id)
-                        if (target && target.authorAddress === me) break
-                    }
-                    actionsRef.current.updateMessageById(message_id, (m) => ({
-                        ...m,
-                        content: newText,
-                        edited: true,
-                    }))
+                    await receiveEditUseCase(event.data, receiving(accessToken), { e2ee: getE2eePort(), cache: conversationCache })
                     break
                 }
                 case "dm_delivery_failed": {
-                    const at = new Date().toISOString()
-                    actionsRef.current.updateMessageById(event.data.message_id, (m) =>
-                        applyFederationStatus(m, "failed", at),
-                    )
+                    await receiveDeliveryFailureUseCase(event.data, conversationCache)
                     break
                 }
-                case "mls_commit": {
-                    // Move on with the group now: a message sent from an epoch the others left
-                    // is read by none of them.
-                    if (!idpUrl || !accessToken) break
-                    getE2eePort()
-                        .catchUp(idpUrl, accessToken, event.data.conversationId as ConversationId)
-                        .catch((e) => {
-                            // eslint-disable-next-line no-console
-                            console.warn("WS-triggered commit catch-up failed:", e)
-                        })
-                    break
-                }
+                case "mls_commit":
                 case "mls_welcome_ready": {
-                    // A peer just dropped a Welcome bundle in our
-                    // queue (same-IdP via POST /api/mls/welcomes, or
-                    // cross-IdP via the AP inbox). Pull + join now
-                    // rather than waiting for the next login poll.
-                    const ownActorUri = actionsRef.current.user?.actor_uri
-                    if (!ownActorUri || !idpUrl || !accessToken) break
-                    try {
-                        const { joined } = await getE2eePort().consumePendingWelcomes(
-                            idpUrl,
-                            accessToken,
-                            ownActorUri,
-                        )
-                        // A federated group is materialised server-side by the
-                        // same inbound Note, so the list has a row to show now.
-                        if (joined > 0) {
-                            queryClient.invalidateQueries({ queryKey: dmConversationsQueryKey(idpUrl) })
-                        }
-                    } catch (e) {
-                        // eslint-disable-next-line no-console
-                        console.warn("WS-triggered welcome consumption failed:", e)
-                    }
+                    messagingRuntimeHandlerRef.current?.(event)
                     break
                 }
                 case "group_created": {

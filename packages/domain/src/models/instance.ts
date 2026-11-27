@@ -75,6 +75,8 @@ export const PINAI_SOFTWARE = "pinai"
 
 export interface InstanceInfo {
     name: string
+    /** How the instance introduces itself, when it does. */
+    description: string | null
     /** Accounts on the instance, when it says. */
     users: number | null
     openRegistrations: boolean
@@ -105,10 +107,11 @@ export function nodeInfoHref(links: unknown, base: string): string | null {
 export function parseNodeInfo(raw: unknown, address: InstanceAddress): InstanceInfo | null {
     const doc = record(raw)
     if (record(doc.software).name !== PINAI_SOFTWARE) return null
-    const name = record(doc.metadata).nodeName
+    const { nodeName: name, nodeDescription: description } = record(doc.metadata)
     const total = record(record(doc.usage).users).total
     return {
         name: typeof name === "string" && name.trim() ? name.trim() : address.host,
+        description: typeof description === "string" && description.trim() ? description.trim() : null,
         users: typeof total === "number" && Number.isInteger(total) && total >= 0 ? total : null,
         // Required by the schema; a document without it is not taken for a closed instance.
         openRegistrations: doc.openRegistrations !== false,
@@ -161,4 +164,10 @@ export function parseRecentInstances(raw: unknown): InstanceAddress[] {
 /** The list after a sign-in to `origin`: it moves to the front, the oldest falls off. */
 export function addRecentInstance(recent: InstanceAddress[], address: InstanceAddress): InstanceAddress[] {
     return [address, ...recent.filter((known) => known.origin !== address.origin)].slice(0, MAX_RECENT_INSTANCES)
+}
+
+/** The instance the app signs in to, as people read it: its host, `idp.alice.com`. */
+export function instanceHost(idpUrl: string | null): string {
+    if (!idpUrl) return ""
+    return instanceAddress(idpUrl)?.host ?? idpUrl
 }

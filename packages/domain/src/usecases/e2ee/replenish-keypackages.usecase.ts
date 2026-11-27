@@ -42,3 +42,52 @@ export const replenishKeyPackagesUseCase =
                 : null
         return renewalFailure === undefined ? { admission, status } : { admission, status, renewalFailure }
     }
+
+export interface KeyPackageTickDeps {
+    session: { idpUrl: string; actorUri: ActorUri; accessToken: () => string | null }
+    /** `replenishKeyPackagesUseCase` over the platform's ports. */
+    replenish: (input: ReplenishKeyPackagesInput) => Promise<Replenished>
+    /** Signing in again on `device_mismatch` is the platform's; any other failure waits for the next tick. */
+    renewalFailed: (error: unknown) => void | Promise<void>
+    report: (what: string, error: unknown) => void
+}
+
+/**
+ * When the tick runs, for every client: at `start` — the device is in —, every `KEY_PACKAGE_REFILL_INTERVAL_MS` and
+ * on `key_packages_low` (`low`), until `stop`. Without it a device's siblings can't add it once its stash is used.
+ */
+export class KeyPackageTick {
+    private live = false
+    private timer: ReturnType<typeof setInterval> | undefined
+    private readonly deps: KeyPackageTickDeps
+
+    constructor(deps: KeyPackageTickDeps) {
+        this.deps = deps
+    }
+
+    start(): void {
+        if (this.live) return
+        this.live = true
+        this.run()
+        this.timer = setInterval(() => this.run(), KEY_PACKAGE_REFILL_INTERVAL_MS)
+    }
+
+    low(): void {
+        if (this.live) this.run()
+    }
+
+    stop(): void {
+        this.live = false
+        clearInterval(this.timer)
+    }
+
+    // The token is read at each run: a renewal doesn't restart the interval.
+    private run(): void {
+        const { session, replenish, renewalFailed, report } = this.deps
+        const accessToken = session.accessToken()
+        if (!accessToken) return
+        replenish({ idpUrl: session.idpUrl, accessToken, actorUri: session.actorUri })
+            .then(({ renewalFailure }) => (renewalFailure === undefined ? undefined : renewalFailed(renewalFailure)))
+            .catch((e: unknown) => report("topping up the KeyPackages", e))
+    }
+}

@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query"
 import { useAppStore } from "@/store/store"
 import { getDmConversationsUseCase } from "@pinai/domain/usecases/dm/get-dm-conversations.usecase"
 import { getDmPort } from "@/ioc"
-import { actorUriToAddress, personName } from "@pinai/domain/models/identity"
+import { actorUriToAddress } from "@pinai/domain/models/identity"
+import { conversationRow } from "@pinai/domain/models/conversation-list"
 import type { DmConversation } from "@/lib/types"
 import { useEffect } from "react"
 
@@ -36,31 +37,17 @@ export function useLoadDmConversations(): void {
         if (!summaries) return
 
         const convos: DmConversation[] = summaries.map((summary) => {
-            const firstMember = summary.members[0]
-            const address = firstMember ? actorUriToAddress(firstMember.actorUri) : summary.conversation_id
-            const actorUri = summary.kind === "dm" ? (firstMember?.actorUri ?? null) : null
-            const displayName = summary.kind === "dm"
-                ? (firstMember?.displayName ?? address.split("@")[0] ?? address)
-                : (summary.name ?? summary.members.map((m) => m.displayName ?? "?").join(", "))
+            const row = conversationRow(summary)
             return {
-                id: summary.conversation_id,
-                kind: summary.kind,
-                groupName: summary.name,
-                displayName,
-                address,
-                actorUri,
-                avatar: displayName.slice(0, 2).toUpperCase(),
-                color: colorFromString(address),
+                ...row,
+                avatar: row.displayName.slice(0, 2).toUpperCase(),
+                color: colorFromString(row.address),
                 status: "offline" as const,
                 // Phase 3 dropped server-side preview — body is opaque
                 // ciphertext now. The sidebar computes 1:1 previews from
                 // the decrypted MLS stream; groups show participant count.
                 lastMessage: "",
                 unread: 0,
-                // `members` excludes the caller, so add 1 for the local user.
-                memberCount: summary.members.length + 1,
-                memberNames: summary.members.map((m) => personName(m.actorUri, m.displayName)),
-                removedAt: summary.removed_at ?? null,
             }
         })
         setDmConversations(convos)

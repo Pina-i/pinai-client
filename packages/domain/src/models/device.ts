@@ -7,8 +7,14 @@ import { hexOf } from "./bytes"
 import type { DeviceId } from "./e2ee"
 import { IdpError } from "./idp-error"
 import { cutName, nameLength, readableName } from "./name"
+import { formatLastSeen } from "./relative-time"
 
 export type DeviceKind = "laptop" | "phone" | "tablet" | "unknown"
+
+/** A device as its rows and prompts name it: its shown name, or "A device" when it has none. */
+export function shownDeviceName(displayName: string | null | undefined): string {
+    return displayName?.trim() || "A device"
+}
 
 /** The Pīna'i app or a browser; `unknown` for a client that never said and whose `User-Agent` didn't tell. */
 export type DeviceClient = "app" | "browser" | "unknown"
@@ -104,6 +110,25 @@ export function deviceStatus(device: DeviceListEntry): DeviceStatus {
     if (device.revoked_at !== null) return { kind: "revoked", at: device.revoked_at }
     if (device.signed_in) return { kind: "signed-in", lastActiveAt: device.last_active_at }
     return { kind: "signed-out" }
+}
+
+/** "Active 3 days ago", "Signed in", "Last seen yesterday", "Revoked <day>": a device's row, `day` dating it as the platform reads dates. */
+export function activityLabel(device: DeviceListEntry & { is_current?: boolean }, now: Date, day: (iso: string) => string): string | null {
+    // This device is in use as the list is read, whatever its session's last renewal says.
+    if (device.is_current) return "Active now"
+    const status = deviceStatus(device)
+    switch (status.kind) {
+        case "revoked":
+            return `Revoked ${day(status.at)}`
+        case "signed-in": {
+            const seen = status.lastActiveAt && formatLastSeen(status.lastActiveAt, now)
+            return seen ? `Active ${seen}` : "Signed in"
+        }
+        case "signed-out": {
+            const seen = formatLastSeen(device.last_seen_at, now)
+            return seen ? `Last seen ${seen}` : null
+        }
+    }
 }
 
 /**
