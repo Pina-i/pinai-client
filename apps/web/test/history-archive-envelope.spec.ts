@@ -179,4 +179,9 @@ describe("reactionsToReplay", () => {
             ["m3", "r3"],
         ])
     })
+
+    it("gives the reactions of a message held by its last edit alone: the restored copy takes its place", () => {
+        const replay = reactionsToReplay([{ id: "m1" }, { id: "m2", editOnly: true }, { id: "m3" }], restored)
+        expect(replay.map((r) => [r.messageId, r.reaction.id])).toEqual([["m2", "r2"]])
+    })
 })

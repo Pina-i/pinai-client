@@ -259,7 +259,7 @@ describe("receiveEditUseCase", () => {
     const EDITED_AT = "2026-11-27T11:00:00.000Z"
     const pushed = { message_id: "m1", new_mls_ciphertext: CIPHERTEXT, edited_at: EDITED_AT }
 
-    it("tries each conversation until one decrypts an edit of that message, applies it there and archives it under its author", async () => {
+    it("tries each conversation until one decrypts an edit of that message, applies it there with its time and archives it under its author", async () => {
         const { cache, timeline } = memoryCache({
             c1: { messages: [message({ id: "m7" })] },
             c2: { messages: [message({ content: "old" })] },
@@ -271,7 +271,7 @@ describe("receiveEditUseCase", () => {
 
         expect(port.decryptInbound.mock.calls.map(([id]) => id)).toEqual(["c1", "c2"])
         expect(port.decryptInbound).toHaveBeenCalledWith("c2", BYTES, CATCH_UP)
-        expect(timeline("c2")?.messages).toEqual([message({ content: "new", edited: true })])
+        expect(timeline("c2")?.messages).toEqual([message({ content: "new", edited: true, editedAt: EDITED_AT })])
         expect(timeline("c1")?.messages).toEqual([message({ id: "m7" })])
         expect(port.bufferEditForArchive).toHaveBeenCalledWith(
             "c2",

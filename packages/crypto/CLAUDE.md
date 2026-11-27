@@ -502,8 +502,8 @@ above, the sections above win.
   domain's `receiveMessageUseCase`) and the REST history load both
   decrypt once and hand it to the domain's `receivedMessage`
   (`models/received-message.ts`): text → push as Message; reaction →
-  folded (`foldReaction`); history's edited row → its placeholder, the edit
-  archived. The history load (`loadConversationUseCase`) folds the
+  folded (`foldReaction`); history's edited row → the edit's text, kept
+  until the archive's whole copy comes (`editOnly`), the edit archived. The history load (`loadConversationUseCase`) folds the
   reactions after merging the texts — reactions need their target to exist.
 
 ## Phase 5c.4 additions (attachments)

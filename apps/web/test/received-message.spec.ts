@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest"
 import type { DirectMessage } from "@pinai/domain/models/dm"
 import type { ApplicationMessage, AttachmentBlobKey } from "@pinai/domain/models/e2ee"
 import type { DmEventPayload } from "@pinai/domain/models/ws"
-import { historyWire, pushWire, receivedMessage } from "@pinai/domain/models/received-message"
+import { editOf, editedSince, historyWire, pushWire, receivedMessage } from "@pinai/domain/models/received-message"
 
 const ME = { address: "alice@kauai.pinai", display_name: "Alice", preferred_username: "alice" }
 const BOB_URI = "https://moana.social/users/bob"
 const AT = "2026-11-27T10:00:00.000Z"
+const EDITED_AT = "2026-11-27T10:05:00.000Z"
 const FILE = { id: "a1", mime_type: "application/octet-stream", byte_size: 9, original_filename: "encrypted" }
 const KEY = { id: "a1", key: new Uint8Array([1]), nonce: new Uint8Array([2]) } as unknown as AttachmentBlobKey
 
@@ -114,12 +115,34 @@ describe("receivedMessage", () => {
         expect(other.kind === "message" && "undecrypted" in other.message).toBe(false)
     })
 
-    it("shows history's row of an edited message as the placeholder, marked edited", () => {
+    it("shows history's row of an edited message with the edit's text, marked edited, editOnly and when", () => {
         const edit: ApplicationMessage = { version: 1, kind: "edit", body: { target_message_id: "m1", new_text: "fixed" } }
-        expect(receivedMessage(historyWire(row({ edited_at: AT }), ME), edit, "history")).toMatchObject({
+        expect(receivedMessage(historyWire(row({ edited_at: EDITED_AT, reply_to_id: "m0", attachments: [FILE] }), ME), edit, "history")).toStrictEqual({
             kind: "edit",
-            message: { id: "m1", content: "[encrypted]", edited: true },
+            message: {
+                id: "m1",
+                author: "Bob",
+                authorAddress: "bob@moana.social",
+                content: "fixed",
+                createdAt: AT,
+                edited: true,
+                editOnly: true,
+                editedAt: EDITED_AT,
+                attachments: [FILE],
+                attachmentKeys: undefined,
+                replyTo: { id: "m0", content: "", author: "" },
+            },
         })
+    })
+
+    it("keeps the placeholder for an edit of another message, or one without its text, still marked editOnly", () => {
+        for (const body of [{ target_message_id: "m9", new_text: "fixed" }, { target_message_id: "m1" }, null]) {
+            const edit: ApplicationMessage = { version: 1, kind: "edit", body }
+            expect(receivedMessage(historyWire(row({ edited_at: EDITED_AT }), ME), edit, "history")).toMatchObject({
+                kind: "edit",
+                message: { content: "[encrypted]", edited: true, editOnly: true },
+            })
+        }
     })
 
     it("shows nothing for a history row that doesn't decrypt", () => {
@@ -163,5 +186,31 @@ describe("receivedMessage", () => {
         expect(receivedMessage(wire, reaction(null), "history")).toEqual({ kind: "nothing" })
         expect(receivedMessage(wire, reaction({ target_message_id: "m0", emoji: "👍", op: "toggle" }), "history")).toEqual({ kind: "nothing" })
         expect(receivedMessage(wire, reaction({ target_message_id: 7, emoji: "👍", op: "add" }), "live")).toEqual({ kind: "nothing" })
+    })
+})
+
+describe("editOf", () => {
+    it("reads an edit of that message only", () => {
+        const edit = (body: unknown): ApplicationMessage => ({ version: 1, kind: "edit", body })
+        expect(editOf(edit({ target_message_id: "m1", new_text: "fixed" }), "m1")).toBe("fixed")
+        expect(editOf(edit({ target_message_id: "m2", new_text: "fixed" }), "m1")).toBeNull()
+        expect(editOf(edit({ target_message_id: "m1", new_text: 4 }), "m1")).toBeNull()
+        expect(editOf(text({ text: "fixed" }), "m1")).toBeNull()
+        expect(editOf(null, "m1")).toBeNull()
+    })
+})
+
+describe("editedSince", () => {
+    it("tries a row edited after the edit the held copy last read", () => {
+        expect(editedSince({ edited: true, editedAt: AT }, EDITED_AT)).toBe(true)
+        expect(editedSince({ edited: true, editedAt: EDITED_AT }, EDITED_AT)).toBe(false)
+        expect(editedSince({ edited: true, editedAt: EDITED_AT }, AT)).toBe(false)
+    })
+
+    it("tries a copy never edited, not one edited at a time it doesn't know, nor a row never edited", () => {
+        expect(editedSince({}, EDITED_AT)).toBe(true)
+        expect(editedSince({ edited: false }, EDITED_AT)).toBe(true)
+        expect(editedSince({ edited: true }, EDITED_AT)).toBe(false)
+        expect(editedSince({}, null)).toBe(false)
     })
 })

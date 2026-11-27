@@ -26,6 +26,7 @@ export interface CachedMessage extends Decryption {
     createdAt: string
     status?: SendStatus
     edited?: boolean
+    editedAt?: string
     reactions?: ReadonlyArray<{ emoji: string; count: number; reacted: boolean }>
     replyTo?: { id: string; content: string; author: string }
     attachments?: Attachment[]

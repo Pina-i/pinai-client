@@ -1,10 +1,10 @@
 import { base64Bytes } from "../../models/bytes"
 import { UNDECRYPTABLE_TEXT, addToTimeline, applyFederationStatus, reconcileSent, settleByEcho } from "../../models/dm"
-import type { ApplicationMessage, EditBody, ReactionBody, TextBody } from "../../models/e2ee"
+import type { ApplicationMessage, ReactionBody, TextBody } from "../../models/e2ee"
 import { archivedEdit, archivedReaction, archivedText } from "../../models/history-archive"
 import { isHeldHere } from "../../models/own-messages"
 import { foldReaction } from "../../models/reaction"
-import { pushWire, receivedMessage, type WireMessage } from "../../models/received-message"
+import { editOf, pushWire, receivedMessage, type WireMessage } from "../../models/received-message"
 import type { DmDeliveryFailedPayload, DmEventPayload, MessageEditedPayload } from "../../models/ws"
 import type { CachedTimelineMessage, ConversationTimeline, IConversationCache } from "../../ports/conversation-cache.port"
 import type { IE2eePort } from "../../ports/e2ee.port"
@@ -139,13 +139,10 @@ export async function receiveEditUseCase<M extends CachedTimelineMessage>(
     deps: ReceiveDeps<M>,
 ): Promise<void> {
     const ciphertext = base64Bytes(edit.new_mls_ciphertext)
-    let text = UNDECRYPTABLE_TEXT
+    let text: string | null = null
     for (const conversationId of await deps.cache.conversationIds()) {
-        const app = await decrypted(deps.e2ee, conversationId, ciphertext, context.catchUp)
-        if (app?.kind !== "edit") continue
-        const body = app.body as EditBody
-        if (body?.target_message_id !== edit.message_id || typeof body.new_text !== "string") continue
-        text = body.new_text
+        text = editOf(await decrypted(deps.e2ee, conversationId, ciphertext, context.catchUp), edit.message_id)
+        if (text === null) continue
         const target = (await deps.cache.read(conversationId)).messages.find((m) => m.id === edit.message_id)
         if (ciphertext && target?.authorAddress) {
             deps.e2ee.bufferEditForArchive(
@@ -162,9 +159,11 @@ export async function receiveEditUseCase<M extends CachedTimelineMessage>(
     const held = await whereHeld(deps.cache, edit.message_id)
     if (!held) return
     // One of the user's own that doesn't decrypt is this device's edit, applied when it was made.
-    if (text === UNDECRYPTABLE_TEXT && held.message.authorAddress === context.myAddress) return
+    if (text === null && held.message.authorAddress === context.myAddress) return
+    // Its time kept: history tries only a later edit again.
+    const read = text === null ? { content: UNDECRYPTABLE_TEXT } : { content: text, editedAt: edit.edited_at }
     await deps.cache.update(held.conversationId, (t) =>
-        withMessage(t, edit.message_id, (m) => ({ ...m, content: text, edited: true })),
+        withMessage(t, edit.message_id, (m) => ({ ...m, ...read, edited: true })),
     )
 }
 

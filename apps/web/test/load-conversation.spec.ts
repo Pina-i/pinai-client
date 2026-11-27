@@ -252,19 +252,113 @@ describe("loadConversationUseCase", () => {
         expect(timeline().groupEvents.map((e) => e.id)).toEqual(["e1", "e2"])
     })
 
-    it("shows history's row of an edited message as the placeholder marked edited, and archives the edit", async () => {
+    it("shows history's row of an edited message it never held with the edit's text, until a fuller copy comes", async () => {
         const { cache, timeline } = memoryCache()
         const body = { target_message_id: "m1", new_text: "fixed" }
         const port = e2ee({ m1: edit(body) })
 
         await load({ messages: [row({ edited_at: T1 })] }, { cache, e2ee: port }).done
 
-        expect(timeline().messages).toMatchObject([{ id: "m1", content: UNDECRYPTABLE_TEXT, edited: true }])
+        expect(timeline().messages).toMatchObject([{ id: "m1", content: "fixed", edited: true, editOnly: true, editedAt: T1 }])
+        expect(timeline().messages[0].undecrypted).toBeUndefined()
         expect(port.bufferEditForArchive).toHaveBeenCalledWith(
             "c1",
             Uint8Array.from("m1", (c) => c.charCodeAt(0)),
             archivedEdit({ address: BOB, displayName: "Bob" }, T1, body),
         )
+    })
+
+    it("never decrypts a copy known by its last edit again: that edit was read", async () => {
+        const editOnly = message({ content: "fixed", edited: true, editOnly: true, editedAt: T1 })
+        const { cache, timeline } = memoryCache({ messages: [editOnly] })
+        const port = e2ee()
+
+        await load({ messages: [row({ edited_at: T1 })] }, { cache, e2ee: port }).done
+
+        expect(port.decryptInbound).not.toHaveBeenCalled()
+        expect(timeline().messages).toEqual([editOnly])
+    })
+
+    it("takes a placeholder's place with the edit's text when the message was edited since", async () => {
+        const placeholder = message({ content: UNDECRYPTABLE_TEXT, undecrypted: true })
+        const { cache, timeline } = memoryCache({ messages: [placeholder] })
+
+        await load(
+            { messages: [row({ edited_at: T1 })] },
+            { cache, e2ee: e2ee({ m1: edit({ target_message_id: "m1", new_text: "fixed" }) }) },
+        ).done
+
+        expect(timeline().messages).toMatchObject([{ content: "fixed", edited: true, editOnly: true }])
+        expect(timeline().messages[0].undecrypted).toBeUndefined()
+    })
+
+    it("applies an edit made while the device was away to the copy it holds, and archives it under its author", async () => {
+        const held = message({ content: "old", reactions: [{ emoji: "🌺", count: 1, reacted: false }] })
+        const { cache, timeline } = memoryCache({ messages: [held] })
+        const body = { target_message_id: "m1", new_text: "new" }
+        const port = e2ee({ m1: edit(body) })
+
+        await load({ messages: [row({ edited_at: T1 })] }, { cache, e2ee: port }).done
+
+        expect(timeline().messages).toEqual([{ ...held, content: "new", edited: true, editedAt: T1 }])
+        expect(port.bufferEditForArchive).toHaveBeenCalledWith(
+            "c1",
+            Uint8Array.from("m1", (c) => c.charCodeAt(0)),
+            archivedEdit({ address: BOB, displayName: "Bob" }, T1, body),
+        )
+    })
+
+    it("tries a held copy's row again only for an edit after the last it read", async () => {
+        const port = e2ee({ m1: edit({ target_message_id: "m1", new_text: "newer" }) })
+        const read = message({ content: "first fix", edited: true, editedAt: T1 })
+        const { cache, timeline } = memoryCache({ messages: [read] })
+
+        await load({ messages: [row({ edited_at: T1 })] }, { cache, e2ee: port }).done
+        expect(port.decryptInbound).not.toHaveBeenCalled()
+
+        await load({ messages: [row({ edited_at: T2 })] }, { cache, e2ee: port }).done
+        expect(timeline().messages).toEqual([{ ...read, content: "newer", editedAt: T2 }])
+    })
+
+    it("doesn't try a copy edited at a time it doesn't know: restored, or edited on this device", async () => {
+        const edited = message({ content: "fixed here", edited: true })
+        const { cache, timeline } = memoryCache({ messages: [edited] })
+        const port = e2ee()
+
+        await load({ messages: [row({ edited_at: T1 })] }, { cache, e2ee: port }).done
+
+        expect(port.decryptInbound).not.toHaveBeenCalled()
+        expect(timeline().messages[0]).toBe(edited)
+    })
+
+    it("changes nothing of a held copy when the row doesn't decrypt as an edit of it", async () => {
+        for (const app of [undefined, edit({ target_message_id: "m9", new_text: "other" }), text({ text: "odd" })]) {
+            const held = message({ content: "old" })
+            const { cache, timeline } = memoryCache({ messages: [held] })
+            const port = e2ee(app === undefined ? {} : { m1: app })
+
+            await load({ messages: [row({ edited_at: T1 })] }, { cache, e2ee: port }).done
+
+            expect(port.decryptInbound).toHaveBeenCalledOnce()
+            expect(timeline().messages[0]).toBe(held)
+            expect(port.bufferEditForArchive).not.toHaveBeenCalled()
+        }
+    })
+
+    it("leaves a later edit that came live during the load in place", async () => {
+        const { cache, timeline } = memoryCache({ messages: [message({ content: "old" })] })
+        const port = e2ee({ m1: edit({ target_message_id: "m1", new_text: "from history" }) })
+        port.decryptInbound.mockImplementationOnce(async () => {
+            await cache.update("c1", (t) => ({
+                ...t,
+                messages: t.messages.map((m) => ({ ...m, content: "live", edited: true, editedAt: T2 })),
+            }))
+            return edit({ target_message_id: "m1", new_text: "from history" })
+        })
+
+        await load({ messages: [row({ edited_at: T1 })] }, { cache, e2ee: port }).done
+
+        expect(timeline().messages).toMatchObject([{ content: "live", editedAt: T2 }])
     })
 
     it("writes nothing when the history doesn't load", async () => {

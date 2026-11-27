@@ -698,6 +698,10 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   live, takes its place and keeps what only the cache knew (its reactions) —
   in `mergeMessageHistory` and `addToTimeline`, the live push. A failed
   decrypt deletes no key, so history tries it again.
+- `Decryption.editOnly` marks a copy read from its last edit alone (`models/received-message.ts`):
+  never decrypted again — the edit was read —, it gives way to a whole copy, the archive's, as a
+  placeholder gives way to it. A whole copy no edit reached is the first text: the edit's text stays
+  on top of it.
 - `findConversation(list, ref)` — what a route param names: a conversation
   id, or a peer's address, which designates the 1:1 with them only. A group
   carries its first member's address too, so a plain address match would open
@@ -910,9 +914,14 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   predates the device in the group: the archive brings it back) or from the
   account itself (`mine`: MLS never decrypts a device's own); live, a placeholder
   marked `undecrypted`, which history tries again.
-- `edit` — history's row of an edited message carries the edit's ciphertext: the
-  placeholder marked edited, its first text the archive's. Live, edits come as
-  `message_edited`.
+- `edit` — the IdP replaces an edited message's ciphertext with the edit's, so history's row of
+  one this device never held reads as the edit: its text, marked edited and `editOnly` (no
+  attachment keys, no reply preview), `editedAt` the row's. Live, edits come as `message_edited`.
+- `editOf(app, id)` — an edit's text, only for that message. `editedSince(held, editedAt)` —
+  whether a held copy may miss the edit its history row carries: edited after the last edit read
+  here (`editedAt`, kept by history and `receiveEditUseCase`). An edited copy of unknown time
+  (restored; edited on this device, whose own ciphertext never decrypts) counts as current, or its
+  row would fail to decrypt at each opening.
 - The account's own history rows take the user's name, a push the IdP's; only a
   history row carries `edited`. Decrypting, the cache checks before it and
   archiving stay with the caller (`receiveMessageUseCase` live, `loadConversationUseCase`
@@ -945,7 +954,7 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   the read marker.
 - `receiveEditUseCase` — `message_edited` names no conversation: each held one is tried until
   one decrypts an edit of that message, archived under the edited message's author. The first
-  conversation holding the message takes the text, marked edited. Not decrypted, one of the
+  conversation holding the message takes the text, marked edited, with the edit's time. Not decrypted, one of the
   user's own is left (this device made it); a peer's shows the placeholder marked edited — a
   known gap, kept.
 - `receiveDeliveryFailureUseCase` — `applyFederationStatus` wherever the message is held.
@@ -954,9 +963,14 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
 - `loadConversationUseCase` — opening a conversation: its first history page (`openConversationUseCase`,
   which reads the list again), each row decrypted at most once — a held copy reused (forward secrecy
   deleted its keys), a placeholder tried again, an applied reaction skipped — and archived. Then one
-  `update`: the texts merged, `federation_status: failed` over the held copy (it wins the merge),
+  `update`: the texts merged, the edits made while away (below), `federation_status: failed` over
+  the held copy (it wins the merge),
   the reactions folded once their messages are in, a reaction's live placeholder dropped, the group's
   changes merged. One change, so the phone writes its row once.
+- A held copy is reused as it is, unless its row was edited since (`editedSince`): the row is
+  then tried, and only an edit of that message changes the copy — its text, `edited`, its time —,
+  archived under the copy's author; a later edit come live meanwhile stays. A row that doesn't
+  decrypt (read already, its keys gone) changes nothing.
 
 ### usecases/dm/send-message.usecase.ts
 - `MessageSends` — a running app's sends, one instance: it keeps what must outlive a screen, the sends still under way (`settleStale` never fails one waiting for its
@@ -1155,8 +1169,8 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
 - `reactionsToReplay(cached, restored)` — the restore applies reactions
   through the store's `applyReaction`, which records each id: the history
   load may decrypt one again (sent after the device joined). Only for the
-  messages the cache doesn't hold decrypted — a held copy wins, reactions
-  included.
+  messages the cache doesn't hold whole (`undecrypted`, `editOnly`) — a held copy
+  wins, reactions included.
 - `ARCHIVE_UPLOAD_LIMIT` — the IdP takes 50 entries per upload;
   `ARCHIVE_BUFFER_LIMIT` — at most 1000 wait on a device, the oldest dropped.
 - `edited` on an envelope — a text archived as last edited, no edit entry beside it (a

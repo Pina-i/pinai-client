@@ -348,7 +348,7 @@ export function restoredMessages(entries: readonly ArchivedEntry[]): RestoredMes
 
 /**
  * The restored reactions to apply to a conversation: those of the messages the cache doesn't hold
- * decrypted. A held copy wins, reactions included, as it does over its history copy.
+ * whole (`Decryption`). A held copy wins, reactions included, as it does over its history copy.
  */
 export function reactionsToReplay(
     cached: readonly ({ id: string } & Decryption)[],
@@ -366,6 +366,6 @@ export function snapshotsToReplay(
 }
 
 function notHeld(cached: readonly ({ id: string } & Decryption)[], restored: readonly RestoredMessage[]): RestoredMessage[] {
-    const held = new Set(cached.filter((m) => !m.undecrypted).map((m) => m.id))
+    const held = new Set(cached.filter((m) => !m.undecrypted && !m.editOnly).map((m) => m.id))
     return restored.filter((m) => !held.has(m.id))
 }

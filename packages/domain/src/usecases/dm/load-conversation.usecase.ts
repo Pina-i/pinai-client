@@ -4,7 +4,7 @@ import { applyFederationStatus, mergeMessageHistory, type DirectMessage } from "
 import type { EditBody, ReactionBody, TextBody } from "../../models/e2ee"
 import { archivedEdit, archivedReaction, archivedText } from "../../models/history-archive"
 import { foldReaction, type ReactionApplication } from "../../models/reaction"
-import { historyWire, receivedMessage } from "../../models/received-message"
+import { editOf, editedSince, historyWire, receivedMessage } from "../../models/received-message"
 import type { CachedTimelineMessage, IConversationCache } from "../../ports/conversation-cache.port"
 import type { IE2eePort } from "../../ports/e2ee.port"
 import type { MarkReadDeps, ReadSession } from "./mark-conversation-read.usecase"
@@ -19,8 +19,11 @@ export interface LoadConversationDeps<M> extends MarkReadDeps {
 /** The user, as their account's own history rows name them. */
 export type HistoryReader = Pick<UserProfile, "address" | "display_name" | "preferred_username">
 
+/** An edit made while this device was away, of a message it holds. */
+type HeldEdit = { content: string; editedAt: string }
+
 type ReadRow<M> =
-    | { kind: "message"; message: M }
+    | { kind: "message"; message: M; edit?: HeldEdit }
     | { kind: "reaction"; reaction: ReactionApplication; mine: boolean }
     | { kind: "nothing" }
 
@@ -45,11 +48,19 @@ export async function loadConversationUseCase<M extends CachedTimelineMessage>(
     const texts = read.flatMap((r) => (r.kind === "message" ? [r.message] : []))
     const reactions = read.flatMap((r) => (r.kind === "reaction" ? [r] : []))
     const reactionIds = new Set(reactions.map((r) => r.reaction.reaction_message_id))
+    const edits = new Map(read.flatMap((r) => (r.kind === "message" && r.edit ? [[r.message.id, r.edit] as const] : [])))
     const undelivered = new Set(rows.filter((r) => r.federation_status === "failed").map((r) => r.id))
     const at = new Date().toISOString()
 
     await deps.cache.update(conversationId, (t) => {
         let messages = mergeMessageHistory(t.messages, texts)
+        // The edits made while away, unless a later one came live meanwhile.
+        if (edits.size > 0) {
+            messages = messages.map((m) => {
+                const edit = edits.get(m.id)
+                return edit && editedSince(m, edit.editedAt) ? { ...m, content: edit.content, edited: true, editedAt: edit.editedAt } : m
+            })
+        }
         // The held copy wins the merge, so the IdP's delivery outcome — which may have come while no client was open —
         // goes on top of it.
         if (undelivered.size > 0) {
@@ -81,7 +92,10 @@ async function readRow<M extends CachedTimelineMessage>(
     // Forward secrecy deleted the keys of what this device read already: its copy is the only one. One it couldn't
     // decrypt is tried again — the failure deleted no key.
     const held = heldById.get(row.id)
-    if (held && !held.undecrypted) return { kind: "message", message: held }
+    if (held && !held.undecrypted) {
+        if (!row.edited_at || !editedSince(held, row.edited_at)) return { kind: "message", message: held }
+        return { kind: "message", message: held, ...(await editWhileAway(row, row.edited_at, held, catchUp, deps)) }
+    }
     // A reaction lives folded into its message: decrypted again, its deleted keys would make it a placeholder row.
     if (appliedReactionIds[row.id]) return { kind: "nothing" }
 
@@ -118,4 +132,28 @@ async function readRow<M extends CachedTimelineMessage>(
         default:
             return { kind: "message", message: deps.cache.toCached(received.message) }
     }
+}
+
+// The row's ciphertext is its last edit's: only an edit of this message changes the held copy, a failed decrypt nothing.
+async function editWhileAway<M extends CachedTimelineMessage>(
+    row: DirectMessage,
+    editedAt: string,
+    held: M,
+    catchUp: ReadSession,
+    deps: LoadConversationDeps<M>,
+): Promise<{ edit?: HeldEdit }> {
+    const ciphertext = base64Bytes(row.mls_ciphertext)
+    const text = editOf(await decrypted(deps.e2ee, row.conversation_id, ciphertext, catchUp), row.id)
+    if (text === null) return {}
+    if (ciphertext && held.authorAddress) {
+        deps.e2ee.bufferEditForArchive(
+            row.conversation_id,
+            ciphertext,
+            archivedEdit({ address: held.authorAddress, displayName: held.author }, editedAt, {
+                target_message_id: row.id,
+                new_text: text,
+            }),
+        )
+    }
+    return { edit: { content: text, editedAt } }
 }

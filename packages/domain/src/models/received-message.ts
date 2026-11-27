@@ -1,6 +1,6 @@
 import type { UserProfile } from "./auth"
 import { UNDECRYPTABLE_TEXT, type Attachment, type Decryption, type DirectMessage } from "./dm"
-import type { ApplicationMessage, AttachmentBlobKey, ReactionBody, TextBody } from "./e2ee"
+import type { ApplicationMessage, AttachmentBlobKey, EditBody, ReactionBody, TextBody } from "./e2ee"
 import { actorUriToAddress } from "./identity"
 import type { ReactionApplication } from "./reaction"
 import type { DmEventPayload } from "./ws"
@@ -17,6 +17,8 @@ export interface WireMessage {
     attachments?: Attachment[]
     /** A history row's only: whether the IdP marks it edited. */
     edited?: boolean
+    /** A history row's only: when it was last edited. */
+    editedAt?: string
 }
 
 /** A message as a timeline keeps it: what every client's own message shape carries, how it looks left to each. */
@@ -27,6 +29,8 @@ export interface ReceivedText extends Decryption {
     content: string
     createdAt: string
     edited?: boolean
+    /** When the last edit this device read was made: history tries a later one. */
+    editedAt?: string
     attachments?: Attachment[]
     attachmentKeys?: Record<string, AttachmentBlobKey>
     replyTo?: { id: string; content: string; author: string }
@@ -34,7 +38,7 @@ export interface ReceivedText extends Decryption {
 
 /**
  * What a message from history or the socket becomes. `edit`: history's row of an edited message, whose
- * ciphertext is the edit's — shown as a placeholder marked edited, the text it replaced not in it.
+ * ciphertext is the edit's — shown with the edit's text, marked `editOnly` until a fuller copy (the archive's) comes.
  */
 export type ReceivedMessage =
     | { kind: "message"; message: ReceivedText }
@@ -62,6 +66,7 @@ export function historyWire(
         replyToId: row.reply_to_id,
         attachments: row.attachments,
         edited: row.edited_at != null,
+        ...(row.edited_at != null && { editedAt: row.edited_at }),
     }
 }
 
@@ -112,8 +117,33 @@ export function receivedMessage(
         }
         return { kind: "nothing" }
     }
-    const message = timelineText(wire, app.kind === "text" ? (app.body as TextBody) : null, false)
-    return app.kind === "edit" ? { kind: "edit", message } : { kind: "message", message }
+    if (app.kind === "edit") {
+        const text = editOf(app, wire.id)
+        const message = timelineText(wire, text === null ? null : { text }, false)
+        return {
+            kind: "edit",
+            message: { ...message, edited: true, editOnly: true, ...(wire.editedAt !== undefined && { editedAt: wire.editedAt }) },
+        }
+    }
+    return { kind: "message", message: timelineText(wire, app.kind === "text" ? (app.body as TextBody) : null, false) }
+}
+
+/** The text an edit of message `messageId` gives it; `null` for anything else. */
+export function editOf(app: ApplicationMessage | null, messageId: string): string | null {
+    if (app?.kind !== "edit") return null
+    const body = app.body as EditBody
+    return body?.target_message_id === messageId && typeof body.new_text === "string" ? body.new_text : null
+}
+
+/**
+ * Whether a held copy may miss the edit history's row carries (`editedAt`, the row's): edited after the last edit read
+ * here. An edited copy whose edit's time isn't known — restored, or edited on this device — counts as current: its row
+ * would only fail to decrypt again at each opening.
+ */
+export function editedSince(held: { edited?: boolean; editedAt?: string }, editedAt: string | null): boolean {
+    if (editedAt === null) return false
+    if (held.editedAt === undefined) return !held.edited
+    return Date.parse(editedAt) > Date.parse(held.editedAt)
 }
 
 // A body of another kind, or a text body without its text, leaves the placeholder.

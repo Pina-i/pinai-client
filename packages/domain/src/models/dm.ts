@@ -78,21 +78,38 @@ export interface TimelineEntry {
     createdAt: string
 }
 
-/** A message this device couldn't decrypt: shown as a placeholder until a decrypted copy comes. */
+/** How much of a message this device holds: a copy marked either way gives way to a fuller one. */
 export interface Decryption {
+    /** It couldn't decrypt it: a placeholder until a decrypted copy comes. */
     undecrypted?: true
+    /**
+     * It read only its last edit — history's row of a message it never held carries the edit's ciphertext —: the edit's
+     * text, without its first text's attachment keys or reply preview, which the archive's copy brings.
+     */
+    editOnly?: true
 }
 
 /** What a timeline shows in place of a text this device never read. */
 export const UNDECRYPTABLE_TEXT = "[encrypted]"
 
-// The held copy wins — it is the one already decrypted — unless only the other is: that one then
-// takes over, with what only the held copy knew (reactions folded into it, a send status).
-function keepCopy<T extends Decryption>(held: T, other: T): T {
-    if (!held.undecrypted || other.undecrypted) return held
+// A placeholder knows nothing of its message, its last edit alone part of it, any other copy all of it.
+function knowledge(copy: Decryption): number {
+    return copy.undecrypted ? 0 : copy.editOnly ? 1 : 2
+}
+
+/** What the merge reads of a copy's text, for the entries that have one. */
+type TextCopy = Decryption & { content?: string; edited?: boolean }
+
+// The held copy wins — it is the one already decrypted — unless the other knows more of the message: that one then
+// takes over, with what only the held copy knew (reactions folded into it, a send status, its edit's time).
+function keepCopy<T extends TextCopy>(held: T, other: T): T {
+    if (knowledge(other) <= knowledge(held)) return held
     const known = { ...held }
     delete known.undecrypted
-    return { ...known, ...other }
+    delete known.editOnly
+    const fuller = { ...known, ...other }
+    // A first text no edit reached is older than the edit held: the edit stays on top of it.
+    return held.editOnly && !other.edited ? { ...fuller, content: held.content, edited: true } : fuller
 }
 
 /**
@@ -100,9 +117,9 @@ function keepCopy<T extends Decryption>(held: T, other: T): T {
  * The cache is persisted, so history can hold entries newer than it, not only
  * older ones: sort instead of prepending. Sorting the whole list also repairs
  * a cache an earlier prepend left out of order. A cached entry wins over its
- * history copy, unless this device couldn't decrypt it and history could.
+ * history copy, unless history's knows more of the message (`Decryption`).
  */
-export function mergeMessageHistory<T extends TimelineEntry & Decryption>(cached: T[], history: T[]): T[] {
+export function mergeMessageHistory<T extends TimelineEntry & TextCopy>(cached: T[], history: T[]): T[] {
     const fromHistory = new Map(history.map((m) => [m.id, m]))
     const cachedIds = new Set(cached.map((m) => m.id))
     const incoming = history.filter((m) => !cachedIds.has(m.id))
@@ -116,9 +133,9 @@ export function mergeMessageHistory<T extends TimelineEntry & Decryption>(cached
 
 /**
  * A live entry into a cached timeline: appended when new; for one already held, the copy kept is
- * the held one unless only the new one is decrypted. The same list when nothing changes.
+ * the held one unless the new one knows more of the message. The same list when nothing changes.
  */
-export function addToTimeline<T extends { id: string } & Decryption>(list: T[], entry: T): T[] {
+export function addToTimeline<T extends { id: string } & TextCopy>(list: T[], entry: T): T[] {
     const at = list.findIndex((m) => m.id === entry.id)
     if (at === -1) return [...list, entry]
     const kept = keepCopy(list[at], entry)
