@@ -199,6 +199,12 @@ export function settleStaleSend<T extends SendState>(message: T, now: number): T
     return { ...message, status: "failed", statusAt: new Date(now).toISOString() }
 }
 
+/** An own message's echo: the IdP stored it, so a copy still `sending` or `failed` was sent. The same object otherwise. */
+export function settleByEcho<T extends SendState>(message: T, at: string): T {
+    if (message.status !== "sending" && message.status !== "failed") return message
+    return { ...message, status: "sent", statusAt: at }
+}
+
 /**
  * The confirmed copy of an optimistic message replaces it, keeping what only
  * the client knows: which undelivered message it was sent again from.
