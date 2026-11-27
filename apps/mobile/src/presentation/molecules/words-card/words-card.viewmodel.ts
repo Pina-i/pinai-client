@@ -1,18 +1,19 @@
 import { setStringAsync } from "expo-clipboard"
-import { usePreventScreenCapture } from "expo-screen-capture"
-import { useEffect, useId, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { AppState } from "react-native"
+import { useWordsPrivacy } from "@/presentation/_libs/words-privacy"
 
 const COPIED_MS = 2400
+/** How long iOS keeps the copied words on the clipboard. */
+const CLIPBOARD_KEPT_MS = 5 * 60 * 1000
 
 /**
- * The words hidden until shown; hidden again when the app leaves the front. Copied as sensitive, so Android's preview
- * and the keyboards' clipboard leave them out. While the card is up, screenshots and the app switcher's preview are
- * blocked (Android's FLAG_SECURE).
+ * The words hidden until shown; hidden again when the app leaves the front. Copied as sensitive on Android, so its
+ * preview and the keyboards' clipboard leave them out; on iOS kept off the other devices' Universal Clipboard and
+ * cleared after a while. While the card is up, screenshots and the app switcher's preview are blocked.
  */
 export function useWordsCard(words: string[], onSeen?: () => void) {
-    // A key per card: one card leaving mustn't allow capture while another, under it in the stack, is still up.
-    usePreventScreenCapture(useId())
+    useWordsPrivacy()
     const [shown, setShown] = useState(false)
     const [copied, setCopied] = useState(false)
     const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -35,7 +36,10 @@ export function useWordsCard(words: string[], onSeen?: () => void) {
         },
         copied,
         copy: () => {
-            void setStringAsync(words.join(" "), { android: { isSensitive: true } })
+            void setStringAsync(words.join(" "), {
+                android: { isSensitive: true },
+                ios: { localOnly: true, expiresAt: new Date(Date.now() + CLIPBOARD_KEPT_MS) },
+            })
             onSeen?.()
             setCopied(true)
             clearTimeout(copiedTimer.current)

@@ -3,7 +3,7 @@ import { router, Stack, usePathname } from "expo-router"
 import * as SplashScreen from "expo-splash-screen"
 import { StatusBar } from "expo-status-bar"
 import { useEffect } from "react"
-import { View } from "react-native"
+import { Platform, View } from "react-native"
 import { GestureHandlerRootView } from "react-native-gesture-handler"
 import { StyleSheet, useUnistyles } from "react-native-unistyles"
 import { getAuthNavigation } from "@/ioc"
@@ -86,7 +86,7 @@ export default function RootLayout() {
                 </Stack>
                 <Grain />
                 <StatusBar style={light ? "dark" : "light"} />
-                <NavigationBar style={light ? "dark" : "light"} />
+                {Platform.OS === "android" && <NavigationBar style={light ? "dark" : "light"} />}
             </View>
         </GestureHandlerRootView>
     )

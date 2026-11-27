@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "expo start --dev-client",
     "android": "node scripts/build-native-mls.mjs && expo run:android",
+    "ios": "node scripts/build-native-mls.mjs ios && expo run:ios",
     "reverse": "node scripts/adb-reverse.mjs",
     "android:device": "node scripts/adb-reverse.mjs && node scripts/build-native-mls.mjs && expo run:android --device",
     "android:prebuild": "expo prebuild --platform android",

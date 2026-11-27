@@ -1,8 +1,7 @@
 import { RECOVERY_WORD_COUNT } from "@pinai/crypto/recovery-words"
 import { getStringAsync } from "expo-clipboard"
-import { allowScreenCaptureAsync, preventScreenCaptureAsync } from "expo-screen-capture"
-import { useEffect, useId } from "react"
 import { warnE2ee } from "@/presentation/_libs/warn-e2ee"
+import { useWordsPrivacy } from "@/presentation/_libs/words-privacy"
 import { useTypedWords } from "@/presentation/hooks/use-typed-words"
 import type { WordsWayProps } from "./words-way"
 import { misspeltWord } from "./words-way-choices"
@@ -10,13 +9,7 @@ import { misspeltWord } from "./words-way-choices"
 /** The 24 words typed or pasted, checked as they come; screenshots blocked while this way is on screen. */
 export function useWordsWayViewModel({ active, setUp, onTyping, onIn }: WordsWayProps) {
     const typed = useTypedWords({ ready: setUp, onBusy: onTyping, onKept: onIn })
-    const key = useId()
-
-    useEffect(() => {
-        if (!active) return
-        void preventScreenCaptureAsync(key)
-        return () => void allowScreenCaptureAsync(key)
-    }, [active, key])
+    useWordsPrivacy(active)
 
     return {
         text: typed.text,
