@@ -1,10 +1,5 @@
-import type { ActorUri, ConversationId } from "@pinai/domain/models/e2ee"
 import type { IE2eePort } from "@pinai/domain/ports/e2ee.port"
-import {
-    ConversationJoins,
-    enterConversationUseCase,
-    type JoinContext,
-} from "@pinai/domain/usecases/e2ee/join-conversations.usecase"
+import { ConversationJoins, type JoinContext } from "@pinai/domain/usecases/e2ee/join-conversations.usecase"
 import { getDeviceDirectoryPort, getE2eePort } from "@/ioc"
 import { warnE2ee } from "@/presentation/_libs/warn-e2ee"
 import { useAppStore } from "@/store/store"
@@ -30,7 +25,8 @@ export function conversationJoins(): ConversationJoins {
     return joins.running
 }
 
-function joinContext(idpUrl: string): JoinContext {
+/** The access token read at each step: a join or a send may outlast a renewal. */
+export function joinContext(idpUrl: string): JoinContext {
     return { idpUrl, accessToken: () => useAppStore.getState().accessToken }
 }
 
@@ -41,11 +37,4 @@ export function joinMissingConversations(): void {
     conversationJoins()
         .sync(joinContext(idpUrl), localDmConvos)
         .catch((e: unknown) => warnE2ee("looking for conversations to join", e))
-}
-
-/** Before a send: the device in the conversation, waiting meanwhile, or the DM founded (`peer`, its other member). */
-export async function enterConversation(conversation: { id: ConversationId; peer: ActorUri | null }): Promise<void> {
-    const { idpUrl } = useAppStore.getState()
-    if (!idpUrl) throw new Error("Signed out")
-    await enterConversationUseCase(conversationJoins(), getE2eePort(), joinContext(idpUrl), conversation)
 }
