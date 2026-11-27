@@ -19,3 +19,10 @@ export function base64Bytes(value: string): Uint8Array | null {
         return null
     }
 }
+
+/** Bytes as standard base64: a ciphertext as the wire carries it. */
+export function bytesBase64(bytes: Uint8Array): string {
+    let s = ""
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
+    return btoa(s)
+}

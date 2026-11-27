@@ -259,6 +259,11 @@ export function awaitsResend(message: SendState): boolean {
     return message.status === "failed" || (message.status === "undelivered" && !message.resent)
 }
 
+/** A resend needs the plaintext, which a device that never held it (another device's echo) has only as the placeholder. */
+export function canResend(message: { content: string }): boolean {
+    return message.content !== UNDECRYPTABLE_TEXT
+}
+
 /** The fields a route needs to name a row of the conversation list. */
 export interface ConversationRef {
     id: string
