@@ -218,8 +218,8 @@ code does. Some existing code breaks this table; it is not a precedent.
 - A domain rule cannot import a web type (`apps/web/src/lib/types.ts`): make
   it generic over the structural shape it needs, as `TimelineEntry` does in
   `models/dm.ts`.
-- Still to move: the dedupe, optimistic reconciliation and reaction folding
-  inside `apps/web/src/store/slices/ws.slice.ts`.
+- Still to move: the notifications' dedupe inside
+  `apps/web/src/store/slices/ws.slice.ts` (`addNotification`).
 - `.claude/hooks/layer-reminder.mjs` repeats this to Claude Code whenever a
   slice or a viewmodel is edited.
 

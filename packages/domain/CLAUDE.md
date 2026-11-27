@@ -723,6 +723,17 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
 - `reconcileOptimistic(optimistic, confirmed)` / `resentCopies(messages)` — the
   `resentFrom` link from a resent copy to the undelivered message it replaced
   survives reconciliation, and is looked up the other way for "Sent again at".
+- `reconcileSent(list, clientId, confirmed)` — a send's confirmed copy (its
+  answer, or its echo when that comes first) takes its optimistic copy's place;
+  with that copy gone it is appended, unless the other one brought it already.
+
+### models/conversation-list.ts
+- `conversationRow(summary)` — a row of the list as every client names it, from
+  `GET /api/dm`: a DM by its other member, a group by its name, else its
+  members'. `members` leaves the user out, so `memberCount` adds them. The looks
+  (avatar, colour, presence) are each client's.
+- `lastMessagePreview(messages, me)` — only from what this device holds
+  decrypted: the IdP holds ciphertext.
 
 ### models/user-settings.ts + ports/user-settings.port.ts + usecases/user-settings/
 - Two scopes. `AccountSettings` (`appearance: { family, motif }`,
@@ -885,6 +896,28 @@ on Hermes and in Node —, and eslint blocks the browser-only globals that admit
   `useIdpWebSocket` and the history load decrypt it like anyone's, and
   show nothing for one that doesn't decrypt (MLS never decrypts a
   device's own).
+
+### models/received-message.ts
+- `receivedMessage(wire, app, source)` — the one builder for history rows
+  (`historyWire`) and `new_dm` pushes (`pushWire`), once the ciphertext was
+  tried: a timeline row (`ReceivedText`, the web `Message` without its looks), a
+  reaction to fold, or nothing. What doesn't decrypt is nothing from history (it
+  predates the device in the group: the archive brings it back) or from the
+  account itself (`mine`: MLS never decrypts a device's own); live, a placeholder
+  marked `undecrypted`, which history tries again.
+- `edit` — history's row of an edited message carries the edit's ciphertext: the
+  placeholder marked edited, its first text the archive's. Live, edits come as
+  `message_edited`.
+- The account's own history rows take the user's name, a push the IdP's; only a
+  history row carries `edited`. Decrypting, the cache checks before it and
+  archiving stay with the caller.
+
+### models/reaction.ts
+- `foldReaction(messages, appliedReactionIds, application, reactedByMe)` — once
+  per reaction id, the id recorded even when neither the conversation nor the
+  message is held: history decrypting a reaction the socket folded would count
+  it twice, or — its keys gone — show it as an undecryptable row. The store's
+  `applyReaction` calls it inside `set`.
 
 ### models/history-key.ts + the history key's use cases
 - The account's passphrase in generations (`identity-provider/specs/e2ee.md § 3.6–3.9`).

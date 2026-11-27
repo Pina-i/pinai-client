@@ -499,9 +499,10 @@ above, the sections above win.
   the encrypted MLS body. Receiver populates `Message.replyTo` from
   the decrypted body.
 - **`new_dm` dispatch on decrypted kind.** WS hook + REST history
-  load both decrypt once and route on `kind`: text → push as
-  Message; reaction → `applyReaction`; edit/reply_meta → handled
-  inline. The discriminated `MappedRow` from `mapApiMessage` keeps
+  load both decrypt once and hand it to the domain's `receivedMessage`
+  (`models/received-message.ts`): text → push as Message; reaction →
+  `applyReaction`; history's edited row → its placeholder, the edit
+  archived. The discriminated `MappedRow` from `mapApiMessage` keeps
   the two-pass history-load logic explicit (text first, reactions
   after — reactions need their target to exist).
 
